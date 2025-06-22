@@ -63,10 +63,34 @@ export function SignupForm() {
       });
       router.push('/');
     } catch (error: any) {
+      let description = "An unexpected error occurred. Please try again.";
+      if (error.code) {
+        switch (error.code) {
+          case 'auth/email-already-in-use':
+            description = 'This email address is already in use by another account.';
+            break;
+          case 'auth/invalid-email':
+            description = 'The email address is not valid.';
+            break;
+          case 'auth/operation-not-allowed':
+            description = 'Email/password accounts are not enabled.';
+            break;
+          case 'auth/weak-password':
+            description = 'The password is too weak.';
+            break;
+          case 'permission-denied':
+            description = "You don't have permission to perform this action. This could be a database security rule issue."
+            break;
+          default:
+            description = error.message;
+        }
+      } else if (error.message) {
+        description = error.message;
+      }
       toast({
         variant: 'destructive',
         title: 'Signup Failed',
-        description: error.message || 'An unexpected error occurred.',
+        description,
       });
     } finally {
       setIsLoading(false);
