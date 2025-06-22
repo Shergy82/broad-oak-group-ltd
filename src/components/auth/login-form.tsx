@@ -21,6 +21,8 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { Spinner } from '@/components/shared/spinner';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Terminal } from 'lucide-react';
 
 const formSchema = z.object({
   email: z.string().email({ message: 'Invalid email address.' }),
@@ -67,6 +69,38 @@ export function LoginForm() {
     } finally {
       setIsLoading(false);
     }
+  }
+
+  if (!isFirebaseConfigured) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Firebase Not Configured</CardTitle>
+          <CardDescription>
+            The application is not connected to Firebase.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+           <Alert variant="destructive">
+            <Terminal className="h-4 w-4" />
+            <AlertTitle>Action Required</AlertTitle>
+            <AlertDescription>
+              <p>Please provide your project credentials in a <strong>.env.local</strong> file in the project's root directory and restart the development server.</p>
+              <p className="mt-4">Your <strong>.env.local</strong> file should look like this:</p>
+              <pre className="mt-2 text-xs bg-muted p-2 rounded-md overflow-x-auto">
+                {`NEXT_PUBLIC_FIREBASE_API_KEY="YOUR_API_KEY"
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN="YOUR_AUTH_DOMAIN"
+NEXT_PUBLIC_FIREBASE_PROJECT_ID="YOUR_PROJECT_ID"
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET="YOUR_STORAGE_BUCKET"
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID="YOUR_MESSAGING_SENDER_ID"
+NEXT_PUBLIC_FIREBASE_APP_ID="YOUR_APP_ID"`}
+              </pre>
+               <p className="mt-4">You can find these values in your Firebase project's settings.</p>
+            </AlertDescription>
+          </Alert>
+        </CardContent>
+      </Card>
+    );
   }
 
   return (

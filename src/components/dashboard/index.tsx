@@ -74,18 +74,6 @@ export default function Dashboard({ user }: DashboardProps) {
     return shiftList.map(shift => <ShiftCard key={shift.id} shift={shift} />);
   };
   
-  if (!isFirebaseConfigured) {
-    return (
-      <Alert variant="destructive">
-        <Terminal className="h-4 w-4" />
-        <AlertTitle>Firebase Not Configured</AlertTitle>
-        <AlertDescription>
-          The application is not connected to Firebase. Please provide your project credentials in a `.env.local` file and restart the development server. Functionality will be limited.
-        </AlertDescription>
-      </Alert>
-    )
-  }
-
   if (error) {
     return (
       <Alert variant="destructive">
