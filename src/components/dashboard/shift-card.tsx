@@ -12,6 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Clock, Sunrise, Sunset, ThumbsUp, CheckCircle2 } from 'lucide-react';
 import { Spinner } from '@/components/shared/spinner';
 import type { Shift } from '@/types';
+import { useAuth } from '@/hooks/use-auth';
 
 interface ShiftCardProps {
   shift: Shift;
@@ -31,6 +32,7 @@ const statusDetails = {
 
 export function ShiftCard({ shift }: ShiftCardProps) {
   const router = useRouter();
+  const { user } = useAuth();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
 
@@ -39,11 +41,11 @@ export function ShiftCard({ shift }: ShiftCardProps) {
   const statusInfo = statusDetails[shift.status];
 
   const handleUpdateStatus = async (newStatus: 'confirmed' | 'completed') => {
-    if (!isFirebaseConfigured || !db) {
+    if (!isFirebaseConfigured || !db || !user) {
       toast({
         variant: 'destructive',
-        title: 'Firebase Not Configured',
-        description: 'Please provide Firebase credentials in .env.local and restart the server.',
+        title: 'Authentication Error',
+        description: 'You must be logged in to update shifts.',
       });
       return;
     }
