@@ -9,7 +9,7 @@ export function Logo() {
         <h1 className="text-xl font-bold whitespace-nowrap">
           Broad Oak Build
         </h1>
-        <span className="block text-sm font-light leading-tight">
+        <span className="block text-sm font-light leading-tight italic">
           Live
         </span>
       </div>
