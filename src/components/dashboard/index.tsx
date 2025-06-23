@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
-import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '@/lib/firebase';
 import { useAuth } from '@/hooks/use-auth';
 import { ShiftCard } from '@/components/dashboard/shift-card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { startOfWeek, endOfWeek, startOfToday, isWithinInterval, addWeeks } from 'date-fns';
+import { startOfWeek, endOfWeek, startOfToday, isWithinInterval, addWeeks, format, isToday } from 'date-fns';
 import type { Shift } from '@/types';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Terminal } from 'lucide-react';
@@ -58,23 +59,105 @@ export default function Dashboard() {
     const startOfNextWeek = addWeeks(startOfCurrentWeek, 1);
     const endOfNextWeek = addWeeks(endOfCurrentWeek, 1);
 
-    const todayShifts = shifts.filter(s => s.date.toDate().toDateString() === today.toDateString());
-    const thisWeekShifts = shifts.filter(s => isWithinInterval(s.date.toDate(), { start: startOfCurrentWeek, end: endOfCurrentWeek }));
-    const nextWeekShifts = shifts.filter(s => isWithinInterval(s.date.toDate(), { start: startOfNextWeek, end: endOfNextWeek }));
-    
-    return { todayShifts, thisWeekShifts, nextWeekShifts };
+    const groupShiftsByDay = (weekShifts: Shift[]) => {
+      const grouped: { [key: string]: Shift[] } = {};
+      weekShifts.forEach(shift => {
+        const dayName = format(shift.date.toDate(), 'eeee'); // "Monday", "Tuesday", etc.
+        if (!grouped[dayName]) {
+          grouped[dayName] = [];
+        }
+        grouped[dayName].push(shift);
+      });
+      return grouped;
+    };
+
+    const todayShifts = shifts.filter(s => isToday(s.date.toDate()));
+    const allThisWeekShifts = shifts.filter(s => isWithinInterval(s.date.toDate(), { start: startOfCurrentWeek, end: endOfCurrentWeek }));
+    const allNextWeekShifts = shifts.filter(s => isWithinInterval(s.date.toDate(), { start: startOfNextWeek, end: endOfNextWeek }));
+
+    return {
+      todayShifts,
+      thisWeekShifts: groupShiftsByDay(allThisWeekShifts),
+      nextWeekShifts: groupShiftsByDay(allNextWeekShifts),
+    };
   }, [shifts]);
 
-  const renderShiftList = (shiftList: Shift[]) => {
+  const renderTodayShifts = (shiftList: Shift[]) => {
     if (loading) {
       return Array.from({ length: 3 }).map((_, i) => (
         <Skeleton key={i} className="h-32 w-full rounded-lg" />
       ));
     }
     if (shiftList.length === 0) {
-      return <p className="text-muted-foreground mt-4 text-center col-span-full">No shifts scheduled for this period.</p>;
+      return <p className="text-muted-foreground mt-4 text-center col-span-full">No shifts scheduled for today.</p>;
     }
     return shiftList.map(shift => <ShiftCard key={shift.id} shift={shift} />);
+  };
+
+  const renderWeekView = (groupedShifts: { [key: string]: Shift[] }) => {
+    const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    const weekends = ['Saturday', 'Sunday'];
+    
+    const hasShiftsThisWeek = Object.keys(groupedShifts).length > 0;
+
+    if (loading) {
+        return (
+            <div className="space-y-6">
+                {weekdays.map((day) => (
+                    <Card key={day}>
+                        <CardHeader>
+                            <CardTitle>{day}</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <Skeleton className="h-24 w-full" />
+                        </CardContent>
+                    </Card>
+                ))}
+            </div>
+        )
+    }
+
+    if (!hasShiftsThisWeek) {
+        return <p className="text-muted-foreground mt-4 text-center">No shifts scheduled for this week.</p>;
+    }
+
+    return (
+        <div className="space-y-6">
+            {weekdays.map(day => (
+                <Card key={day}>
+                    <CardHeader>
+                        <CardTitle>{day}</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        {groupedShifts[day] && groupedShifts[day].length > 0 ? (
+                            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                                {groupedShifts[day].map(shift => <ShiftCard key={shift.id} shift={shift} />)}
+                            </div>
+                        ) : (
+                            <p className="text-muted-foreground text-sm">No shifts scheduled.</p>
+                        )}
+                    </CardContent>
+                </Card>
+            ))}
+            {weekends.map(day => {
+                if (groupedShifts[day] && groupedShifts[day].length > 0) {
+                    return (
+                        <Card key={day}>
+                            <CardHeader>
+                                <CardTitle>{day}</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                                    {groupedShifts[day].map(shift => <ShiftCard key={shift.id} shift={shift} />)}
+                                </div>
+                            </CardContent>
+                        </Card>
+                    );
+                }
+                return null;
+            })}
+        </div>
+    );
   };
   
   if (error) {
@@ -98,18 +181,14 @@ export default function Dashboard() {
       </div>
       <TabsContent value="today">
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {renderShiftList(todayShifts)}
+          {renderTodayShifts(todayShifts)}
         </div>
       </TabsContent>
       <TabsContent value="this-week">
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {renderShiftList(thisWeekShifts)}
-        </div>
+        {renderWeekView(thisWeekShifts)}
       </TabsContent>
       <TabsContent value="next-week">
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {renderShiftList(nextWeekShifts)}
-        </div>
+        {renderWeekView(nextWeekShifts)}
       </TabsContent>
     </Tabs>
   );
