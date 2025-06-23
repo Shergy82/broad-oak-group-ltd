@@ -32,9 +32,9 @@ export function Header() {
           <>
             {isPrivilegedUser && (
               <Button variant="outline" asChild>
-                <Link href="/admin/users">
+                <Link href="/admin">
                   <Shield className="mr-2 h-4 w-4" />
-                  Admin
+                  Admin Panel
                 </Link>
               </Button>
             )}
