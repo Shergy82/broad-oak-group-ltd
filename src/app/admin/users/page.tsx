@@ -49,8 +49,8 @@ export default function UserManagementPage() {
       console.error("Error fetching users: ", error);
       toast({
         variant: 'destructive',
-        title: 'Error',
-        description: 'Could not fetch users. Check Firestore security rules.'
+        title: 'Permission Error',
+        description: "Could not fetch user list. This is likely a Firestore security rule issue. Please check the instructions provided.",
       });
       setLoading(false);
     });
