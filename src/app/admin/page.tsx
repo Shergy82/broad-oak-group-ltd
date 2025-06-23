@@ -50,7 +50,7 @@ export default function AdminPage() {
       toast({
         variant: 'destructive',
         title: 'Permission Error',
-        description: "Could not fetch the user list. This is a Firestore security rule issue. Your rules are likely denying the 'list' operation on the 'users' collection. Please update your rules in the Firebase Console with the ones provided in our chat.",
+        description: "Could not fetch the user list. This is a Firestore security rule issue. Please ensure your rules in the Firebase Console match the latest version provided. Also, verify that your logged-in user has a document in the 'users' collection with the 'role' field correctly set to 'owner' or 'admin'.",
       });
       setLoading(false);
     });
