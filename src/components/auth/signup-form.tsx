@@ -27,7 +27,7 @@ const formSchema = z.object({
   name: z.string().min(2, { message: 'Name must be at least 2 characters.' }),
   email: z.string().email({ message: 'Please enter a valid email address.' }),
   password: z.string().min(8, { message: 'Password must be at least 8 characters.' }),
-  mobile: z.string().min(10, { message: 'Please enter a valid mobile number.' }),
+  phoneNumber: z.string().min(10, { message: 'Please enter a valid phone number.' }),
 });
 
 export function SignUpForm() {
@@ -41,7 +41,7 @@ export function SignUpForm() {
       name: '',
       email: '',
       password: '',
-      mobile: '',
+      phoneNumber: '',
     },
   });
 
@@ -59,7 +59,7 @@ export function SignUpForm() {
       await setDoc(doc(db, 'users', user.uid), {
         name: values.name,
         email: values.email,
-        mobile: values.mobile,
+        phoneNumber: values.phoneNumber,
       });
 
       toast({
@@ -147,10 +147,10 @@ export function SignUpForm() {
         />
         <FormField
             control={form.control}
-            name="mobile"
+            name="phoneNumber"
             render={({ field }) => (
                 <FormItem>
-                    <FormLabel>Mobile Number</FormLabel>
+                    <FormLabel>Phone Number</FormLabel>
                     <FormControl>
                         <Input placeholder="123-456-7890" {...field} />
                     </FormControl>
