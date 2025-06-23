@@ -25,8 +25,8 @@ const shiftTypeDetails = {
 };
 
 const statusDetails = {
-  'pending-confirmation': { label: 'Pending', variant: 'secondary' as const },
-  confirmed: { label: 'Confirmed', variant: 'default' as const, className: 'bg-blue-600 hover:bg-blue-700' },
+  'pending-confirmation': { label: 'Pending', variant: 'secondary' as const, className: '' },
+  confirmed: { label: 'Confirmed', variant: 'default' as const, className: 'bg-primary hover:bg-primary/90' },
   completed: { label: 'Completed', variant: 'default' as const, className: 'bg-green-600 hover:bg-green-700' },
 };
 
@@ -75,25 +75,27 @@ export function ShiftCard({ shift }: ShiftCardProps) {
   };
 
   return (
-    <Card className="flex flex-col justify-between transition-all hover:shadow-lg">
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-lg">{format(shiftDate, 'eeee, MMM d')}</CardTitle>
-          <Badge variant={statusInfo.variant} className={statusInfo.className}>
-            {statusInfo.label}
-          </Badge>
+    <Card className="flex flex-col overflow-hidden transition-all hover:shadow-xl border-border hover:border-primary/40">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 bg-card p-4">
+        <div className="flex items-center gap-3">
+          <div className={`flex items-center justify-center rounded-lg w-12 h-12 ${shiftTypeDetails[shift.type].color}`}>
+            <ShiftIcon className="h-6 w-6 text-white" />
+          </div>
+          <div>
+            <CardTitle className="text-md font-bold">{shiftTypeDetails[shift.type].label}</CardTitle>
+            <p className="text-sm text-muted-foreground">{format(shiftDate, 'eeee, MMM d')}</p>
+          </div>
         </div>
-        <div className="flex items-center text-muted-foreground pt-2">
-          <ShiftIcon className="h-5 w-5 mr-2" />
-          <span>{shiftTypeDetails[shift.type].label}</span>
-        </div>
+        <Badge variant={statusInfo.variant} className={`${statusInfo.className} shrink-0`}>
+          {statusInfo.label}
+        </Badge>
       </CardHeader>
-      <CardContent>
-        <p className="text-sm text-muted-foreground">
-          Your shift for {format(shiftDate, 'MMMM do')} is {statusInfo.label.toLowerCase()}.
+      <CardContent className="p-4 text-center grow flex items-center justify-center min-h-[80px]">
+        <p className="text-sm text-muted-foreground italic">
+          Site: Main Street Project
         </p>
       </CardContent>
-      <CardFooter>
+      <CardFooter className="p-2 bg-muted/30">
         {shift.status === 'pending-confirmation' && (
           <Button onClick={() => handleUpdateStatus('confirmed')} className="w-full bg-accent text-accent-foreground hover:bg-accent/90" disabled={isLoading}>
             {isLoading ? <Spinner /> : <><ThumbsUp className="mr-2 h-4 w-4" /> Accept Shift</>}
