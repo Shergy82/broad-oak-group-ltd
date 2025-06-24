@@ -62,12 +62,6 @@ export function FileUploader() {
             }
         });
 
-        // Find Project Address (Assume it's in A5 for this format)
-        const projectAddress = jsonData[4]?.[0]?.toString().trim();
-        if (!projectAddress) {
-          throw new Error("Could not find project address in cell A5. Please ensure the address is in the correct cell as per the format example.");
-        }
-
         const parseDate = (dateValue: any): Date | null => {
             if (!dateValue) return null;
             if (typeof dateValue === 'number') {
@@ -92,12 +86,13 @@ export function FileUploader() {
         let dates: (Date | null)[] = [];
         for (let i = 0; i < jsonData.length; i++) {
             const row = jsonData[i] || [];
-            if (row.length < 2) continue;
-            const potentialDates = row.slice(1).map(parseDate);
-            if (potentialDates.filter(d => d !== null).length >= 3) {
-                dateRowIndex = i;
-                dates = row.map(parseDate); // Parse all cells in that row for dates
-                break;
+            if (row.length > 0 && row.some(cell => !!cell)) {
+                const potentialDates = row.map(parseDate);
+                if (potentialDates.filter(d => d !== null).length >= 3) {
+                    dateRowIndex = i;
+                    dates = potentialDates;
+                    break;
+                }
             }
         }
 
@@ -109,24 +104,34 @@ export function FileUploader() {
         let shiftsAdded = 0;
         const unknownOperatives = new Set<string>();
         const parsingErrors: string[] = [];
+        let currentProjectAddress = '';
 
         for (let r = dateRowIndex + 1; r < jsonData.length; r++) {
             const rowData = jsonData[r];
             if (!rowData || rowData.every(cell => !cell || cell.toString().trim() === '')) {
                 continue; // Skip entirely empty rows
             }
+            
+            const addressCandidate = (rowData[0] || '').toString().trim();
+            if (addressCandidate && !addressCandidate.includes(' - ')) {
+                currentProjectAddress = addressCandidate;
+            }
+
+            if (!currentProjectAddress) {
+                continue; // Skip rows until an address is found
+            }
 
             for (let c = 0; c < rowData.length; c++) {
                 const cellValue = (rowData[c] || '').toString().trim();
                 const shiftDate = dates[c];
 
-                if (!cellValue || !shiftDate || cellValue.toLowerCase().includes('holiday') || cellValue.toLowerCase().includes('on hold')) {
+                if (!cellValue || !shiftDate || cellValue.toLowerCase().includes('holiday') || cellValue.toLowerCase().includes('on hold') || !cellValue.includes(' - ')) {
                     continue;
                 }
                 
                 const parts = cellValue.split('-');
                 if (parts.length < 2) {
-                    parsingErrors.push(`Row ${r + 1}, Col ${c + 1}: Could not parse task and operative from "${cellValue}". Expected format: "Task Description - Operative Name"`);
+                    parsingErrors.push(`Row ${r + 1}, Col ${String.fromCharCode(65 + c)}: Could not parse task and operative from "${cellValue}". Expected format: "Task Description - Operative Name"`);
                     continue;
                 }
 
@@ -146,7 +151,7 @@ export function FileUploader() {
                     date: Timestamp.fromDate(shiftDate),
                     type: 'all-day',
                     status: 'pending-confirmation',
-                    address: projectAddress,
+                    address: currentProjectAddress,
                     task,
                 };
 
@@ -160,7 +165,7 @@ export function FileUploader() {
         }
 
         if (shiftsAdded === 0) {
-            let errorMessage = "No valid shifts were found to import. Please check the file's content.";
+            let errorMessage = "No valid shifts were found to import. Please check the file's content and formatting.";
             if (parsingErrors.length > 0) {
                 errorMessage = `Import failed with parsing errors:\n- ${parsingErrors.join('\n- ')}`;
             }
@@ -171,7 +176,7 @@ export function FileUploader() {
 
         toast({
           title: 'Import Successful',
-          description: `${shiftsAdded} shifts have been added for project: ${projectAddress}.`,
+          description: `${shiftsAdded} shifts have been added.`,
         });
         
         setFile(null);

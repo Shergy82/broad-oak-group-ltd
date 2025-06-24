@@ -161,17 +161,17 @@ export default function AdminPage() {
           <CardTitle>Import Weekly Shifts from Excel</CardTitle>
            <div className="text-sm text-muted-foreground space-y-2 pt-1">
             <p>
-              Upload an .xlsx file to schedule all tasks for a single project for one week.
+              Upload an .xlsx file to schedule all tasks for one or more projects for one week.
             </p>
             <ul className="list-disc pl-5 space-y-1">
               <li>
-                <strong>One Sheet Per Project:</strong> Each Excel file should represent one week of work at a single project address.
+                <strong>One Sheet Per Project:</strong> Each Excel file should represent one week of work. You can include multiple projects in a single sheet.
               </li>
               <li>
-                <strong>Project Address:</strong> The full address for the project must be in cell <strong>A5</strong>.
+                <strong>Project Address:</strong> The full address for a project goes in the first column (Column A), on the same row as the first set of tasks for that project. This address will apply to all task rows below it until a new address is specified in Column A.
               </li>
               <li>
-                <strong>Date Row:</strong> The importer will automatically find the row containing the week's dates (e.g., in DD/MM/YYYY format). This row can be anywhere in the sheet.
+                <strong>Date Row:</strong> The importer will automatically find the row containing the week's dates (e.g., in DD/MM/YYYY format). This row can be anywhere in the sheet but must be above the task data.
               </li>
                <li>
                 <strong>Task & Operative Cells:</strong> In the grid, each cell corresponding to a date should contain the task description, a hyphen, and the operative's full name.
@@ -184,7 +184,7 @@ export default function AdminPage() {
                 <strong>Shift Type:</strong> All imported tasks are automatically assigned as 'All Day' shifts.
               </li>
               <li>
-                <strong>Ignored Cells:</strong> Any cells that are empty or contain words like `holiday` or `on hold` will be skipped.
+                <strong>Ignored Cells:</strong> Any cells that are empty, don't contain a task in the recognized format, or contain words like `holiday` or `on hold` will be skipped.
               </li>
             </ul>
             <p className="font-semibold pt-2">Example Structure:</p>
@@ -198,7 +198,9 @@ export default function AdminPage() {
 +--------------------------------+-----------------+----------------------------+--------------------------------+
 | 9 EARDLEY CRESCENT...          | ...             | TASK 1 - John Doe          | TASK 2 - Jane Smith (Admin)    |
 +--------------------------------+-----------------+----------------------------+--------------------------------+
-| ...                            | ...             | GROUNDWORK - Alice Johnson | JMP TO FIT WINDOW - John Doe   |
+|                                | ...             | GROUNDWORK - Alice Johnson | JMP TO FIT WINDOW - John Doe   |
++--------------------------------+-----------------+----------------------------+--------------------------------+
+| 14 OAK AVENUE...               | ...             | PLUMBING PREP - John Doe   |                                |
 +--------------------------------+-----------------+----------------------------+--------------------------------+`}
             </pre>
           </div>
