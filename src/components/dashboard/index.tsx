@@ -68,9 +68,9 @@ export default function Dashboard() {
   } = useMemo(() => {
     const getCorrectedLocalDate = (date: Timestamp) => {
       const utcDate = date.toDate();
-      // This creates a new Date object at midnight in the local timezone,
-      // using the day/month/year from the UTC date. This corrects for timezone-related day shifts.
-      return new Date(utcDate.getUTCFullYear(), utcDate.getUTCMonth(), utcDate.getUTCDate());
+      // Correct for timezone differences by parsing the UTC date string
+      const dateString = utcDate.toISOString().substring(0, 10); // "YYYY-MM-DD"
+      return new Date(`${dateString}T00:00:00`);
     };
 
     const today = startOfToday();

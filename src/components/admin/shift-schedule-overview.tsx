@@ -72,7 +72,8 @@ export function ShiftScheduleOverview() {
 
   const getCorrectedLocalDate = (date: Timestamp) => {
     const utcDate = date.toDate();
-    return new Date(utcDate.getUTCFullYear(), utcDate.getUTCMonth(), utcDate.getUTCDate());
+    const dateString = utcDate.toISOString().substring(0, 10); // "YYYY-MM-DD"
+    return new Date(`${dateString}T00:00:00`);
   };
 
   const { thisWeekShifts, nextWeekShifts } = useMemo(() => {
