@@ -97,7 +97,7 @@ export default function ProjectsPage() {
                     <Building className="mx-auto h-12 w-12 text-muted-foreground" />
                     <h3 className="mt-4 text-lg font-semibold">No Projects Found</h3>
                     <p className="mb-4 mt-2 text-sm text-muted-foreground">
-                        No projects match your search term. An admin can import projects from the admin page.
+                        No projects have been added yet. This page will populate once project data exists in the database.
                     </p>
                 </div>
             ) : (
