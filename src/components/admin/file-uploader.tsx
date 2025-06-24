@@ -136,7 +136,7 @@ export function FileUploader() {
                     continue;
                 }
                 
-                let parsedShift: { task: string; userId: string; } | null = null;
+                let parsedShift: { task: string; userId: string; type: 'am' | 'pm' | 'all-day' } | null = null;
                 
                 // New, more robust parsing logic
                 for (const name of userNames) {
@@ -147,10 +147,21 @@ export function FileUploader() {
                     const match = cellValue.match(regex);
 
                     if (match && match.index !== undefined) {
-                        const task = cellValue.substring(0, match.index).trim();
+                        let task = cellValue.substring(0, match.index).trim();
                         const userId = nameToUidMap.get(name.toLowerCase());
+                        
+                        let type: 'am' | 'pm' | 'all-day' = 'all-day';
+
+                        // Check for AM/PM in the task and extract it
+                        const amPmMatch = task.match(/\b(AM|PM)\b/i);
+                        if (amPmMatch) {
+                            type = amPmMatch[0].toLowerCase() as 'am' | 'pm';
+                            // Remove the AM/PM from the task string, leaving other text intact.
+                            task = task.replace(new RegExp(`\\b${amPmMatch[0]}\\b`, 'i'), '').trim();
+                        }
+
                         if (task && userId) {
-                            parsedShift = { task, userId };
+                            parsedShift = { task, userId, type };
                             break; // Found longest match, stop.
                         }
                     }
@@ -161,7 +172,7 @@ export function FileUploader() {
                     const newShift: Omit<Shift, 'id'> = {
                         userId: parsedShift.userId,
                         date: Timestamp.fromDate(shiftDate),
-                        type: 'all-day',
+                        type: parsedShift.type,
                         status: 'pending-confirmation',
                         address: currentProjectAddress,
                         task: parsedShift.task,

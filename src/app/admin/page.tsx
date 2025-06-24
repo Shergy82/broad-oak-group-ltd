@@ -29,10 +29,10 @@ export default function AdminPage() {
                 The format must be: <code>Task Description - Operative Name</code>. Spacing around the hyphen does not matter.
               </li>
               <li>
-                <strong>Operative Name Matching:</strong> The operative's name in the sheet must exactly match their full name in the user list above.
+                <strong>Shift Type (AM/PM):</strong> You can optionally add "AM" or "PM" to the task description (e.g., <code>FIT TRAY AM - Phil Shergold</code>). If neither is found, the shift will default to 'All Day'.
               </li>
-               <li>
-                <strong>Shift Type:</strong> All imported tasks are automatically assigned as 'All Day' shifts.
+              <li>
+                <strong>Operative Name Matching:</strong> The operative's name in the sheet must exactly match their full name in the user list above.
               </li>
               <li>
                 <strong>Ignored Cells:</strong> Any cells that are empty, do not contain a recognized 'Task - Name' format, or contain words like `holiday` or `on hold` will be skipped.
@@ -45,11 +45,11 @@ export default function AdminPage() {
 +--------------------------------+----------------------------+--------------------------------+
 |                                | 09/06/2025                 | 10/06/2025                     |
 +--------------------------------+----------------------------+--------------------------------+
-| 9 Eardley Crescent...          | FIT TRAY - Phil Shergold   | STUD WALL... - Phil Shergold   |
+| 9 Eardley Crescent...          | FIT TRAY AM - Phil Shergold| STUD WALL PM - Phil Shergold   |
 +--------------------------------+----------------------------+--------------------------------+
 |                                | TAKE OUT WINDOW - Phil S.  | TAKE OUT WINDOW - Phil S.      |
 +--------------------------------+----------------------------+--------------------------------+
-| 14 Oak Avenue...               | PLUMBING PREP - John Doe   | EXTERNAL PAINTING - Jane Smith |
+| 14 Oak Avenue...               | PLUMBING PREP - John Doe   | EXT. PAINTING AM - Jane Smith  |
 +--------------------------------+----------------------------+--------------------------------+`}
             </pre>
           </div>
