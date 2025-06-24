@@ -102,7 +102,7 @@ export default function AdminPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
-                <TableHead>Date Created</TableHead>
+                <TableHead>Date</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Phone Number</TableHead>
                 <TableHead>Role</TableHead>
