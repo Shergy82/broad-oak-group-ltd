@@ -3,19 +3,24 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
+import { useUserProfile } from '@/hooks/use-user-profile';
 import Dashboard from '@/components/dashboard/index';
+import { ShiftScheduleOverview } from '@/components/admin/shift-schedule-overview';
 import { Header } from '@/components/layout/header';
 import { Spinner } from '@/components/shared/spinner';
 
 export default function Home() {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading: isAuthLoading } = useAuth();
+  const { userProfile, loading: isProfileLoading } = useUserProfile();
   const router = useRouter();
 
   useEffect(() => {
-    if (!isLoading && !user) {
+    if (!isAuthLoading && !user) {
       router.push('/login');
     }
-  }, [user, isLoading, router]);
+  }, [user, isAuthLoading, router]);
+
+  const isLoading = isAuthLoading || isProfileLoading;
 
   if (isLoading || !user) {
     return (
@@ -25,11 +30,13 @@ export default function Home() {
     );
   }
 
+  const isPrivilegedUser = userProfile && ['admin', 'owner'].includes(userProfile.role);
+
   return (
     <div className="flex min-h-screen w-full flex-col">
       <Header />
       <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
-        <Dashboard />
+        {isPrivilegedUser ? <ShiftScheduleOverview /> : <Dashboard />}
       </main>
     </div>
   );
