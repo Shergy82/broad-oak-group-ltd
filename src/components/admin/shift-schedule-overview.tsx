@@ -86,7 +86,7 @@ export function ShiftScheduleOverview() {
         <div className="space-y-2 mt-4">
           {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="flex gap-2">
-                <Skeleton className="h-24 w-40" />
+                <Skeleton className="h-24 w-32" />
                 {Array.from({ length: 7 }).map((_, j) => (
                     <Skeleton key={j} className="h-24 flex-1" />
                 ))}
@@ -112,7 +112,7 @@ export function ShiftScheduleOverview() {
     
     weekShifts.forEach(shift => {
       if (scheduleMap.has(shift.userId)) {
-        const dayName = format(getCorrectedLocalDate(shift.date), 'eeee');
+        const dayName = format(getCorrectedLocalDate(shift.date), 'eee');
         const userShifts = scheduleMap.get(shift.userId)!;
         if (!userShifts.has(dayName)) {
             userShifts.set(dayName, []);
@@ -121,14 +121,14 @@ export function ShiftScheduleOverview() {
       }
     });
 
-    const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
     return (
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="w-[150px] sticky left-0 bg-card z-10 shadow-sm">Operative</TableHead>
-            {weekdays.map(day => <TableHead key={day} className="text-center">{day}</TableHead>)}
+            <TableHead className="w-[120px] sticky left-0 bg-card z-10 shadow-sm">Operative</TableHead>
+            {weekdays.map(day => <TableHead key={day} className="text-center px-1">{day}</TableHead>)}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -143,7 +143,7 @@ export function ShiftScheduleOverview() {
                   });
 
                   return (
-                    <TableCell key={day} className="align-top p-1 min-w-[120px]">
+                    <TableCell key={day} className="align-top p-1">
                       {dayShifts.length > 0 && (
                         <div className="space-y-1">
                           {dayShifts.map(shift => (
@@ -152,9 +152,9 @@ export function ShiftScheduleOverview() {
                                 <p className="font-semibold leading-tight break-words">{shift.task}</p>
                                 <Badge 
                                   variant={shift.type === 'am' ? 'default' : shift.type === 'pm' ? 'secondary' : 'outline'} 
-                                  className="text-[10px] py-0 px-1.5 h-auto capitalize shrink-0"
+                                  className="text-[10px] py-0 px-1.5 h-auto shrink-0"
                                 >
-                                  {shift.type.replace('-', ' ')}
+                                  {shift.type === 'all-day' ? 'All' : shift.type.toUpperCase()}
                                 </Badge>
                               </div>
                               <p className="text-muted-foreground text-[11px] truncate pt-0.5">{shift.address}</p>
