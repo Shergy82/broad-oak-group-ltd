@@ -1,0 +1,44 @@
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if the requesting user has an 'admin' or 'owner' role.
+    function isPrivileged() {
+      // Get the user's profile from the /users collection based on their UID.
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner'];
+    }
+
+    // Rules for the 'users' collection
+    match /users/{userId} {
+      // Users can create their own user document on sign-up.
+      allow create: if request.auth.uid == userId;
+
+      // Users can read their own profile. Admins/owners can read all profiles.
+      allow read: if request.auth.uid == userId || isPrivileged();
+      
+      // Users can update their own profile.
+      // Admins can update other users' profiles, but cannot change a user's role to 'owner'.
+      allow update: if request.auth.uid == userId || 
+                      (isPrivileged() && !(request.resource.data.role == 'owner'));
+    }
+
+    // Rules for the 'shifts' collection
+    match /shifts/{shiftId} {
+      // Users can read their own shifts. Admins/owners can read all shifts.
+      // This is the rule that fixes the error on the admin schedule overview.
+      allow read: if request.auth.uid == resource.data.userId || isPrivileged();
+      
+      // Admins/owners can create shifts for any user (via Excel import).
+      allow create: if isPrivileged();
+      
+      // Users can update their own shifts (e.g., to confirm or complete them).
+      // Admins/owners can update any shift.
+      allow update: if request.auth.uid == resource.data.userId || isPrivileged();
+      
+      // Only admins/owners can delete shifts.
+      allow delete: if isPrivileged();
+    }
+  }
+}
