@@ -56,6 +56,7 @@ export const mockShifts: Shift[] = [
     address: '123 Main St, Anytown',
     bNumber: 'B12345',
     dailyTask: 'Install new windows',
+    siteManager: 'Bob Vance',
   },
   {
     id: 'mock-shift-2',
@@ -66,6 +67,7 @@ export const mockShifts: Shift[] = [
     address: '456 Oak Ave, Somecity',
     bNumber: 'B67890',
     dailyTask: 'Repair roofing',
+    siteManager: 'Bob Vance',
   },
 
   // --- This Week's Shifts (Future) ---
@@ -78,6 +80,7 @@ export const mockShifts: Shift[] = [
     address: '789 Pine Ln, Yourtown',
     bNumber: 'B11223',
     dailyTask: 'Full kitchen remodel',
+    siteManager: 'Rita Repulsa',
   },
    {
     id: 'mock-shift-4',
@@ -88,6 +91,7 @@ export const mockShifts: Shift[] = [
     address: '101 Maple Dr, Anotherville',
     bNumber: 'B44556',
     dailyTask: 'Bathroom plumbing check',
+    siteManager: 'Rita Repulsa',
   },
 
   // --- Next Week's Shifts ---
@@ -100,6 +104,7 @@ export const mockShifts: Shift[] = [
     address: '212 Birch Rd, Newplace',
     bNumber: 'B77889',
     dailyTask: 'Foundation inspection',
+    siteManager: 'Lord Zedd',
   },
   {
     id: 'mock-shift-6',
@@ -110,5 +115,6 @@ export const mockShifts: Shift[] = [
     address: '333 Cedar Ct, Nextown',
     bNumber: 'B99001',
     dailyTask: 'Landscaping project kickoff',
+    siteManager: 'Lord Zedd',
   },
 ];

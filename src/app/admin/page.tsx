@@ -158,10 +158,9 @@ export default function AdminPage() {
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle>Import Shifts from Excel</CardTitle>
+          <CardTitle>Import Weekly Shifts from Excel</CardTitle>
           <CardDescription>
-            Upload an .xlsx file with shift data. The file must have columns with the exact headers "Date", "Operative", "Address", "B Number", "Daily Task", and "Am/Pm All Day".
-            The "Am/Pm All Day" value must be one of 'am', 'pm', or 'all-day'. The date should be in a standard format like YYYY-MM-DD. Operative names must match a user in the system.
+            Upload an .xlsx file with weekly shift data. The file must follow a specific template: cell B1 must contain the Monday's date (e.g., 2024-07-29). The operative's full name must be in cell B3, address in B4, B Number in B5, and Site Manager in B6. Daily tasks for Monday to Friday should be in cells B2 through F2.
           </CardDescription>
         </CardHeader>
         <CardContent>

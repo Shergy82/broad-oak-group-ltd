@@ -94,6 +94,7 @@ export function ShiftCard({ shift }: ShiftCardProps) {
         <p className="font-semibold">{shift.address}</p>
         <p><span className="text-muted-foreground">Task:</span> {shift.dailyTask}</p>
         <p><span className="text-muted-foreground">B No:</span> {shift.bNumber}</p>
+        {shift.siteManager && <p><span className="text-muted-foreground">Site Manager:</span> {shift.siteManager}</p>}
       </CardContent>
       <CardFooter className="p-2 bg-muted/30">
         {shift.status === 'pending-confirmation' && (

@@ -9,6 +9,7 @@ export interface Shift {
   address: string;
   bNumber: string;
   dailyTask: string;
+  siteManager?: string;
 }
 
 export interface UserProfile {

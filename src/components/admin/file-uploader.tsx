@@ -12,16 +12,6 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Upload } from 'lucide-react';
 import type { Shift } from '@/types';
 
-// Define the expected structure of a row in the Excel file
-interface ShiftImportRow {
-  Date: string | number;
-  Operative: string;
-  Address: string;
-  'B Number': string;
-  'Daily Task': string;
-  'Am/Pm All Day': 'am' | 'pm' | 'all-day';
-}
-
 export function FileUploader() {
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -56,13 +46,32 @@ export function FileUploader() {
         const workbook = XLSX.read(data, { type: 'array', cellDates: true });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json<ShiftImportRow>(worksheet, { blankrows: false });
+        const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, blankrows: false });
 
-        if (jsonData.length === 0) {
-            throw new Error("The selected Excel file is empty or in the wrong format.");
+        if (jsonData.length < 6) {
+            throw new Error("The Excel file structure is incorrect. It must have at least 6 rows for the required information.");
         }
 
-        // Fetch all users to match names with uids
+        const getCellValue = (row: number, col: number): string => {
+            if (jsonData[row] && jsonData[row][col] != null) {
+                return String(jsonData[row][col]).trim();
+            }
+            return '';
+        };
+
+        const mondayDateValue = jsonData[0]?.[1]; // Cell B1
+        const operativeName = getCellValue(2, 1); // Cell B3
+        const address = getCellValue(3, 1); // Cell B4
+        const bNumber = getCellValue(4, 1); // Cell B5
+        const siteManager = getCellValue(5, 1); // Cell B6
+
+        if (!mondayDateValue) throw new Error("Monday's date is missing from cell B1.");
+        const mondayDate = new Date(mondayDateValue);
+        if (isNaN(mondayDate.getTime())) throw new Error(`Invalid date format in cell B1. Please use a standard format like YYYY-MM-DD.`);
+        
+        if (!operativeName) throw new Error("Operative name is missing from cell B3.");
+        if (!address) throw new Error("Address is missing from cell B4.");
+
         const usersCollection = collection(db, 'users');
         const usersSnapshot = await getDocs(usersCollection);
         const nameToUidMap = new Map<string, string>();
@@ -72,93 +81,49 @@ export function FileUploader() {
               nameToUidMap.set(user.name.trim().toLowerCase(), doc.id);
             }
         });
+        
+        const userId = nameToUidMap.get(operativeName.toLowerCase());
+        if (!userId) {
+          throw new Error(`Operative '${operativeName}' not found in the database. Please check the name or add them as a user.`);
+        }
 
         const batch = writeBatch(db);
         let shiftsAdded = 0;
-        const notFoundNames = new Set<string>();
-        const invalidShiftTypes: string[] = [];
-        const missingDataRows: number[] = [];
-
-        for (const [index, row] of jsonData.entries()) {
-          const rowIndex = index + 2; // Excel rows are 1-based, plus header row
-          
-          // Check for missing data in any of the required columns for the current row.
-          // This ensures that we only import rows where every required field has a value.
-          if (
-            !row.Date ||
-            !row.Operative ||
-            !row.Address ||
-            row['B Number'] == null || // Use `== null` to check for both null and undefined
-            !row['Daily Task'] ||
-            !row['Am/Pm All Day']
-          ) {
-            missingDataRows.push(rowIndex);
-            continue; // Skip this row if any entity is missing.
-          }
-          
-          const operativeName = String(row['Operative']).trim();
-          const shiftType = String(row['Am/Pm All Day']).trim().toLowerCase();
-          const date = row.Date;
-          const address = String(row['Address']).trim();
-          const bNumber = String(row['B Number']).trim();
-          const dailyTask = String(row['Daily Task']).trim();
-
-          const validShiftTypes = ['am', 'pm', 'all-day'];
-          if (!validShiftTypes.includes(shiftType)) {
-            invalidShiftTypes.push(`Row ${rowIndex}: '${row['Am/Pm All Day']}'`);
-            continue;
-          }
-          
-          const userId = nameToUidMap.get(operativeName.toLowerCase());
-          
-          if (!userId) {
-            notFoundNames.add(row['Operative']);
-            continue;
-          }
-
-          const jsDate = new Date(date);
-          // @ts-ignore
-          if (isNaN(jsDate)) {
-             throw new Error(`Invalid date format found in row ${rowIndex} for value "${row.Date}". Please use a standard format like YYYY-MM-DD.`);
-          }
-
-          const shiftDocRef = doc(collection(db, 'shifts'));
-          
-          const newShift: Omit<Shift, 'id'> = {
-            userId,
-            date: Timestamp.fromDate(jsDate),
-            type: shiftType as 'am' | 'pm' | 'all-day',
-            status: 'pending-confirmation',
-            address,
-            bNumber,
-            dailyTask,
-          };
-
-          batch.set(shiftDocRef, newShift);
-          shiftsAdded++;
-        }
         
-        if (notFoundNames.size > 0) {
-            throw new Error(`The following operatives were not found in the database: ${Array.from(notFoundNames).join(', ')}. Please check the names or add them as users before importing their shifts.`);
-        }
+        for (let i = 0; i < 5; i++) {
+          const colIndex = i + 1;
+          const dailyTask = getCellValue(1, colIndex);
 
-        if (invalidShiftTypes.length > 0) {
-          throw new Error(`Invalid shift types found. Must be 'am', 'pm', or 'all-day'. Errors at: ${invalidShiftTypes.join(', ')}.`);
-        }
+          if (dailyTask) {
+            const shiftDate = new Date(mondayDate);
+            shiftDate.setDate(shiftDate.getDate() + i);
 
-        if (shiftsAdded === 0 && missingDataRows.length > 0) {
-          throw new Error(`Import failed. Required data was missing in all processed rows. Check for empty cells in rows: ${missingDataRows.slice(0, 10).join(', ')}${missingDataRows.length > 10 ? '...' : ''}.`);
+            const shiftDocRef = doc(collection(db, 'shifts'));
+            const newShift: Omit<Shift, 'id'> = {
+              userId,
+              date: Timestamp.fromDate(shiftDate),
+              type: 'all-day',
+              status: 'pending-confirmation',
+              address,
+              bNumber,
+              dailyTask,
+              ...(siteManager && { siteManager }),
+            };
+
+            batch.set(shiftDocRef, newShift);
+            shiftsAdded++;
+          }
         }
         
         if (shiftsAdded === 0) {
-            throw new Error("No valid shifts were found to import. Please check that the file content and headers ('Date', 'Operative', 'Address', 'B Number', 'Daily Task', 'Am/Pm All Day') are correct.");
+            throw new Error("No daily tasks found in cells B2 through F2. At least one task is required to import shifts.");
         }
 
         await batch.commit();
 
         toast({
           title: 'Import Successful',
-          description: `${shiftsAdded} shifts have been added to the schedule.`,
+          description: `${shiftsAdded} shifts for '${operativeName}' have been added for the week of ${mondayDate.toLocaleDateString()}.`,
         });
         
         setFile(null);
