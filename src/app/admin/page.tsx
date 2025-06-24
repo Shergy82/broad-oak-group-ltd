@@ -159,9 +159,44 @@ export default function AdminPage() {
       <Card>
         <CardHeader>
           <CardTitle>Import Weekly Shifts from Excel</CardTitle>
-          <CardDescription>
-            Upload an .xlsx file to schedule shifts for multiple operatives. The file must be a grid where one row contains the week's dates (e.g., 16/06/2025) and subsequent rows are for operatives. The first column must have the operative's full name and shift type (e.g., "John Doe ALL DAY"). The job address goes in the cell where the operative's row and date column meet. Empty or '***' cells are ignored.
-          </CardDescription>
+           <div className="text-sm text-muted-foreground space-y-2 pt-1">
+            <p>
+              Upload an .xlsx file to schedule shifts for multiple operatives. The file must be structured as a grid.
+            </p>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>
+                <strong>Date Row:</strong> The importer automatically finds the row containing the week's dates (e.g., in DD/MM/YYYY format). This row can be anywhere in the sheet.
+              </li>
+              <li>
+                <strong>Operative Rows:</strong> Each row after the date row represents an operative's schedule.
+                <ul className="list-disc pl-5 mt-1">
+                  <li>
+                    <strong>Column A:</strong> Must contain the operative's full name (as it appears in the user list), followed by a space and the shift type: `ALL DAY`, `AM`, or `PM`. Example: `John Doe ALL DAY`.
+                  </li>
+                  <li>
+                    <strong>Columns B-H:</strong> These columns correspond to the dates. The text in these cells becomes the job address for that day.
+                  </li>
+                </ul>
+              </li>
+              <li>
+                <strong>Ignored Cells:</strong> Any cells that are empty or contain only `***` will be skipped.
+              </li>
+            </ul>
+            <p className="font-semibold pt-2">Example Structure:</p>
+            <pre className="mt-2 rounded-md bg-muted p-4 text-xs font-mono overflow-x-auto">
+{`+------------------------+----------------+----------------+----------------+
+|        A               |        B       |        C       |        D       |
++------------------------+----------------+----------------+----------------+
+|                        | 16/06/2025     | 17/06/2025     | 18/06/2025     |
++------------------------+----------------+----------------+----------------+
+| John Doe ALL DAY       | 123 Main St    | 456 Oak Ave    |                |
++------------------------+----------------+----------------+----------------+
+| Alice Johnson AM       |                | 789 Pine Ln    | Site Visit     |
++------------------------+----------------+----------------+----------------+
+| Jane Smith (Admin) PM  | ***            |                | 111 Elm St     |
++------------------------+----------------+----------------+----------------+`}
+            </pre>
+          </div>
         </CardHeader>
         <CardContent>
           <FileUploader />
