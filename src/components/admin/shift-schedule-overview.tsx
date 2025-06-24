@@ -81,16 +81,18 @@ export function ShiftScheduleOverview() {
     return { thisWeekShifts, nextWeekShifts };
   }, [shifts]);
 
-  const renderWeekGrid = (weekShifts: Shift[], usersForGrid: UserProfile[]) => {
+  const renderWeekSchedule = (weekShifts: Shift[], usersForView: UserProfile[]) => {
     if (loading) {
       return (
-        <div className="space-y-2 mt-4">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="flex gap-2">
-                <Skeleton className="h-24 w-32" />
-                {Array.from({ length: 7 }).map((_, j) => (
-                    <Skeleton key={j} className="h-24 flex-1" />
-                ))}
+        <div className="space-y-8 mt-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i}>
+              <Skeleton className="h-7 w-48 mb-4" />
+              <div className="border rounded-lg overflow-hidden">
+                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-16 w-full border-t" />
+                <Skeleton className="h-16 w-full border-t" />
+              </div>
             </div>
           ))}
         </div>
@@ -98,7 +100,7 @@ export function ShiftScheduleOverview() {
     }
     
     const activeUserIdsThisWeek = new Set(weekShifts.map(s => s.userId));
-    const activeUsers = usersForGrid.filter(u => activeUserIdsThisWeek.has(u.uid));
+    const activeUsers = usersForView.filter(u => activeUserIdsThisWeek.has(u.uid));
 
     if (activeUsers.length === 0) {
       return (
@@ -108,75 +110,62 @@ export function ShiftScheduleOverview() {
       );
     }
     
-    const scheduleMap = new Map<string, Map<string, Shift[]>>();
-    activeUsers.forEach(u => scheduleMap.set(u.uid, new Map()));
-    
+    const shiftsByUser = new Map<string, Shift[]>();
     weekShifts.forEach(shift => {
-      if (scheduleMap.has(shift.userId)) {
-        const dayName = format(getCorrectedLocalDate(shift.date), 'eee');
-        const userShifts = scheduleMap.get(shift.userId)!;
-        if (!userShifts.has(dayName)) {
-            userShifts.set(dayName, []);
+        if (!shiftsByUser.has(shift.userId)) {
+            shiftsByUser.set(shift.userId, []);
         }
-        userShifts.get(dayName)!.push(shift);
-      }
+        shiftsByUser.get(shift.userId)!.push(shift);
     });
 
-    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
-    const weekends = ['Sat', 'Sun'];
-    const allDays = [...weekdays, ...weekends];
-    
-    const hasWorkOnWeekend = weekends.some(day => 
-      activeUsers.some(user => scheduleMap.get(user.uid)?.has(day))
-    );
-    const daysToDisplay = hasWorkOnWeekend ? allDays : weekdays;
+    shiftsByUser.forEach(userShifts => {
+        userShifts.sort((a, b) => getCorrectedLocalDate(a.date).getTime() - getCorrectedLocalDate(b.date).getTime());
+    });
 
     return (
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-[120px] sticky left-0 bg-card z-10 shadow-sm">Operative</TableHead>
-            {daysToDisplay.map(day => <TableHead key={day} className="text-center px-1">{day}</TableHead>)}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {activeUsers.map(user => (
-              <TableRow key={user.uid}>
-                <TableCell className="font-medium sticky left-0 bg-card z-10 shadow-sm">{user.name}</TableCell>
-                {daysToDisplay.map(day => {
-                  const dayShifts = scheduleMap.get(user.uid)?.get(day) || [];
-                  dayShifts.sort((a, b) => {
-                      const order = { 'all-day': 0, 'am': 1, 'pm': 2 };
-                      return (order[a.type] ?? 99) - (order[b.type] ?? 99);
-                  });
+      <div className="space-y-8 mt-4">
+        {activeUsers.map(user => {
+            const userShifts = shiftsByUser.get(user.uid) || [];
+            if (userShifts.length === 0) return null;
 
-                  return (
-                    <TableCell key={day} className="align-top p-1">
-                      {dayShifts.length > 0 && (
-                        <div className="space-y-1">
-                          {dayShifts.map(shift => (
-                            <div key={shift.id} className="text-xs p-1.5 rounded-md bg-muted/50 border border-muted-foreground/20">
-                              <div className="flex justify-between items-start gap-1">
-                                <p className="font-semibold leading-tight break-words">{shift.task}</p>
-                                <Badge 
-                                  variant={shift.type === 'am' ? 'default' : shift.type === 'pm' ? 'secondary' : 'outline'} 
-                                  className="text-[10px] py-0 px-1.5 h-auto shrink-0"
-                                >
-                                  {shift.type === 'all-day' ? 'All' : shift.type.toUpperCase()}
-                                </Badge>
-                              </div>
-                              <p className="text-muted-foreground text-[11px] truncate pt-0.5">{shift.address}</p>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </TableCell>
-                  );
-                })}
-              </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+            return (
+                <div key={user.uid}>
+                    <h3 className="text-xl font-semibold mb-3">{user.name}</h3>
+                    <Card>
+                        <CardContent className="p-0">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead className="w-[180px]">Date</TableHead>
+                                        <TableHead>Task</TableHead>
+                                        <TableHead>Address</TableHead>
+                                        <TableHead className="text-right w-[110px]">Type</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {userShifts.map(shift => (
+                                        <TableRow key={shift.id}>
+                                            <TableCell className="font-medium">{format(getCorrectedLocalDate(shift.date), 'eeee, MMM d')}</TableCell>
+                                            <TableCell>{shift.task}</TableCell>
+                                            <TableCell className="text-muted-foreground">{shift.address}</TableCell>
+                                            <TableCell className="text-right">
+                                                <Badge
+                                                    variant={shift.type === 'am' ? 'default' : shift.type === 'pm' ? 'secondary' : 'outline'}
+                                                    className="capitalize text-xs"
+                                                >
+                                                    {shift.type === 'all-day' ? 'All Day' : shift.type.toUpperCase()}
+                                                </Badge>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </CardContent>
+                    </Card>
+                </div>
+            )
+        })}
+      </div>
     );
   };
   
@@ -194,7 +183,7 @@ export function ShiftScheduleOverview() {
     <Card>
       <CardHeader>
         <CardTitle>Weekly Schedule Overview</CardTitle>
-        <CardDescription>A grid view of all upcoming shifts for the team. This list updates automatically.</CardDescription>
+        <CardDescription>A list of all upcoming shifts for the team, grouped by operative. This list updates automatically.</CardDescription>
       </CardHeader>
       <CardContent>
         <Tabs defaultValue="this-week">
@@ -202,11 +191,11 @@ export function ShiftScheduleOverview() {
             <TabsTrigger value="this-week">This Week</TabsTrigger>
             <TabsTrigger value="next-week">Next Week</TabsTrigger>
           </TabsList>
-          <TabsContent value="this-week" className="mt-4">
-            {renderWeekGrid(thisWeekShifts, users)}
+          <TabsContent value="this-week" className="mt-0">
+            {renderWeekSchedule(thisWeekShifts, users)}
           </TabsContent>
-          <TabsContent value="next-week" className="mt-4">
-             {renderWeekGrid(nextWeekShifts, users)}
+          <TabsContent value="next-week" className="mt-0">
+             {renderWeekSchedule(nextWeekShifts, users)}
           </TabsContent>
         </Tabs>
       </CardContent>
