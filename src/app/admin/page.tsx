@@ -160,10 +160,7 @@ export default function AdminPage() {
         <CardHeader>
           <CardTitle>Import Weekly Shifts from Excel</CardTitle>
           <CardDescription>
-            Upload an .xlsx file with the weekly shift schedule. The file must be structured as a grid:
-            a row must contain the dates for the week (e.g., 16/06/2025, 17/06/2025, ...).
-            Subsequent rows should represent shifts for operatives. The first column must contain the operative's full name followed by the shift type (AM, PM, or ALL DAY), for example, "John Doe ALL DAY".
-            The cells corresponding to the operative's row and date column should contain the job address. Cells with "*****" or no value will be skipped.
+            Upload an .xlsx file to schedule shifts for multiple operatives. The file must be a grid where one row contains the week's dates (e.g., 16/06/2025) and subsequent rows are for operatives. The first column must have the operative's full name and shift type (e.g., "John Doe ALL DAY"). The job address goes in the cell where the operative's row and date column meet. Empty or '***' cells are ignored.
           </CardDescription>
         </CardHeader>
         <CardContent>

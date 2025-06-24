@@ -46,7 +46,7 @@ export function FileUploader() {
         const workbook = XLSX.read(data, { type: 'array' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, blankrows: false });
+        const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, blankrows: false, defval: '' });
 
         if (jsonData.length < 2) {
             throw new Error("The Excel file is too short. It must contain at least a date row and one operative shift row.");
@@ -86,44 +86,52 @@ export function FileUploader() {
         let dates: (Date | null)[] = [];
         for (let i = 0; i < jsonData.length; i++) {
             const row = jsonData[i] || [];
-            const potentialDates = row.slice(1, 8); // Check columns B-H
-            if (potentialDates.length >= 5 && potentialDates.slice(0, 5).every(d => parseDate(d))) {
+            if (row.length < 2) continue;
+            const potentialDates = row.slice(1, 6).map(parseDate);
+            if (potentialDates.filter(d => d !== null).length >= 3) {
                 dateRowIndex = i;
-                dates = potentialDates.map(parseDate);
+                dates = row.slice(1, 8).map(parseDate);
                 break;
             }
         }
 
         if (dateRowIndex === -1) {
-            throw new Error("Could not find a valid date row in the spreadsheet. Ensure there is a row with 5 consecutive dates in columns starting from B.");
+            throw new Error("Could not find a valid date row in the spreadsheet. Ensure there is a row where at least 3 of the columns from B to F contain valid dates in a recognizable format (e.g., DD/MM/YYYY).");
         }
         
         const batch = writeBatch(db);
         let shiftsAdded = 0;
         const unknownOperatives = new Set<string>();
+        const parsingErrors: string[] = [];
 
         for (let i = dateRowIndex + 1; i < jsonData.length; i++) {
-            const row = jsonData[i];
-            const operativeCell = row[0] as string | undefined;
+            const row = jsonData[i] as any[];
+            const operativeCell = (row[0] || '').toString();
 
-            if (!operativeCell || typeof operativeCell !== 'string' || operativeCell.includes('***')) continue;
+            if (!operativeCell || operativeCell.trim() === '' || operativeCell.includes('***')) {
+                continue;
+            }
 
-            const parts = operativeCell.trim().split(/\s+/);
-            if (parts.length < 2) continue;
-            
-            const lastPart = parts[parts.length - 1].toLowerCase();
+            let trimmedCell = operativeCell.trim();
             let shiftType: 'am' | 'pm' | 'all-day' | null = null;
             let operativeName = "";
 
-            if (lastPart === 'am' || lastPart === 'pm' || lastPart === 'day') {
-                shiftType = lastPart === 'day' ? 'all-day' : lastPart;
-                operativeName = parts.slice(0, -1).join(' ');
-            } else if (lastPart.startsWith('(kin') && parts[parts.length - 2].toLowerCase() === 'day') {
-                 shiftType = 'all-day';
-                 operativeName = parts.slice(0, -2).join(' ');
+            const upperCaseCell = trimmedCell.toUpperCase();
+            if (upperCaseCell.endsWith('ALL DAY')) {
+                shiftType = 'all-day';
+                operativeName = trimmedCell.slice(0, -7).trim();
+            } else if (upperCaseCell.endsWith('PM')) {
+                shiftType = 'pm';
+                operativeName = trimmedCell.slice(0, -2).trim();
+            } else if (upperCaseCell.endsWith('AM')) {
+                shiftType = 'am';
+                operativeName = trimmedCell.slice(0, -2).trim();
             }
-            
-            if (!shiftType || !operativeName) continue;
+
+            if (!shiftType || !operativeName) {
+                parsingErrors.push(`Row ${i + 1} ('${operativeCell}'): Could not identify a valid shift type (AM, PM, or ALL DAY) at the end.`);
+                continue;
+            }
 
             const userId = nameToUidMap.get(operativeName.toLowerCase());
             if (!userId) {
@@ -131,11 +139,11 @@ export function FileUploader() {
                 continue;
             }
             
-            for (let j = 0; j < 5; j++) { // Columns B to F for Mon-Fri
-                const address = row[j + 1] as string | undefined;
+            for (let j = 0; j < 7; j++) { // Check Mon-Sun from columns B to H
+                const address = (row[j + 1] || '').toString();
                 const shiftDate = dates[j];
 
-                if (address && typeof address === 'string' && !address.includes('***') && shiftDate) {
+                if (address && address.trim() !== '' && !address.includes('***') && shiftDate) {
                     const shiftDocRef = doc(collection(db, 'shifts'));
                     const newShift: Omit<Shift, 'id'> = {
                         userId,
@@ -156,7 +164,13 @@ export function FileUploader() {
         }
 
         if (shiftsAdded === 0) {
-            throw new Error("No valid shifts were found to import. Please check that the file has shift data and operatives are correctly named.");
+            let errorMessage = "No valid shifts were found to import. Please check the file's content.";
+            if (parsingErrors.length > 0) {
+                errorMessage = `Import failed with parsing errors:\n- ${parsingErrors.join('\n- ')}`;
+            } else {
+                errorMessage += " This might be because all address fields are empty or operatives are not correctly named.";
+            }
+            throw new Error(errorMessage);
         }
 
         await batch.commit();
@@ -193,7 +207,7 @@ export function FileUploader() {
       {error && (
         <Alert variant="destructive">
           <AlertTitle>Import Error</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription style={{ whiteSpace: 'pre-wrap' }}>{error}</AlertDescription>
         </Alert>
       )}
       <div className="flex flex-col sm:flex-row gap-4">
