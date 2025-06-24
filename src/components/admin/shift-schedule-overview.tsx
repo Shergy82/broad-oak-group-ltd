@@ -127,7 +127,7 @@ export function ShiftScheduleOverview() {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="w-[180px] sticky left-0 bg-card z-10 shadow-sm">Operative</TableHead>
+            <TableHead className="w-[150px] sticky left-0 bg-card z-10 shadow-sm">Operative</TableHead>
             {weekdays.map(day => <TableHead key={day} className="text-center">{day}</TableHead>)}
           </TableRow>
         </TableHeader>
@@ -143,19 +143,21 @@ export function ShiftScheduleOverview() {
                   });
 
                   return (
-                    <TableCell key={day} className="align-top p-2 min-w-[140px]">
+                    <TableCell key={day} className="align-top p-1 min-w-[120px]">
                       {dayShifts.length > 0 && (
-                        <div className="space-y-2">
+                        <div className="space-y-1">
                           {dayShifts.map(shift => (
-                            <div key={shift.id} className="text-xs p-2 rounded-md bg-muted/50 border border-muted-foreground/20">
-                              <p className="font-semibold">{shift.task}</p>
-                              <p className="text-muted-foreground text-[11px] truncate">{shift.address}</p>
-                              <Badge 
-                                variant={shift.type === 'am' ? 'default' : shift.type === 'pm' ? 'secondary' : 'outline'} 
-                                className="mt-1 text-[10px] py-0 px-1.5 h-auto capitalize"
-                              >
-                                {shift.type.replace('-', ' ')}
-                              </Badge>
+                            <div key={shift.id} className="text-xs p-1.5 rounded-md bg-muted/50 border border-muted-foreground/20">
+                              <div className="flex justify-between items-start gap-1">
+                                <p className="font-semibold leading-tight break-words">{shift.task}</p>
+                                <Badge 
+                                  variant={shift.type === 'am' ? 'default' : shift.type === 'pm' ? 'secondary' : 'outline'} 
+                                  className="text-[10px] py-0 px-1.5 h-auto capitalize shrink-0"
+                                >
+                                  {shift.type.replace('-', ' ')}
+                                </Badge>
+                              </div>
+                              <p className="text-muted-foreground text-[11px] truncate pt-0.5">{shift.address}</p>
                             </div>
                           ))}
                         </div>
