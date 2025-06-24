@@ -28,6 +28,11 @@ export function FileUploader() {
     }
   };
 
+  const parseDateFromExcel = (excelDate: number): Date => {
+    const d = new Date(Math.round((excelDate - 25569) * 86400 * 1000));
+    return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  };
+
   const handleImport = async () => {
     if (!file || !db) {
       setError('Please select a file first.');
@@ -69,8 +74,10 @@ export function FileUploader() {
 
         const parseDate = (dateValue: any): Date | null => {
             if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
-                const userTimezoneOffset = dateValue.getTimezoneOffset() * 60000;
-                return new Date(dateValue.getTime() - userTimezoneOffset);
+                return new Date(Date.UTC(dateValue.getFullYear(), dateValue.getMonth(), dateValue.getDate()));
+            }
+             if (typeof dateValue === 'number' && dateValue > 1) {
+                return parseDateFromExcel(dateValue);
             }
             return null;
         };
@@ -79,11 +86,11 @@ export function FileUploader() {
         let dates: (Date | null)[] = [];
         for (let i = 0; i < jsonData.length; i++) {
             const row = jsonData[i] || [];
-            if (row.length > 0 && row.some(cell => cell instanceof Date)) {
-                const potentialDates = row.map(cell => (cell instanceof Date ? cell : null));
+            if (row.length > 0) {
+                const potentialDates = row.map(parseDate);
                 if (potentialDates.filter(d => d !== null).length >= 3) {
                     dateRowIndex = i;
-                    dates = row.map(parseDate);
+                    dates = potentialDates;
                     break;
                 }
             }
@@ -95,6 +102,7 @@ export function FileUploader() {
         
         const batch = writeBatch(db);
         let shiftsAdded = 0;
+        let projectsAdded = 0;
         let shiftsDeletedCount = 0;
         const unknownOperatives = new Set<string>();
         
@@ -117,7 +125,19 @@ export function FileUploader() {
             }
         }
 
+        const projectsToCreate = new Map<string, { address: string; bNumber: string }>();
+        const projectsCollectionRef = collection(db, 'projects');
+        const existingProjectsSnapshot = await getDocs(projectsCollectionRef);
+        const existingAddresses = new Set<string>();
+        existingProjectsSnapshot.forEach(doc => {
+            const data = doc.data();
+            if(data.address) {
+                existingAddresses.add(data.address.toLowerCase());
+            }
+        });
+
         let currentProjectAddress = '';
+        let currentBNumber = '';
 
         for (let r = dateRowIndex + 1; r < jsonData.length; r++) {
             const rowData = jsonData[r];
@@ -128,13 +148,18 @@ export function FileUploader() {
             const addressCandidate = (rowData[0] || '').toString().trim();
             if (addressCandidate) {
                 currentProjectAddress = addressCandidate;
+                currentBNumber = (rowData[1] || 'N/A').toString().trim();
+                
+                if (currentProjectAddress && !existingAddresses.has(currentProjectAddress.toLowerCase()) && !projectsToCreate.has(currentProjectAddress.toLowerCase())) {
+                    projectsToCreate.set(currentProjectAddress.toLowerCase(), { address: currentProjectAddress, bNumber: currentBNumber });
+                }
             }
 
             if (!currentProjectAddress) {
                 continue;
             }
 
-            for (let c = 1; c < rowData.length; c++) {
+            for (let c = 2; c < rowData.length; c++) {
                 const cellValue = (rowData[c] || '').toString().trim().replace(/[\u2012\u2013\u2014\u2015]/g, '-');
                 const shiftDate = dates[c];
 
@@ -190,7 +215,13 @@ export function FileUploader() {
             }
         }
         
-        if (shiftsAdded > 0 || shiftsDeletedCount > 0) {
+        projectsToCreate.forEach(project => {
+            const projectDocRef = doc(collection(db, 'projects'));
+            batch.set(projectDocRef, project);
+            projectsAdded++;
+        });
+
+        if (shiftsAdded > 0 || shiftsDeletedCount > 0 || projectsAdded > 0) {
             await batch.commit();
         }
 
@@ -198,12 +229,19 @@ export function FileUploader() {
             toast({
                 variant: 'destructive',
                 title: 'Partial Import: Operatives Not Found',
-                description: `Imported ${shiftsAdded} shifts, which will appear on the assigned operatives' dashboards. The following operatives were not found and their shifts were skipped: ${Array.from(unknownOperatives).join(', ')}. Please check spelling or add them as users.`,
+                description: `Imported ${shiftsAdded} shifts. ${projectsAdded > 0 ? `${projectsAdded} new projects created.` : ''} The following operatives were not found and their shifts were skipped: ${Array.from(unknownOperatives).join(', ')}. Please check spelling or add them as users.`,
             });
-        } else if (shiftsAdded > 0 || shiftsDeletedCount > 0) {
+        } else if (shiftsAdded > 0 || shiftsDeletedCount > 0 || projectsAdded > 0) {
+            let description = `Successfully assigned ${shiftsAdded} new shifts.`;
+            if (shiftsDeletedCount > 0) {
+                description = `Successfully cleared the schedule for the imported week and assigned ${shiftsAdded} new shifts.`
+            }
+            if (projectsAdded > 0) {
+                description += ` ${projectsAdded} new project(s) created.`
+            }
             toast({
                 title: 'Schedule Updated',
-                description: `Successfully cleared the schedule for the imported week and assigned ${shiftsAdded} new shifts.`,
+                description: description,
             });
         } else {
             toast({

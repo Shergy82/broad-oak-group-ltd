@@ -1,4 +1,4 @@
-import type { Shift, UserProfile } from '@/types';
+import type { Shift, UserProfile, Project } from '@/types';
 import { Timestamp } from 'firebase/firestore';
 import { startOfToday, addDays, subDays } from 'date-fns';
 
@@ -104,5 +104,23 @@ export const mockShifts: Shift[] = [
     status: 'pending-confirmation',
     address: '212 Birch Rd, Newplace',
     task: 'Install windows',
+  },
+];
+
+export const mockProjects: Project[] = [
+  {
+    id: 'proj-1',
+    address: '123 Main St, Anytown',
+    bNumber: 'B-001',
+  },
+  {
+    id: 'proj-2',
+    address: '789 Pine Ln, Yourtown',
+    bNumber: 'B-002',
+  },
+  {
+    id: 'proj-3',
+    address: '212 Birch Rd, Newplace',
+    bNumber: 'B-003',
   },
 ];

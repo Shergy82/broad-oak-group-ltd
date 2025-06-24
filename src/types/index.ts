@@ -18,3 +18,9 @@ export interface UserProfile {
   role: 'user' | 'admin' | 'owner';
   createdAt?: Timestamp;
 }
+
+export interface Project {
+  id: string; // Firestore document ID
+  address: string;
+  bNumber: string;
+}
