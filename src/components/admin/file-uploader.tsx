@@ -110,7 +110,6 @@ export function FileUploader() {
         const batch = writeBatch(db);
         let shiftsAdded = 0;
         const unknownOperatives = new Set<string>();
-        const parsingErrors: string[] = [];
         let currentProjectAddress = '';
 
         for (let r = dateRowIndex + 1; r < jsonData.length; r++) {
@@ -178,25 +177,25 @@ export function FileUploader() {
             }
         }
         
+        if (shiftsAdded > 0) {
+            await batch.commit();
+        }
+
         if (unknownOperatives.size > 0) {
-            throw new Error(`The following operatives were mentioned in shifts but are not in the database: ${Array.from(unknownOperatives).join(', ')}. Please check spelling or add them as users.`);
+            toast({
+                variant: 'destructive',
+                title: 'Partial Import: Operatives Not Found',
+                description: `Imported ${shiftsAdded} shifts. The following were skipped as they are not in the user list: ${Array.from(unknownOperatives).join(', ')}. Please check spelling or add them as users.`,
+            });
+        } else if (shiftsAdded > 0) {
+            toast({
+                title: 'Import Successful',
+                description: `${shiftsAdded} shifts have been added.`,
+            });
+        } else {
+            throw new Error("No valid shifts were found to import. Please check the file's content and formatting. Ensure operative names in the Excel file exactly match the names in the user list and that cells are formatted correctly ('Task - Name').");
         }
 
-        if (shiftsAdded === 0) {
-            let errorMessage = "No valid shifts were found to import. Please check the file's content and formatting. Ensure operative names in the Excel file exactly match the names in the user list.";
-            if (parsingErrors.length > 0) {
-                errorMessage = `Import failed with parsing errors:\n- ${parsingErrors.join('\n- ')}`;
-            }
-            throw new Error(errorMessage);
-        }
-
-        await batch.commit();
-
-        toast({
-          title: 'Import Successful',
-          description: `${shiftsAdded} shifts have been added.`,
-        });
-        
         setFile(null);
         const fileInput = document.getElementById('shift-file-input') as HTMLInputElement;
         if (fileInput) {
