@@ -118,8 +118,6 @@ export function FileUploader() {
         }
 
         let currentProjectAddress = '';
-        let currentPostcode = '';
-        let currentContractManager = '';
 
         for (let r = dateRowIndex + 1; r < jsonData.length; r++) {
             const rowData = jsonData[r];
@@ -130,15 +128,13 @@ export function FileUploader() {
             const addressCandidate = (rowData[0] || '').toString().trim();
             if (addressCandidate) {
                 currentProjectAddress = addressCandidate;
-                currentPostcode = (rowData[1] || '').toString().trim();
-                currentContractManager = (rowData[2] || '').toString().trim();
             }
 
             if (!currentProjectAddress) {
                 continue;
             }
 
-            for (let c = 3; c < rowData.length; c++) {
+            for (let c = 1; c < rowData.length; c++) {
                 const cellValue = (rowData[c] || '').toString().trim().replace(/[\u2012\u2013\u2014\u2015]/g, '-');
                 const shiftDate = dates[c];
 
@@ -179,8 +175,6 @@ export function FileUploader() {
                         type: parsedShift.type,
                         status: 'pending-confirmation',
                         address: currentProjectAddress,
-                        postcode: currentPostcode,
-                        contractManager: currentContractManager,
                         task: parsedShift.task,
                     };
 

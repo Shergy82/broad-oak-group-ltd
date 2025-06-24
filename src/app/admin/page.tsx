@@ -19,19 +19,10 @@ export default function AdminPage() {
             </p>
             <ul className="list-disc pl-5 space-y-1">
               <li>
-                <strong>Multiple Projects:</strong> You can include multiple projects in a single sheet.
+                <strong>Multiple Projects:</strong> You can include multiple projects in a single sheet. The importer looks for a 'Project Address' column (usually Column A). Any rows below that address will be associated with it until a new address is found in Column A.
               </li>
               <li>
-                <strong>Project Data Columns:</strong>
-                <ul className="list-disc pl-5">
-                    <li><strong>Column A:</strong> Project Address (first line only).</li>
-                    <li><strong>Column B:</strong> Postcode.</li>
-                    <li><strong>Column C:</strong> Contract Manager (optional).</li>
-                </ul>
-                These details apply to all task rows below until a new project is specified in Column A.
-              </li>
-              <li>
-                <strong>Date Row:</strong> The importer will automatically find the row containing the week's dates (e.g., in DD/MM/YYYY format), which must be above the task data. Dates should start from Column D.
+                <strong>Date Row:</strong> The importer will automatically find the row containing the week's dates (e.g., in DD/MM/YYYY format), which must be above the task data.
               </li>
                <li>
                 <strong>Task & Operative Cells:</strong> In the grid, each cell corresponding to a date should contain the task description, a hyphen, and the operative's full name.
@@ -49,15 +40,15 @@ export default function AdminPage() {
             </ul>
             <p className="font-semibold pt-2">Example Structure:</p>
             <pre className="mt-2 rounded-md bg-muted p-4 text-xs font-mono overflow-x-auto">
-{`+--------------------------+-----------+------------------+-----------------------------+------------------------------+
-| A (Address)              | B (Postcode)| C (Contract Mgr) | D (Date ->)                 | E (Date ->)                  |
-+--------------------------+-----------+------------------+-----------------------------+------------------------------+
-|                          |           |                  | 09/06/2025                  | 10/06/2025                   |
-+--------------------------+-----------+------------------+-----------------------------+------------------------------+
-| 9 Eardley Crescent       | SW5 9JS   | Sarah Jones      | FIT TRAY AM - Phil Shergold | STUD WALL PM - Phil Shergold |
-+--------------------------+-----------+------------------+-----------------------------+------------------------------+
-| 14 Oak Avenue            | NW3 4LP   | Mike Ross        | PLUMBING PREP - John Doe    | EXT. PAINTING - Jane Smith   |
-+--------------------------+-----------+------------------+-----------------------------+------------------------------+`}
+{`+------------------------+-----------------------------+------------------------------+
+| A (Project Address)    | B (Date ->)                 | C (Date ->)                  |
++------------------------+-----------------------------+------------------------------+
+|                        | 09/06/2025                  | 10/06/2025                   |
++------------------------+-----------------------------+------------------------------+
+| 9 Eardley Crescent,... | FIT TRAY AM - Phil Shergold | STUD WALL PM - Phil Shergold |
++------------------------+-----------------------------+------------------------------+
+| 14 Oak Avenue,...      | PLUMBING PREP - John Doe    | EXT. PAINTING - Jane Smith   |
++------------------------+-----------------------------+------------------------------+`}
             </pre>
           </div>
         </CardHeader>

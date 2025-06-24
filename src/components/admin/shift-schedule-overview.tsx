@@ -165,8 +165,7 @@ export function ShiftScheduleOverview() {
                                   {shift.type === 'all-day' ? 'All' : shift.type.toUpperCase()}
                                 </Badge>
                               </div>
-                              <p className="text-muted-foreground text-[11px] truncate pt-0.5">{shift.address}{shift.postcode ? `, ${shift.postcode}` : ''}</p>
-                              {shift.contractManager && <p className="text-muted-foreground text-[11px] truncate pt-0.5">CM: {shift.contractManager}</p>}
+                              <p className="text-muted-foreground text-[11px] truncate pt-0.5">{shift.address}</p>
                             </div>
                           ))}
                         </div>
