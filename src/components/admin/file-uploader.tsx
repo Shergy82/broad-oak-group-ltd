@@ -113,7 +113,7 @@ export function FileUploader() {
             }
             
             const addressCandidate = (rowData[0] || '').toString().trim();
-            if (addressCandidate && !addressCandidate.includes(' - ')) {
+            if (addressCandidate) {
                 currentProjectAddress = addressCandidate;
             }
 
@@ -121,7 +121,7 @@ export function FileUploader() {
                 continue; // Skip rows until an address is found
             }
 
-            for (let c = 0; c < rowData.length; c++) {
+            for (let c = 1; c < rowData.length; c++) {
                 const cellValue = (rowData[c] || '').toString().trim();
                 const shiftDate = dates[c];
 
@@ -129,14 +129,22 @@ export function FileUploader() {
                     continue;
                 }
                 
-                const parts = cellValue.split('-');
-                if (parts.length < 2) {
+                const delimiter = ' - ';
+                const lastDelimiterIndex = cellValue.lastIndexOf(delimiter);
+
+                if (lastDelimiterIndex === -1) {
+                    // This case should be caught by the outer if, but as a safeguard.
                     parsingErrors.push(`Row ${r + 1}, Col ${String.fromCharCode(65 + c)}: Could not parse task and operative from "${cellValue}". Expected format: "Task Description - Operative Name"`);
                     continue;
                 }
 
-                const operativeName = parts.pop()!.trim();
-                const task = parts.join('-').trim();
+                const task = cellValue.substring(0, lastDelimiterIndex).trim();
+                const operativeName = cellValue.substring(lastDelimiterIndex + delimiter.length).trim();
+                
+                if (!task || !operativeName) {
+                     parsingErrors.push(`Row ${r + 1}, Col ${String.fromCharCode(65 + c)}: Could not parse task or operative from "${cellValue}". Make sure there is text on both sides of the " - " delimiter.`);
+                     continue;
+                }
 
                 const userId = nameToUidMap.get(operativeName.toLowerCase());
 
