@@ -102,6 +102,7 @@ export default function AdminPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
+                <TableHead>Date Created</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Phone Number</TableHead>
                 <TableHead>Role</TableHead>
@@ -112,6 +113,7 @@ export default function AdminPage() {
                 Array.from({ length: 3 }).map((_, i) => (
                   <TableRow key={i} className={i % 2 === 0 ? 'bg-muted/50' : ''}>
                     <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-40" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-28" /></TableCell>
                     <TableCell><Skeleton className="h-10 w-32" /></TableCell>
@@ -121,6 +123,7 @@ export default function AdminPage() {
                 users.map((user, i) => (
                   <TableRow key={user.uid} className={i % 2 === 0 ? 'bg-muted/50' : ''}>
                     <TableCell className="font-medium">{user.name}</TableCell>
+                    <TableCell>{user.createdAt?.toDate().toLocaleDateString() ?? 'N/A'}</TableCell>
                     <TableCell>{user.email}</TableCell>
                     <TableCell>{user.phoneNumber}</TableCell>
                     <TableCell>

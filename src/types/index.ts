@@ -17,4 +17,5 @@ export interface UserProfile {
   email: string;
   phoneNumber: string;
   role: 'user' | 'admin' | 'owner';
+  createdAt?: Timestamp;
 }
