@@ -82,21 +82,28 @@ export function FileUploader() {
         for (const [index, row] of jsonData.entries()) {
           const rowIndex = index + 2; // Excel rows are 1-based, plus header row
           
-          const operativeName = typeof row['Operative'] === 'string' ? row['Operative'].trim() : row['Operative'];
-          const shiftTypeRaw = typeof row['Am/Pm All Day'] === 'string' ? row['Am/Pm All Day'].trim().toLowerCase() : row['Am/Pm All Day'];
-          const date = row.Date;
-          const address = typeof row['Address'] === 'string' ? row['Address'].trim() : row['Address'];
-          const bNumber = row['B Number'];
-          const dailyTask = typeof row['Daily Task'] === 'string' ? row['Daily Task'].trim() : row['Daily Task'];
-
-          if (!operativeName || !shiftTypeRaw || !date || !address || bNumber === undefined || !dailyTask) {
+          // Check for missing data in any of the required columns for the current row.
+          // This ensures that we only import rows where every required field has a value.
+          if (
+            !row.Date ||
+            !row.Operative ||
+            !row.Address ||
+            row['B Number'] == null || // Use `== null` to check for both null and undefined
+            !row['Daily Task'] ||
+            !row['Am/Pm All Day']
+          ) {
             missingDataRows.push(rowIndex);
-            continue;
+            continue; // Skip this row if any entity is missing.
           }
           
-          const validShiftTypes = ['am', 'pm', 'all-day'];
-          const shiftType = String(shiftTypeRaw).toLowerCase();
+          const operativeName = String(row['Operative']).trim();
+          const shiftType = String(row['Am/Pm All Day']).trim().toLowerCase();
+          const date = row.Date;
+          const address = String(row['Address']).trim();
+          const bNumber = String(row['B Number']).trim();
+          const dailyTask = String(row['Daily Task']).trim();
 
+          const validShiftTypes = ['am', 'pm', 'all-day'];
           if (!validShiftTypes.includes(shiftType)) {
             invalidShiftTypes.push(`Row ${rowIndex}: '${row['Am/Pm All Day']}'`);
             continue;
@@ -123,7 +130,7 @@ export function FileUploader() {
             type: shiftType as 'am' | 'pm' | 'all-day',
             status: 'pending-confirmation',
             address,
-            bNumber: String(bNumber).trim(),
+            bNumber,
             dailyTask,
           };
 
