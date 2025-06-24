@@ -23,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { FileUploader } from '@/components/admin/file-uploader';
 
 export default function AdminPage() {
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -90,58 +91,72 @@ export default function AdminPage() {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>User Management</CardTitle>
-        <CardDescription>View and manage user roles and permissions.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Phone Number</TableHead>
-              <TableHead>Role</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              Array.from({ length: 3 }).map((_, i) => (
-                <TableRow key={i} className={i % 2 === 0 ? 'bg-muted/50' : ''}>
-                  <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                  <TableCell><Skeleton className="h-4 w-40" /></TableCell>
-                  <TableCell><Skeleton className="h-4 w-28" /></TableCell>
-                  <TableCell><Skeleton className="h-10 w-32" /></TableCell>
-                </TableRow>
-              ))
-            ) : (
-              users.map((user, i) => (
-                <TableRow key={user.uid} className={i % 2 === 0 ? 'bg-muted/50' : ''}>
-                  <TableCell className="font-medium">{user.name}</TableCell>
-                  <TableCell>{user.email}</TableCell>
-                  <TableCell>{user.phoneNumber}</TableCell>
-                  <TableCell>
-                    <Select
-                      defaultValue={user.role}
-                      onValueChange={(newRole: 'user' | 'admin') => handleRoleChange(user.uid, newRole)}
-                      disabled={isRoleChangeDisabled(user)}
-                    >
-                      <SelectTrigger className="w-[120px]">
-                        <SelectValue placeholder="Select role" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="user">User</SelectItem>
-                        <SelectItem value="admin" disabled={currentUserProfile?.role !== 'owner'}>Admin</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
+    <div className="space-y-8">
+      <Card>
+        <CardHeader>
+          <CardTitle>User Management</CardTitle>
+          <CardDescription>View and manage user roles and permissions.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Phone Number</TableHead>
+                <TableHead>Role</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                Array.from({ length: 3 }).map((_, i) => (
+                  <TableRow key={i} className={i % 2 === 0 ? 'bg-muted/50' : ''}>
+                    <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-40" /></TableCell>
+                    <TableCell><Skeleton className="h-4 w-28" /></TableCell>
+                    <TableCell><Skeleton className="h-10 w-32" /></TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                users.map((user, i) => (
+                  <TableRow key={user.uid} className={i % 2 === 0 ? 'bg-muted/50' : ''}>
+                    <TableCell className="font-medium">{user.name}</TableCell>
+                    <TableCell>{user.email}</TableCell>
+                    <TableCell>{user.phoneNumber}</TableCell>
+                    <TableCell>
+                      <Select
+                        defaultValue={user.role}
+                        onValueChange={(newRole: 'user' | 'admin') => handleRoleChange(user.uid, newRole)}
+                        disabled={isRoleChangeDisabled(user)}
+                      >
+                        <SelectTrigger className="w-[120px]">
+                          <SelectValue placeholder="Select role" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="user">User</SelectItem>
+                          <SelectItem value="admin" disabled={currentUserProfile?.role !== 'owner'}>Admin</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Import Shifts from Excel</CardTitle>
+          <CardDescription>
+            Upload an .xlsx file with shift data. The file must have columns with the exact headers "Date", "User Email", and "Shift Type".
+            The "Shift Type" must be one of 'am', 'pm', or 'all-day'. The date should be in a standard format like YYYY-MM-DD.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FileUploader />
+        </CardContent>
+      </Card>
+    </div>
   );
 }
