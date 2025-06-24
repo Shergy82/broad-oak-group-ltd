@@ -43,7 +43,7 @@ export function FileUploader() {
         const data = e.target?.result;
         if (!data) throw new Error("Could not read file data.");
         
-        const workbook = XLSX.read(data, { type: 'array' });
+        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, blankrows: false, defval: '' });
@@ -68,41 +68,28 @@ export function FileUploader() {
         userNames.sort((a, b) => b.length - a.length);
 
         const parseDate = (dateValue: any): Date | null => {
-            if (!dateValue) return null;
-            if (typeof dateValue === 'number') {
-                const excelEpoch = new Date(Date.UTC(1899, 11, 30));
-                return new Date(excelEpoch.getTime() + dateValue * 24 * 60 * 60 * 1000);
+            if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
+                return new Date(Date.UTC(dateValue.getFullYear(), dateValue.getMonth(), dateValue.getDate()));
             }
-            if (typeof dateValue === 'string') {
-                const parts = dateValue.split(/[/.-]/);
-                if (parts.length === 3) {
-                    const [d, m, y] = parts.map(p => parseInt(p, 10));
-                    if (!isNaN(d) && !isNaN(m) && !isNaN(y)) {
-                       const year = y < 100 ? 2000 + y : y;
-                       return new Date(Date.UTC(year, m - 1, d));
-                    }
-                }
-            }
-            const parsed = new Date(dateValue);
-            return isNaN(parsed.getTime()) ? null : parsed;
+            return null;
         };
 
         let dateRowIndex = -1;
         let dates: (Date | null)[] = [];
         for (let i = 0; i < jsonData.length; i++) {
             const row = jsonData[i] || [];
-            if (row.length > 0 && row.some(cell => !!cell)) {
-                const potentialDates = row.map(parseDate);
+            if (row.length > 0 && row.some(cell => cell instanceof Date)) {
+                const potentialDates = row.map(cell => (cell instanceof Date ? cell : null));
                 if (potentialDates.filter(d => d !== null).length >= 3) {
                     dateRowIndex = i;
-                    dates = potentialDates;
+                    dates = row.map(parseDate);
                     break;
                 }
             }
         }
 
         if (dateRowIndex === -1) {
-            throw new Error("Could not find a valid date row in the spreadsheet. Ensure there is a row where at least 3 columns contain valid dates in a recognizable format (e.g., DD/MM/YYYY).");
+            throw new Error("Could not find a valid date row in the spreadsheet. Ensure date cells are formatted as Dates in Excel and there is a row where at least 3 columns contain valid dates.");
         }
         
         const batch = writeBatch(db);
@@ -218,7 +205,11 @@ export function FileUploader() {
                 description: `Successfully cleared the schedule for the imported week and assigned ${shiftsAdded} new shifts.`,
             });
         } else {
-            throw new Error("No valid shifts were found to import. Please check the file's content and formatting. Ensure operative names in the Excel file exactly match the names in the user list and that cells are formatted correctly ('Task - Name').");
+            toast({
+                variant: 'destructive',
+                title: 'No Shifts Found',
+                description: "No valid shifts were found to import. Please check the file's content and formatting. Ensure operative names in the Excel file exactly match the names in the user list and that cells are formatted correctly ('Task - Name')."
+            });
         }
 
         setFile(null);
