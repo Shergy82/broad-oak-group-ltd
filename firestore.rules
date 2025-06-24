@@ -1,44 +1,49 @@
-
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Helper function to check if the requesting user has an 'admin' or 'owner' role.
-    function isPrivileged() {
-      // Get the user's profile from the /users collection based on their UID.
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner'];
+  
+    // Helper function to check for admin/owner roles from the users collection
+    function isPrivileged(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data.role in ['admin', 'owner'];
     }
 
-    // Rules for the 'users' collection
+    // USERS
     match /users/{userId} {
-      // Users can create their own user document on sign-up.
+      // Allow user creation on signup
       allow create: if request.auth.uid == userId;
 
-      // Users can read their own profile. Admins/owners can read all profiles.
-      allow read: if request.auth.uid == userId || isPrivileged();
+      // Allow users to read their own data, and privileged users to read any user's data
+      allow get: if request.auth.uid == userId || isPrivileged(request.auth.uid);
       
-      // Users can update their own profile.
-      // Admins can update other users' profiles, but cannot change a user's role to 'owner'.
-      allow update: if request.auth.uid == userId || 
-                      (isPrivileged() && !(request.resource.data.role == 'owner'));
-    }
+      // Allow privileged users to list all users
+      allow list: if isPrivileged(request.auth.uid);
 
-    // Rules for the 'shifts' collection
+      // Allow users to update their own profile (but not their role).
+      // Allow privileged users to update any profile (including role).
+      allow update: if (request.auth.uid == userId && !('role' in request.resource.data)) || isPrivileged(request.auth.uid);
+    }
+    
+    // SHIFTS
     match /shifts/{shiftId} {
-      // Users can read their own shifts. Admins/owners can read all shifts.
-      // This is the rule that fixes the error on the admin schedule overview.
-      allow read: if request.auth.uid == resource.data.userId || isPrivileged();
-      
-      // Admins/owners can create shifts for any user (via Excel import).
-      allow create: if isPrivileged();
-      
-      // Users can update their own shifts (e.g., to confirm or complete them).
-      // Admins/owners can update any shift.
-      allow update: if request.auth.uid == resource.data.userId || isPrivileged();
-      
-      // Only admins/owners can delete shifts.
-      allow delete: if isPrivileged();
+      // Privileged users can create/delete any shift.
+      allow create, delete: if isPrivileged(request.auth.uid);
+
+      // Any authenticated user can read any shift. The UI filters what they see.
+      allow get, list: if request.auth.uid != null;
+
+      // Privileged users can update any field.
+      // Regular users can ONLY update the 'status' of their own shift.
+      allow update: if isPrivileged(request.auth.uid) || 
+        (request.auth.uid == resource.data.userId && request.resource.data.keys().hasOnly(['status']));
+    }
+    
+    // PROJECTS
+    match /projects/{projectId} {
+        // Any authenticated user can read project data.
+        allow get, list: if request.auth.uid != null;
+        
+        // Only privileged users can create, update, or delete projects.
+        allow write: if isPrivileged(request.auth.uid);
     }
   }
 }
