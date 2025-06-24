@@ -165,17 +165,17 @@ export default function AdminPage() {
             </p>
             <ul className="list-disc pl-5 space-y-1">
               <li>
-                <strong>One Sheet Per Project:</strong> Each Excel file should represent one week of work. You can include multiple projects in a single sheet.
+                <strong>Multiple Projects:</strong> You can include multiple projects in a single sheet.
               </li>
               <li>
-                <strong>Project Address:</strong> The full address for a project goes in the first column (Column A), on the same row as the first set of tasks for that project. This address will apply to all task rows below it until a new address is specified in Column A.
+                <strong>Project Address:</strong> The full address for a project goes in the first column (Column A). This address will apply to all task rows below it until a new address is specified in Column A.
               </li>
               <li>
-                <strong>Date Row:</strong> The importer will automatically find the row containing the week's dates (e.g., in DD/MM/YYYY format). This row can be anywhere in the sheet but must be above the task data.
+                <strong>Date Row:</strong> The importer will automatically find the row containing the week's dates (e.g., in DD/MM/YYYY format). This row must be above the task data.
               </li>
                <li>
                 <strong>Task & Operative Cells:</strong> In the grid, each cell corresponding to a date should contain the task description, a hyphen, and the operative's full name.
-                The format must be: <code>Task Description - Operative Name</code>.
+                The format must be: <code>Task Description - Operative Name</code>. Spacing around the hyphen does not matter.
               </li>
               <li>
                 <strong>Operative Name Matching:</strong> The operative's name in the sheet must exactly match their full name in the user list above.
@@ -184,24 +184,22 @@ export default function AdminPage() {
                 <strong>Shift Type:</strong> All imported tasks are automatically assigned as 'All Day' shifts.
               </li>
               <li>
-                <strong>Ignored Cells:</strong> Any cells that are empty, don't contain a task in the recognized format, or contain words like `holiday` or `on hold` will be skipped.
+                <strong>Ignored Cells:</strong> Any cells that are empty, do not contain a recognized 'Task - Name' format, or contain words like `holiday` or `on hold` will be skipped.
               </li>
             </ul>
             <p className="font-semibold pt-2">Example Structure:</p>
             <pre className="mt-2 rounded-md bg-muted p-4 text-xs font-mono overflow-x-auto">
-{`+--------------------------------+-----------------+----------------------------+--------------------------------+
-|               A                |        B        |             C              |                D               |
-+--------------------------------+-----------------+----------------------------+--------------------------------+
-| ...                            | ...             | 09/06/2025                 | 10/06/2025                     |
-+--------------------------------+-----------------+----------------------------+--------------------------------+
-| ...                            | ...             |                            |                                |
-+--------------------------------+-----------------+----------------------------+--------------------------------+
-| 9 EARDLEY CRESCENT...          | ...             | TASK 1 - John Doe          | TASK 2 - Jane Smith (Admin)    |
-+--------------------------------+-----------------+----------------------------+--------------------------------+
-|                                | ...             | GROUNDWORK - Alice Johnson | JMP TO FIT WINDOW - John Doe   |
-+--------------------------------+-----------------+----------------------------+--------------------------------+
-| 14 OAK AVENUE...               | ...             | PLUMBING PREP - John Doe   |                                |
-+--------------------------------+-----------------+----------------------------+--------------------------------+`}
+{`+--------------------------------+----------------------------+--------------------------------+
+| A (Address)                    | B (Date ->)                | C (Date ->)                    |
++--------------------------------+----------------------------+--------------------------------+
+|                                | 09/06/2025                 | 10/06/2025                     |
++--------------------------------+----------------------------+--------------------------------+
+| 9 Eardley Crescent...          | FIT TRAY - Phil Shergold   | STUD WALL... - Phil Shergold   |
++--------------------------------+----------------------------+--------------------------------+
+|                                | TAKE OUT WINDOW - Phil S.  | TAKE OUT WINDOW - Phil S.      |
++--------------------------------+----------------------------+--------------------------------+
+| 14 Oak Avenue...               | PLUMBING PREP - John Doe   | EXTERNAL PAINTING - Jane Smith |
++--------------------------------+----------------------------+--------------------------------+`}
             </pre>
           </div>
         </CardHeader>

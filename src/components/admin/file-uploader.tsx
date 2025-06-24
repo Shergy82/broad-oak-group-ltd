@@ -140,14 +140,18 @@ export function FileUploader() {
                 
                 // New, more robust parsing logic
                 for (const name of userNames) {
-                    const delimiter = ` - ${name}`;
-                    // Use case-insensitive check for the name
-                    if (cellValue.toLowerCase().endsWith(delimiter.toLowerCase())) {
-                        const task = cellValue.substring(0, cellValue.length - delimiter.length).trim();
+                    // Regex to match " - name", "-name", etc. at the end of the string, case-insensitively.
+                    // Escapes special characters in the name for safety.
+                    const escapedName = name.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+                    const regex = new RegExp(`\\s*-\\s*${escapedName}$`, 'i');
+                    const match = cellValue.match(regex);
+
+                    if (match && match.index !== undefined) {
+                        const task = cellValue.substring(0, match.index).trim();
                         const userId = nameToUidMap.get(name.toLowerCase());
                         if (task && userId) {
                             parsedShift = { task, userId };
-                            break; 
+                            break; // Found longest match, stop.
                         }
                     }
                 }
@@ -165,16 +169,16 @@ export function FileUploader() {
 
                     batch.set(shiftDocRef, newShift);
                     shiftsAdded++;
-                } else if (cellValue.includes(' - ')) {
+                } else if (cellValue.includes('-')) {
                     // This cell looks like it *should* be a shift, but we couldn't match the user.
                     // Add the suspected name to the unknown operatives list for better error reporting.
-                    const lastDelimiterIndex = cellValue.lastIndexOf(' - ');
-                    const operativeNameCandidate = cellValue.substring(lastDelimiterIndex + 3).trim();
+                    const lastDelimiterIndex = cellValue.lastIndexOf('-');
+                    const operativeNameCandidate = cellValue.substring(lastDelimiterIndex + 1).trim();
                     if (operativeNameCandidate) {
                         unknownOperatives.add(operativeNameCandidate);
                     }
                 }
-                // If the cell doesn't contain " - ", we now safely ignore it as a note.
+                // If the cell doesn't contain a hyphen, we now safely ignore it as a note.
             }
         }
         
