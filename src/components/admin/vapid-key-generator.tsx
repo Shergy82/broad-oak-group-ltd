@@ -46,7 +46,7 @@ export function VapidKeyGenerator() {
     });
   };
 
-  const firebaseConfigCommand = keys ? `firebase functions:config:set webpush.public_key="${keys.publicKey}" webpush.private_key="${keys.privateKey}"` : '';
+  const firebaseConfigCommand = keys ? `npx firebase functions:config:set webpush.public_key="${keys.publicKey}" webpush.private_key="${keys.privateKey}"` : '';
 
   return (
     <Card>
@@ -70,7 +70,7 @@ export function VapidKeyGenerator() {
             </div>
             
             <div className="space-y-2">
-              <label className="font-mono text-sm font-semibold text-green-600 dark:text-green-400">Step 1: Configure the App</label>
+              <h4 className="font-mono text-sm font-semibold text-green-600 dark:text-green-400">Step 1: Configure the App</h4>
               <p className="text-xs text-muted-foreground">
                 Copy the Public Key and add it to your <code>.env.local</code> file as <code>NEXT_PUBLIC_VAPID_PUBLIC_KEY</code>.
               </p>
@@ -81,7 +81,7 @@ export function VapidKeyGenerator() {
             </div>
 
             <div className="space-y-2">
-              <label className="font-mono text-sm font-semibold text-orange-600 dark:text-orange-400">Step 2: Configure the Server</label>
+              <h4 className="font-mono text-sm font-semibold text-orange-600 dark:text-orange-400">Step 2: Configure the Server</h4>
                <p className="text-xs text-muted-foreground">
                 The Private Key is a secret. Run the following Firebase CLI command in your terminal to store both keys securely for your server-side function.
               </p>
