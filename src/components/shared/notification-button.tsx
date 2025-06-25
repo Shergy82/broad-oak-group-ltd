@@ -9,7 +9,22 @@ import { db } from '@/lib/firebase';
 import { collection, addDoc } from 'firebase/firestore';
 import { Bell, BellRing, BellOff } from 'lucide-react';
 import { Spinner } from './spinner';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import Link from 'next/link';
 
 // This is a VAPID public key. You should generate your own pair
 // and store the public key in your .env.local file.
@@ -33,25 +48,32 @@ export function NotificationButton() {
   const [isLoading, setIsLoading] = useState(true);
   const [isUnsupported, setIsUnsupported] = useState(false);
 
-  // If push notifications are not configured, show a disabled button with a tooltip.
+  // If push notifications are not configured, show a clickable dialog.
   if (!VAPID_PUBLIC_KEY) {
     return (
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            {/* The span is needed because tooltips don't work on disabled buttons directly */}
-            <span tabIndex={0}>
-              <Button variant="outline" size="icon" disabled>
-                <BellOff className="h-4 w-4" />
-              </Button>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Notifications are not set up.</p>
-            <p>An admin must generate VAPID keys on the Admin page.</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+      <Dialog>
+        <DialogTrigger asChild>
+          <Button variant="outline" size="icon">
+            <BellOff className="h-4 w-4" />
+          </Button>
+        </DialogTrigger>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Push Notifications Not Configured</DialogTitle>
+            <DialogDescription>
+              <div className="space-y-4 pt-4">
+                <p>To enable push notifications, a one-time setup is required.</p>
+                <p>An administrator needs to visit the Admin page to generate the necessary security keys and follow the on-screen instructions.</p>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+             <Button asChild>
+              <Link href="/admin">Go to Admin Page</Link>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     );
   }
 
