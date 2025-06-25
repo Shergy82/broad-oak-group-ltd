@@ -1,4 +1,3 @@
-
 # Step-by-Step Guide: Setting Up Push Notifications
 
 This guide has been simplified to make it as easy as possible to get push notifications running.
@@ -50,7 +49,17 @@ VAPID keys are a secure key pair that allows your server to send messages.
 
 3.  **Securely Store Both Keys for the Server:** The **Private Key** is a secret and must not be saved in your code. Copy the full command provided by the key generator on the Admin page (it starts with `npx firebase functions:config:set...`) and run it in the built-in terminal.
 
-## Step 4: Deploy Your Function
+## Step 4: Deploy Security Rules (CRITICAL STEP)
+
+This is a critical step. The `firestore.rules` file in your project contains the permissions that allow your admin account to create shifts. You must deploy these rules for the notification sender to work.
+
+Run this command from the **root directory** of your project in the built-in terminal.
+
+```
+npx firebase deploy --only firestore
+```
+
+## Step 5: Deploy Your Notification Function
 
 Finally, deploy the pre-built function to Firebase. This makes the server-side code live. Run this command from the **root directory** of your project in the built-in terminal.
 
