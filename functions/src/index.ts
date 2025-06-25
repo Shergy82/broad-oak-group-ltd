@@ -103,3 +103,86 @@ export const sendShiftNotification = functions
     functions.logger.log(`Finished sending notifications for shift ${shiftId}.`);
     return null;
   });
+
+// New Callable Function to send a test notification directly
+export const sendTestNotification = functions
+  .region("europe-west2")
+  .https.onCall(async (data, context) => {
+    // 1. Authentication check
+    if (!context.auth) {
+      throw new functions.https.HttpsError(
+        "unauthenticated",
+        "The function must be called while authenticated."
+      );
+    }
+    
+    // 2. Authorization check: Is the caller an admin or owner?
+    const callerUid = context.auth.uid;
+    const callerDoc = await db.collection("users").doc(callerUid).get();
+    const callerProfile = callerDoc.data();
+    
+    if (!callerProfile || !['admin', 'owner'].includes(callerProfile.role)) {
+        throw new functions.https.HttpsError(
+            'permission-denied',
+            'You do not have permission to perform this action.'
+        );
+    }
+
+    // 3. Get target user ID from the data passed in
+    const targetUserId = data.userId;
+    if (!targetUserId || typeof targetUserId !== 'string') {
+        throw new functions.https.HttpsError(
+            'invalid-argument',
+            'The function must be called with a "userId" string argument.'
+        );
+    }
+
+    // 4. Get VAPID keys
+    const vapidKeys = getVapidKeys();
+    if (!vapidKeys) {
+        functions.logger.error("VAPID keys are not configured. Cannot send test notification.");
+        return { success: false, error: "VAPID keys not set on server." };
+    }
+
+    webPush.setVapidDetails(
+      "mailto:example@your-project.com",
+      vapidKeys.publicKey,
+      vapidKeys.privateKey
+    );
+
+    // 5. Get subscriptions for the target user
+    const subscriptionsSnapshot = await db
+      .collection("users")
+      .doc(targetUserId)
+      .collection("pushSubscriptions")
+      .get();
+
+    if (subscriptionsSnapshot.empty) {
+      functions.logger.log(`User ${targetUserId} has no subscriptions.`);
+      return { success: true, message: "User has no push notification subscriptions." };
+    }
+
+    // 6. Send the notifications
+    const payload = JSON.stringify({
+        title: "Test Notification",
+        body: "This is a test notification from the admin panel.",
+        data: { url: `/` },
+    });
+
+    const sendPromises = subscriptionsSnapshot.docs.map((subDoc) => {
+      const subscription = subDoc.data();
+      return webPush.sendNotification(subscription, payload).catch((error) => {
+        functions.logger.error(`Error sending notification to user ${targetUserId}:`, error);
+        if (error.statusCode === 410 || error.statusCode === 404) {
+          functions.logger.log(`Deleting invalid subscription for user ${targetUserId}.`);
+          return subDoc.ref.delete();
+        }
+        return null;
+      });
+    });
+
+    await Promise.all(sendPromises);
+
+    functions.logger.log(`Successfully attempted to send test notification to user ${targetUserId}.`);
+    return { success: true };
+});
