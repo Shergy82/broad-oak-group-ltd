@@ -2,11 +2,21 @@
 
 This guide has been simplified to make it as easy as possible to get push notifications running. I've automated most of the setup.
 
-All you need to do is run a few commands from the terminal inside this IDE. Using the built-in terminal is important because it's already configured correctly. You can usually open it by selecting `Terminal > New Terminal` from the menu at the top of the screen.
+All you need to do is run a few commands from the **built-in terminal** inside this IDE. It's very important to use the correct terminal because it's already configured for you.
+
+### How to Open the Built-in Terminal
+
+1.  Look at the menu bar at the very top of the entire application window. You will see words like `File`, `Edit`, `View`, etc.
+2.  Click on the word **`Terminal`** in that top menu.
+3.  From the dropdown menu that appears, click on **`New Terminal`**.
+
+A new panel will open at the bottom of the screen. **This is the correct terminal to use for all the commands below.**
+
+---
 
 ## Step 1: Log In to Firebase
 
-This command connects your project to your Firebase account. It will open a browser window for you to log in. Run this in the terminal:
+This command connects your project to your Firebase account. It will open a browser window for you to log in. Run this in the built-in terminal:
 
 ```bash
 npx firebase login
@@ -24,11 +34,11 @@ VAPID keys are a secure key pair that allows your server to send messages.
     ```
     **Important:** You must restart your Next.js development server after saving this file.
 
-3.  **Securely Store Both Keys for the Server:** The **Private Key** is a secret and must not be saved in your code. Copy the full command provided by the key generator on the Admin page (it starts with `npx firebase functions:config:set...`) and run it in your terminal. This securely stores both keys for your Firebase Function.
+3.  **Securely Store Both Keys for the Server:** The **Private Key** is a secret and must not be saved in your code. Copy the full command provided by the key generator on the Admin page (it starts with `npx firebase functions:config:set...`) and run it in the built-in terminal. This securely stores both keys for your Firebase Function.
 
 ## Step 3: Deploy Your Function
 
-Finally, deploy the pre-built function to Firebase. This makes the server-side code live. Run this command from the **root directory** of your project in the terminal:
+Finally, deploy the pre-built function to Firebase. This makes the server-side code live. Run this command from the **root directory** of your project in the built-in terminal:
 
 ```bash
 npx firebase deploy --only functions
