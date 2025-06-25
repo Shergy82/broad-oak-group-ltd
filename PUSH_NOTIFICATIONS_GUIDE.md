@@ -34,7 +34,8 @@ VAPID keys are a secure key pair that allows your server to send messages.
     ```
     NEXT_PUBLIC_VAPID_PUBLIC_KEY="PASTE_YOUR_PUBLIC_KEY_HERE"
     ```
-    **Important:** You must restart your Next.js development server after saving this file.
+    **Important: How to Restart the Server**
+    After you save the `.env.local` file, you **must restart** the development server. Look at the top of the panel where your running app is displayed. You should see a **circular arrow icon** (the restart button). Click it to apply the changes.
 
 3.  **Securely Store Both Keys for the Server:** The **Private Key** is a secret and must not be saved in your code. Copy the full command provided by the key generator on the Admin page (it starts with `npx firebase functions:config:set...`) and run it in the built-in terminal.
 
