@@ -3,10 +3,11 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { KeyRound } from 'lucide-react';
+import { KeyRound, ClipboardCopy } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Spinner } from '@/components/shared/spinner';
 import { generateVapidKeysAction } from '@/app/admin/actions';
+import { Input } from '@/components/ui/input';
 
 export function VapidKeyGenerator() {
   const [keys, setKeys] = useState<{ publicKey: string; privateKey: string } | null>(null);
@@ -41,7 +42,7 @@ export function VapidKeyGenerator() {
         toast({
             variant: 'destructive',
             title: 'Copy Failed',
-            description: 'Could not copy to clipboard. Please copy the text manually.',
+            description: 'Could not copy to clipboard. Please select the text and copy it manually.',
         });
     });
   };
@@ -74,9 +75,12 @@ export function VapidKeyGenerator() {
               <p className="text-xs text-muted-foreground">
                 Copy the Public Key and add it to your <code>.env.local</code> file as <code>NEXT_PUBLIC_VAPID_PUBLIC_KEY</code>.
               </p>
-              <div className="flex gap-2 items-center rounded-md bg-background p-2 border">
-                <pre className="text-xs font-mono overflow-x-auto flex-grow">{keys.publicKey}</pre>
-                <Button variant="outline" size="sm" onClick={() => copyToClipboard(keys.publicKey, 'Public Key')}>Copy Key</Button>
+              <div className="flex w-full items-center gap-2">
+                <Input readOnly value={keys.publicKey} className="flex-1 font-mono text-xs" />
+                <Button variant="outline" size="sm" onClick={() => copyToClipboard(keys.publicKey, 'Public Key')}>
+                  <ClipboardCopy className="mr-2" />
+                  Copy
+                </Button>
               </div>
             </div>
 
@@ -85,9 +89,12 @@ export function VapidKeyGenerator() {
                <p className="text-xs text-muted-foreground">
                 The Private Key is a secret. Run the following Firebase CLI command in your terminal to store both keys securely for your server-side function.
               </p>
-              <div className="flex gap-2 items-center rounded-md bg-background p-2 border">
-                <pre className="text-xs font-mono overflow-x-auto flex-grow">{firebaseConfigCommand}</pre>
-                <Button variant="outline" size="sm" onClick={() => copyToClipboard(firebaseConfigCommand, 'Firebase CLI command')}>Copy Command</Button>
+              <div className="flex w-full items-center gap-2">
+                <Input readOnly value={firebaseConfigCommand} className="flex-1 font-mono text-xs" />
+                <Button variant="outline" size="sm" onClick={() => copyToClipboard(firebaseConfigCommand, 'Firebase CLI command')}>
+                  <ClipboardCopy className="mr-2" />
+                  Copy
+                </Button>
               </div>
             </div>
           </div>
