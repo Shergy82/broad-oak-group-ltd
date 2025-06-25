@@ -24,7 +24,17 @@ This command connects your project to your Firebase account. It will open a brow
 npx firebase login
 ```
 
-## Step 2: Generate and Configure Your VAPID Keys
+## Step 2: Link Your Project to Firebase
+
+This command links this code to your specific Firebase project. You only need to do this once.
+
+1.  Run the following command in the built-in terminal:
+    ```
+    npx firebase use --add
+    ```
+2.  You will be shown a list of your Firebase projects. Use the arrow keys on your keyboard to select the project you are using for this application, and then press Enter.
+
+## Step 3: Generate and Configure Your VAPID Keys
 
 VAPID keys are a secure key pair that allows your server to send messages.
 
@@ -39,7 +49,7 @@ VAPID keys are a secure key pair that allows your server to send messages.
 
 3.  **Securely Store Both Keys for the Server:** The **Private Key** is a secret and must not be saved in your code. Copy the full command provided by the key generator on the Admin page (it starts with `npx firebase functions:config:set...`) and run it in the built-in terminal.
 
-## Step 3: Deploy Your Function
+## Step 4: Deploy Your Function
 
 Finally, deploy the pre-built function to Firebase. This makes the server-side code live. Run this command from the **root directory** of your project in the built-in terminal.
 
