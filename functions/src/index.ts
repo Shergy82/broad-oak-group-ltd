@@ -21,6 +21,22 @@ const getVapidKeys = () => {
   };
 };
 
+// NEW: Callable function to expose the public key to the client
+export const getVapidPublicKey = functions
+  .region("europe-west2")
+  .https.onCall((data, context) => {
+    // No auth check needed, this key is public by nature.
+    const vapidKeys = getVapidKeys();
+    if (!vapidKeys) {
+      functions.logger.error("Could not retrieve VAPID public key because keys are not configured.");
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        "The VAPID keys are not configured on the server."
+      );
+    }
+    return { publicKey: vapidKeys.publicKey };
+  });
+
 export const sendShiftNotification = functions
   .region("europe-west2") // Specify the London region
   .firestore.document("shifts/{shiftId}")

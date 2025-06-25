@@ -5,8 +5,9 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
-import { db } from '@/lib/firebase';
+import { db, functions as functionsInstance } from '@/lib/firebase';
 import { collection, addDoc } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import { Bell, BellRing, BellOff } from 'lucide-react';
 import { Spinner } from './spinner';
 import {
@@ -15,20 +16,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
-import Link from 'next/link';
-
-// This is a VAPID public key. You should generate your own pair
-// and store the public key in your .env.local file.
-const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -47,43 +34,7 @@ export function NotificationButton() {
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isUnsupported, setIsUnsupported] = useState(false);
-
-  // If push notifications are not configured, show a clickable dialog.
-  if (!VAPID_PUBLIC_KEY) {
-    return (
-      <Dialog>
-        <DialogTrigger asChild>
-          <Button variant="outline" size="icon">
-            <BellOff className="h-4 w-4" />
-          </Button>
-        </DialogTrigger>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Push Notifications Not Configured</DialogTitle>
-            <DialogDescription>
-              <div className="space-y-4 pt-4">
-                 <p>To enable push notifications, a one-time setup is required by an administrator.</p>
-                <div className="rounded-lg border bg-muted/50 p-4">
-                  <h4 className="font-semibold text-foreground">If you have already generated keys:</h4>
-                  <ul className="list-disc pl-5 mt-2 text-sm space-y-1">
-                      <li>Make sure you have created a <strong>.env.local</strong> file in your project's root directory.</li>
-                      <li>Ensure the Public Key is saved in that file.</li>
-                      <li className="font-bold text-destructive">Crucially, you must restart the development server after saving the .env.local file.</li>
-                  </ul>
-                </div>
-                <p>If you have not generated the keys yet, please visit the Admin page to do so.</p>
-              </div>
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-             <Button asChild>
-              <Link href="/admin">Go to Admin Page</Link>
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    );
-  }
+  const [vapidPublicKey, setVapidPublicKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
@@ -92,9 +43,45 @@ export function NotificationButton() {
       return;
     }
 
+    const fetchVapidKey = async () => {
+      if (!functionsInstance) {
+        toast({ variant: 'destructive', title: 'Firebase Not Initialized' });
+        setIsLoading(false);
+        return;
+      }
+      try {
+        const getVapidPublicKeyCallable = httpsCallable(functionsInstance, 'getVapidPublicKey');
+        const result = await getVapidPublicKeyCallable();
+        const key = (result.data as { publicKey: string }).publicKey;
+        if (!key) {
+           throw new Error("VAPID public key was not returned from the server.");
+        }
+        setVapidPublicKey(key);
+      } catch (error: any) {
+        console.error("Failed to fetch VAPID public key:", error);
+        toast({
+            variant: 'destructive',
+            title: 'Push Notification Setup Error',
+            description: "Could not fetch configuration from the server. An admin may need to generate and set the VAPID keys.",
+            duration: 10000,
+        });
+        setVapidPublicKey(''); // Set to empty string to signify failure
+      }
+    };
+    
+    fetchVapidKey();
+  }, [toast]);
+  
+  useEffect(() => {
+    if (vapidPublicKey === null) return; // Key is still loading
+    
+    if (vapidPublicKey === '') { // Key fetching failed
+        setIsLoading(false);
+        return;
+    }
+
     const checkSubscription = async () => {
       try {
-        setIsLoading(true);
         const registration = await navigator.serviceWorker.ready;
         const subscription = await registration.pushManager.getSubscription();
         setIsSubscribed(!!subscription);
@@ -106,7 +93,7 @@ export function NotificationButton() {
     };
 
     checkSubscription();
-  }, []);
+  }, [vapidPublicKey]);
 
   const handleSubscribe = async () => {
     if (!user) {
@@ -114,9 +101,9 @@ export function NotificationButton() {
       return;
     }
 
-    if (!db) {
-        toast({ variant: 'destructive', title: 'Firebase not configured.' });
-        return;
+    if (!db || !vapidPublicKey) {
+      toast({ variant: 'destructive', title: 'Notifications are not configured correctly.' });
+      return;
     }
 
     setIsLoading(true);
@@ -145,10 +132,9 @@ export function NotificationButton() {
       
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY!),
+        applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
       });
 
-      // Save subscription to Firestore
       const subCollection = collection(db, 'users', user.uid, 'pushSubscriptions');
       await addDoc(subCollection, JSON.parse(JSON.stringify(subscription)));
 
@@ -167,7 +153,7 @@ export function NotificationButton() {
   };
 
   if (isUnsupported) {
-    return null; // Don't show the button if push is not supported by the browser
+    return null;
   }
 
   if (isLoading) {
@@ -176,6 +162,23 @@ export function NotificationButton() {
         <Spinner />
       </Button>
     );
+  }
+
+  if (!vapidPublicKey) {
+      return (
+        <TooltipProvider>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <Button variant="outline" size="icon" disabled>
+                        <BellOff className="h-4 w-4" />
+                    </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                    <p>Notifications are not configured on the server.</p>
+                </TooltipContent>
+            </Tooltip>
+        </TooltipProvider>
+      );
   }
 
   if (isSubscribed) {
