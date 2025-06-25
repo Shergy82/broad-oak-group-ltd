@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState } from 'react';
@@ -55,6 +56,7 @@ export function VapidKeyGenerator() {
   };
 
   const firebaseConfigCommand = keys ? `npx firebase functions:config:set webpush.public_key="${keys.publicKey}" webpush.private_key="${keys.privateKey}"` : '';
+  const envVarLine = keys ? `NEXT_PUBLIC_VAPID_PUBLIC_KEY="${keys.publicKey}"` : '';
 
   return (
     <Card>
@@ -80,13 +82,13 @@ export function VapidKeyGenerator() {
             <div className="space-y-2">
               <h4 className="font-semibold">Step 1: Configure the App</h4>
               <p className="text-xs text-muted-foreground">
-                Copy the Public Key and add it to your <code>.env.local</code> file as <code>NEXT_PUBLIC_VAPID_PUBLIC_KEY</code>.
+                Copy the full line below and paste it into your <code>.env.local</code> file. If the file doesn't exist, create it. <strong className="text-destructive">You must restart the server after saving this file.</strong>
               </p>
               <div className="flex w-full items-start gap-2">
                 <pre className="flex-1 font-mono text-xs bg-background p-3 rounded-md border overflow-x-auto whitespace-pre-wrap break-all">
-                  <code>{keys.publicKey}</code>
+                  <code>{envVarLine}</code>
                 </pre>
-                <Button variant="outline" size="sm" onClick={() => copyToClipboard(keys.publicKey, 'Public Key')} className="shrink-0">
+                <Button variant="outline" size="sm" onClick={() => copyToClipboard(envVarLine, 'Environment variable line')} className="shrink-0">
                   <ClipboardCopy className="mr-2" />
                   Copy
                 </Button>
