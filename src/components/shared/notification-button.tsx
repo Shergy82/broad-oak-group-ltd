@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -5,9 +6,10 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { db } from '@/lib/firebase';
-import { collection, addDoc, getDocs, query, where } from 'firebase/firestore';
+import { collection, addDoc } from 'firebase/firestore';
 import { Bell, BellRing, BellOff } from 'lucide-react';
 import { Spinner } from './spinner';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 // This is a VAPID public key. You should generate your own pair
 // and store the public key in your .env.local file.
@@ -31,9 +33,26 @@ export function NotificationButton() {
   const [isLoading, setIsLoading] = useState(true);
   const [isUnsupported, setIsUnsupported] = useState(false);
 
-  // If push notifications are not configured, don't render the button at all.
+  // If push notifications are not configured, show a disabled button with a tooltip.
   if (!VAPID_PUBLIC_KEY) {
-    return null;
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            {/* The span is needed because tooltips don't work on disabled buttons directly */}
+            <span tabIndex={0}>
+              <Button variant="outline" size="icon" disabled>
+                <BellOff className="h-4 w-4" />
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Notifications are not set up.</p>
+            <p>An admin must generate VAPID keys on the Admin page.</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
   }
 
   useEffect(() => {
@@ -44,11 +63,16 @@ export function NotificationButton() {
     }
 
     const checkSubscription = async () => {
-      setIsLoading(true);
-      const registration = await navigator.serviceWorker.ready;
-      const subscription = await registration.pushManager.getSubscription();
-      setIsSubscribed(!!subscription);
-      setIsLoading(false);
+      try {
+        setIsLoading(true);
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
+        setIsSubscribed(!!subscription);
+      } catch (error) {
+        console.error("Error checking push subscription:", error);
+      } finally {
+        setIsLoading(false);
+      }
     };
 
     checkSubscription();
@@ -60,6 +84,11 @@ export function NotificationButton() {
       return;
     }
 
+    if (!db) {
+        toast({ variant: 'destructive', title: 'Firebase not configured.' });
+        return;
+    }
+
     setIsLoading(true);
 
     const permission = await Notification.requestPermission();
@@ -67,7 +96,7 @@ export function NotificationButton() {
       toast({
         variant: 'destructive',
         title: 'Permission Denied',
-        description: 'You have blocked notifications.',
+        description: 'You have blocked notifications for this site.',
       });
       setIsLoading(false);
       return;
@@ -75,7 +104,15 @@ export function NotificationButton() {
 
     try {
       const registration = await navigator.serviceWorker.ready;
-      // The VAPID_PUBLIC_KEY is guaranteed to be a string here due to the check at the top of the component.
+      const existingSubscription = await registration.pushManager.getSubscription();
+
+      if (existingSubscription) {
+          setIsSubscribed(true);
+          toast({ title: 'Already Subscribed', description: 'You are already set up to receive notifications.' });
+          setIsLoading(false);
+          return;
+      }
+      
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY!),
@@ -92,7 +129,7 @@ export function NotificationButton() {
       toast({
         variant: 'destructive',
         title: 'Subscription Failed',
-        description: 'Could not subscribe to notifications. Please try again.',
+        description: 'Could not subscribe to notifications. Please try again or contact support.',
       });
     } finally {
       setIsLoading(false);
@@ -100,7 +137,7 @@ export function NotificationButton() {
   };
 
   if (isUnsupported) {
-    return null; // Don't show the button if push is not supported
+    return null; // Don't show the button if push is not supported by the browser
   }
 
   if (isLoading) {
@@ -113,15 +150,33 @@ export function NotificationButton() {
 
   if (isSubscribed) {
     return (
-      <Button variant="outline" size="icon" disabled>
-        <BellRing className="h-4 w-4" />
-      </Button>
+      <TooltipProvider>
+          <Tooltip>
+              <TooltipTrigger asChild>
+                  <Button variant="outline" size="icon" disabled>
+                      <BellRing className="h-4 w-4" />
+                  </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                  <p>You are subscribed to notifications.</p>
+              </TooltipContent>
+          </Tooltip>
+      </TooltipProvider>
     );
   }
 
   return (
-    <Button variant="outline" size="icon" onClick={handleSubscribe}>
-      <Bell className="h-4 w-4" />
-    </Button>
+    <TooltipProvider>
+        <Tooltip>
+            <TooltipTrigger asChild>
+                <Button variant="outline" size="icon" onClick={handleSubscribe}>
+                    <Bell className="h-4 w-4" />
+                </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+                <p>Subscribe to shift notifications.</p>
+            </TooltipContent>
+        </Tooltip>
+    </TooltipProvider>
   );
 }
