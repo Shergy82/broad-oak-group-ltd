@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -56,7 +57,13 @@ export function TestNotificationSender() {
       }
     } catch (error: any) {
       console.error('Error sending test notification:', error);
-      toast({ variant: 'destructive', title: 'Error', description: error.message || 'Failed to create test shift.' });
+      let errorMessage = 'Failed to create test shift.';
+      if (error.message && error.message.includes('PERMISSION_DENIED')) {
+          errorMessage = "Permission Denied. Your security rules are blocking this action. Please deploy the new rules by running `npx firebase deploy --only firestore` in the terminal.";
+      } else if (error.message) {
+          errorMessage = error.message;
+      }
+      toast({ variant: 'destructive', title: 'Error Creating Test Shift', description: errorMessage });
     } finally {
       setIsLoading(false);
     }
