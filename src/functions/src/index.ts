@@ -12,7 +12,7 @@ const vapidPrivateKey = functions.config().webpush.private_key;
 // Configure the web-push library with your VAPID keys
 if (vapidPublicKey && vapidPrivateKey) {
     webpush.setVapidDetails(
-      "mailto:your-email@example.com", // IMPORTANT: Replace with your actual contact email
+      "mailto:support@broadoakbuild.com",
       vapidPublicKey,
       vapidPrivateKey,
     );
