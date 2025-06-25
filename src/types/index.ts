@@ -24,3 +24,13 @@ export interface Project {
   address: string;
   bNumber: string;
 }
+
+export interface ProjectFile {
+  id: string;
+  name: string;
+  url: string;
+  path: string; // Full path in Firebase Storage for deletion
+  size: number;
+  type: string;
+  uploadedAt: Timestamp;
+}

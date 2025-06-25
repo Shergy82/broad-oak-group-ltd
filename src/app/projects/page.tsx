@@ -11,7 +11,8 @@ import { Spinner } from '@/components/shared/spinner';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { mockProjects } from '@/lib/mock-data';
-import { Building, FileText } from 'lucide-react';
+import { Building } from 'lucide-react';
+import { ProjectFiles } from '@/components/projects/project-files';
 
 export default function ProjectsPage() {
   const { user, isLoading: isAuthLoading } = useAuth();
@@ -109,11 +110,7 @@ export default function ProjectsPage() {
                       {project.bNumber && <CardDescription>B Number: {project.bNumber}</CardDescription>}
                     </CardHeader>
                     <CardContent>
-                      <h4 className="text-sm font-semibold mb-2">Attached Files</h4>
-                      <div className="text-center text-muted-foreground p-4 border-dashed border rounded-lg">
-                          <FileText className="mx-auto h-8 w-8 text-muted-foreground/50" />
-                          <p className="mt-2 text-sm">File attachments are coming soon.</p>
-                      </div>
+                      <ProjectFiles project={project} />
                     </CardContent>
                   </Card>
                 ))}
