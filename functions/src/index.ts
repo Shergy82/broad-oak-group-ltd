@@ -43,7 +43,7 @@ export const sendShiftNotification = functions.firestore
     const shiftId = context.params.shiftId;
     let userId: string | undefined;
     let payload: string | null = null;
-    let shiftData: functions.firestore.DocumentData | undefined;
+    let shiftData: admin.firestore.DocumentData | undefined;
 
     // Case 1: A new shift is created
     if (!change.before.exists && change.after.exists) {
@@ -55,6 +55,7 @@ export const sendShiftNotification = functions.firestore
                 payload = JSON.stringify({
                     title: "New Shift Assigned!",
                     body: `You have a new shift for '${shiftData.task}' at ${shiftData.address}.`,
+                    icon: "/icons/icon-192x192.png",
                 });
             }
         }
@@ -69,6 +70,7 @@ export const sendShiftNotification = functions.firestore
                 payload = JSON.stringify({
                     title: "Shift Updated!",
                     body: `Your shift for '${shiftData.task}' at ${shiftData.address} has been updated.`,
+                    icon: "/icons/icon-192x192.png",
                 });
             }
         }
@@ -83,6 +85,7 @@ export const sendShiftNotification = functions.firestore
                 payload = JSON.stringify({
                     title: "Shift Cancelled",
                     body: `Your shift for '${shiftData.task}' at ${shiftData.address} has been cancelled.`,
+                    icon: "/icons/icon-192x192.png",
                 });
             }
         }
