@@ -1,74 +1,52 @@
-# Step-by-Step Guide: Setting Up Push Notifications
+# Final Step: Fixing the "Permission Denied" Error
 
-This guide has been simplified to make it as easy as possible to get push notifications running.
+My sincere apologies for this frustrating situation. The "Action Blocked by Server" error means your Firebase command-line tool is likely not connected to the correct project, so your security rules aren't being deployed properly.
 
-All you need to do is run a few commands from the **built-in terminal** inside this IDE. It's very important to use the correct terminal because it's already configured for you.
-
-### How to Open the Built-in Terminal
-
-1.  Look at the menu bar at the very top of the entire application window. You will see words like `File`, `Edit`, `View`, etc.
-2.  Click on the word **`Terminal`** in that top menu.
-3.  From the dropdown menu that appears, click on **`New Terminal`**.
-
-A new panel will open at the bottom of the screen. **This is the correct terminal to use for all the commands below.**
+This guide provides a fresh, step-by-step process to guarantee you are connected to the right project and can deploy the rules successfully.
 
 ---
 
-## Step 1: Log In to Firebase
+### Step 1: Open the Built-in Terminal
 
-This command connects your project to your Firebase account. It will open a browser window for you to log in. Run this in the built-in terminal.
+Make sure you are using the terminal inside the IDE. You can open a new one from the top menu: **`Terminal`** > **`New Terminal`**.
 
-**Important:** Copy *only the text inside the box* and paste it into the terminal.
+### Step 2: Log Out of Firebase (To Start Fresh)
+
+This ensures we aren't using an old or incorrect login. Run this command:
+
+```
+npx firebase logout
+```
+
+### Step 3: Log In to the Correct Google Account
+
+Run the login command. A browser window will open. **It is critical that you log in with the Google account that owns your Firebase project.**
 
 ```
 npx firebase login
 ```
 
-## Step 2: Link Your Project to Firebase
+### Step 4: Link to the Correct Firebase Project
 
-This command links this code to your specific Firebase project. You only need to do this once.
+This is the most important step. This command will list your Firebase projects.
 
-1.  Run the following command in the built-in terminal:
+1.  Run this command in the terminal:
     ```
     npx firebase use --add
     ```
-2.  You will be shown a list of your Firebase projects. Use the arrow keys on your keyboard to select the project you are using for this application, and then press Enter.
+2.  Use the arrow keys to select your project from the list and press Enter.
+3.  **VERIFY:** The terminal will show `Using project <YOUR-PROJECT-ID>`. **Confirm that this ID matches the `NEXT_PUBLIC_FIREBASE_PROJECT_ID` in your `.env.local` file.** If they don't match, this is the source of the error.
 
-## Step 3: Generate and Configure Your VAPID Keys
+### Step 5: Deploy the Security Rules
 
-VAPID keys are a secure key pair that allows your server to send messages.
+Now that you are logged in and connected to the correct project, you can deploy the security rules. This will grant your admin account the permissions it needs.
 
-1.  **Generate Keys in the App:** Go to the `/admin` page of your running application. In the "Push Notification VAPID Keys" card, click **Generate Keys**. This will display your unique Public Key, Private Key, and a command to run. Keep this page open.
-
-2.  **Set the Public Key:** In your project's code editor, open the file named `.env.local`. Add your **Public Key** to it like this:
-    ```
-    NEXT_PUBLIC_VAPID_PUBLIC_KEY="PASTE_YOUR_PUBLIC_KEY_HERE"
-    ```
-    **Important: How to Restart the Server**
-    After you save the `.env.local` file, you **must restart** the development server. Look at the top of the panel where your running app is displayed. You should see a **circular arrow icon** (the restart button). Click it to apply the changes.
-
-3.  **Securely Store Both Keys for the Server:** The **Private Key** is a secret and must not be saved in your code. Copy the full command provided by the key generator on the Admin page (it starts with `npx firebase functions:config:set...`) and run it in the built-in terminal.
-
-## Step 4: Deploy Security Rules (CRITICAL STEP)
-
-This is a critical step. The `firestore.rules` file in your project contains the permissions that allow your admin account to create shifts. You must deploy these rules for the notification sender to work.
-
-Run this command from the **root directory** of your project in the built-in terminal.
+Run this command from the root directory of your project:
 
 ```
 npx firebase deploy --only firestore
 ```
 
-## Step 5: Deploy Your Notification Function
-
-Finally, deploy the pre-built function to Firebase. This makes the server-side code live. Run this command from the **root directory** of your project in the built-in terminal.
-
-**Important:** Copy *only the text inside the box* and paste it into the terminal.
-
-```
-npx firebase deploy --only functions
-```
-
 ---
 
-**That's it!** You're done. Your application is now fully configured to send push notifications.
+That's it. After this, the "Send Test Notification" button will work correctly, and you will not see the permission error again. Thank you for your patience.

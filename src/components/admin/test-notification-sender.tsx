@@ -57,12 +57,12 @@ export function TestNotificationSender() {
       let errorMessage = `An unexpected error occurred: ${result.error || 'Unknown error'}`;
       
       if (result.error && result.error.includes('PERMISSION_DENIED')) {
-        errorMessage = "Your server's security rules are blocking this request. This is a configuration issue, not a code error. To grant the necessary permissions, please run the following command from your project's root directory in the terminal: npx firebase deploy --only firestore";
+        errorMessage = "This final step requires deploying your security rules. Please open and follow the PUSH_NOTIFICATIONS_GUIDE.md file in your project's root directory to grant the necessary server permissions.";
       }
 
       toast({ 
         variant: 'destructive', 
-        title: 'Action Blocked by Server', 
+        title: 'Final Configuration Required', 
         description: errorMessage,
         duration: 20000 // Give user more time to read the command
       });
