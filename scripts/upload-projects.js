@@ -1,42 +1,42 @@
 /**
  * To run this script:
  * 1. Make sure you have downloaded your `serviceAccountKey.json` and placed it in this `scripts` folder.
- * 2. Organize your files in the `project_files_to_upload` directory (it will be created if it doesn't exist).
+ * 2. Place your project files in the `public/project_files` directory.
  *    - Create a subfolder for each project.
  *    - The folder name MUST be in the format: "Project Address /// Project B Number"
  *      (e.g., "123 Main Street, Anytown /// B-12345")
  *    - Place all files for that project inside its folder.
- * 3. Run the script from your project root:
+ * 3. IMPORTANT: You must DEPLOY your application for any new or changed files to be accessible.
+ * 4. After deploying, run this script from your project root to sync the file list with your database:
  *    node scripts/upload-projects.js
  *
- * This script will upload the files to Firebase Storage and create/update the corresponding
- * project and file entries in Firestore.
+ * This script will find your local files, create project entries in Firestore if they don't exist,
+ * and update the file list for each project. It does NOT upload files; it only syncs the database.
  */
 const admin = require('firebase-admin');
 const fs = require('fs').promises;
 const path = require('path');
-const mime = require('mime-types');
 
 // --- Configuration ---
 const serviceAccountPath = path.join(__dirname, 'serviceAccountKey.json');
-const uploadDirPath = path.join(__dirname, 'project_files_to_upload');
+// The source directory is now inside the 'public' folder.
+// Files here will be publicly accessible after deployment.
+const projectsDirPath = path.join(process.cwd(), 'public', 'project_files');
+const FOLDER_SEPARATOR = '///';
 
 // --- Initialization ---
 try {
   const serviceAccount = require(serviceAccountPath);
   admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-    storageBucket: `${serviceAccount.project_id}.appspot.com`
+    credential: admin.credential.cert(serviceAccount)
   });
 } catch (error) {
   console.error('Error: Could not initialize Firebase Admin SDK.');
   console.error('Please make sure your `serviceAccountKey.json` file exists in the `/scripts` directory.');
-  console.error('Also ensure you have set up and enabled Firebase Storage in your project.');
   process.exit(1);
 }
 
 const db = admin.firestore();
-const bucket = admin.storage().bucket();
 console.log('Firebase Admin SDK initialized successfully.');
 
 const projectsCache = new Map();
@@ -55,6 +55,14 @@ async function findOrCreateProject(address, bNumber) {
     if (!querySnapshot.empty) {
         projectId = querySnapshot.docs[0].id;
         console.log(`Found existing project: '${address}' (ID: ${projectId})`);
+        // Clear existing files for this project to ensure a clean sync
+        const filesSnapshot = await db.collection('projects').doc(projectId).collection('files').get();
+        if (!filesSnapshot.empty) {
+            const batch = db.batch();
+            filesSnapshot.docs.forEach(doc => batch.delete(doc.ref));
+            await batch.commit();
+            console.log(`  -> Cleared ${filesSnapshot.size} old file record(s) from Firestore.`);
+        }
     } else {
         const newProjectRef = await db.collection('projects').add({
             address: address,
@@ -68,35 +76,9 @@ async function findOrCreateProject(address, bNumber) {
     return projectId;
 }
 
-async function uploadFile(filePath, projectId) {
-    const fileName = path.basename(filePath);
-    const destination = `projects/${projectId}/${fileName}`;
-
-    console.log(`  -> Uploading '${fileName}' to Firebase Storage...`);
-    const [uploadedFile] = await bucket.upload(filePath, {
-        destination: destination,
-        metadata: {
-            contentType: mime.lookup(fileName) || 'application/octet-stream',
-        },
-        public: true, // Make the file public right away
-    });
-
-    const publicUrl = uploadedFile.publicUrl();
-    const [metadata] = await uploadedFile.getMetadata();
-
-    console.log(`  -> Upload successful. Public URL: ${publicUrl}`);
-    return {
-        name: fileName,
-        url: publicUrl,
-        size: parseInt(metadata.size, 10),
-        type: metadata.contentType,
-        uploadedAt: admin.firestore.FieldValue.serverTimestamp(),
-    };
-}
-
 async function processProjectFolder(projectFolderPath) {
     const folderName = path.basename(projectFolderPath);
-    const parts = folderName.split('///').map(p => p.trim());
+    const parts = folderName.split(FOLDER_SEPARATOR).map(p => p.trim());
 
     if (parts.length !== 2 || !parts[0] || !parts[1]) {
         console.warn(`Skipping folder with invalid name format: "${folderName}". Expected "Address /// B Number".`);
@@ -106,20 +88,29 @@ async function processProjectFolder(projectFolderPath) {
 
     try {
         const projectId = await findOrCreateProject(address, bNumber);
-        const files = await fs.readdir(projectFolderPath);
+        const filesInDir = await fs.readdir(projectFolderPath);
 
-        if (files.length === 0) {
+        if (filesInDir.length === 0) {
             console.log(`No files found in "${folderName}", skipping.`);
             return;
         }
 
-        for (const fileName of files) {
+        for (const fileName of filesInDir) {
             const filePath = path.join(projectFolderPath, fileName);
             const stats = await fs.stat(filePath);
             if (stats.isFile() && fileName !== '.DS_Store') { // Ignore system files
-                const fileData = await uploadFile(filePath, projectId);
+                // Construct a URL-safe relative path
+                const publicUrl = encodeURI(`/project_files/${folderName}/${fileName}`);
+
+                const fileData = {
+                    name: fileName,
+                    url: publicUrl,
+                    size: stats.size,
+                    uploadedAt: admin.firestore.FieldValue.serverTimestamp(),
+                };
+
                 await db.collection('projects').doc(projectId).collection('files').add(fileData);
-                console.log(`  -> Added file record '${fileName}' to Firestore.`);
+                console.log(`  -> Synced file record '${fileName}' to Firestore.`);
             }
         }
     } catch (error) {
@@ -128,33 +119,40 @@ async function processProjectFolder(projectFolderPath) {
 }
 
 
-async function startUpload() {
+async function startSync() {
   try {
-    // Create the directory if it doesn't exist.
+    // Check if the source directory exists.
     try {
-      await fs.access(uploadDirPath);
+      await fs.access(projectsDirPath);
     } catch {
-      console.log(`Upload directory not found. Creating it at: ${uploadDirPath}`);
-      await fs.mkdir(uploadDirPath, { recursive: true });
+      console.log(`Source directory not found. Creating it at: ${projectsDirPath}`);
+      console.log("Please add your project folders and files there, then redeploy the app before running this script again.");
+      await fs.mkdir(projectsDirPath, { recursive: true });
+      return; // Stop execution if the folder was just created.
     }
 
-    const projectFolders = await fs.readdir(uploadDirPath, { withFileTypes: true });
-    
-    console.log(`\nStarting upload from "${uploadDirPath}"...\n`);
+    const projectFolders = await fs.readdir(projectsDirPath, { withFileTypes: true });
+
+    console.log('\n-------------------------------------');
+    console.log(`Starting sync from local directory: "${path.relative(process.cwd(), projectsDirPath)}"`);
+    console.log('This script syncs your local file structure to the Firestore database.');
+    console.log('IMPORTANT: You must redeploy your app for any file changes to be live.');
+    console.log('-------------------------------------\n');
+
 
     if (projectFolders.length === 0) {
-      console.log('No project folders found in the upload directory. Please add project folders and files to continue.');
+      console.log('No project folders found in the sync directory. Please add project folders and files to continue.');
       return;
     }
 
     for (const dirent of projectFolders) {
       if (dirent.isDirectory()) {
-        await processProjectFolder(path.join(uploadDirPath, dirent.name));
+        await processProjectFolder(path.join(projectsDirPath, dirent.name));
       }
     }
 
     console.log('\n-------------------------------------');
-    console.log('Processing complete.');
+    console.log('Sync processing complete.');
     console.log('-------------------------------------\n');
 
   } catch (error) {
@@ -162,4 +160,4 @@ async function startUpload() {
   }
 }
 
-startUpload();
+startSync();
