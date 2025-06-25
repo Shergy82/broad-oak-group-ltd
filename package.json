@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 10000",
-    "genkit:dev": "genkit start --port 10001 --uiPort 10002 -- tsx src/ai/dev.ts",
-    "genkit:watch": "genkit start --port 10001 --uiPort 10002 -- tsx --watch src/ai/dev.ts",
+    "dev": "next dev -p 12000",
+    "genkit:dev": "genkit start --port 12001 --uiPort 12002 -- tsx src/ai/dev.ts",
+    "genkit:watch": "genkit start --port 12001 --uiPort 12002 -- tsx --watch src/ai/dev.ts",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
