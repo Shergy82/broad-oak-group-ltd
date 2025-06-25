@@ -57,14 +57,14 @@ export function TestNotificationSender() {
       let errorMessage = `An unexpected error occurred: ${result.error || 'Unknown error'}`;
       
       if (result.error && result.error.includes('PERMISSION_DENIED')) {
-        errorMessage = "This final step requires deploying your security rules. Please open and follow the PUSH_NOTIFICATIONS_GUIDE.md file in your project's root directory to grant the necessary server permissions.";
+        errorMessage = "The server blocked this action due to missing permissions. Please open the PUSH_NOTIFICATIONS_GUIDE.md file for the final, manual steps to fix this in the Firebase Console.";
       }
 
       toast({ 
         variant: 'destructive', 
-        title: 'Final Configuration Required', 
+        title: 'Action Blocked by Server', 
         description: errorMessage,
-        duration: 20000 // Give user more time to read the command
+        duration: 20000
       });
     }
   };
