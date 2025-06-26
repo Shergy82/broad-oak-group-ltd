@@ -56,7 +56,7 @@ export function VapidKeyGenerator() {
     }
   };
 
-  const firebaseConfigCommand = keys ? `npx firebase functions:config:set webpush.public_key="${keys.publicKey}" webpush.private_key="${keys.privateKey}"` : '';
+  const firebaseConfigCommand = keys ? `npx firebase functions:config:set WEBPUSH_PUBLIC_KEY="${keys.publicKey}" WEBPUSH_PRIVATE_KEY="${keys.privateKey}"` : '';
   const deployCommand = 'npx firebase deploy --only functions';
 
   return (
@@ -64,7 +64,7 @@ export function VapidKeyGenerator() {
       <CardHeader>
         <CardTitle>Push Notification VAPID Keys</CardTitle>
         <CardDescription>
-          Generate and configure the keys required for sending push notifications. You only need to do this once.
+          Generate and configure the keys required for sending push notifications. This is a one-time setup.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -80,7 +80,7 @@ export function VapidKeyGenerator() {
               <AlertDescription>
                 <p className="mb-2">Click the "Copy" button below to copy the complete command, then paste it into your terminal and press Enter. This stores your secret keys on the server.</p>
                 <div className="flex w-full items-start gap-2">
-                  <pre className="flex-1 font-mono text-xs bg-background p-3 rounded-md border overflow-x-auto whitespace-pre-wrap break-all">
+                  <pre className="flex-1 font-mono text-xs bg-muted p-3 rounded-md border overflow-x-auto whitespace-pre-wrap break-all">
                       <code>{firebaseConfigCommand}</code>
                   </pre>
                   <Button variant="outline" size="sm" onClick={() => copyToClipboard(firebaseConfigCommand, 'Firebase CLI command')} className="shrink-0">
@@ -95,9 +95,9 @@ export function VapidKeyGenerator() {
               <UploadCloud className="h-4 w-4" />
               <AlertTitle>Step 2: Deploy Your Functions</AlertTitle>
               <AlertDescription>
-                <p className="mb-2">After Step 1 is successful, copy and run this second command to deploy your backend code.</p>
+                <p className="mb-2">After Step 1 is successful, copy and run this second command to deploy your backend code with the new keys.</p>
                  <div className="flex w-full items-start gap-2">
-                    <pre className="flex-1 font-mono text-xs bg-background p-3 rounded-md border overflow-x-auto whitespace-pre-wrap break-all">
+                    <pre className="flex-1 font-mono text-xs bg-muted p-3 rounded-md border overflow-x-auto whitespace-pre-wrap break-all">
                         <code>{deployCommand}</code>
                     </pre>
                     <Button variant="outline" size="sm" onClick={() => copyToClipboard(deployCommand, 'Deploy command')} className="shrink-0">

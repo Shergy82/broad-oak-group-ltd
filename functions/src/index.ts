@@ -1,98 +1,88 @@
-
-import * as functions from "firebase-functions";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { onDocumentWritten } from "firebase-functions/v2/firestore";
+import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
 import * as webPush from "web-push";
+import { defineString } from "firebase-functions/params";
+
+// Define parameters for VAPID keys using the new recommended way.
+// The values are set in the Firebase console or via the CLI.
+const VAPID_PUBLIC_KEY = defineString("WEBPUSH_PUBLIC_KEY");
+const VAPID_PRIVATE_KEY = defineString("WEBPUSH_PRIVATE_KEY");
 
 admin.initializeApp();
-
 const db = admin.firestore();
-
-// Helper to safely get VAPID keys from the function's configuration
-const getVapidKeys = () => {
-  const config = functions.config();
-  // Check for the existence of the webpush object and its keys
-  if (!config.webpush || !config.webpush.public_key || !config.webpush.private_key) {
-    return null;
-  }
-  return {
-    publicKey: config.webpush.public_key,
-    privateKey: config.webpush.private_key,
-  };
-};
 
 /**
  * Provides the VAPID public key to the client application.
  * This is a public key and is safe to expose.
  */
-export const getVapidPublicKey = functions
-  .region("europe-west2")
-  .https.onCall((data, context) => {
-    const config = functions.config();
-    if (!config.webpush || !config.webpush.public_key) {
-      functions.logger.error("CRITICAL: VAPID public key not set in function configuration. The client cannot subscribe to push notifications.");
-      throw new functions.https.HttpsError('not-found', 'VAPID public key is not configured on the server.');
+export const getVapidPublicKey = onCall({ region: "europe-west2" }, (request) => {
+  const publicKey = VAPID_PUBLIC_KEY.value();
+  if (!publicKey) {
+    logger.error("CRITICAL: VAPID public key (WEBPUSH_PUBLIC_KEY) not set in function configuration.");
+    throw new HttpsError('not-found', 'VAPID public key is not configured on the server.');
+  }
+  
+  return { publicKey };
+});
+
+export const sendShiftNotification = onDocumentWritten(
+  {
+    document: "shifts/{shiftId}",
+    region: "europe-west2",
+  },
+  async (event) => {
+    const shiftId = event.params.shiftId;
+    logger.log(`Function triggered for shiftId: ${shiftId}`);
+
+    const publicKey = VAPID_PUBLIC_KEY.value();
+    const privateKey = VAPID_PRIVATE_KEY.value();
+
+    if (!publicKey || !privateKey) {
+      logger.error("CRITICAL: VAPID keys are not configured. Run the Firebase CLI command from the 'VAPID Key Generator' in the admin panel to set WEBPUSH_PUBLIC_KEY and WEBPUSH_PRIVATE_KEY.");
+      return;
     }
-    
-    return { publicKey: config.webpush.public_key };
-  });
 
-export const sendShiftNotification = functions
-  .region("europe-west2") // Specify the London region
-  .firestore.document("shifts/{shiftId}")
-  .onWrite(async (change, context) => {
-    const shiftId = context.params.shiftId;
-    functions.logger.log(`Function triggered for shiftId: ${shiftId}`);
-
-    const vapidKeys = getVapidKeys();
-    if (!vapidKeys) {
-      functions.logger.error("CRITICAL: VAPID keys are not configured in Firebase Functions environment. Push notifications cannot be sent. Run the Firebase CLI command from the 'VAPID Key Generator' in the admin panel.");
-      return null;
-    }
-
-    // Configure web-push with your VAPID keys
     webPush.setVapidDetails(
-      "mailto:example@your-project.com", // This can be a placeholder email
-      vapidKeys.publicKey,
-      vapidKeys.privateKey
+      "mailto:example@your-project.com",
+      publicKey,
+      privateKey
     );
 
-    const shiftDataAfter = change.after.exists ? change.after.data() as admin.firestore.DocumentData : null;
-    const shiftDataBefore = change.before.exists ? change.before.data() as admin.firestore.DocumentData : null;
-
+    const shiftDataBefore = event.data?.before.data();
+    const shiftDataAfter = event.data?.after.data();
+    
     let userId: string | null = null;
     let payload: object | null = null;
 
-    // Case 1: A new shift is created
-    if (!shiftDataBefore && shiftDataAfter) {
-      userId = shiftDataAfter.userId;
+    if (event.data?.after.exists && !event.data?.before.exists) {
+      // A new shift is created
+      userId = shiftDataAfter?.userId;
       payload = {
         title: "New Shift Assigned",
-        body: `You have a new shift: ${shiftDataAfter.task} at ${shiftDataAfter.address}.`,
-        data: { url: `/` }, // URL to open when notification is clicked
-      };
-    }
-    // Case 2: A shift is deleted
-    else if (shiftDataBefore && !shiftDataAfter) {
-      userId = shiftDataBefore.userId;
-      payload = {
-        title: "Shift Cancelled",
-        body: `Your shift for ${shiftDataBefore.task} at ${shiftDataBefore.address} has been cancelled.`,
+        body: `You have a new shift: ${shiftDataAfter?.task} at ${shiftDataAfter?.address}.`,
         data: { url: `/` },
       };
-    }
-    // Case 3: A shift is updated (optional, can be noisy)
-    else {
-        functions.logger.log(`Shift ${shiftId} was updated, no notification sent.`);
+    } else if (!event.data?.after.exists && event.data?.before.exists) {
+      // A shift is deleted
+      userId = shiftDataBefore?.userId;
+      payload = {
+        title: "Shift Cancelled",
+        body: `Your shift for ${shiftDataBefore?.task} at ${shiftDataBefore?.address} has been cancelled.`,
+        data: { url: `/` },
+      };
+    } else {
+      logger.log(`Shift ${shiftId} was updated, no notification sent.`);
     }
 
     if (!userId || !payload) {
-      functions.logger.log("No notification necessary for this event (e.g., an update).", {shiftId});
-      return null;
+      logger.log("No notification necessary for this event.", {shiftId});
+      return;
     }
 
-    functions.logger.log(`Preparing to send notification for userId: ${userId}`);
+    logger.log(`Preparing to send notification for userId: ${userId}`);
 
-    // Get all push subscriptions for the user
     const subscriptionsSnapshot = await db
       .collection("users")
       .doc(userId)
@@ -100,20 +90,18 @@ export const sendShiftNotification = functions
       .get();
 
     if (subscriptionsSnapshot.empty) {
-      functions.logger.warn(`User ${userId} has no push subscriptions. Cannot send notification. Did the user subscribe in the browser?`);
-      return null;
+      logger.warn(`User ${userId} has no push subscriptions. Cannot send notification.`);
+      return;
     }
 
-    functions.logger.log(`Found ${subscriptionsSnapshot.size} subscriptions for user ${userId}. Preparing to send.`);
+    logger.log(`Found ${subscriptionsSnapshot.size} subscriptions for user ${userId}.`);
 
     const sendPromises = subscriptionsSnapshot.docs.map((subDoc) => {
       const subscription = subDoc.data();
-      // The payload must be a string or buffer
-      return webPush.sendNotification(subscription, JSON.stringify(payload)).catch((error) => {
-        functions.logger.error(`Error sending notification to user ${userId}:`, error);
-        // If a subscription is no longer valid, delete it from Firestore
+      return webPush.sendNotification(subscription, JSON.stringify(payload)).catch((error: any) => {
+        logger.error(`Error sending notification to user ${userId}:`, error);
         if (error.statusCode === 410 || error.statusCode === 404) {
-          functions.logger.log(`Deleting invalid subscription for user ${userId}.`);
+          logger.log(`Deleting invalid subscription for user ${userId}.`);
           return subDoc.ref.delete();
         }
         return null;
@@ -121,6 +109,6 @@ export const sendShiftNotification = functions
     });
 
     await Promise.all(sendPromises);
-    functions.logger.log(`Finished sending notifications for shift ${shiftId}.`);
-    return null;
-  });
+    logger.log(`Finished sending notifications for shift ${shiftId}.`);
+  }
+);
