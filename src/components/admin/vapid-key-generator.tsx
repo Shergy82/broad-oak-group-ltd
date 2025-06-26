@@ -8,6 +8,7 @@ import { KeyRound, ClipboardCopy, Server, UploadCloud } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Spinner } from '@/components/shared/spinner';
 import { generateVapidKeysAction } from '@/app/admin/actions';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 export function VapidKeyGenerator() {
   const [keys, setKeys] = useState<{ publicKey: string; privateKey: string } | null>(null);
@@ -72,53 +73,40 @@ export function VapidKeyGenerator() {
             {isLoading ? <Spinner /> : <><KeyRound className="mr-2" /> Generate Keys</>}
           </Button>
         ) : (
-          <div className="space-y-6 rounded-lg border bg-muted/50 p-4">
-            <div className="space-y-2">
-              <h3 className="font-semibold text-lg">Keys Generated Successfully</h3>
-              <p className="text-sm text-muted-foreground">Follow these two steps to finish setup. If a copy button fails, manually select the text and press Ctrl+C (or Cmd+C).</p>
-            </div>
-            
-            <div className="space-y-2">
-              <div className="flex items-center gap-3">
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                  <Server className="h-5 w-5"/>
+          <div className="space-y-4">
+            <Alert>
+              <Server className="h-4 w-4" />
+              <AlertTitle>Step 1: Configure the Server</AlertTitle>
+              <AlertDescription>
+                <p className="mb-2">Click the "Copy" button below to copy the complete command, then paste it into your terminal and press Enter. This stores your secret keys on the server.</p>
+                <div className="flex w-full items-start gap-2">
+                  <pre className="flex-1 font-mono text-xs bg-background p-3 rounded-md border overflow-x-auto whitespace-pre-wrap break-all">
+                      <code>{firebaseConfigCommand}</code>
+                  </pre>
+                  <Button variant="outline" size="sm" onClick={() => copyToClipboard(firebaseConfigCommand, 'Firebase CLI command')} className="shrink-0">
+                    <ClipboardCopy className="mr-2" />
+                    Copy
+                  </Button>
                 </div>
-                <h4 className="font-semibold">Step 1: Configure the Server</h4>
-              </div>
-              <p className="text-xs text-muted-foreground pl-11">
-                The Private Key is a secret. Run the following Firebase CLI command in your terminal to store both keys securely for your server-side functions.
-              </p>
-              <div className="flex w-full items-start gap-2 pl-11">
-                <pre className="flex-1 font-mono text-xs bg-background p-3 rounded-md border overflow-x-auto whitespace-pre-wrap break-all">
-                    <code>{firebaseConfigCommand}</code>
-                </pre>
-                <Button variant="outline" size="sm" onClick={() => copyToClipboard(firebaseConfigCommand, 'Firebase CLI command')} className="shrink-0">
-                  <ClipboardCopy className="mr-2" />
-                  Copy
-                </Button>
-              </div>
-            </div>
+              </AlertDescription>
+            </Alert>
 
-            <div className="space-y-2">
-              <div className="flex items-center gap-3">
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                    <UploadCloud className="h-5 w-5"/>
-                </div>
-                <h4 className="font-semibold">Step 2: Deploy Your Functions</h4>
-              </div>
-               <p className="text-xs text-muted-foreground pl-11">
-                This command uploads your new functions (including the key provider) to the server. Run it in your terminal after completing Step 1.
-              </p>
-              <div className="flex w-full items-start gap-2 pl-11">
-                <pre className="flex-1 font-mono text-xs bg-background p-3 rounded-md border overflow-x-auto whitespace-pre-wrap break-all">
-                    <code>{deployCommand}</code>
-                </pre>
-                <Button variant="outline" size="sm" onClick={() => copyToClipboard(deployCommand, 'Deploy command')} className="shrink-0">
-                  <ClipboardCopy className="mr-2" />
-                  Copy
-                </Button>
-              </div>
-            </div>
+            <Alert>
+              <UploadCloud className="h-4 w-4" />
+              <AlertTitle>Step 2: Deploy Your Functions</AlertTitle>
+              <AlertDescription>
+                <p className="mb-2">After Step 1 is successful, copy and run this second command to deploy your backend code.</p>
+                 <div className="flex w-full items-start gap-2">
+                    <pre className="flex-1 font-mono text-xs bg-background p-3 rounded-md border overflow-x-auto whitespace-pre-wrap break-all">
+                        <code>{deployCommand}</code>
+                    </pre>
+                    <Button variant="outline" size="sm" onClick={() => copyToClipboard(deployCommand, 'Deploy command')} className="shrink-0">
+                      <ClipboardCopy className="mr-2" />
+                      Copy
+                    </Button>
+                  </div>
+              </AlertDescription>
+            </Alert>
              <p className="text-xs text-center text-muted-foreground pt-4">
                 After deploying, refresh the application. The notification bell in the header should become active.
             </p>
