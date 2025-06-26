@@ -1,3 +1,4 @@
+
 'use client';
 
 import Link from 'next/link';
@@ -9,6 +10,7 @@ import { useUserProfile } from '@/hooks/use-user-profile';
 import { Logo } from '../shared/logo';
 import { Button } from '@/components/ui/button';
 import { Briefcase, LogOut, Shield } from 'lucide-react';
+import { NotificationButton } from '../shared/notification-button';
 
 export function Header() {
   const { user } = useAuth();
@@ -30,6 +32,7 @@ export function Header() {
       <div className="flex w-full items-center justify-end gap-2 md:gap-4">
         {user && (
           <>
+            <NotificationButton />
             <Button variant="outline" asChild>
                 <Link href="/projects">
                   <Briefcase className="mr-0 h-4 w-4 md:mr-2" />
