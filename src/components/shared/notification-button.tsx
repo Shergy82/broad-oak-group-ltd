@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
-import { db } from '@/lib/firebase';
+import { db, functions } from '@/lib/firebase';
 import { collection, addDoc } from 'firebase/firestore';
 import { Bell, BellRing, BellOff } from 'lucide-react';
 import { Spinner } from './spinner';
@@ -15,6 +15,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { httpsCallable } from 'firebase/functions';
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -33,23 +34,60 @@ export function NotificationButton() {
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSupported, setIsSupported] = useState(false);
-  
-  // The VAPID key is now read directly from the environment variables.
-  const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+  const [vapidPublicKey, setVapidPublicKey] = useState<string | null>(null);
+  const [keyFetchError, setKeyFetchError] = useState<string | null>(null);
 
   useEffect(() => {
+    // 1. Check for browser support
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window) {
       setIsSupported(true);
-      navigator.serviceWorker.ready.then(registration => {
-        registration.pushManager.getSubscription().then(subscription => {
-          setIsSubscribed(!!subscription);
-          setIsLoading(false);
-        });
-      });
     } else {
       setIsLoading(false);
+      return;
     }
+
+    // 2. Fetch VAPID key from the backend function
+    const fetchKey = async () => {
+      if (!functions) {
+        setKeyFetchError('Firebase Functions client is not available.');
+        setIsLoading(false);
+        return;
+      }
+      try {
+        const getVapidPublicKey = httpsCallable(functions, 'getVapidPublicKey');
+        const result = await getVapidPublicKey();
+        const key = (result.data as { publicKey: string }).publicKey;
+        if (key) {
+          setVapidPublicKey(key);
+        } else {
+          throw new Error("Public key was not returned from the server.");
+        }
+      } catch (error) {
+        console.error('Could not fetch VAPID public key:', error);
+        setKeyFetchError('Could not fetch configuration from the server. Ensure keys are set and functions are deployed.');
+      }
+    };
+    
+    fetchKey();
   }, []);
+
+  useEffect(() => {
+    // 3. Check for existing subscription, but only after we have a key
+    if (!isSupported || !vapidPublicKey) {
+      // If key fetching is done (key is null but not undefined) and it failed, stop loading.
+      if (vapidPublicKey === null && keyFetchError) {
+          setIsLoading(false);
+      }
+      return;
+    }
+
+    navigator.serviceWorker.ready.then(registration => {
+      registration.pushManager.getSubscription().then(subscription => {
+        setIsSubscribed(!!subscription);
+        setIsLoading(false);
+      });
+    }).catch(() => setIsLoading(false));
+  }, [isSupported, vapidPublicKey, keyFetchError]);
 
   const handleSubscribe = async () => {
     if (!user) {
@@ -64,18 +102,18 @@ export function NotificationButton() {
 
     setIsLoading(true);
 
-    const permission = await Notification.requestPermission();
-    if (permission !== 'granted') {
-      toast({
-        variant: 'destructive',
-        title: 'Permission Denied',
-        description: 'You have blocked notifications for this site.',
-      });
-      setIsLoading(false);
-      return;
-    }
-
     try {
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') {
+          toast({
+            variant: 'destructive',
+            title: 'Permission Denied',
+            description: 'You have blocked notifications for this site.',
+          });
+          setIsLoading(false);
+          return;
+        }
+
       const registration = await navigator.serviceWorker.ready;
       const existingSubscription = await registration.pushManager.getSubscription();
 
@@ -107,76 +145,29 @@ export function NotificationButton() {
       setIsLoading(false);
     }
   };
-  
-  if (!isSupported) {
-      return (
-        <TooltipProvider>
-            <Tooltip>
-                <TooltipTrigger asChild>
-                    <Button variant="outline" size="icon" disabled>
-                        <BellOff className="h-4 w-4" />
-                    </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                    <p>Notifications not supported by this browser.</p>
-                </TooltipContent>
-            </Tooltip>
-        </TooltipProvider>
-      );
-  }
-  
-  if (!vapidPublicKey) {
-      return (
-        <TooltipProvider>
-            <Tooltip>
-                <TooltipTrigger asChild>
-                    <Button variant="outline" size="icon" disabled>
-                        <BellOff className="h-4 w-4" />
-                    </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                    <p>Notifications not configured. Please set the VAPID key in the Admin panel and restart the server.</p>
-                </TooltipContent>
-            </Tooltip>
-        </TooltipProvider>
-      );
-  }
 
-  if (isLoading) {
-    return (
-      <Button variant="outline" size="icon" disabled>
-        <Spinner />
-      </Button>
-    );
+  const getTooltipContent = () => {
+      if (!isSupported) return 'Notifications not supported by this browser.';
+      if (keyFetchError) return keyFetchError;
+      if (isSubscribed) return 'You are subscribed to notifications.';
+      return 'Subscribe to shift notifications.';
   }
   
-  if (isSubscribed) {
-    return (
-      <TooltipProvider>
-          <Tooltip>
-              <TooltipTrigger asChild>
-                  <Button variant="outline" size="icon" disabled>
-                      <BellRing className="h-4 w-4" />
-                  </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                  <p>You are subscribed to notifications.</p>
-              </TooltipContent>
-          </Tooltip>
-      </TooltipProvider>
-    );
-  }
+  constisDisabled = isLoading || !isSupported || !!keyFetchError || isSubscribed;
 
   return (
     <TooltipProvider>
         <Tooltip>
             <TooltipTrigger asChild>
-                <Button variant="outline" size="icon" onClick={handleSubscribe}>
-                    <Bell className="h-4 w-4" />
+                <Button variant="outline" size="icon" onClick={handleSubscribe} disabled={isDisabled}>
+                    {isLoading ? <Spinner /> : 
+                     isSubscribed ? <BellRing className="h-4 w-4" /> :
+                     (!isSupported || keyFetchError) ? <BellOff className="h-4 w-4" /> :
+                     <Bell className="h-4 w-4" />}
                 </Button>
             </TooltipTrigger>
             <TooltipContent>
-                <p>Subscribe to shift notifications.</p>
+                <p>{getTooltipContent()}</p>
             </TooltipContent>
         </Tooltip>
     </TooltipProvider>

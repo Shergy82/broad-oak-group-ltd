@@ -1,3 +1,4 @@
+
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import * as webPush from "web-push";
@@ -18,6 +19,22 @@ const getVapidKeys = () => {
     privateKey: config.webpush.private_key,
   };
 };
+
+/**
+ * Provides the VAPID public key to the client application.
+ * This is a public key and is safe to expose.
+ */
+export const getVapidPublicKey = functions
+  .region("europe-west2")
+  .https.onCall((data, context) => {
+    const config = functions.config();
+    if (!config.webpush || !config.webpush.public_key) {
+      functions.logger.error("CRITICAL: VAPID public key not set in function configuration. The client cannot subscribe to push notifications.");
+      throw new functions.https.HttpsError('not-found', 'VAPID public key is not configured on the server.');
+    }
+    
+    return { publicKey: config.webpush.public_key };
+  });
 
 export const sendShiftNotification = functions
   .region("europe-west2") // Specify the London region

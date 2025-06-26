@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { KeyRound, ClipboardCopy, AlertTriangle } from 'lucide-react';
+import { KeyRound, ClipboardCopy, Server, UploadCloud } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Spinner } from '@/components/shared/spinner';
 import { generateVapidKeysAction } from '@/app/admin/actions';
@@ -56,15 +56,14 @@ export function VapidKeyGenerator() {
   };
 
   const firebaseConfigCommand = keys ? `npx firebase functions:config:set webpush.public_key="${keys.publicKey}" webpush.private_key="${keys.privateKey}"` : '';
-  const envVarLine = keys ? `NEXT_PUBLIC_VAPID_PUBLIC_KEY="${keys.publicKey}"` : '';
+  const deployCommand = 'npx firebase deploy --only functions';
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Push Notification VAPID Keys</CardTitle>
         <CardDescription>
-          Generate the keys required for sending push notifications. You only need to do this once.
-          After generating, follow the steps in the <code>PUSH_NOTIFICATIONS_GUIDE.md</code> file to complete the setup.
+          Generate and configure the keys required for sending push notifications. You only need to do this once.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -76,40 +75,20 @@ export function VapidKeyGenerator() {
           <div className="space-y-6 rounded-lg border bg-muted/50 p-4">
             <div className="space-y-2">
               <h3 className="font-semibold text-lg">Keys Generated Successfully</h3>
-              <p className="text-sm text-muted-foreground">Follow these steps to configure your app and server. If a copy button fails, manually select the text below and press Ctrl+C (or Cmd+C).</p>
+              <p className="text-sm text-muted-foreground">Follow these two steps to finish setup. If a copy button fails, manually select the text and press Ctrl+C (or Cmd+C).</p>
             </div>
             
             <div className="space-y-2">
-              <h4 className="font-semibold">Step 1: Configure the App</h4>
-              <div className="text-xs text-muted-foreground space-y-2 rounded-md border border-yellow-300 bg-yellow-50 dark:bg-yellow-900/20 p-3">
-                <div className="flex items-start gap-2 text-yellow-800 dark:text-yellow-200">
-                    <AlertTriangle className="h-4 w-4 mt-0.5" />
-                    <div>
-                        <p className="font-bold">CRITICAL: You MUST restart the development server after completing this step.</p>
-                        <p className="mt-1">The application will not see the new key until you stop and restart the server.</p>
-                    </div>
+              <div className="flex items-center gap-3">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                  <Server className="h-5 w-5"/>
                 </div>
+                <h4 className="font-semibold">Step 1: Configure the Server</h4>
               </div>
-              <p className="text-xs text-muted-foreground pt-2">
-                Copy the full line below and paste it into your <code>.env.local</code> file. If the file doesn't exist, create it in the project's root directory.
+              <p className="text-xs text-muted-foreground pl-11">
+                The Private Key is a secret. Run the following Firebase CLI command in your terminal to store both keys securely for your server-side functions.
               </p>
-              <div className="flex w-full items-start gap-2">
-                <pre className="flex-1 font-mono text-xs bg-background p-3 rounded-md border overflow-x-auto whitespace-pre-wrap break-all">
-                  <code>{envVarLine}</code>
-                </pre>
-                <Button variant="outline" size="sm" onClick={() => copyToClipboard(envVarLine, 'Environment variable line')} className="shrink-0">
-                  <ClipboardCopy className="mr-2" />
-                  Copy
-                </Button>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <h4 className="font-semibold">Step 2: Configure the Server</h4>
-               <p className="text-xs text-muted-foreground">
-                The Private Key is a secret. Run the following Firebase CLI command in your terminal to store both keys securely for your server-side function.
-              </p>
-              <div className="flex w-full items-start gap-2">
+              <div className="flex w-full items-start gap-2 pl-11">
                 <pre className="flex-1 font-mono text-xs bg-background p-3 rounded-md border overflow-x-auto whitespace-pre-wrap break-all">
                     <code>{firebaseConfigCommand}</code>
                 </pre>
@@ -119,6 +98,30 @@ export function VapidKeyGenerator() {
                 </Button>
               </div>
             </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center gap-3">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                    <UploadCloud className="h-5 w-5"/>
+                </div>
+                <h4 className="font-semibold">Step 2: Deploy Your Functions</h4>
+              </div>
+               <p className="text-xs text-muted-foreground pl-11">
+                This command uploads your new functions (including the key provider) to the server. Run it in your terminal after completing Step 1.
+              </p>
+              <div className="flex w-full items-start gap-2 pl-11">
+                <pre className="flex-1 font-mono text-xs bg-background p-3 rounded-md border overflow-x-auto whitespace-pre-wrap break-all">
+                    <code>{deployCommand}</code>
+                </pre>
+                <Button variant="outline" size="sm" onClick={() => copyToClipboard(deployCommand, 'Deploy command')} className="shrink-0">
+                  <ClipboardCopy className="mr-2" />
+                  Copy
+                </Button>
+              </div>
+            </div>
+             <p className="text-xs text-center text-muted-foreground pt-4">
+                After deploying, refresh the application. The notification bell in the header should become active.
+            </p>
           </div>
         )}
       </CardContent>
