@@ -17,6 +17,15 @@ const nextConfig = {
       },
     ],
   },
+  webpack: (config) => {
+    if (!config.watchOptions) {
+      config.watchOptions = {};
+    }
+    const existingIgnored = config.watchOptions.ignored || [];
+    const ignoredAsArray = Array.isArray(existingIgnored) ? existingIgnored : [existingIgnored];
+    config.watchOptions.ignored = [...ignoredAsArray, '**/functions/**'];
+    return config;
+  },
 };
 
 module.exports = nextConfig;
