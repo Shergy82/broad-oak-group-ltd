@@ -5,9 +5,8 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
-import { db, functions } from '@/lib/firebase';
+import { db } from '@/lib/firebase';
 import { collection, addDoc } from 'firebase/firestore';
-import { httpsCallable } from 'firebase/functions';
 import { Bell, BellRing, BellOff } from 'lucide-react';
 import { Spinner } from './spinner';
 import {
@@ -33,52 +32,23 @@ export function NotificationButton() {
   const { toast } = useToast();
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [vapidPublicKey, setVapidPublicKey] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [isSupported, setIsSupported] = useState(false);
+  
+  // The VAPID key is now read directly from the environment variables.
+  const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
-      setError("Notifications not supported by this browser.");
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window) {
+      setIsSupported(true);
+      navigator.serviceWorker.ready.then(registration => {
+        registration.pushManager.getSubscription().then(subscription => {
+          setIsSubscribed(!!subscription);
+          setIsLoading(false);
+        });
+      });
+    } else {
       setIsLoading(false);
-      return;
     }
-    
-    if (!functions) {
-        setError("Firebase not configured.");
-        setIsLoading(false);
-        return;
-    }
-
-    const initialize = async () => {
-        try {
-            // Fetch the public key from the backend
-            const getVapidPublicKey = httpsCallable(functions, 'getVapidPublicKey');
-            const result = await getVapidPublicKey();
-            const key = (result.data as { publicKey: string }).publicKey;
-
-            if (!key) {
-              throw new Error("VAPID public key not returned from server.");
-            }
-            
-            setVapidPublicKey(key);
-
-            // Check existing subscription
-            const registration = await navigator.serviceWorker.ready;
-            const subscription = await registration.pushManager.getSubscription();
-            setIsSubscribed(!!subscription);
-        } catch (e: any) {
-            console.error("Failed to initialize push notifications:", e);
-            if (e.code === 'not-found') {
-              setError("Notifications not configured. Admin must generate and set VAPID keys.");
-            } else {
-              setError("Could not connect to notification service.");
-            }
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    initialize();
   }, []);
 
   const handleSubscribe = async () => {
@@ -137,16 +107,8 @@ export function NotificationButton() {
       setIsLoading(false);
     }
   };
-
-  if (isLoading) {
-    return (
-      <Button variant="outline" size="icon" disabled>
-        <Spinner />
-      </Button>
-    );
-  }
   
-  if (error || !vapidPublicKey) {
+  if (!isSupported) {
       return (
         <TooltipProvider>
             <Tooltip>
@@ -156,13 +118,38 @@ export function NotificationButton() {
                     </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                    <p>{error || "Notifications are unavailable."}</p>
+                    <p>Notifications not supported by this browser.</p>
+                </TooltipContent>
+            </Tooltip>
+        </TooltipProvider>
+      );
+  }
+  
+  if (!vapidPublicKey) {
+      return (
+        <TooltipProvider>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <Button variant="outline" size="icon" disabled>
+                        <BellOff className="h-4 w-4" />
+                    </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                    <p>Notifications not configured. Please set the VAPID key in the Admin panel and restart the server.</p>
                 </TooltipContent>
             </Tooltip>
         </TooltipProvider>
       );
   }
 
+  if (isLoading) {
+    return (
+      <Button variant="outline" size="icon" disabled>
+        <Spinner />
+      </Button>
+    );
+  }
+  
   if (isSubscribed) {
     return (
       <TooltipProvider>

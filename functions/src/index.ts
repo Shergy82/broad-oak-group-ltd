@@ -19,17 +19,6 @@ const getVapidKeys = () => {
   };
 };
 
-export const getVapidPublicKey = functions
-  .region("europe-west2")
-  .https.onCall(() => {
-    const config = functions.config();
-    if (!config.webpush || !config.webpush.public_key) {
-      functions.logger.error("VAPID public key is not configured in Firebase Functions environment.");
-      throw new functions.https.HttpsError('not-found', 'VAPID public key not configured.');
-    }
-    return { publicKey: config.webpush.public_key };
-  });
-
 export const sendShiftNotification = functions
   .region("europe-west2") // Specify the London region
   .firestore.document("shifts/{shiftId}")
