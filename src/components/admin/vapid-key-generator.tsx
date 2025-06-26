@@ -70,14 +70,14 @@ export function VapidKeyGenerator() {
               <Terminal className="h-4 w-4" />
               <AlertTitle>Action Required: One-Time Setup</AlertTitle>
               <AlertDescription>
-                You must complete both steps below for notifications to work. After setting the keys, deploy your functions by running `npx firebase deploy --only functions` in your terminal. For more details, see the `PUSH_NOTIFICATIONS_GUIDE.md` file.
+                You must complete both steps below for notifications to work. For more details, see the `PUSH_NOTIFICATIONS_GUIDE.md` file.
               </AlertDescription>
             </Alert>
             
             <div className="space-y-4 p-4 border rounded-lg">
                 <h3 className="font-semibold text-lg">Step 1: Set Server Keys</h3>
                 <p className="text-sm text-muted-foreground">
-                    Copy this command and run it in your terminal. This securely saves your keys on the Firebase server where your cloud function can access them.
+                    Run this command in your terminal. This securely saves your keys on the Firebase server so your backend function can use them.
                 </p>
                 <div className="flex gap-2">
                     <Input id="cli-command" readOnly value={cliCommand} className="font-mono text-xs" />
@@ -90,7 +90,7 @@ export function VapidKeyGenerator() {
             <div className="space-y-4 p-4 border rounded-lg">
                 <h3 className="font-semibold text-lg">Step 2: Configure Client App</h3>
                  <p className="text-sm text-muted-foreground">
-                    Create a file named <code className="bg-muted px-1 py-0.5 rounded">.env.local</code> in the root of your project (if it doesn't exist) and add the following line to it. Then, restart your dev server.
+                    Create a file named <code className="bg-muted px-1 py-0.5 rounded">.env.local</code> in your project's root folder and add this line to it. Then, restart your dev server.
                 </p>
                 <div className="flex gap-2">
                     <Input id="env-var" readOnly value={envContent} className="font-mono text-xs"/>
