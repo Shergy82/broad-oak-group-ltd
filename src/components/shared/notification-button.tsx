@@ -153,7 +153,7 @@ export function NotificationButton() {
       return 'Subscribe to shift notifications.';
   }
   
-  constisDisabled = isLoading || !isSupported || !!keyFetchError || isSubscribed;
+  const isDisabled = isLoading || !isSupported || !!keyFetchError || isSubscribed;
 
   return (
     <TooltipProvider>
