@@ -4,6 +4,7 @@ import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
 import * as webPush from "web-push";
+import * as crypto from "crypto";
 import { defineString } from "firebase-functions/params";
 
 // Define parameters for VAPID keys using the new recommended way.
@@ -40,13 +41,19 @@ export const generateVapidKeys = onCall({ region: "europe-west2" }, (request) =>
   }
 
   try {
-    const vapidKeys = webPush.generateVAPIDKeys();
+    // Use Node's built-in crypto module for robust key generation
+    const ecdh = crypto.createECDH("prime256v1");
+    ecdh.generateKeys();
+    
+    const publicKey = ecdh.getPublicKey("base64");
+    const privateKey = ecdh.getPrivateKey("base64");
+
     return {
-      publicKey: vapidKeys.publicKey,
-      privateKey: vapidKeys.privateKey,
+      publicKey: publicKey,
+      privateKey: privateKey,
     };
   } catch (error) {
-    logger.error("Failed to generate VAPID keys:", error);
+    logger.error("Failed to generate VAPID keys using crypto module:", error);
     throw new HttpsError("internal", "An unexpected error occurred while generating VAPID keys.");
   }
 });
