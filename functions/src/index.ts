@@ -15,24 +15,6 @@ admin.initializeApp();
 const db = admin.firestore();
 
 /**
- * Called by the admin panel to generate a new pair of VAPID keys.
- * This is a helper for the one-time setup process.
- */
-export const generateVapidKeys = onCall({ region: "europe-west2" }, (request) => {
-  // This function does not require authentication
-  try {
-    const vapidKeys = webPush.generateVAPIDKeys();
-    return vapidKeys;
-  } catch (error) {
-    logger.error("Error generating VAPID keys:", error);
-    throw new HttpsError(
-      "internal",
-      "Failed to generate VAPID keys on the server."
-    );
-  }
-});
-
-/**
  * Provides the VAPID public key to the client application so it can subscribe.
  * This is a public key and is safe to expose.
  */
