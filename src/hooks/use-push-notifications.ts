@@ -40,12 +40,16 @@ export function usePushNotifications() {
         const getVapidPublicKey = httpsCallable<{ }, { publicKey: string }>(functions, 'getVapidPublicKey');
         const result = await getVapidPublicKey();
         setVapidKey(result.data.publicKey);
-      } catch (error) {
+      } catch (error: any) {
         console.error('Could not get VAPID public key from server:', error);
+        let description = 'Could not connect to the push notification service. Please try again later.';
+        if (error.code === 'functions/not-found') {
+          description = 'The backend notification service is not deployed. Please check the deployment status in your Firebase Console.';
+        }
         toast({
             variant: 'destructive',
             title: 'Notification Service Unavailable',
-            description: 'Could not connect to the push notification service. Please try again later.',
+            description: description,
         })
       }
     }

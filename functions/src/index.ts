@@ -18,7 +18,7 @@ const db = admin.firestore();
  * Provides the VAPID public key to the client application.
  * This is a public key and is safe to expose.
  */
-export const getVapidPublicKey = onCall({ region: "europe-west2" }, (request) => {
+export const getVapidPublicKey = onCall({ region: "europe-west2", cors: true }, (request) => {
   const publicKey = VAPID_PUBLIC_KEY.value();
   if (!publicKey) {
     logger.error("CRITICAL: VAPID public key (webpush_public_key) not set in function configuration.");
