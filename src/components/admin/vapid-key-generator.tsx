@@ -62,7 +62,7 @@ export function VapidKeyGenerator() {
     if (status === 'unconfigured') {
       const pk = `YOUR_PUBLIC_KEY`;
       const sk = `YOUR_PRIVATE_KEY`;
-      setCliCommand(`firebase functions:params:set webpush_public_key='${pk}' webpush_private_key='${sk}'`);
+      setCliCommand(`firebase functions:config:set webpush.public_key='${pk}' webpush.private_key='${sk}'`);
     }
   }, [status]);
 
@@ -76,7 +76,7 @@ export function VapidKeyGenerator() {
       <CardHeader>
         <CardTitle>VAPID Key Status</CardTitle>
         <CardDescription>
-          Push notifications require VAPID keys to be configured as environment parameters for the backend.
+          Push notifications require VAPID keys to be configured as environment variables for the backend.
         </CardDescription>
       </CardHeader>
       <CardContent>
