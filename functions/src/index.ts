@@ -47,7 +47,7 @@ export const getVapidPublicKey = onCall({ region: "europe-west2" }, (request) =>
 });
 
 /**
- * Firestore trigger that sends a push notification when a shift is created or deleted.
+ * Firestore trigger that sends a push notification when a shift is created, updated, or deleted.
  */
 export const sendShiftNotification = onDocumentWritten(
   {
@@ -78,24 +78,44 @@ export const sendShiftNotification = onDocumentWritten(
     let userId: string | null = null;
     let payload: object | null = null;
 
+    // Case 1: A new shift is created
     if (event.data?.after.exists && !event.data?.before.exists) {
-      // A new shift is created
       userId = shiftDataAfter?.userId;
       payload = {
         title: "New Shift Assigned",
         body: `You have a new shift: ${shiftDataAfter?.task} at ${shiftDataAfter?.address}.`,
         data: { url: `/` },
       };
-    } else if (!event.data?.after.exists && event.data?.before.exists) {
-      // A shift is deleted
+      logger.log(`Shift ${shiftId} created.`, { userId, payload });
+    } 
+    // Case 2: A shift is deleted
+    else if (!event.data?.after.exists && event.data?.before.exists) {
       userId = shiftDataBefore?.userId;
       payload = {
         title: "Shift Cancelled",
         body: `Your shift for ${shiftDataBefore?.task} at ${shiftDataBefore?.address} has been cancelled.`,
         data: { url: `/` },
       };
-    } else {
-      logger.log(`Shift ${shiftId} was updated, no notification sent.`);
+       logger.log(`Shift ${shiftId} deleted.`, { userId, payload });
+    } 
+    // Case 3: A shift is updated
+    else if (shiftDataBefore && shiftDataAfter) {
+      const taskChanged = shiftDataBefore.task !== shiftDataAfter.task;
+      const addressChanged = shiftDataBefore.address !== shiftDataAfter.address;
+      const dateChanged = !shiftDataBefore.date.isEqual(shiftDataAfter.date);
+      const typeChanged = shiftDataBefore.type !== shiftDataAfter.type;
+
+      if (taskChanged || addressChanged || dateChanged || typeChanged) {
+        userId = shiftDataAfter.userId;
+        payload = {
+          title: "Shift Updated",
+          body: `Your shift for ${shiftDataAfter.task} at ${shiftDataAfter.address} has been updated.`,
+          data: { url: `/` },
+        };
+        logger.log(`Shift ${shiftId} updated with relevant changes.`, { userId, payload });
+      } else {
+         logger.log(`Shift ${shiftId} was updated, but no relevant details changed. No notification sent.`);
+      }
     }
 
     if (!userId || !payload) {
@@ -122,6 +142,7 @@ export const sendShiftNotification = onDocumentWritten(
       const subscription = subDoc.data();
       return webPush.sendNotification(subscription, JSON.stringify(payload)).catch((error: any) => {
         logger.error(`Error sending notification to user ${userId}:`, error);
+        // If a subscription is expired or invalid, delete it from Firestore
         if (error.statusCode === 410 || error.statusCode === 404) {
           logger.log(`Deleting invalid subscription for user ${userId}.`);
           return subDoc.ref.delete();
