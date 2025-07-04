@@ -1,42 +1,45 @@
 
-// This is the service worker file for handling push notifications.
+// public/service-worker.js
 
-self.addEventListener('push', (event) => {
-  if (!event.data) {
-    console.error('Push event but no data');
-    return;
-  }
-  
-  const data = event.data.json();
-  const title = data.title || 'New Notification';
-  const options = {
-    body: data.body,
-    icon: '/icon-192x192.png', // A default icon for the notification
-    badge: '/badge-72x72.png', // A badge for the notification bar
-    data: data.data, // Custom data to handle clicks
-  };
-
-  event.waitUntil(self.registration.showNotification(title, options));
+self.addEventListener('install', () => {
+  // Activate the new service worker as soon as it's installed.
+  self.skipWaiting();
 });
 
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close(); // Close the notification
+self.addEventListener('push', function (event) {
+  if (!event.data) {
+    console.log('Push event but no data');
+    return;
+  }
+  const data = event.data.json();
+  const options = {
+    body: data.body,
+    // Using a generic icon path. For a real app, ensure these files exist in /public
+    icon: '/favicon.ico', 
+    data: {
+      url: data.data.url || '/',
+    },
+  };
+  event.waitUntil(self.registration.showNotification(data.title, options));
+});
 
-  const urlToOpen = event.notification.data?.url || '/';
+self.addEventListener('notificationclick', function (event) {
+  event.notification.close();
 
-  // This opens the app to the specified URL or the root if none is specified.
+  const urlToOpen = event.notification.data.url;
+
+  // This focuses an existing tab if it's already open, or opens a new one.
   event.waitUntil(
     clients.matchAll({
       type: 'window',
       includeUncontrolled: true,
-    }).then((clientList) => {
-      // If a window for the app is already open, focus it.
-      for (const client of clientList) {
+    }).then((windowClients) => {
+      for (var i = 0; i < windowClients.length; i++) {
+        var client = windowClients[i];
         if (client.url === urlToOpen && 'focus' in client) {
           return client.focus();
         }
       }
-      // Otherwise, open a new window.
       if (clients.openWindow) {
         return clients.openWindow(urlToOpen);
       }
