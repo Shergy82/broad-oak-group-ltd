@@ -29,7 +29,7 @@ export function VapidKeyGenerator() {
         setPublicKey(result.data.publicKey);
         setError(null);
       } catch (err: any) {
-        if (err.code === 'not-found') {
+        if (err.code === 'failed-precondition') {
           setError("VAPID keys are not configured on the server. Follow the steps below.");
           setPublicKey(null);
         } else {
@@ -43,7 +43,7 @@ export function VapidKeyGenerator() {
     fetchKey();
   }, []);
 
-  const cliCommand = "firebase functions:params:set webpush_public_key='YOUR_PUBLIC_KEY' webpush_private_key='YOUR_PRIVATE_KEY'";
+  const cliCommand = "firebase functions:config:set webpush.public_key='YOUR_PUBLIC_KEY' webpush.private_key='YOUR_PRIVATE_KEY'";
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(cliCommand);
@@ -85,7 +85,7 @@ export function VapidKeyGenerator() {
                 </AlertDescription>
             </Alert>
             <div className="space-y-2 text-sm">
-                <p>To enable push notifications, you must generate VAPID keys and set them as environment parameters for your Cloud Functions.</p>
+                <p>To enable push notifications, you must generate VAPID keys and set them as environment configuration for your Cloud Functions.</p>
                 <ol className="list-decimal list-inside space-y-2 pl-2">
                     <li>Open a terminal and run this command: <br/><code className="text-xs bg-muted p-1 rounded">npm install -g web-push</code></li>
                     <li>Next, run this command to generate your keys: <br/><code className="text-xs bg-muted p-1 rounded">web-push generate-vapid-keys</code></li>
