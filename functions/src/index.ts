@@ -29,6 +29,29 @@ export const getVapidPublicKey = onCall({ region: "europe-west2" }, (request) =>
 });
 
 /**
+ * Generates a new pair of VAPID keys for push notifications.
+ * This is an administrative function to be called from the admin panel.
+ */
+export const generateVapidKeys = onCall({ region: "europe-west2" }, (request) => {
+  // We check for auth to ensure only logged-in users can call this.
+  // A production app should check for an admin role here.
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be authenticated to generate VAPID keys.");
+  }
+
+  try {
+    const vapidKeys = webPush.generateVAPIDKeys();
+    return {
+      publicKey: vapidKeys.publicKey,
+      privateKey: vapidKeys.privateKey,
+    };
+  } catch (error) {
+    logger.error("Failed to generate VAPID keys:", error);
+    throw new HttpsError("internal", "An unexpected error occurred while generating VAPID keys.");
+  }
+});
+
+/**
  * Firestore trigger that sends a push notification when a shift is created, updated, or deleted.
  */
 export const sendShiftNotification = onDocumentWritten(
