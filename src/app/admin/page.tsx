@@ -5,18 +5,20 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { FileUploader } from '@/components/admin/file-uploader';
 import { ShiftScheduleOverview } from '@/components/admin/shift-schedule-overview';
 import { ProjectManager } from '@/components/admin/project-manager';
-import { VapidKeyGenerator } from '@/components/admin/vapid-key-generator';
-import { TestNotificationSender } from '@/components/admin/test-notification-sender';
+// VAPID components are temporarily disabled to ensure build stability.
+// import { VapidKeyGenerator } from '@/components/admin/vapid-key-generator';
+// import { TestNotificationSender } from '@/components/admin/test-notification-sender';
 
 export default function AdminPage() {
   return (
     <div className="space-y-8">
       
+      {/*
       <div className="grid gap-8 md:grid-cols-2">
         <VapidKeyGenerator />
         <TestNotificationSender />
       </div>
-      
+      */}
 
       <Card>
         <CardHeader>
