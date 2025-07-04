@@ -43,13 +43,18 @@ export function usePushNotifications() {
       } catch (error: any) {
         console.error('Could not get VAPID public key from server:', error);
         let description = 'Could not connect to the push notification service. Please try again later.';
-        if (error.code === 'functions/not-found') {
-          description = 'The backend notification service is not deployed. Please check the deployment status in your Firebase Console.';
+        
+        // The Firebase SDK error code for a non-existent function is 'not-found'.
+        // This provides a much more helpful message to the user.
+        if (error.code === 'not-found') {
+          description = 'The backend notification service has not been deployed yet. Please run `firebase deploy --only functions` and then refresh this page.';
         }
+        
         toast({
             variant: 'destructive',
             title: 'Notification Service Unavailable',
             description: description,
+            duration: 15000,
         })
       }
     }
