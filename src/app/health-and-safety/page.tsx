@@ -130,29 +130,38 @@ export default function HealthAndSafetyPage() {
   const router = useRouter();
 
   const [files, setFiles] = useState<HealthAndSafetyFile[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [dataLoading, setDataLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const { toast } = useToast();
 
   const isPrivilegedUser = userProfile && ['admin', 'owner'].includes(userProfile.role);
 
   useEffect(() => {
+    // This effect handles redirection if the user is not logged in.
+    // It waits until the initial auth check is complete.
     if (!isAuthLoading && !user) {
       router.push('/login');
     }
   }, [user, isAuthLoading, router]);
   
   useEffect(() => {
-    if (isAuthLoading || !user) {
-      setLoading(false);
+    // This effect handles fetching the data.
+    // It waits until the user profile is confirmed to be loaded (or not loaded).
+    if (isProfileLoading) {
+      return; // Wait until we know the user's auth and profile status
+    }
+    if (!userProfile) {
+      // If profile loading is done and there's no profile, the user is not logged in
+      // or doesn't have a profile doc. In either case, don't fetch data.
+      setDataLoading(false);
       return;
     }
 
-    setLoading(true);
+    setDataLoading(true);
     const q = query(collection(db, 'health_and_safety_files'), orderBy('uploadedAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setFiles(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as HealthAndSafetyFile)));
-      setLoading(false);
+      setDataLoading(false);
     }, (error: any) => {
       console.error("Error fetching H&S files:", error);
       let description = 'Could not fetch Health & Safety files.';
@@ -162,10 +171,10 @@ export default function HealthAndSafetyPage() {
         description = 'A database index is required. Please check the `firestore.indexes.json` file.';
       }
       toast({ variant: 'destructive', title: 'Error', description, duration: 10000 });
-      setLoading(false);
+      setDataLoading(false);
     });
     return () => unsubscribe();
-  }, [toast, user, isAuthLoading]);
+  }, [toast, userProfile, isProfileLoading]); // Depend on profile loading status
   
   const handleDeleteFile = async (file: HealthAndSafetyFile) => {
     try {
@@ -195,9 +204,8 @@ export default function HealthAndSafetyPage() {
     );
   }, [files, searchTerm]);
   
-  const isLoadingPage = isAuthLoading || isProfileLoading;
-  
-  if (isLoadingPage && !userProfile) {
+  // Overall page loading state: wait for auth and profile to be checked first.
+  if (isAuthLoading || isProfileLoading) {
     return (
       <div className="flex min-h-screen w-full flex-col items-center justify-center">
         <Spinner size="lg" />
@@ -224,7 +232,7 @@ export default function HealthAndSafetyPage() {
                             className="max-w-sm"
                         />
                         <div className="border rounded-lg">
-                            {loading ? <Skeleton className="h-72 w-full" /> : (
+                            {dataLoading ? <Skeleton className="h-72 w-full" /> : ( // Use dataLoading here
                             <Table>
                                 <TableHeader>
                                     <TableRow>
@@ -295,7 +303,7 @@ export default function HealthAndSafetyPage() {
                         </div>
                     )}
                 </div>
-                 {filteredFiles.length === 0 && !loading && !isPrivilegedUser && (
+                 {filteredFiles.length === 0 && !dataLoading && !isPrivilegedUser && (
                     <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center lg:col-span-3">
                         <HardHat className="mx-auto h-12 w-12 text-muted-foreground" />
                         <h3 className="mt-4 text-lg font-semibold">No Documents Available</h3>
