@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -86,7 +85,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormD
     }
   }, [shift, open, form]);
 
-  const handleSubmit = async (values: z.infer<typeof formSchema>) => {
+  const handleSubmit = async (values: z.infer<typeof formSchema>>) => {
     if (!db) return;
     setIsLoading(true);
 
