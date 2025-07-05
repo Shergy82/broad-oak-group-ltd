@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -10,9 +11,45 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { RefreshCw, Terminal } from 'lucide-react';
+import { RefreshCw, Terminal, MessageSquareText } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+
+const getStatusBadge = (shift: Shift) => {
+    const baseProps = { className: "capitalize" };
+    switch (shift.status) {
+        case 'pending-confirmation':
+            return <Badge variant="secondary" {...baseProps}>Pending</Badge>;
+        case 'confirmed':
+            return <Badge {...baseProps}>Confirmed</Badge>;
+        case 'completed':
+            return <Badge {...baseProps} className="bg-green-600 hover:bg-green-700 text-white">Completed</Badge>;
+        case 'incomplete':
+             return (
+                <div className="flex items-center gap-1 justify-end">
+                    <Badge variant="destructive" {...baseProps} className="bg-amber-600 hover:bg-amber-700 text-white border-amber-600">Incomplete</Badge>
+                    {shift.notes && (
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-7 w-7">
+                                    <MessageSquareText className="h-4 w-4 text-muted-foreground" />
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-80">
+                                <div className="space-y-2">
+                                    <h4 className="font-medium leading-none">Notes</h4>
+                                    <p className="text-sm text-muted-foreground">{shift.notes}</p>
+                                </div>
+                            </PopoverContent>
+                        </Popover>
+                    )}
+                </div>
+            );
+        default:
+            return <Badge variant="outline" {...baseProps}>Unknown</Badge>;
+    }
+}
 
 export function ShiftScheduleOverview() {
   const [shifts, setShifts] = useState<Shift[]>([]);
@@ -154,6 +191,7 @@ export function ShiftScheduleOverview() {
                                         <TableHead>Task</TableHead>
                                         <TableHead>Address</TableHead>
                                         <TableHead className="text-right w-[110px]">Type</TableHead>
+                                        <TableHead className="text-right w-[160px]">Status</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -169,6 +207,9 @@ export function ShiftScheduleOverview() {
                                                 >
                                                     {shift.type === 'all-day' ? 'All Day' : shift.type.toUpperCase()}
                                                 </Badge>
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                                {getStatusBadge(shift)}
                                             </TableCell>
                                         </TableRow>
                                     ))}

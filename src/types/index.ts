@@ -1,13 +1,16 @@
 import type { Timestamp } from 'firebase/firestore';
 
+export type ShiftStatus = 'pending-confirmation' | 'confirmed' | 'completed' | 'incomplete';
+
 export interface Shift {
   id: string;
   userId: string;
   date: Timestamp;
   type: 'am' | 'pm' | 'all-day';
-  status: 'pending-confirmation' | 'confirmed' | 'completed';
+  status: ShiftStatus;
   address: string;
   task: string;
+  notes?: string;
 }
 
 export interface UserProfile {

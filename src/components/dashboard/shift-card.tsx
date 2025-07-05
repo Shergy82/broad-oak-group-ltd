@@ -1,18 +1,29 @@
+
 'use client';
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, deleteField } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '@/lib/firebase';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Clock, Sunrise, Sunset, ThumbsUp, CheckCircle2 } from 'lucide-react';
+import { Clock, Sunrise, Sunset, ThumbsUp, CheckCircle2, XCircle, AlertTriangle, RotateCcw } from 'lucide-react';
 import { Spinner } from '@/components/shared/spinner';
-import type { Shift } from '@/types';
+import type { Shift, ShiftStatus } from '@/types';
 import { useAuth } from '@/hooks/use-auth';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
 
 interface ShiftCardProps {
   shift: Shift;
@@ -24,10 +35,11 @@ const shiftTypeDetails = {
   'all-day': { icon: Clock, label: 'All Day', color: 'bg-indigo-500' },
 };
 
-const statusDetails = {
-  'pending-confirmation': { label: 'Pending', variant: 'secondary' as const, className: '' },
-  confirmed: { label: 'Confirmed', variant: 'default' as const, className: 'bg-primary hover:bg-primary/90' },
-  completed: { label: 'Completed', variant: 'default' as const, className: 'bg-green-600 hover:bg-green-700' },
+const statusDetails: { [key in ShiftStatus]: { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline'; className: string; icon: React.ElementType } } = {
+  'pending-confirmation': { label: 'Pending', variant: 'secondary', className: '', icon: AlertTriangle },
+  confirmed: { label: 'Confirmed', variant: 'default', className: 'bg-primary hover:bg-primary/90', icon: ThumbsUp },
+  completed: { label: 'Completed', variant: 'default', className: 'bg-green-600 hover:bg-green-700', icon: CheckCircle2 },
+  incomplete: { label: 'Incomplete', variant: 'destructive', className: 'bg-amber-600 hover:bg-amber-700 text-white border-amber-600', icon: XCircle },
 };
 
 export function ShiftCard({ shift }: ShiftCardProps) {
@@ -35,15 +47,17 @@ export function ShiftCard({ shift }: ShiftCardProps) {
   const { user } = useAuth();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [isNoteDialogOpen, setIsNoteDialogOpen] = useState(false);
+  const [note, setNote] = useState('');
 
-  // Correct for timezone differences by using UTC date parts to create a local date.
   const d = shift.date.toDate();
   const shiftDate = new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
 
   const ShiftIcon = shiftTypeDetails[shift.type].icon;
   const statusInfo = statusDetails[shift.status];
+  const StatusIcon = statusInfo.icon;
 
-  const handleUpdateStatus = async (newStatus: 'confirmed' | 'completed') => {
+  const handleUpdateStatus = async (newStatus: ShiftStatus, notes?: string) => {
     if (!isFirebaseConfigured || !db || !user) {
       toast({
         variant: 'destructive',
@@ -56,16 +70,25 @@ export function ShiftCard({ shift }: ShiftCardProps) {
     setIsLoading(true);
     try {
       const shiftRef = doc(db, 'shifts', shift.id);
-      await updateDoc(shiftRef, { status: newStatus });
+      
+      const updateData: { status: ShiftStatus; notes?: any } = { status: newStatus };
+      if (notes) {
+        updateData.notes = notes;
+      } else if (newStatus === 'confirmed') {
+        updateData.notes = deleteField();
+      }
+      
+      await updateDoc(shiftRef, updateData as any);
+
       toast({
-        title: `Shift ${newStatus}`,
-        description: 'Your shift status has been updated.',
+        title: `Shift status updated`,
+        description: `Shift is now marked as ${newStatus}.`,
       });
-      router.refresh(); // Re-fetches data on the server
+      router.refresh(); 
     } catch (error: any) {
       let description = 'Could not update shift status.';
       if (error.code === 'permission-denied') {
-        description = "You don't have permission to update this shift. Please check your Firestore security rules.";
+        description = "You don't have permission to update this shift.";
       }
       toast({
         variant: 'destructive',
@@ -74,41 +97,99 @@ export function ShiftCard({ shift }: ShiftCardProps) {
       });
     } finally {
       setIsLoading(false);
+      setIsNoteDialogOpen(false);
+      setNote('');
     }
   };
+  
+  const handleIncompleteSubmit = () => {
+      if (!note.trim()) {
+          toast({ variant: 'destructive', title: 'Note Required', description: 'Please provide a note explaining why the shift is incomplete.' });
+          return;
+      }
+      handleUpdateStatus('incomplete', note.trim());
+  }
 
   return (
-    <Card className="flex flex-col overflow-hidden transition-all hover:shadow-xl border-border hover:border-primary/40">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 bg-card p-4">
-        <div className="flex items-center gap-3">
-          <div className={`flex items-center justify-center rounded-lg w-12 h-12 ${shiftTypeDetails[shift.type].color}`}>
-            <ShiftIcon className="h-6 w-6 text-white" />
+    <>
+      <Card className="flex flex-col overflow-hidden transition-all hover:shadow-xl border-border hover:border-primary/40">
+        <CardHeader className="flex flex-row items-start justify-between space-y-0 bg-card p-4">
+          <div className="flex items-center gap-3">
+            <div className={`flex items-center justify-center rounded-lg w-12 h-12 ${shiftTypeDetails[shift.type].color}`}>
+              <ShiftIcon className="h-6 w-6 text-white" />
+            </div>
+            <div>
+              <CardTitle className="text-md font-bold">{shiftTypeDetails[shift.type].label}</CardTitle>
+              <p className="text-sm text-muted-foreground">{format(shiftDate, 'eeee, MMM d')}</p>
+            </div>
           </div>
-          <div>
-            <CardTitle className="text-md font-bold">{shiftTypeDetails[shift.type].label}</CardTitle>
-            <p className="text-sm text-muted-foreground">{format(shiftDate, 'eeee, MMM d')}</p>
+          <Badge variant={statusInfo.variant} className={`${statusInfo.className} shrink-0`}>
+            <StatusIcon className="mr-1.5 h-3 w-3" />
+            {statusInfo.label}
+          </Badge>
+        </CardHeader>
+        <CardContent className="p-4 text-left grow flex flex-col justify-center">
+          <p className="font-semibold text-sm">{shift.task}</p>
+          <p className="text-xs text-muted-foreground pt-1">{shift.address}</p>
+          {shift.status === 'incomplete' && shift.notes && (
+            <div className="mt-3 p-3 bg-destructive/10 border-l-4 border-destructive rounded-r-md">
+                <p className="text-sm font-semibold text-destructive">Note:</p>
+                <p className="text-sm text-destructive/90 italic">"{shift.notes}"</p>
+            </div>
+          )}
+        </CardContent>
+        <CardFooter className="p-2 bg-muted/30 grid grid-cols-1 gap-2">
+          {shift.status === 'pending-confirmation' && (
+            <Button onClick={() => handleUpdateStatus('confirmed')} className="w-full bg-accent text-accent-foreground hover:bg-accent/90" disabled={isLoading}>
+              {isLoading ? <Spinner /> : <><ThumbsUp className="mr-2 h-4 w-4" /> Accept Shift</>}
+            </Button>
+          )}
+          {shift.status === 'confirmed' && (
+            <div className="grid grid-cols-2 gap-2">
+                 <Button onClick={() => handleUpdateStatus('completed')} className="w-full bg-green-500 text-white hover:bg-green-600" disabled={isLoading}>
+                    {isLoading ? <Spinner /> : <><CheckCircle2 className="mr-2 h-4 w-4" /> Complete</>}
+                </Button>
+                 <Button variant="destructive" onClick={() => setIsNoteDialogOpen(true)} className="w-full bg-amber-600 hover:bg-amber-700" disabled={isLoading}>
+                    {isLoading ? <Spinner /> : <><XCircle className="mr-2 h-4 w-4" /> Incomplete</>}
+                </Button>
+            </div>
+          )}
+          {(shift.status === 'completed' || shift.status === 'incomplete') && (
+            <Button variant="outline" onClick={() => handleUpdateStatus('confirmed')} className="w-full" disabled={isLoading}>
+               {isLoading ? <Spinner /> : <><RotateCcw className="mr-2 h-4 w-4" /> Re-open Shift</>}
+            </Button>
+          )}
+        </CardFooter>
+      </Card>
+      
+      <Dialog open={isNoteDialogOpen} onOpenChange={setIsNoteDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Mark Shift as Incomplete</DialogTitle>
+            <DialogDescription>
+              Please provide a reason why this shift could not be completed. This note will be visible to admins.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid w-full gap-1.5">
+              <Label htmlFor="note">Note</Label>
+              <Textarea 
+                placeholder="e.g., waiting for materials, client not home, etc." 
+                id="note" 
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                rows={4}
+              />
+            </div>
           </div>
-        </div>
-        <Badge variant={statusInfo.variant} className={`${statusInfo.className} shrink-0`}>
-          {statusInfo.label}
-        </Badge>
-      </CardHeader>
-      <CardContent className="p-4 text-left grow flex flex-col justify-center">
-        <p className="font-semibold text-sm">{shift.task}</p>
-        <p className="text-xs text-muted-foreground pt-1">{shift.address}</p>
-      </CardContent>
-      <CardFooter className="p-2 bg-muted/30">
-        {shift.status === 'pending-confirmation' && (
-          <Button onClick={() => handleUpdateStatus('confirmed')} className="w-full bg-accent text-accent-foreground hover:bg-accent/90" disabled={isLoading}>
-            {isLoading ? <Spinner /> : <><ThumbsUp className="mr-2 h-4 w-4" /> Accept Shift</>}
-          </Button>
-        )}
-        {shift.status === 'confirmed' && (
-          <Button onClick={() => handleUpdateStatus('completed')} className="w-full bg-green-500 text-white hover:bg-green-600" disabled={isLoading}>
-            {isLoading ? <Spinner /> : <><CheckCircle2 className="mr-2 h-4 w-4" /> Mark as Complete</>}
-          </Button>
-        )}
-      </CardFooter>
-    </Card>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsNoteDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleIncompleteSubmit} disabled={isLoading} className="bg-amber-600 hover:bg-amber-700">
+                {isLoading ? <Spinner /> : 'Submit Note'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

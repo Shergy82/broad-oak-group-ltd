@@ -65,6 +65,16 @@ export const mockShifts: Shift[] = [
     address: '123 Main St, Anytown',
     task: 'Fit kitchen sink',
   },
+  {
+    id: 'mock-shift-8',
+    userId: 'mock-user-1',
+    date: createMockTimestamp(today),
+    type: 'all-day',
+    status: 'completed',
+    address: '999 Victory Rd, Doneville',
+    task: 'Final cleanup',
+  },
+
 
   // --- This Week's Shifts (Future) ---
   {
@@ -104,6 +114,17 @@ export const mockShifts: Shift[] = [
     status: 'pending-confirmation',
     address: '212 Birch Rd, Newplace',
     task: 'Install windows',
+  },
+  // --- Incomplete Shift Example ---
+  {
+    id: 'mock-shift-7',
+    userId: 'mock-user-1',
+    date: createMockTimestamp(subDays(today, 1)), // Yesterday
+    type: 'all-day',
+    status: 'incomplete',
+    address: '404 Error Ave, Glitchtown',
+    task: 'Fix the Flux Capacitor',
+    notes: 'Could not find any plutonium, had to postpone.',
   },
 ];
 
