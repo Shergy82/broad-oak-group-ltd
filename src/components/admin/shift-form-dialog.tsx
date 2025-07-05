@@ -41,6 +41,7 @@ interface ShiftFormDialogProps {
 export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormDialogProps) {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [isDatePickerOpen, setDatePickerOpen] = useState(false);
   const isEditing = !!shift;
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -148,7 +149,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormD
                   render={({ field }) => (
                     <FormItem className="flex flex-col">
                       <FormLabel>Date</FormLabel>
-                      <Popover>
+                      <Popover open={isDatePickerOpen} onOpenChange={setDatePickerOpen}>
                         <PopoverTrigger asChild>
                           <FormControl>
                             <Button
@@ -167,7 +168,10 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormD
                           <Calendar
                             mode="single"
                             selected={field.value}
-                            onSelect={field.onChange}
+                            onSelect={(date) => {
+                                field.onChange(date);
+                                setDatePickerOpen(false);
+                            }}
                             disabled={(date) => date < new Date("1900-01-01")}
                             initialFocus
                           />
