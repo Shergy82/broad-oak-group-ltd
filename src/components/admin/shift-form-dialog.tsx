@@ -78,7 +78,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormD
     }
   }, [shift, open, form]);
 
-  const handleSubmit = async (values: z.infer<typeof formSchema>) => {
+  const handleSubmit = async (values: z.infer<typeof formSchema>>) => {
     if (!db) return;
     setIsLoading(true);
 
@@ -111,7 +111,19 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormD
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[480px]">
+      <DialogContent
+        className="sm:max-w-[480px]"
+        onPointerDownOutside={(e) => {
+          const target = e.target as HTMLElement;
+          // This prevents the dialog from closing when interacting with the calendar popover.
+          // Radix UI popovers are portaled to the document body, so they are technically "outside"
+          // the dialog. This checks if the click target is inside a Radix Popper (which the
+          // calendar uses) and prevents the default behavior (closing the dialog) if so.
+          if (target.closest('[data-radix-popper-content-wrapper]')) {
+            e.preventDefault();
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{isEditing ? 'Edit' : 'Create'} Shift</DialogTitle>
           <DialogDescription>
@@ -168,7 +180,6 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormD
                         <PopoverContent 
                           className="w-auto p-0" 
                           align="start"
-                          onOpenAutoFocus={(e) => e.preventDefault()}
                         >
                           <Calendar
                             mode="single"
@@ -178,7 +189,6 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormD
                                 setDatePickerOpen(false);
                             }}
                             disabled={(date) => date < new Date("1900-01-01")}
-                            initialFocus
                           />
                         </PopoverContent>
                       </Popover>
