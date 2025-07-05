@@ -10,12 +10,12 @@ import { useUserProfile } from '@/hooks/use-user-profile';
 
 export default function AdminPage() {
   const { userProfile } = useUserProfile();
-  const isOwner = userProfile?.role === 'owner';
+  const isPrivilegedUser = userProfile && ['admin', 'owner'].includes(userProfile.role);
 
   return (
     <div className="space-y-8">
       
-      {isOwner && (
+      {isPrivilegedUser && (
         <Card>
           <CardHeader>
             <CardTitle>Import Weekly Shifts from Excel</CardTitle>
