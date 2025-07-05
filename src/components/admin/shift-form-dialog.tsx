@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -110,7 +109,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormD
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog modal={!isDatePickerOpen} open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle>{isEditing ? 'Edit' : 'Create'} Shift</DialogTitle>
@@ -168,7 +167,6 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormD
                         <PopoverContent 
                           className="w-auto p-0" 
                           align="start"
-                          onPointerDownOutside={(e) => e.preventDefault()}
                         >
                           <Calendar
                             mode="single"
