@@ -29,7 +29,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/shared/spinner';
 import { useToast } from '@/hooks/use-toast';
-import { Upload, File as FileIcon, Trash2, Download, HardHat } from 'lucide-react';
+import { Upload, File as FileIcon, Trash2, Download, HardHat, AlertCircle } from 'lucide-react';
 import type { HealthAndSafetyFile, UserProfile } from '@/types';
 import {
     AlertDialog,
@@ -43,6 +43,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Header } from '@/components/layout/header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert, AlertDescription, AlertTitle as AlertTitleUI } from '@/components/ui/alert';
 import { useAuth } from '@/hooks/use-auth';
 import { useRouter } from 'next/navigation';
 
@@ -131,49 +132,45 @@ export default function HealthAndSafetyPage() {
 
   const [files, setFiles] = useState<HealthAndSafetyFile[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const { toast } = useToast();
 
   const isPrivilegedUser = userProfile && ['admin', 'owner'].includes(userProfile.role);
 
   useEffect(() => {
-    // This combined effect handles all logic based on auth state.
-    if (isAuthLoading) {
-      // If auth is loading, do nothing yet. The component will show a spinner.
-      setDataLoading(true);
-      return;
-    }
-  
+    // This effect exclusively handles data fetching.
+    // It will only run when the `user` object is confirmed to exist.
     if (!user) {
-      // If auth has finished and there is no user, redirect to login.
-      router.push('/login');
+      // If there's no user, we are either still loading or logged out.
+      // The logic below handles both cases. We set dataLoading to false
+      // because we are not attempting to fetch any data without a user.
+      setDataLoading(false);
       return;
     }
-  
-    // At this point, auth has finished and we have a confirmed user.
-    // Proceed with fetching data.
+
+    // At this point, we have a confirmed user. It is now safe to query Firestore.
+    setDataLoading(true);
+    setError(null);
     const q = query(collection(db, 'health_and_safety_files'), orderBy('uploadedAt', 'desc'));
+    
     const unsubscribe = onSnapshot(q,
       (snapshot) => {
         setFiles(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as HealthAndSafetyFile)));
         setDataLoading(false);
       },
-      (error: any) => {
-        console.error("Error fetching H&S files:", error);
-        let description = 'Could not fetch Health & Safety files.';
-        if (error.code === 'permission-denied') {
-          description = "You don't have permission to view these files. Please check the `firestore.rules` file.";
-        } else if (error.code === 'failed-precondition') {
-          description = 'A database index is required. Please check the `firestore.indexes.json` file.';
-        }
-        toast({ variant: 'destructive', title: 'Error', description, duration: 10000 });
+      (err: any) => {
+        console.error("Error fetching H&S files:", err);
+        const description = "You don't have permission to view these files. This is likely due to a misconfiguration in your project's `firestore.rules` file.";
+        setError(description);
+        toast({ variant: 'destructive', title: 'Permission Denied', description: err.message, duration: 10000 });
         setDataLoading(false);
       }
     );
-  
-    // Cleanup the subscription when the component unmounts or dependencies change.
+
+    // Cleanup the Firestore subscription when the component unmounts or the user changes.
     return () => unsubscribe();
-  }, [user, isAuthLoading, router, toast]);
+  }, [user, toast]);
   
   const handleDeleteFile = async (file: HealthAndSafetyFile) => {
     try {
@@ -197,13 +194,14 @@ export default function HealthAndSafetyPage() {
   };
 
   const filteredFiles = useMemo(() => {
+    if (!files) return [];
     return files.filter(file =>
       file.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       file.uploaderName.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [files, searchTerm]);
   
-  // Overall page loading state: wait for auth and profile to be checked first.
+  // This is the gatekeeper for the entire page. It waits for auth and profile checks to finish.
   if (isAuthLoading || isProfileLoading) {
     return (
       <div className="flex min-h-screen w-full flex-col items-center justify-center">
@@ -212,6 +210,18 @@ export default function HealthAndSafetyPage() {
     );
   }
 
+  // After loading, if there's still no user, they are not logged in. Redirect them.
+  if (!user) {
+    router.push('/login');
+    // Render a spinner during the brief moment of redirection.
+    return (
+      <div className="flex min-h-screen w-full flex-col items-center justify-center">
+        <Spinner size="lg" />
+      </div>
+    );
+  }
+
+  // At this point, we can safely render the page content.
   return (
     <div className="flex min-h-screen w-full flex-col">
       <Header />
@@ -231,7 +241,6 @@ export default function HealthAndSafetyPage() {
                             className="max-w-sm"
                         />
                         <div className="border rounded-lg">
-                            {dataLoading ? <Skeleton className="h-72 w-full" /> : (
                             <Table>
                                 <TableHeader>
                                     <TableRow>
@@ -242,7 +251,23 @@ export default function HealthAndSafetyPage() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {filteredFiles.length === 0 ? (
+                                    {dataLoading ? (
+                                        <TableRow>
+                                            <TableCell colSpan={4}>
+                                                <div className="flex items-center justify-center p-6"><Spinner />Loading documents...</div>
+                                            </TableCell>
+                                        </TableRow>
+                                    ) : error ? (
+                                        <TableRow>
+                                            <TableCell colSpan={4}>
+                                                <Alert variant="destructive" className="mt-4">
+                                                    <AlertCircle className="h-4 w-4" />
+                                                    <AlertTitleUI>Error Loading Documents</AlertTitleUI>
+                                                    <AlertDescription>{error}</AlertDescription>
+                                                </Alert>
+                                            </TableCell>
+                                        </TableRow>
+                                    ) : filteredFiles.length === 0 ? (
                                         <TableRow>
                                             <TableCell colSpan={4} className="h-24 text-center">
                                                 No documents found.
@@ -289,7 +314,6 @@ export default function HealthAndSafetyPage() {
                                     ))}
                                 </TableBody>
                             </Table>
-                            )}
                         </div>
                     </div>
                     {isPrivilegedUser && userProfile && (
@@ -302,7 +326,7 @@ export default function HealthAndSafetyPage() {
                         </div>
                     )}
                 </div>
-                 {filteredFiles.length === 0 && !dataLoading && !isPrivilegedUser && (
+                 {!dataLoading && !error && filteredFiles.length === 0 && !isPrivilegedUser && (
                     <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center lg:col-span-3">
                         <HardHat className="mx-auto h-12 w-12 text-muted-foreground" />
                         <h3 className="mt-4 text-lg font-semibold">No Documents Available</h3>
@@ -317,3 +341,5 @@ export default function HealthAndSafetyPage() {
     </div>
   );
 }
+
+    
