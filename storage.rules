@@ -1,24 +1,29 @@
 rules_version = '2';
+
 service firebase.storage {
   match /b/{bucket}/o {
-
-    function getUserRole(userId) {
-      return get(/databases/$(database)/documents/users/$(userId)).data.role;
+    // A function to check if a user has an 'admin' or 'owner' role by reading their Firestore document.
+    // It's crucial to check for the document's existence before accessing its data.
+    function isPrivilegedUser() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner'];
     }
 
-    function isPrivilegedUser(userId) {
-      let role = getUserRole(userId);
-      return role == 'admin' || role == 'owner';
-    }
-
-    match /project_files/{projectId}/{allPaths=**} {
+    // Default read access: Allow any authenticated user to read files.
+    // This is safe because the download URLs themselves are protected by Firestore rules.
+    match /{allPaths=**} {
       allow read: if request.auth != null;
+    }
+
+    // Project Files: Allow any authenticated user to upload.
+    match /project_files/{projectId}/{fileName} {
       allow write: if request.auth != null;
     }
 
+    // Health & Safety Files: Only allow privileged users to upload.
+    // This rule fixes the "Upload Failed" error.
     match /health_and_safety_files/{fileName} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && isPrivilegedUser(request.auth.uid);
+      allow write: if request.auth != null && isPrivilegedUser();
     }
   }
 }
