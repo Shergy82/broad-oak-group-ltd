@@ -6,6 +6,29 @@ import * as webPush from "web-push";
 admin.initializeApp();
 const db = admin.firestore();
 
+// Define a converter for the PushSubscription type.
+// This is the modern, correct way to handle typed data with Firestore.
+// It ensures that when we fetch data, it's already in the correct shape.
+const pushSubscriptionConverter = {
+    toFirestore(subscription: webPush.PushSubscription): admin.firestore.DocumentData {
+        return { endpoint: subscription.endpoint, keys: subscription.keys };
+    },
+    fromFirestore(snapshot: admin.firestore.QueryDocumentSnapshot): webPush.PushSubscription {
+        const data = snapshot.data();
+        if (!data.endpoint || !data.keys || !data.keys.p256dh || !data.keys.auth) {
+            throw new Error("Invalid PushSubscription data from Firestore.");
+        }
+        return {
+            endpoint: data.endpoint,
+            keys: {
+                p256dh: data.keys.p256dh,
+                auth: data.keys.auth
+            }
+        };
+    }
+};
+
+
 // This is the v1 SDK syntax for onCall functions
 export const getVapidPublicKey = functions.region("europe-west2").https.onCall((data, context) => {
     const publicKey = functions.config().webpush?.public_key;
@@ -58,6 +81,29 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
         body: `Your shift for ${shiftDataBefore?.task} at ${shiftDataBefore?.address} has been cancelled.`,
         data: { url: `/` },
       };
+    } else if (change.after.exists && change.before.exists) {
+      // A shift is updated. Check for meaningful changes.
+      const before = change.before.data();
+      const after = change.after.data();
+
+      // Compare relevant fields.
+      const taskChanged = before.task !== after.task;
+      const addressChanged = before.address !== after.address;
+      const dateChanged = !before.date.isEqual(after.date);
+      const typeChanged = before.type !== after.type;
+
+      if (taskChanged || addressChanged || dateChanged || typeChanged) {
+        userId = after.userId;
+        payload = {
+          title: "Your Shift Has Been Updated",
+          body: `Details for one of your shifts have changed. Please check the app.`,
+          data: { url: `/` },
+        };
+      } else {
+        // No meaningful change, so no notification.
+        functions.logger.log(`Shift ${shiftId} was updated, but no significant fields changed. No notification sent.`);
+        return;
+      }
     } else {
       functions.logger.log(`Shift ${shiftId} was updated, no notification sent.`);
       return;
@@ -74,6 +120,7 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
       .collection("users")
       .doc(userId)
       .collection("pushSubscriptions")
+      .withConverter(pushSubscriptionConverter) // Apply the converter here
       .get();
 
     if (subscriptionsSnapshot.empty) {
@@ -84,15 +131,8 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
     functions.logger.log(`Found ${subscriptionsSnapshot.size} subscriptions for user ${userId}.`);
 
     const sendPromises = subscriptionsSnapshot.docs.map((subDoc) => {
-      const subData = subDoc.data();
-      // Explicitly construct the PushSubscription object to satisfy TypeScript
-      const subscription: webPush.PushSubscription = {
-          endpoint: subData.endpoint,
-          keys: {
-              p256dh: subData.keys.p256dh,
-              auth: subData.keys.auth,
-          },
-      };
+      // Thanks to the converter, subDoc.data() is now correctly typed as PushSubscription.
+      const subscription = subDoc.data(); 
       return webPush.sendNotification(subscription, JSON.stringify(payload)).catch((error: any) => {
         functions.logger.error(`Error sending notification to user ${userId}:`, error);
         if (error.statusCode === 410 || error.statusCode === 404) {
