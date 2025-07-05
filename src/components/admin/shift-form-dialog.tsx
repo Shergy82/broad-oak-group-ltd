@@ -43,7 +43,6 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormD
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [isDatePickerOpen, setDatePickerOpen] = useState(false);
-  const [isUserSelectOpen, setUserSelectOpen] = useState(false);
   const isEditing = !!shift;
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -119,7 +118,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormD
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} modal={!isDatePickerOpen && !isUserSelectOpen}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{isEditing ? 'Edit' : 'Create'} Shift</DialogTitle>
@@ -135,7 +134,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormD
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Operative</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value} onOpenChange={setUserSelectOpen}>
+                  <Select onValueChange={field.onChange} defaultValue={field.value}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder="Select an operative" />
@@ -159,7 +158,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormD
                   render={({ field }) => (
                     <FormItem className="flex flex-col">
                       <FormLabel>Date</FormLabel>
-                      <Popover open={isDatePickerOpen} onOpenChange={setDatePickerOpen}>
+                      <Popover open={isDatePickerOpen} onOpenChange={setDatePickerOpen} modal={true}>
                         <PopoverTrigger asChild>
                           <FormControl>
                             <Button
