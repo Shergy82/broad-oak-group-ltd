@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -118,8 +117,17 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormD
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} modal={!isDatePickerOpen}>
-      <DialogContent className="sm:max-w-[480px]">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent 
+        className="sm:max-w-[480px]"
+        onPointerDownOutside={(e) => {
+          const target = e.target as HTMLElement;
+          // This prevents the dialog from closing when clicking inside the calendar or the user selection dropdown.
+          if (target.closest('[data-radix-popper-content-wrapper]')) {
+            e.preventDefault();
+          }
+        }}
+        >
         <DialogHeader>
           <DialogTitle>{isEditing ? 'Edit' : 'Create'} Shift</DialogTitle>
           <DialogDescription>
@@ -184,7 +192,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormD
                                 field.onChange(date);
                                 setDatePickerOpen(false);
                             }}
-                            disabled={(date) => date < new Date("1900-01-01")}
+                            initialFocus
                           />
                         </PopoverContent>
                       </Popover>
