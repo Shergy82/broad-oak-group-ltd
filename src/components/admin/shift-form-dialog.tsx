@@ -110,7 +110,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormD
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} modal={!isDatePickerOpen}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle>{isEditing ? 'Edit' : 'Create'} Shift</DialogTitle>
@@ -168,6 +168,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormD
                         <PopoverContent 
                           className="w-auto p-0" 
                           align="start"
+                          onOpenAutoFocus={(e) => e.preventDefault()}
                         >
                           <Calendar
                             mode="single"
