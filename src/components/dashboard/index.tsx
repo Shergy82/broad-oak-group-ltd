@@ -11,7 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { isToday, isSameWeek, addDays, format } from 'date-fns';
 import type { Shift } from '@/types';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Clock, Download, RefreshCw, Sunrise, Sunset, Terminal } from 'lucide-react';
+import { Clock, Download, RefreshCw, Sunrise, Sunset, Terminal, History } from 'lucide-react';
 import { mockShifts } from '@/lib/mock-data';
 import { Button } from '@/components/ui/button';
 
@@ -81,10 +81,17 @@ export default function Dashboard() {
     todayAllDayShifts,
     thisWeekShifts, 
     nextWeekShifts,
+    historicalShifts,
     allTodayShifts,
     allThisWeekShifts,
     allNextWeekShifts,
   } = useMemo(() => {
+    // 1. Separate shifts into active and historical
+    const activeShifts = shifts.filter(s => s.status !== 'completed' && s.status !== 'incomplete');
+    const historicalShifts = shifts.filter(s => s.status === 'completed' || s.status === 'incomplete');
+    historicalShifts.sort((a, b) => getCorrectedLocalDate(b.date).getTime() - getCorrectedLocalDate(a.date).getTime());
+
+    // 2. Group shifts for display using ONLY activeShifts
     const groupShiftsByDay = (weekShifts: Shift[]) => {
       const grouped: { [key: string]: Shift[] } = {};
       weekShifts.forEach(shift => {
@@ -99,27 +106,37 @@ export default function Dashboard() {
     
     const today = new Date();
     
-    const todayShifts = shifts.filter(s => isToday(getCorrectedLocalDate(s.date)));
-    const todayAmShifts = todayShifts.filter(s => s.type === 'am');
-    const todayPmShifts = todayShifts.filter(s => s.type === 'pm');
-    const todayAllDayShifts = todayShifts.filter(s => s.type === 'all-day');
+    // Display shifts (from activeShifts)
+    const activeTodayShifts = activeShifts.filter(s => isToday(getCorrectedLocalDate(s.date)));
+    const todayAmShifts = activeTodayShifts.filter(s => s.type === 'am');
+    const todayPmShifts = activeTodayShifts.filter(s => s.type === 'pm');
+    const todayAllDayShifts = activeTodayShifts.filter(s => s.type === 'all-day');
 
-    const allThisWeekShiftsData = shifts.filter(s => isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 }));
+    const activeThisWeekShifts = activeShifts.filter(s => isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 }));
     
+    const activeNextWeekShifts = activeShifts.filter(s => {
+        const shiftDate = getCorrectedLocalDate(s.date);
+        const startOfNextWeek = addDays(today, 7);
+        return isSameWeek(shiftDate, startOfNextWeek, { weekStartsOn: 1 });
+    });
+
+    // 3. Group all shifts for PDF using the original `shifts` array
+    const allTodayShiftsData = shifts.filter(s => isToday(getCorrectedLocalDate(s.date)));
+    const allThisWeekShiftsData = shifts.filter(s => isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 }));
     const allNextWeekShiftsData = shifts.filter(s => {
         const shiftDate = getCorrectedLocalDate(s.date);
         const startOfNextWeek = addDays(today, 7);
         return isSameWeek(shiftDate, startOfNextWeek, { weekStartsOn: 1 });
     });
 
-
     return {
       todayAmShifts,
       todayPmShifts,
       todayAllDayShifts,
-      thisWeekShifts: groupShiftsByDay(allThisWeekShiftsData),
-      nextWeekShifts: groupShiftsByDay(allNextWeekShiftsData),
-      allTodayShifts: todayShifts,
+      thisWeekShifts: groupShiftsByDay(activeThisWeekShifts),
+      nextWeekShifts: groupShiftsByDay(activeNextWeekShifts),
+      historicalShifts,
+      allTodayShifts: allTodayShiftsData,
       allThisWeekShifts: allThisWeekShiftsData,
       allNextWeekShifts: allNextWeekShiftsData,
     };
@@ -341,6 +358,28 @@ export default function Dashboard() {
           {renderWeekView(nextWeekShifts)}
         </TabsContent>
       </Tabs>
+      
+      {loading ? (
+        <div className="mt-8">
+            <Skeleton className="h-8 w-72 mb-4" />
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                <Skeleton className="h-32 w-full rounded-lg" />
+                <Skeleton className="h-32 w-full rounded-lg" />
+            </div>
+        </div>
+      ) : historicalShifts.length > 0 && (
+        <div className="mt-8">
+            <h3 className="text-xl md:text-2xl font-semibold tracking-tight mb-4 flex items-center">
+                <History className="mr-3 h-6 w-6 text-muted-foreground" />
+                Recently Completed &amp; Incomplete
+            </h3>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {historicalShifts.map(shift => (
+                    <ShiftCard key={shift.id} shift={shift} />
+                ))}
+            </div>
+        </div>
+      )}
     </div>
   );
 }
