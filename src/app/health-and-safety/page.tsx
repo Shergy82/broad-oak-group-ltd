@@ -138,25 +138,25 @@ export default function HealthAndSafetyPage() {
 
   useEffect(() => {
     // This effect handles redirection if the user is not logged in.
-    // It waits until the initial auth check is complete.
     if (!isAuthLoading && !user) {
       router.push('/login');
     }
   }, [user, isAuthLoading, router]);
   
   useEffect(() => {
-    // This effect handles fetching the data.
-    // It waits until the user profile is confirmed to be loaded (or not loaded).
-    if (isProfileLoading) {
-      return; // Wait until we know the user's auth and profile status
-    }
-    if (!userProfile) {
-      // If profile loading is done and there's no profile, the user is not logged in
-      // or doesn't have a profile doc. In either case, don't fetch data.
-      setDataLoading(false);
+    // This effect handles fetching the data. It will only run when the user's
+    // authentication state is known and they are logged in.
+    if (isAuthLoading || !user) {
+      // If auth is still loading, or there is no user, we do not proceed.
+      // If loading finishes and there's no user, the other effect will redirect.
+      // We set dataLoading to false only when we know for sure there is no user.
+      if (!isAuthLoading) {
+        setDataLoading(false);
+      }
       return;
     }
 
+    // At this point, we have a confirmed authenticated user, so we can fetch data.
     setDataLoading(true);
     const q = query(collection(db, 'health_and_safety_files'), orderBy('uploadedAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -174,7 +174,7 @@ export default function HealthAndSafetyPage() {
       setDataLoading(false);
     });
     return () => unsubscribe();
-  }, [toast, userProfile, isProfileLoading]); // Depend on profile loading status
+  }, [user, isAuthLoading, toast]); // Depend directly on the primary auth state.
   
   const handleDeleteFile = async (file: HealthAndSafetyFile) => {
     try {
@@ -232,7 +232,7 @@ export default function HealthAndSafetyPage() {
                             className="max-w-sm"
                         />
                         <div className="border rounded-lg">
-                            {dataLoading ? <Skeleton className="h-72 w-full" /> : ( // Use dataLoading here
+                            {dataLoading ? <Skeleton className="h-72 w-full" /> : (
                             <Table>
                                 <TableHeader>
                                     <TableRow>
