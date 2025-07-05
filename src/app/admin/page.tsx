@@ -4,23 +4,12 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { FileUploader } from '@/components/admin/file-uploader';
 import { ShiftScheduleOverview } from '@/components/admin/shift-schedule-overview';
-import { ProjectManager } from '@/components/admin/project-manager';
 import { VapidKeyGenerator } from '@/components/admin/vapid-key-generator';
 import { TestNotificationSender } from '@/components/admin/test-notification-sender';
 
 export default function AdminPage() {
   return (
     <div className="space-y-8">
-      
-      <Card>
-        <CardHeader>
-          <CardTitle>Project & File Management</CardTitle>
-          <CardDescription>Create new projects and upload or delete files associated with them. Files uploaded here will be visible to all users on the 'Projects' page.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ProjectManager />
-        </CardContent>
-      </Card>
       
       <Card>
         <CardHeader>

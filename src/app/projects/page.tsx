@@ -13,13 +13,18 @@ import { Input } from '@/components/ui/input';
 import { mockProjects } from '@/lib/mock-data';
 import { Building } from 'lucide-react';
 import { ProjectFiles } from '@/components/projects/project-files';
+import { useUserProfile } from '@/hooks/use-user-profile';
+import { ProjectManager } from '@/components/admin/project-manager';
 
 export default function ProjectsPage() {
   const { user, isLoading: isAuthLoading } = useAuth();
+  const { userProfile, loading: isProfileLoading } = useUserProfile();
   const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+
+  const isPrivilegedUser = userProfile && ['admin', 'owner'].includes(userProfile.role);
 
   useEffect(() => {
     if (!isAuthLoading && !user) {
@@ -28,6 +33,13 @@ export default function ProjectsPage() {
   }, [user, isAuthLoading, router]);
 
   useEffect(() => {
+    // The admin ProjectManager component fetches its own data.
+    // This effect should only run for regular users.
+    if (isPrivilegedUser) {
+      setLoading(false);
+      return;
+    }
+
     if (!db) {
       setProjects(mockProjects);
       setLoading(false);
@@ -52,7 +64,7 @@ export default function ProjectsPage() {
     });
 
     return () => unsubscribe();
-  }, [user]);
+  }, [user, isPrivilegedUser]);
 
   const filteredProjects = useMemo(() => {
     return projects.filter(project =>
@@ -60,7 +72,9 @@ export default function ProjectsPage() {
     );
   }, [projects, searchTerm]);
   
-  if (isAuthLoading || !user) {
+  const isLoadingPage = isAuthLoading || isProfileLoading || (user && isPrivilegedUser === undefined);
+  
+  if (isLoadingPage) {
     return (
       <div className="flex min-h-screen w-full flex-col items-center justify-center">
         <Spinner size="lg" />
@@ -72,50 +86,62 @@ export default function ProjectsPage() {
     <div className="flex min-h-screen w-full flex-col">
       <Header />
       <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
-        <Card>
-          <CardHeader>
-            <CardTitle>Projects</CardTitle>
-            <CardDescription>Search for projects by address to view details and attached files.</CardDescription>
-            <div className="pt-4">
-              <Input
-                placeholder="Search by address..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="max-w-sm"
-              />
-            </div>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                <Card><CardHeader><div className="h-5 w-3/4 bg-muted rounded animate-pulse" /><div className="h-4 w-1/4 bg-muted rounded animate-pulse mt-2" /></CardHeader><CardContent><div className="h-24 bg-muted rounded-lg animate-pulse" /></CardContent></Card>
-                <Card><CardHeader><div className="h-5 w-3/4 bg-muted rounded animate-pulse" /><div className="h-4 w-1/4 bg-muted rounded animate-pulse mt-2" /></CardHeader><CardContent><div className="h-24 bg-muted rounded-lg animate-pulse" /></CardContent></Card>
-                <Card><CardHeader><div className="h-5 w-3/4 bg-muted rounded animate-pulse" /><div className="h-4 w-1/4 bg-muted rounded animate-pulse mt-2" /></CardHeader><CardContent><div className="h-24 bg-muted rounded-lg animate-pulse" /></CardContent></Card>
-              </div>
-            ) : filteredProjects.length === 0 ? (
-                <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center">
-                    <Building className="mx-auto h-12 w-12 text-muted-foreground" />
-                    <h3 className="mt-4 text-lg font-semibold">No Projects Found</h3>
-                    <p className="mb-4 mt-2 text-sm text-muted-foreground">
-                        No projects have been added yet. This page will populate once project data exists in the database.
-                    </p>
+        {isPrivilegedUser ? (
+            <Card>
+                <CardHeader>
+                <CardTitle>Project & File Management</CardTitle>
+                <CardDescription>Create new projects and upload or delete files associated with them. All users can view projects and files here.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <ProjectManager />
+                </CardContent>
+            </Card>
+        ) : (
+            <Card>
+            <CardHeader>
+                <CardTitle>Projects</CardTitle>
+                <CardDescription>Search for projects by address to view details and attached files.</CardDescription>
+                <div className="pt-4">
+                <Input
+                    placeholder="Search by address..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="max-w-sm"
+                />
                 </div>
-            ) : (
-              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                {filteredProjects.map((project) => (
-                  <Card key={project.id}>
-                    <CardHeader>
-                      <CardTitle className="text-lg">{project.address}</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <ProjectFiles project={project} />
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardHeader>
+            <CardContent>
+                {loading ? (
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                    <Card><CardHeader><div className="h-5 w-3/4 bg-muted rounded animate-pulse" /><div className="h-4 w-1/4 bg-muted rounded animate-pulse mt-2" /></CardHeader><CardContent><div className="h-24 bg-muted rounded-lg animate-pulse" /></CardContent></Card>
+                    <Card><CardHeader><div className="h-5 w-3/4 bg-muted rounded animate-pulse" /><div className="h-4 w-1/4 bg-muted rounded animate-pulse mt-2" /></CardHeader><CardContent><div className="h-24 bg-muted rounded-lg animate-pulse" /></CardContent></Card>
+                    <Card><CardHeader><div className="h-5 w-3/4 bg-muted rounded animate-pulse" /><div className="h-4 w-1/4 bg-muted rounded animate-pulse mt-2" /></CardHeader><CardContent><div className="h-24 bg-muted rounded-lg animate-pulse" /></CardContent></Card>
+                </div>
+                ) : filteredProjects.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center">
+                        <Building className="mx-auto h-12 w-12 text-muted-foreground" />
+                        <h3 className="mt-4 text-lg font-semibold">No Projects Found</h3>
+                        <p className="mb-4 mt-2 text-sm text-muted-foreground">
+                            No projects have been added yet. This page will populate once project data exists in the database.
+                        </p>
+                    </div>
+                ) : (
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                    {filteredProjects.map((project) => (
+                    <Card key={project.id}>
+                        <CardHeader>
+                        <CardTitle className="text-lg">{project.address}</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                        <ProjectFiles project={project} />
+                        </CardContent>
+                    </Card>
+                    ))}
+                </div>
+                )}
+            </CardContent>
+            </Card>
+        )}
       </main>
     </div>
   );
