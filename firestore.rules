@@ -1,57 +1,63 @@
+
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Helper function to check for admin or owner roles
-    function isPrivilegedUser(userId) {
-      return get(/databases/$(database)/documents/users/$(userId)).data.role in ['admin', 'owner'];
-    }
-    
-    // Users can only read/update their own profile
     match /users/{userId} {
-      allow get, update: if request.auth.uid == userId;
-      allow create: if request.auth.uid == userId;
-
-      // Admins/owners can read anyone's profile
-      allow list, get: if isPrivilegedUser(request.auth.uid);
-
-      // Push subscriptions can only be managed by the user themselves
-      match /pushSubscriptions/{subscriptionId} {
-        allow read, write: if request.auth.uid == userId;
-      }
+      // Users can read their own profile
+      allow read: if request.auth != null && request.auth.uid == userId;
+      // Users can update their own profile, but not change their role
+      allow update: if request.auth != null && request.auth.uid == userId && request.resource.data.role == resource.data.role;
+      // Only owners can change roles
+      allow update: if request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'owner';
+      // New users can create their own profile document
+      allow create: if request.auth != null && request.auth.uid == userId;
     }
 
-    // Shifts can only be accessed by the assigned user or a privileged user
+    match /users/{userId}/pushSubscriptions/{subscriptionId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
     match /shifts/{shiftId} {
-        allow read, update, delete: if request.auth.uid == resource.data.userId || isPrivilegedUser(request.auth.uid);
-        allow create: if isPrivilegedUser(request.auth.uid);
-        // Privileged users can list all shifts for the schedule overview
-        allow list: if isPrivilegedUser(request.auth.uid);
+      // Admins/Owners can read/write all shifts
+      allow read, write: if request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner'];
+      // Users can only read shifts assigned to them
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      // Users can update shifts assigned to them (e.g. status) but cannot change the user ID
+      allow update: if request.auth != null && resource.data.userId == request.auth.uid && request.resource.data.userId == resource.data.userId;
     }
-    
-    // Announcements can be read by anyone authenticated, created/updated by privileged users
+
     match /announcements/{announcementId} {
         allow read: if request.auth != null;
-        allow create, update, delete: if isPrivilegedUser(request.auth.uid);
+        allow create, update, delete: if request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner'];
     }
 
-    // Projects can be read by anyone authenticated, created/updated by privileged users
     match /projects/{projectId} {
-        allow read: if request.auth != null; 
-        allow create, update, delete: if isPrivilegedUser(request.auth.uid);
-        
-        match /files/{fileId} {
-            allow read: if request.auth != null;
-            allow create: if request.auth != null;
-            allow delete: if request.auth.uid == resource.data.uploaderId || isPrivilegedUser(request.auth.uid);
-        }
+        allow read: if request.auth != null;
+        allow create, update, delete: if request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner'];
     }
     
-    // Health and Safety files can be read by anyone, managed by privileged users
+    match /projects/{projectId}/files/{fileId} {
+      allow read: if request.auth != null;
+      // User who uploaded can delete. Admins/owners can also delete.
+      allow delete: if request.auth != null && (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner'] || resource.data.uploaderId == request.auth.uid);
+      // Anyone can upload files to a project
+      allow create: if request.auth != null;
+    }
+
+    // Rules for Health & Safety
+    match /health_and_safety_files {
+      // Allow any authenticated user to list the documents
+      allow list: if request.auth != null;
+      // Allow admins/owners to create new documents
+      allow create: if request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner'];
+    }
+    
     match /health_and_safety_files/{fileId} {
-        allow read: if request.auth != null;
-        allow create, delete: if isPrivilegedUser(request.auth.uid);
+      // Allow any authenticated user to get a single document
+      allow get: if request.auth != null;
+      // Allow admins/owners to delete documents
+      allow delete: if request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner'];
     }
   }
 }
