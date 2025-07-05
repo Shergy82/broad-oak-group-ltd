@@ -52,13 +52,6 @@ export function FileUploader() {
         if (!data) throw new Error("Could not read file data.");
         
         const workbook = XLSX.read(data, { type: 'array', cellDates: true });
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, blankrows: false, defval: '' });
-
-        if (jsonData.length < 2) {
-            throw new Error("The Excel file is too short. It must contain at least a date row and one task row.");
-        }
         
         const usersCollection = collection(db, 'users');
         const usersSnapshot = await getDocs(usersCollection);
@@ -85,35 +78,125 @@ export function FileUploader() {
             return null;
         };
 
-        let dateRowIndex = -1;
-        let dates: (Date | null)[] = [];
-        for (let i = 0; i < jsonData.length; i++) {
-            const row = jsonData[i] || [];
-            if (row.length > 0) {
-                const potentialDates = row.map(parseDate);
-                if (potentialDates.filter(d => d !== null).length >= 3) {
-                    dateRowIndex = i;
-                    dates = potentialDates;
-                    break;
+        const projectsToCreate = new Map<string, { address: string; bNumber: string }>();
+        const projectsCollectionRef = collection(db, 'projects');
+        const existingProjectsSnapshot = await getDocs(projectsCollectionRef);
+        const existingAddresses = new Set<string>();
+        existingProjectsSnapshot.forEach(doc => {
+            const data = doc.data();
+            if(data.address) {
+                existingAddresses.add(data.address.toLowerCase());
+            }
+        });
+
+        const allNewShiftsFromExcel: ParsedShift[] = [];
+        const allUnknownOperatives = new Set<string>();
+        const allDatesFound: Date[] = [];
+
+        for (const sheetName of workbook.SheetNames) {
+            const worksheet = workbook.Sheets[sheetName];
+            const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, blankrows: false, defval: '' });
+
+            if (jsonData.length < 2) {
+                console.log(`Skipping sheet "${sheetName}" because it is too short or empty.`);
+                continue;
+            }
+
+            let dateRowIndex = -1;
+            let dates: (Date | null)[] = [];
+            for (let i = 0; i < jsonData.length; i++) {
+                const row = jsonData[i] || [];
+                if (row.length > 0) {
+                    const potentialDates = row.map(parseDate);
+                    if (potentialDates.filter(d => d !== null).length >= 3) {
+                        dateRowIndex = i;
+                        dates = potentialDates;
+                        break;
+                    }
                 }
             }
-        }
 
-        if (dateRowIndex === -1) {
-            throw new Error("Could not find a valid date row in the spreadsheet. Ensure date cells are formatted as Dates in Excel and there is a row where at least 3 columns contain valid dates.");
+            if (dateRowIndex === -1) {
+                console.log(`Skipping sheet "${sheetName}" because no valid date row was found.`);
+                continue;
+            }
+
+            dates.forEach(d => {
+                if (d) allDatesFound.push(d);
+            });
+            
+            let currentProjectAddress = '';
+            let currentBNumber = '';
+            for (let r = dateRowIndex + 1; r < jsonData.length; r++) {
+                const rowData = jsonData[r];
+                if (!rowData || rowData.every(cell => !cell || cell.toString().trim() === '')) continue;
+                
+                const addressCandidate = (rowData[0] || '').toString().trim();
+                if (addressCandidate) {
+                    currentProjectAddress = addressCandidate;
+                    currentBNumber = (rowData[1] || 'N/A').toString().trim();
+                    
+                    if (currentProjectAddress && !existingAddresses.has(currentProjectAddress.toLowerCase()) && !projectsToCreate.has(currentProjectAddress.toLowerCase())) {
+                        projectsToCreate.set(currentProjectAddress.toLowerCase(), { address: currentProjectAddress, bNumber: currentBNumber });
+                    }
+                }
+
+                if (!currentProjectAddress) continue;
+
+                for (let c = 2; c < rowData.length; c++) {
+                    const cellValue = (rowData[c] || '').toString().trim().replace(/[\u2012\u2013\u2014\u2015]/g, '-');
+                    const shiftDate = dates[c];
+
+                    if (!cellValue || !shiftDate || cellValue.toLowerCase().includes('holiday') || cellValue.toLowerCase().includes('on hold')) continue;
+                    
+                    let parsedShift: { task: string; userId: string; type: 'am' | 'pm' | 'all-day' } | null = null;
+                    
+                    for (const name of userNames) {
+                        const escapedName = name.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+                        const regex = new RegExp(`\\s*-\\s*${escapedName}$`, 'i');
+                        const match = cellValue.match(regex);
+
+                        if (match && match.index !== undefined) {
+                            let task = cellValue.substring(0, match.index).trim();
+                            const userId = nameToUidMap.get(name.toLowerCase());
+                            
+                            let type: 'am' | 'pm' | 'all-day' = 'all-day';
+                            const amPmMatch = task.match(/\b(AM|PM)\b/i);
+                            if (amPmMatch) {
+                                type = amPmMatch[0].toLowerCase() as 'am' | 'pm';
+                                task = task.replace(new RegExp(`\\b${amPmMatch[0]}\\b`, 'i'), '').trim();
+                            }
+
+                            if (task && userId) {
+                                parsedShift = { task, userId, type };
+                                break;
+                            }
+                        }
+                    }
+
+                    if (parsedShift) {
+                         allNewShiftsFromExcel.push({
+                            ...parsedShift,
+                            date: shiftDate,
+                            address: currentProjectAddress,
+                            task: parsedShift.task,
+                        });
+                    } else if (cellValue.includes('-')) {
+                        const lastDelimiterIndex = cellValue.lastIndexOf('-');
+                        const operativeNameCandidate = cellValue.substring(lastDelimiterIndex + 1).trim();
+                        if (operativeNameCandidate) allUnknownOperatives.add(operativeNameCandidate);
+                    }
+                }
+            }
+        } // End of sheet loop
+
+        if (allDatesFound.length === 0) {
+            throw new Error("No valid dates found in any of the spreadsheet tabs. Ensure at least one tab has a valid date row.");
         }
         
-        let projectsAdded = 0;
-        const unknownOperatives = new Set<string>();
-        
-        const validDates = dates.filter((d): d is Date => d !== null);
-        if (validDates.length === 0) {
-            throw new Error("No valid dates found in the identified date row.");
-        }
-        const minDate = new Date(Math.min(...validDates.map(d => d.getTime())));
-        const maxDate = new Date(Math.max(...validDates.map(d => d.getTime())));
+        const minDate = new Date(Math.min(...allDatesFound.map(d => d.getTime())));
+        const maxDate = new Date(Math.max(...allDatesFound.map(d => d.getTime())));
 
-        // Fetch existing shifts within the date range of the spreadsheet
         const shiftsQuery = query(
             collection(db, 'shifts'),
             where('date', '>=', Timestamp.fromDate(minDate)),
@@ -136,94 +219,16 @@ export function FileUploader() {
             existingShiftsMap.set(key, shift);
         });
 
-        const newShiftsFromExcel: ParsedShift[] = [];
-        const unknownNames = new Set<string>();
-
-        const projectsToCreate = new Map<string, { address: string; bNumber: string }>();
-        const projectsCollectionRef = collection(db, 'projects');
-        const existingProjectsSnapshot = await getDocs(projectsCollectionRef);
-        const existingAddresses = new Set<string>();
-        existingProjectsSnapshot.forEach(doc => {
-            const data = doc.data();
-            if(data.address) {
-                existingAddresses.add(data.address.toLowerCase());
-            }
-        });
-        
-        let currentProjectAddress = '';
-        let currentBNumber = '';
-        for (let r = dateRowIndex + 1; r < jsonData.length; r++) {
-            const rowData = jsonData[r];
-            if (!rowData || rowData.every(cell => !cell || cell.toString().trim() === '')) continue;
-            
-            const addressCandidate = (rowData[0] || '').toString().trim();
-            if (addressCandidate) {
-                currentProjectAddress = addressCandidate;
-                currentBNumber = (rowData[1] || 'N/A').toString().trim();
-                
-                if (currentProjectAddress && !existingAddresses.has(currentProjectAddress.toLowerCase()) && !projectsToCreate.has(currentProjectAddress.toLowerCase())) {
-                    projectsToCreate.set(currentProjectAddress.toLowerCase(), { address: currentProjectAddress, bNumber: currentBNumber });
-                }
-            }
-
-            if (!currentProjectAddress) continue;
-
-            for (let c = 2; c < rowData.length; c++) {
-                const cellValue = (rowData[c] || '').toString().trim().replace(/[\u2012\u2013\u2014\u2015]/g, '-');
-                const shiftDate = dates[c];
-
-                if (!cellValue || !shiftDate || cellValue.toLowerCase().includes('holiday') || cellValue.toLowerCase().includes('on hold')) continue;
-                
-                let parsedShift: { task: string; userId: string; type: 'am' | 'pm' | 'all-day' } | null = null;
-                
-                for (const name of userNames) {
-                    const escapedName = name.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-                    const regex = new RegExp(`\\s*-\\s*${escapedName}$`, 'i');
-                    const match = cellValue.match(regex);
-
-                    if (match && match.index !== undefined) {
-                        let task = cellValue.substring(0, match.index).trim();
-                        const userId = nameToUidMap.get(name.toLowerCase());
-                        
-                        let type: 'am' | 'pm' | 'all-day' = 'all-day';
-                        const amPmMatch = task.match(/\b(AM|PM)\b/i);
-                        if (amPmMatch) {
-                            type = amPmMatch[0].toLowerCase() as 'am' | 'pm';
-                            task = task.replace(new RegExp(`\\b${amPmMatch[0]}\\b`, 'i'), '').trim();
-                        }
-
-                        if (task && userId) {
-                            parsedShift = { task, userId, type };
-                            break;
-                        }
-                    }
-                }
-
-                if (parsedShift) {
-                     newShiftsFromExcel.push({
-                        ...parsedShift,
-                        date: shiftDate,
-                        address: currentProjectAddress,
-                        task: parsedShift.task,
-                    });
-                } else if (cellValue.includes('-')) {
-                    const lastDelimiterIndex = cellValue.lastIndexOf('-');
-                    const operativeNameCandidate = cellValue.substring(lastDelimiterIndex + 1).trim();
-                    if (operativeNameCandidate) unknownOperatives.add(operativeNameCandidate);
-                }
-            }
-        }
-
         const batch = writeBatch(db);
         let shiftsAdded = 0;
         let shiftsUpdated = 0;
+        let projectsAdded = 0;
 
-        for (const newShift of newShiftsFromExcel) {
+        for (const newShift of allNewShiftsFromExcel) {
             const key = `${newShift.userId}-${formatDateKey(newShift.date)}-${newShift.type}`;
             const existingShift = existingShiftsMap.get(key);
 
             if (existingShift) {
-                // This shift exists. Check if it needs an update.
                 if (existingShift.task !== newShift.task || existingShift.address !== newShift.address) {
                     const shiftDocRef = doc(db, 'shifts', existingShift.id);
                     batch.update(shiftDocRef, {
@@ -232,10 +237,8 @@ export function FileUploader() {
                     });
                     shiftsUpdated++;
                 }
-                // Mark this existing shift as processed by removing it from the map.
                 existingShiftsMap.delete(key);
             } else {
-                // This is a new shift. Create it.
                 const shiftDocRef = doc(collection(db, 'shifts'));
                 batch.set(shiftDocRef, {
                     userId: newShift.userId,
@@ -249,7 +252,6 @@ export function FileUploader() {
             }
         }
 
-        // Any shifts left in existingShiftsMap were not in the Excel file, so they should be deleted.
         let shiftsDeleted = 0;
         for (const shiftToDelete of existingShiftsMap.values()) {
             batch.delete(doc(db, 'shifts', shiftToDelete.id));
@@ -266,11 +268,11 @@ export function FileUploader() {
             await batch.commit();
         }
 
-        if (unknownOperatives.size > 0) {
+        if (allUnknownOperatives.size > 0) {
             toast({
                 variant: 'destructive',
                 title: 'Partial Import: Operatives Not Found',
-                description: `Imported ${shiftsAdded + shiftsUpdated} shifts. The following operatives were not found and their shifts were skipped: ${Array.from(unknownOperatives).join(', ')}. Please check spelling or add them as users.`,
+                description: `Imported ${shiftsAdded + shiftsUpdated} shifts. The following operatives were not found and their shifts were skipped: ${Array.from(allUnknownOperatives).join(', ')}. Please check spelling or add them as users.`,
             });
         }
         
@@ -283,9 +285,9 @@ export function FileUploader() {
         if (descriptionParts.length > 0) {
             toast({
                 title: 'Schedule Updated',
-                description: `Successfully ${descriptionParts.join(', ')} shifts.`,
+                description: `Successfully ${descriptionParts.join(', ')} shifts from all tabs.`,
             });
-        } else if (unknownOperatives.size === 0) {
+        } else if (allUnknownOperatives.size === 0) {
             toast({
                 title: 'No Changes Needed',
                 description: "The schedule in the file matches the current database.",
