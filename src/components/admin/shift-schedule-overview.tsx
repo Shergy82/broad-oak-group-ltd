@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { RefreshCw, Terminal, MessageSquareText, PlusCircle, Edit, Trash2 } from 'lucide-react';
+import { RefreshCw, Terminal, MessageSquareText, PlusCircle, Edit, Trash2, Download } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -167,6 +167,86 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     } finally {
         setShiftToDelete(null);
     }
+  };
+
+  const handleDownloadPdf = async () => {
+    const { default: jsPDF } = await import('jspdf');
+    const { default: autoTable } = await import('jspdf-autotable');
+
+    const doc = new jsPDF();
+    const generationDate = new Date();
+
+    doc.setFontSize(18);
+    doc.text(`Team Shift Schedule`, 14, 22);
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+    doc.text(`Generated on: ${format(generationDate, 'PPP p')}`, 14, 28);
+
+    let finalY = 35;
+
+    const generateTablesForPeriod = (title: string, shiftsForPeriod: Shift[]) => {
+      if (shiftsForPeriod.length === 0) return;
+
+      doc.setFontSize(16);
+      doc.text(title, 14, finalY);
+      finalY += 10;
+
+      const shiftsByUser = new Map<string, Shift[]>();
+      shiftsForPeriod.forEach(shift => {
+        if (!shiftsByUser.has(shift.userId)) {
+          shiftsByUser.set(shift.userId, []);
+        }
+        shiftsByUser.get(shift.userId)!.push(shift);
+      });
+
+      const sortedUsers = [...users].sort((a, b) => a.name.localeCompare(b.name)).filter(u => shiftsByUser.has(u.uid));
+
+      for (const user of sortedUsers) {
+        const userShifts = shiftsByUser.get(user.uid) || [];
+        if (userShifts.length === 0) continue;
+
+        userShifts.sort((a, b) => getCorrectedLocalDate(a.date).getTime() - getCorrectedLocalDate(b.date).getTime());
+
+        doc.setFontSize(12);
+        doc.text(user.name, 14, finalY);
+        finalY += 7;
+
+        const head = [['Date', 'Type', 'Task', 'Address', 'Status']];
+        const body = userShifts.map(shift => {
+          const shiftDate = getCorrectedLocalDate(shift.date);
+          return [
+            format(shiftDate, 'EEE, dd MMM'),
+            shift.type === 'all-day' ? 'All Day' : shift.type.toUpperCase(),
+            shift.task,
+            shift.address,
+            shift.status.replace('-confirmation', ''),
+          ];
+        });
+
+        autoTable(doc, {
+          head,
+          body,
+          startY: finalY,
+          headStyles: { fillColor: [41, 128, 185], textColor: 255 },
+          margin: { top: 10 },
+          didDrawPage: (data) => {
+            finalY = data.cursor?.y ?? finalY;
+          },
+        });
+        finalY = (doc as any).lastAutoTable.finalY + 10;
+      }
+      finalY += 5; // Extra space between periods
+    };
+
+    generateTablesForPeriod("Today's Shifts", todayShifts);
+    generateTablesForPeriod("This Week's Shifts", thisWeekShifts);
+    generateTablesForPeriod("Next Week's Shifts", nextWeekShifts);
+
+    if (todayShifts.length === 0 && thisWeekShifts.length === 0 && nextWeekShifts.length === 0) {
+      doc.text("No shifts scheduled for these periods.", 14, finalY);
+    }
+
+    doc.save(`team_schedule_${format(generationDate, 'yyyy-MM-dd')}.pdf`);
   };
 
 
@@ -342,6 +422,10 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                             Add Shift
                         </Button>
                     )}
+                    <Button variant="outline" size="sm" onClick={handleDownloadPdf} disabled={loading}>
+                        <Download className="mr-2 h-4 w-4" />
+                        Download PDF
+                    </Button>
                     <Button variant="outline" size="sm" onClick={() => setRefreshKey(prev => prev + 1)}>
                         <RefreshCw className="mr-2 h-4 w-4" />
                         Refresh
