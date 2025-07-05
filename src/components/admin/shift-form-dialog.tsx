@@ -78,7 +78,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormD
     }
   }, [shift, open, form]);
 
-  const handleSubmit = async (values: z.infer<typeof formSchema>) => {
+  const handleSubmit = async (values: z.infer<typeof formSchema>>) => {
     if (!db) return;
     setIsLoading(true);
 
@@ -115,10 +115,8 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormD
         className="sm:max-w-[480px]"
         onPointerDownOutside={(e) => {
           const target = e.target as HTMLElement;
-          // This prevents the dialog from closing when interacting with the calendar popover.
-          // Radix UI popovers are portaled to the document body, so they are technically "outside"
-          // the dialog. This checks if the click target is inside a Radix Popper (which the
-          // calendar uses) and prevents the default behavior (closing the dialog) if so.
+          // This prevents the dialog from closing when interacting with the calendar popover
+          // or the user selection dropdown.
           if (target.closest('[data-radix-popper-content-wrapper]')) {
             e.preventDefault();
           }
@@ -189,6 +187,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormD
                                 setDatePickerOpen(false);
                             }}
                             disabled={(date) => date < new Date("1900-01-01")}
+                            initialFocus
                           />
                         </PopoverContent>
                       </Popover>
