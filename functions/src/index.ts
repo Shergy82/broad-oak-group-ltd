@@ -83,8 +83,13 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
       };
     } else if (change.after.exists && change.before.exists) {
       // A shift is updated. Check for meaningful changes.
-      const before = change.before.data();
-      const after = change.after.data();
+      const before = shiftDataBefore;
+      const after = shiftDataAfter;
+      
+      if (!before || !after) {
+        functions.logger.log("Shift update detected, but data is missing. No notification sent.");
+        return;
+      }
 
       // Compare relevant fields.
       const taskChanged = before.task !== after.task;
@@ -158,7 +163,7 @@ export const projectReviewNotifier = functions
     const privateKey = config.webpush?.private_key;
 
     if (!publicKey || !privateKey) {
-      functions.logger.error("CRITICAL: VAPID keys not configured. Cannot send project review notifications.");
+      functions.logger.error("CRITICAL: VAPID keys are not configured. Cannot send project review notifications.");
       return;
     }
 
