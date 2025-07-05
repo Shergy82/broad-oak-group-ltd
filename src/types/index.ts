@@ -37,3 +37,13 @@ export interface ProjectFile {
   type?: string; // Optional MIME type
   uploadedAt: Timestamp;
 }
+
+export interface Announcement {
+  id: string;
+  title: string;
+  content: string;
+  authorName: string;
+  authorId: string;
+  createdAt: Timestamp;
+  updatedAt?: Timestamp;
+}
