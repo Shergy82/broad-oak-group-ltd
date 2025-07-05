@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -75,6 +76,13 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
 
   const handleFileUpload = (selectedFiles: FileList | null) => {
     if (!selectedFiles || selectedFiles.length === 0) return;
+
+    // This allows the user to select the same file again if an upload fails or they want to re-upload.
+    const fileInput = document.getElementById(`file-upload-user-${project.id}`) as HTMLInputElement;
+    if (fileInput) {
+        fileInput.value = "";
+    }
+    
     setIsUploading(true);
 
     const uploadPromises = Array.from(selectedFiles).map(file => {
@@ -206,22 +214,29 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
             </Table>
         </div>
       )}
-       <div className="pt-2">
-            <Label htmlFor={`file-upload-user-${project.id}`} className="sr-only">Upload file</Label>
-            <div className="flex items-center gap-2">
-                <Input
-                    id={`file-upload-user-${project.id}`}
-                    type="file"
-                    multiple
-                    className="flex-grow text-xs h-9 file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20 cursor-pointer"
-                    onChange={(e) => handleFileUpload(e.target.files)}
-                    disabled={isUploading}
-                />
-                 <Button size="sm" onClick={() => document.getElementById(`file-upload-user-${project.id}`)?.click()} disabled={isUploading}>
-                    {isUploading ? <Spinner /> : <Upload className="h-4 w-4" />}
-                </Button>
-            </div>
-        </div>
+      <div className="pt-2">
+        <Input
+          id={`file-upload-user-${project.id}`}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => handleFileUpload(e.target.files)}
+          disabled={isUploading}
+        />
+        <Button asChild className="w-full" disabled={isUploading}>
+          <Label htmlFor={`file-upload-user-${project.id}`} className="cursor-pointer w-full">
+            {isUploading ? (
+              <>
+                <Spinner /> Uploading...
+              </>
+            ) : (
+              <>
+                <Upload /> Upload File
+              </>
+            )}
+          </Label>
+        </Button>
+      </div>
     </div>
   );
 }
