@@ -147,9 +147,15 @@ export default function HealthAndSafetyPage() {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setFiles(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as HealthAndSafetyFile)));
       setLoading(false);
-    }, (error) => {
+    }, (error: any) => {
       console.error("Error fetching H&S files:", error);
-      toast({ variant: 'destructive', title: 'Error', description: 'Could not fetch Health & Safety files.' });
+      let description = 'Could not fetch Health & Safety files.';
+      if (error.code === 'permission-denied') {
+        description = "You don't have permission to view these files. Please check the `firestore.rules` file.";
+      } else if (error.code === 'failed-precondition') {
+        description = 'A database index is required. Please check the `firestore.indexes.json` file.';
+      }
+      toast({ variant: 'destructive', title: 'Error', description, duration: 10000 });
       setLoading(false);
     });
     return () => unsubscribe();
