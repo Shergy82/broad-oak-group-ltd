@@ -12,9 +12,11 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { isToday, isSameWeek, addDays, format } from 'date-fns';
 import type { Shift } from '@/types';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Clock, RefreshCw, Sunrise, Sunset, Terminal } from 'lucide-react';
+import { Clock, Download, RefreshCw, Sunrise, Sunset, Terminal } from 'lucide-react';
 import { mockShifts } from '@/lib/mock-data';
 import { Button } from '@/components/ui/button';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const getCorrectedLocalDate = (date: { toDate: () => Date }) => {
     const d = date.toDate();
@@ -81,7 +83,10 @@ export default function Dashboard() {
     todayPmShifts,
     todayAllDayShifts,
     thisWeekShifts, 
-    nextWeekShifts 
+    nextWeekShifts,
+    allTodayShifts,
+    allThisWeekShifts,
+    allNextWeekShifts,
   } = useMemo(() => {
     const groupShiftsByDay = (weekShifts: Shift[]) => {
       const grouped: { [key: string]: Shift[] } = {};
@@ -102,9 +107,9 @@ export default function Dashboard() {
     const todayPmShifts = todayShifts.filter(s => s.type === 'pm');
     const todayAllDayShifts = todayShifts.filter(s => s.type === 'all-day');
 
-    const allThisWeekShifts = shifts.filter(s => isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 }));
+    const allThisWeekShiftsData = shifts.filter(s => isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 }));
     
-    const allNextWeekShifts = shifts.filter(s => {
+    const allNextWeekShiftsData = shifts.filter(s => {
         const shiftDate = getCorrectedLocalDate(s.date);
         const startOfNextWeek = addDays(today, 7);
         return isSameWeek(shiftDate, startOfNextWeek, { weekStartsOn: 1 });
@@ -115,10 +120,69 @@ export default function Dashboard() {
       todayAmShifts,
       todayPmShifts,
       todayAllDayShifts,
-      thisWeekShifts: groupShiftsByDay(allThisWeekShifts),
-      nextWeekShifts: groupShiftsByDay(allNextWeekShifts),
+      thisWeekShifts: groupShiftsByDay(allThisWeekShiftsData),
+      nextWeekShifts: groupShiftsByDay(allNextWeekShiftsData),
+      allTodayShifts: todayShifts,
+      allThisWeekShifts: allThisWeekShiftsData,
+      allNextWeekShifts: allNextWeekShiftsData,
     };
   }, [shifts]);
+
+  const handleDownloadPdf = () => {
+    const doc = new jsPDF();
+    const userName = user?.displayName || 'User';
+    const generationDate = new Date();
+
+    doc.setFontSize(18);
+    doc.text(`Shift Schedule for ${userName}`, 14, 22);
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+    doc.text(`Generated on: ${format(generationDate, 'PPP p')}`, 14, 28);
+    
+    let finalY = 35; // a running tally of the Y position on the page
+
+    const generateTableForShifts = (title: string, shiftsForTable: Shift[]) => {
+      if (shiftsForTable.length === 0) return;
+
+      const head = [['Date', 'Type', 'Task', 'Address', 'Status']];
+      const body = shiftsForTable.map(shift => {
+          const shiftDate = getCorrectedLocalDate(shift.date);
+          const formattedStatus = shift.status.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase());
+          return [
+              format(shiftDate, 'EEE, dd MMM'),
+              shift.type === 'all-day' ? 'All Day' : shift.type.toUpperCase(),
+              shift.task,
+              shift.address,
+              formattedStatus,
+          ];
+      });
+
+      autoTable(doc, {
+          head,
+          body,
+          startY: finalY,
+          headStyles: { fillColor: [41, 128, 185], textColor: 255 },
+          margin: { top: 10 },
+          didDrawPage: (data) => {
+              // Reset Y for new page
+              finalY = data.cursor?.y ?? finalY;
+          },
+      });
+      
+      // The `lastAutoTable` property is on the jsPDF instance, not the autotable function result
+      finalY = (doc as any).lastAutoTable.finalY + 15;
+    };
+    
+    if (allTodayShifts.length > 0) generateTableForShifts("Today's Shifts", allTodayShifts);
+    if (allThisWeekShifts.length > 0) generateTableForShifts("This Week's Shifts", allThisWeekShifts);
+    if (allNextWeekShifts.length > 0) generateTableForShifts("Next Week's Shifts", allNextWeekShifts);
+
+    if (allTodayShifts.length === 0 && allThisWeekShifts.length === 0 && allNextWeekShifts.length === 0) {
+      doc.text("No shifts scheduled.", 14, finalY);
+    }
+    
+    doc.save(`shift_schedule_${userName.replace(/\s/g, '_')}.pdf`);
+  };
 
   const renderWeekView = (groupedShifts: { [key: string]: Shift[] }) => {
     const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
@@ -225,10 +289,16 @@ export default function Dashboard() {
             <TabsTrigger value="this-week">This Week</TabsTrigger>
             <TabsTrigger value="next-week">Next Week</TabsTrigger>
           </TabsList>
-          <Button variant="outline" size="sm" onClick={() => setRefreshKey(prev => prev + 1)}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handleDownloadPdf} disabled={loading}>
+              <Download className="mr-2 h-4 w-4" />
+              Download PDF
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setRefreshKey(prev => prev + 1)}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Refresh
+            </Button>
+          </div>
         </div>
         <TabsContent value="today">
           {loading ? (
