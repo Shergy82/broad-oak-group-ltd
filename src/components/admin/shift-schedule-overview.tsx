@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Shift, UserProfile } from '@/types';
-import { addDays, format, isSameWeek } from 'date-fns';
+import { addDays, format, isSameWeek, isToday } from 'date-fns';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -67,10 +67,12 @@ export function ShiftScheduleOverview() {
     return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
   };
 
-  const { thisWeekShifts, nextWeekShifts } = useMemo(() => {
+  const { todayShifts, thisWeekShifts, nextWeekShifts } = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
+    const todayShifts = shifts.filter(s => isToday(getCorrectedLocalDate(s.date)));
+    
     const thisWeekShifts = shifts.filter(s => 
         isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 })
     );
@@ -82,7 +84,7 @@ export function ShiftScheduleOverview() {
         return isSameWeek(shiftDate, startOfNextWeek, { weekStartsOn: 1 });
     });
 
-    return { thisWeekShifts, nextWeekShifts };
+    return { todayShifts, thisWeekShifts, nextWeekShifts };
   }, [shifts]);
 
   const renderWeekSchedule = (weekShifts: Shift[], usersForView: UserProfile[]) => {
@@ -109,7 +111,7 @@ export function ShiftScheduleOverview() {
     if (activeUsers.length === 0) {
       return (
         <div className="h-24 text-center flex items-center justify-center text-muted-foreground mt-4 border border-dashed rounded-lg">
-          No shifts scheduled for this week.
+          No shifts scheduled for this period.
         </div>
       );
     }
@@ -196,7 +198,7 @@ export function ShiftScheduleOverview() {
       <CardHeader>
         <div className="flex items-center justify-between">
             <div>
-                <CardTitle>Weekly Schedule Overview</CardTitle>
+                <CardTitle>Team Schedule Overview</CardTitle>
                 <CardDescription>A list of all upcoming shifts for the team, grouped by operative. The schedule updates in real-time.</CardDescription>
             </div>
             <Button variant="outline" size="sm" onClick={() => setRefreshKey(prev => prev + 1)}>
@@ -206,11 +208,15 @@ export function ShiftScheduleOverview() {
         </div>
       </CardHeader>
       <CardContent>
-        <Tabs defaultValue="this-week">
+        <Tabs defaultValue="today">
           <TabsList>
+            <TabsTrigger value="today">Today</TabsTrigger>
             <TabsTrigger value="this-week">This Week</TabsTrigger>
             <TabsTrigger value="next-week">Next Week</TabsTrigger>
           </TabsList>
+          <TabsContent value="today" className="mt-0">
+            {renderWeekSchedule(todayShifts, users)}
+          </TabsContent>
           <TabsContent value="this-week" className="mt-0">
             {renderWeekSchedule(thisWeekShifts, users)}
           </TabsContent>
