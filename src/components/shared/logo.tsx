@@ -1,8 +1,9 @@
+
 import Link from 'next/link';
 
 export function Logo() {
   return (
-    <Link href="/" className="flex items-center gap-2 text-primary">
+    <Link href="/dashboard" className="flex items-center gap-2 text-primary">
       <div className="h-8 w-8">
         <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
           <defs>

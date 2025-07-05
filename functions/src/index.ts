@@ -71,7 +71,7 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
       payload = {
         title: "New Shift Assigned",
         body: `You have a new shift: ${shiftDataAfter?.task} at ${shiftDataAfter?.address}.`,
-        data: { url: `/` },
+        data: { url: `/dashboard` },
       };
     } else if (!change.after.exists && change.before.exists) {
       // A shift is deleted
@@ -79,8 +79,31 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
       payload = {
         title: "Shift Cancelled",
         body: `Your shift for ${shiftDataBefore?.task} at ${shiftDataBefore?.address} has been cancelled.`,
-        data: { url: `/` },
+        data: { url: `/dashboard` },
       };
+    } else if (change.after.exists && change.before.exists) {
+      // A shift is updated. Check for meaningful changes.
+      const before = change.before.data();
+      const after = change.after.data();
+
+      // Compare relevant fields.
+      const taskChanged = before.task !== after.task;
+      const addressChanged = before.address !== after.address;
+      const dateChanged = !before.date.isEqual(after.date);
+      const typeChanged = before.type !== after.type;
+
+      if (taskChanged || addressChanged || dateChanged || typeChanged) {
+        userId = after.userId;
+        payload = {
+          title: "Your Shift Has Been Updated",
+          body: `Details for one of your shifts have changed. Please check the app.`,
+          data: { url: `/dashboard` },
+        };
+      } else {
+        // No meaningful change, so no notification.
+        functions.logger.log(`Shift ${shiftId} was updated, but no significant fields changed. No notification sent.`);
+        return;
+      }
     } else {
       functions.logger.log(`Shift ${shiftId} was updated, no notification sent.`);
       return;

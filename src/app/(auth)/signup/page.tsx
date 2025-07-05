@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect } from 'react';
@@ -15,7 +16,7 @@ export default function SignUpPage() {
 
   useEffect(() => {
     if (!isLoading && user) {
-      router.push('/');
+      router.push('/dashboard');
     }
   }, [user, isLoading, router]);
 

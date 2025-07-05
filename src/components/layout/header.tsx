@@ -63,7 +63,7 @@ export function Header() {
                 {userProfile?.name && <DropdownMenuLabel>{userProfile.name}</DropdownMenuLabel>}
                 {userProfile?.email && <DropdownMenuLabel className="font-normal text-muted-foreground -mt-2 pb-2">{userProfile.email}</DropdownMenuLabel>}
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => router.push('/')} className="cursor-pointer">
+                <DropdownMenuItem onClick={() => router.push('/dashboard')} className="cursor-pointer">
                   <Calendar className="mr-2" />
                   <span>Dashboard</span>
                 </DropdownMenuItem>
