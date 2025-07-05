@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { RefreshCw, Terminal, MessageSquareText, PlusCircle, Edit, Trash2, Download } from 'lucide-react';
+import { RefreshCw, Terminal, MessageSquareText, PlusCircle, Edit, Trash2, Download, History } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -256,36 +256,11 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     doc.save(`team_schedule_${format(generationDate, 'yyyy-MM-dd')}.pdf`);
   };
 
-  const renderWeekSchedule = (weekShifts: Shift[]) => {
-    if (loading) {
-      return (
-        <div className="border rounded-lg overflow-hidden mt-4">
-            <Skeleton className="h-48 w-full" />
-        </div>
-      );
-    }
-
-    if (weekShifts.length === 0) {
-      return (
-        <div className="h-24 text-center flex items-center justify-center text-muted-foreground mt-4 border border-dashed rounded-lg">
-          No shifts scheduled for this period.
-        </div>
-      );
+  const renderShiftList = (shiftsToRender: Shift[]) => {
+    if (shiftsToRender.length === 0) {
+        return null;
     }
     
-    const sortedShifts = [...weekShifts].sort((a, b) => {
-        const dateA = getCorrectedLocalDate(a.date).getTime();
-        const dateB = getCorrectedLocalDate(b.date).getTime();
-        if (dateA !== dateB) return dateA - dateB;
-        
-        const nameA = userNameMap.get(a.userId) || '';
-        const nameB = userNameMap.get(b.userId) || '';
-        if (nameA !== nameB) return nameA.localeCompare(nameB);
-
-        const typeOrder = { 'am': 1, 'pm': 2, 'all-day': 3 };
-        return typeOrder[a.type] - typeOrder[b.type];
-    });
-
     return (
         <>
             {/* Desktop Table View */}
@@ -303,7 +278,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {sortedShifts.map(shift => (
+                            {shiftsToRender.map(shift => (
                                 <TableRow key={shift.id}>
                                     <TableCell className="font-medium">{format(getCorrectedLocalDate(shift.date), 'eeee, MMM d')}</TableCell>
                                     <TableCell>{userNameMap.get(shift.userId) || 'Unknown'}</TableCell>
@@ -341,7 +316,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
 
             {/* Mobile Card View */}
             <div className="space-y-4 md:hidden mt-4">
-                {sortedShifts.map(shift => (
+                {shiftsToRender.map(shift => (
                    <Card key={shift.id}>
                         <CardHeader>
                             <div className="flex justify-between items-start gap-2">
@@ -374,6 +349,63 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                    </Card>
                 ))}
             </div>
+        </>
+    );
+  }
+
+  const renderWeekSchedule = (weekShifts: Shift[]) => {
+    if (loading) {
+      return (
+        <div className="border rounded-lg overflow-hidden mt-4">
+            <Skeleton className="h-48 w-full" />
+        </div>
+      );
+    }
+    
+    const sortShifts = (shiftsToSort: Shift[]) => {
+        return [...shiftsToSort].sort((a, b) => {
+            const dateA = getCorrectedLocalDate(a.date).getTime();
+            const dateB = getCorrectedLocalDate(b.date).getTime();
+            if (dateA !== dateB) return dateA - dateB;
+            
+            const nameA = userNameMap.get(a.userId) || '';
+            const nameB = userNameMap.get(b.userId) || '';
+            if (nameA !== nameB) return nameA.localeCompare(nameB);
+    
+            const typeOrder = { 'am': 1, 'pm': 2, 'all-day': 3 };
+            return typeOrder[a.type] - typeOrder[b.type];
+        });
+    }
+
+    const activeShifts = sortShifts(weekShifts.filter(s => s.status === 'pending-confirmation' || s.status === 'confirmed'));
+    const historicalShifts = sortShifts(weekShifts.filter(s => s.status === 'completed' || s.status === 'incomplete'))
+      .sort((a,b) => getCorrectedLocalDate(b.date).getTime() - getCorrectedLocalDate(a.date).getTime());
+
+    if (activeShifts.length === 0 && historicalShifts.length === 0) {
+      return (
+        <div className="h-24 text-center flex items-center justify-center text-muted-foreground mt-4 border border-dashed rounded-lg">
+          No shifts scheduled for this period.
+        </div>
+      );
+    }
+
+    return (
+        <>
+            {activeShifts.length > 0 ? renderShiftList(activeShifts) : (
+                <div className="h-24 text-center flex items-center justify-center text-muted-foreground mt-4 border border-dashed rounded-lg">
+                    No active shifts scheduled for this period.
+                </div>
+            )}
+            
+            {historicalShifts.length > 0 && (
+                <div className="mt-8">
+                    <h3 className="text-xl md:text-2xl font-semibold tracking-tight mb-2 flex items-center">
+                        <History className="mr-3 h-6 w-6 text-muted-foreground" />
+                        Completed &amp; Incomplete
+                    </h3>
+                    {renderShiftList(historicalShifts)}
+                </div>
+            )}
         </>
     );
   };
