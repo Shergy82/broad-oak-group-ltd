@@ -143,6 +143,12 @@ export default function HealthAndSafetyPage() {
   }, [user, isAuthLoading, router]);
   
   useEffect(() => {
+    // Only run the query if we have a user, otherwise security rules will deny it.
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
     const q = query(collection(db, 'health_and_safety_files'), orderBy('uploadedAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setFiles(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as HealthAndSafetyFile)));
@@ -159,7 +165,7 @@ export default function HealthAndSafetyPage() {
       setLoading(false);
     });
     return () => unsubscribe();
-  }, [toast]);
+  }, [toast, user]);
   
   const handleDeleteFile = async (file: HealthAndSafetyFile) => {
     try {
@@ -205,8 +211,8 @@ export default function HealthAndSafetyPage() {
       <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
         <Card>
             <CardHeader>
-                <CardTitle>Health & Safety Documents</CardTitle>
-                <CardDescription>General Health & Safety documents and resources. Admins can upload new files.</CardDescription>
+                <CardTitle>Health &amp; Safety Documents</CardTitle>
+                <CardDescription>General Health &amp; Safety documents and resources. Admins can upload new files.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -294,7 +300,7 @@ export default function HealthAndSafetyPage() {
                         <HardHat className="mx-auto h-12 w-12 text-muted-foreground" />
                         <h3 className="mt-4 text-lg font-semibold">No Documents Available</h3>
                         <p className="mb-4 mt-2 text-sm text-muted-foreground">
-                            No Health & Safety documents have been uploaded yet.
+                            No Health &amp; Safety documents have been uploaded yet.
                         </p>
                     </div>
                 )}
