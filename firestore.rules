@@ -1,64 +1,65 @@
-rules_version = '2';
 
+rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Helper function to get a user's role from their profile
-    function getUserRole(userId) {
-      return get(/databases/$(database)/documents/users/$(userId)).data.role;
+
+    // Helper function to check for admin/owner roles
+    function isPrivileged(userId) {
+      // Check if the user document exists and has a role field before accessing it.
+      return exists(/databases/$(database)/documents/users/$(userId)) &&
+             get(/databases/$(database)/documents/users/$(userId)).data.role in ['admin', 'owner'];
     }
     
-    // Helper function to check if a user is an admin or owner
-    function isPrivilegedUser(userId) {
-      let role = getUserRole(userId);
-      return role == 'admin' || role == 'owner';
-    }
-    
-    // Users can read any profile, but only edit their own.
-    // Admins can edit any profile. Owners can't be demoted.
+    // Users can only read/update their own profile or be managed by privileged users.
     match /users/{userId} {
-      allow read: if request.auth.uid != null;
+      allow read, update: if request.auth.uid == userId || isPrivileged(request.auth.uid);
+      // Anyone can create their own user document upon sign-up.
       allow create: if request.auth.uid == userId;
-      allow update: if request.auth.uid == userId || (isPrivilegedUser(request.auth.uid) && getUserRole(userId) != 'owner');
-    }
-
-    // Shifts can be read by any user.
-    // They are created/updated/deleted by admins/owners.
-    // An assigned user can update their own shift's status.
-    match /shifts/{shiftId} {
-      allow read: if request.auth.uid != null;
-      allow create, delete: if isPrivilegedUser(request.auth.uid);
-      allow update: if isPrivilegedUser(request.auth.uid) || request.auth.uid == resource.data.userId;
-    }
-
-    // Projects can be read by any user.
-    // They are managed by admins/owners.
-    match /projects/{projectId} {
-      allow read: if request.auth.uid != null;
-      allow create, update, delete: if isPrivilegedUser(request.auth.uid);
-
-      // Files within a project can be read by anyone.
-      // Any authenticated user can upload a file to a project.
-      // Only the uploader or an admin can delete a file.
-      match /files/{fileId} {
-        allow read: if request.auth.uid != null;
-        allow create: if request.auth.uid != null;
-        allow delete: if isPrivilegedUser(request.auth.uid) || request.auth.uid == resource.data.uploaderId;
+      
+      // Users can manage their own push subscriptions
+      match /pushSubscriptions/{subscriptionId} {
+        allow read, write: if request.auth.uid == userId;
       }
     }
-    
-    // Announcements can be read by any user.
-    // They are managed by admins/owners.
-    match /announcements/{announcementId} {
-        allow read: if request.auth.uid != null;
-        allow create, update, delete: if isPrivilegedUser(request.auth.uid);
+
+    // Shifts can be read/updated by the assigned user or privileged users.
+    // Any authenticated user can create shifts (for admin import and testing).
+    // Only privileged users can delete shifts.
+    match /shifts/{shiftId} {
+        allow read, update: if request.auth.uid == resource.data.userId || isPrivileged(request.auth.uid);
+        allow create: if request.auth.uid != null;
+        allow delete: if isPrivileged(request.auth.uid);
     }
     
-    // Health & Safety files can be read by any user.
-    // They can only be created or deleted by admins/owners.
+    // Announcements can be read by any authenticated user.
+    // Only privileged users can create, update, or delete them.
+    match /announcements/{announcementId} {
+      allow read: if request.auth.uid != null;
+      allow write: if isPrivileged(request.auth.uid);
+    }
+    
+    // Health & Safety files can be read by any authenticated user.
+    // Only privileged users can write (create, update, delete).
     match /health_and_safety_files/{fileId} {
+      allow read: if request.auth.uid != null;
+      allow write: if isPrivileged(request.auth.uid);
+    }
+
+    // Projects can be read by any authenticated user.
+    // Privileged users can create/write. All users can upload files to a project.
+    match /projects/{projectId} {
+      allow read: if request.auth.uid != null;
+      allow write: if isPrivileged(request.auth.uid);
+
+      // Rules for project-specific files
+      match /files/{fileId} {
+        // Any authenticated user can read files
         allow read: if request.auth.uid != null;
-        allow create, delete: if isPrivilegedUser(request.auth.uid);
+        // Anyone can create (upload) a file
+        allow create: if request.auth.uid != null;
+        // Only the uploader or a privileged user can delete a file
+        allow delete: if request.auth.uid == resource.data.uploaderId || isPrivileged(request.auth.uid);
+      }
     }
   }
 }
