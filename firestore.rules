@@ -2,63 +2,70 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    function isUser(userId) {
-      return request.auth != null && request.auth.uid == userId;
-    }
 
+    // Helper function to check for admin/owner role.
+    // This is now the single source of truth for privileged access.
     function isPrivilegedUser() {
+      // Ensure the user is authenticated before trying to read their role.
       return request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner'];
     }
 
+    // Rules for user profiles
     match /users/{userId} {
-      // A user can read their own document
-      allow read: if isUser(userId);
-      // A user can update their own document
-      allow update: if isUser(userId);
-      // Any authenticated user can create their own document (signup)
-      allow create: if isUser(userId);
+      // A user can read, create, and update their own profile.
+      allow read, update, create: if request.auth.uid == userId;
+
+      // The 'owner' can read and update any user profile, except for another owner's profile.
+      // This prevents an owner from being demoted.
+      allow read, update: if isPrivilegedUser() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'owner'
+                          && resource.data.role != 'owner';
+    }
+
+    // Rules for shifts
+    match /shifts/{shiftId} {
+      // An authenticated user can read any shift (for the team schedule view).
+      allow read: if request.auth.uid != null;
+
+      // A user can only update a shift if it is assigned to them.
+      allow update: if request.auth.uid == resource.data.userId;
       
-      match /pushSubscriptions/{subscriptionId} {
-        allow read, write, delete: if isUser(userId);
+      // Only privileged users can create or delete shifts.
+      allow create, delete: if isPrivilegedUser();
+    }
+
+    // Rules for projects and their nested files
+    match /projects/{projectId} {
+      // Any authenticated user can view project details.
+      allow read: if request.auth.uid != null;
+      
+      // Only privileged users can create, update, or delete projects.
+      allow create, update, delete: if isPrivilegedUser();
+
+      match /files/{fileId} {
+        // Any authenticated user can read and create files within a project.
+        allow read, create: if request.auth.uid != null;
+
+        // A file can be deleted by its uploader or by any privileged user.
+        allow delete: if isPrivilegedUser() || request.auth.uid == resource.data.uploaderId;
       }
     }
 
-    match /shifts/{shiftId} {
-      // Privileged users can read/write any shift
-      allow read, write: if isPrivilegedUser();
-      // Users can only read/update their own shifts
-      allow read, update: if isUser(resource.data.userId);
-    }
-    
-    match /projects/{projectId} {
-      // Any authenticated user can read projects
-      allow read: if request.auth != null;
-      // Only privileged users can write to projects
-      allow write: if isPrivilegedUser();
-      
-      match /files/{fileId} {
-        // Any authenticated user can read project files
-        allow read: if request.auth != null;
-        // Any authenticated user can create project files
-        allow create: if request.auth != null;
-        // The uploader or a privileged user can delete/update
-        allow update, delete: if isUser(resource.data.uploaderId) || isPrivilegedUser();
-      }
-    }
-    
-    match /health_and_safety_files/{fileId} {
-      // Any authenticated user can read H&S files
-      allow read: if request.auth != null;
-      // Only privileged users can write H&S files
-      allow write: if isPrivilegedUser();
-    }
-    
+    // Rules for company-wide announcements
     match /announcements/{announcementId} {
-      // Any authenticated user can read announcements
-      allow read: if request.auth != null;
-      // Only privileged users can write announcements
-      allow write: if isPrivilegedUser();
+      // Any authenticated user can read announcements.
+      allow read: if request.auth.uid != null;
+      
+      // Only privileged users can create, update, or delete announcements.
+      allow create, update, delete: if isPrivilegedUser();
+    }
+
+    // Rules for Health & Safety documents
+    match /health_and_safety_files/{fileId} {
+      // Any authenticated user can read/list H&S files.
+      allow read: if request.auth.uid != null;
+      
+      // Only privileged users can upload (write) or delete H&S files.
+      allow write, delete: if isPrivilegedUser();
     }
   }
 }
