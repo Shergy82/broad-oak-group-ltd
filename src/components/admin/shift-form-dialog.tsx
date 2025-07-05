@@ -47,6 +47,14 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormD
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
+    defaultValues: {
+      userId: '',
+      date: undefined,
+      type: 'all-day',
+      task: '',
+      address: '',
+      bNumber: '',
+    },
   });
   
   const getCorrectedLocalDate = (date: { toDate: () => Date }) => {
@@ -78,7 +86,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormD
     }
   }, [shift, open, form]);
 
-  const handleSubmit = async (values: z.infer<typeof formSchema>>) => {
+  const handleSubmit = async (values: z.infer<typeof formSchema>) => {
     if (!db) return;
     setIsLoading(true);
 
@@ -115,9 +123,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormD
         className="sm:max-w-[480px]"
         onPointerDownOutside={(e) => {
           const target = e.target as HTMLElement;
-          // This prevents the dialog from closing when interacting with the calendar popover
-          // or the user selection dropdown.
-          if (target.closest('[data-radix-popper-content-wrapper]')) {
+          if (target.closest('[data-radix-popper-content-wrapper]') || target.closest('.rdp')) {
             e.preventDefault();
           }
         }}
@@ -178,6 +184,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormD
                         <PopoverContent 
                           className="w-auto p-0" 
                           align="start"
+                          onOpenAutoFocus={(e) => e.preventDefault()}
                         >
                           <Calendar
                             mode="single"
