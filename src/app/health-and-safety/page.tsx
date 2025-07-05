@@ -9,7 +9,7 @@ import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebas
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/shared/spinner';
 import { useToast } from '@/hooks/use-toast';
-import { Upload, HardHat, FileText, Download, Trash2 } from 'lucide-react';
+import { Upload, FileText, Download, Trash2 } from 'lucide-react';
 import type { UserProfile, HealthAndSafetyFile } from '@/types';
 import { Header } from '@/components/layout/header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -37,11 +37,8 @@ function FileUploader({ userProfile }: { userProfile: UserProfile }) {
   const { toast } = useToast();
 
   const handleFileUpload = (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    if (userProfile.role !== 'owner') {
-        toast({ variant: 'destructive', title: 'Permission Denied', description: 'Only the owner can upload documents.' });
-        return;
-    }
+    if (!files || files.length === 0 || !db) return;
+
     setIsUploading(true);
 
     const uploadPromises = Array.from(files).map(file => {
@@ -88,8 +85,8 @@ function FileUploader({ userProfile }: { userProfile: UserProfile }) {
       })
       .catch((err) => {
         let description = 'One or more files failed to upload. Please try again.';
-        if (err?.code?.includes('permission-denied')) {
-            description = "Permission denied. Please check your user role and storage & database rules.";
+        if (err?.code?.includes('permission-denied') || err?.code?.includes('unauthorized')) {
+            description = "Permission denied. Please check storage & database rules and ensure you are logged in.";
         }
         toast({ variant: 'destructive', title: 'Upload Failed', description, duration: 8000 });
       })
@@ -130,21 +127,19 @@ export default function HealthAndSafetyPage() {
   const [files, setFiles] = useState<HealthAndSafetyFile[]>([]);
   const [filesLoading, setFilesLoading] = useState(true);
 
-  const isOwner = userProfile?.role === 'owner';
-
-  // Robust effect to handle data fetching after authentication is confirmed.
+  // This effect will redirect the user if they are not logged in.
   useEffect(() => {
-    // Wait until both authentication and profile loading are complete.
-    if (isAuthLoading || isProfileLoading) {
-      return;
-    }
-    // If auth is done and there's no user, redirect them.
-    if (!user) {
+    if (!isAuthLoading && !user) {
       router.push('/login');
+    }
+  }, [user, isAuthLoading, router]);
+
+  // This effect fetches the data once the user's profile is loaded.
+  useEffect(() => {
+    if (!userProfile) {
       return;
     }
     
-    // At this point, the user is authenticated, so it's safe to query Firestore.
     const q = query(collection(db, 'health_and_safety_files'), orderBy('uploadedAt', 'desc'));
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -161,10 +156,19 @@ export default function HealthAndSafetyPage() {
       setFilesLoading(false);
     });
 
-    return () => unsubscribe(); // Cleanup subscription on unmount
-  }, [user, isAuthLoading, isProfileLoading, router, toast]);
+    return () => unsubscribe();
+  }, [userProfile, toast]);
 
   const handleDeleteFile = async (file: HealthAndSafetyFile) => {
+    if (!userProfile) return;
+
+    // UI check to ensure only uploader or privileged user can attempt deletion
+    const isPrivileged = ['admin', 'owner'].includes(userProfile.role);
+    if (userProfile.uid !== file.uploaderId && !isPrivileged) {
+        toast({ variant: 'destructive', title: "Permission Denied", description: "You can only delete your own files." });
+        return;
+    }
+
     try {
       const fileRef = ref(storage, file.fullPath);
       await deleteObject(fileRef);
@@ -184,7 +188,6 @@ export default function HealthAndSafetyPage() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  // Main page loading state (waits for auth and profile)
   const pageIsLoading = isAuthLoading || isProfileLoading;
 
   if (pageIsLoading) {
@@ -195,7 +198,6 @@ export default function HealthAndSafetyPage() {
     );
   }
 
-  // This case should be brief as the effect will redirect if no user.
   if (!user || !userProfile) {
     return null;
   }
@@ -208,18 +210,14 @@ export default function HealthAndSafetyPage() {
             <CardHeader>
                 <CardTitle>Health &amp; Safety Documents</CardTitle>
                 <CardDescription>
-                  General Health &amp; Safety documents and resources. 
-                  {isOwner ? " As the owner, you can upload new files." : " Only the owner can upload new files."}
+                  General Health &amp; Safety documents and resources. All users can upload and download files.
                 </CardDescription>
             </CardHeader>
             <CardContent className="space-y-8">
-                {isOwner && (
-                    <div className="max-w-md mx-auto">
-                        <FileUploader userProfile={userProfile} />
-                    </div>
-                )}
+                <div className="max-w-md mx-auto">
+                    <FileUploader userProfile={userProfile} />
+                </div>
                 
-                {/* --- Display File List --- */}
                 <div className="space-y-4">
                   <h3 className="text-lg font-semibold">Uploaded Documents</h3>
                   {filesLoading ? (
@@ -233,7 +231,7 @@ export default function HealthAndSafetyPage() {
                       <FileText className="mx-auto h-12 w-12 text-muted-foreground" />
                       <h3 className="mt-4 text-lg font-semibold">No Documents Uploaded</h3>
                       <p className="mb-4 mt-2 text-sm text-muted-foreground">
-                        The owner can upload documents using the form above.
+                        Upload documents using the form above.
                       </p>
                     </div>
                   ) : (
@@ -249,46 +247,48 @@ export default function HealthAndSafetyPage() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {files.map(file => (
-                            <TableRow key={file.id}>
-                              <TableCell className="font-medium">{file.name}</TableCell>
-                              <TableCell>{file.uploaderName}</TableCell>
-                              <TableCell>{file.uploadedAt ? format(file.uploadedAt.toDate(), 'dd MMM yyyy') : 'N/A'}</TableCell>
-                              <TableCell>{formatFileSize(file.size)}</TableCell>
-                              <TableCell className="text-right">
-                                <Button variant="ghost" size="icon" asChild>
-                                  <a href={file.url} target="_blank" rel="noopener noreferrer" download={file.name}>
-                                    <Download className="h-4 w-4" />
-                                  </a>
-                                </Button>
-                                {isOwner && (
-                                  <AlertDialog>
-                                    <AlertDialogTrigger asChild>
-                                      <Button variant="ghost" size="icon" className="text-destructive/70 hover:text-destructive hover:bg-destructive/10">
-                                        <Trash2 className="h-4 w-4" />
-                                      </Button>
-                                    </AlertDialogTrigger>
-                                    <AlertDialogContent>
-                                      <AlertDialogHeader>
-                                        <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                                        <AlertDialogDescription>This will permanently delete the file "{file.name}". This action cannot be undone.</AlertDialogDescription>
-                                      </AlertDialogHeader>
-                                      <AlertDialogFooter>
-                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                        <AlertDialogAction onClick={() => handleDeleteFile(file)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
-                                      </AlertDialogFooter>
-                                    </AlertDialogContent>
-                                  </AlertDialog>
-                                )}
-                              </TableCell>
-                            </TableRow>
-                          ))}
+                          {files.map(file => {
+                            const canDelete = userProfile.uid === file.uploaderId || ['admin', 'owner'].includes(userProfile.role);
+                            return (
+                                <TableRow key={file.id}>
+                                  <TableCell className="font-medium">{file.name}</TableCell>
+                                  <TableCell>{file.uploaderName}</TableCell>
+                                  <TableCell>{file.uploadedAt ? format(file.uploadedAt.toDate(), 'dd MMM yyyy') : 'N/A'}</TableCell>
+                                  <TableCell>{formatFileSize(file.size)}</TableCell>
+                                  <TableCell className="text-right">
+                                    <Button variant="ghost" size="icon" asChild>
+                                      <a href={file.url} target="_blank" rel="noopener noreferrer" download={file.name}>
+                                        <Download className="h-4 w-4" />
+                                      </a>
+                                    </Button>
+                                    {canDelete && (
+                                      <AlertDialog>
+                                        <AlertDialogTrigger asChild>
+                                          <Button variant="ghost" size="icon" className="text-destructive/70 hover:text-destructive hover:bg-destructive/10">
+                                            <Trash2 className="h-4 w-4" />
+                                          </Button>
+                                        </AlertDialogTrigger>
+                                        <AlertDialogContent>
+                                          <AlertDialogHeader>
+                                            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                                            <AlertDialogDescription>This will permanently delete the file "{file.name}". This action cannot be undone.</AlertDialogDescription>
+                                          </AlertDialogHeader>
+                                          <AlertDialogFooter>
+                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                            <AlertDialogAction onClick={() => handleDeleteFile(file)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+                                          </AlertDialogFooter>
+                                        </AlertDialogContent>
+                                      </AlertDialog>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                            );
+                          })}
                         </TableBody>
                       </Table>
                     </div>
                   )}
                 </div>
-
             </CardContent>
         </Card>
       </main>

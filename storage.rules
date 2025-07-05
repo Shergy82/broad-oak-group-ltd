@@ -1,15 +1,25 @@
+
 rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
 
-    // SIMPLIFIED RULE TO UNBLOCK USER:
-    // This rule allows any authenticated user to read from and write to Storage.
-    // This is a temporary, less secure rule to ensure uploads are not blocked by
-    // complex role-checking logic that was previously failing.
-    // We can tighten this later.
+    // Default deny all reads and writes
     match /{allPaths=**} {
+      allow read, write: if false;
+    }
+    
+    // Project Files: Allow any authenticated user to read/write.
+    // This mirrors the behavior of the working projects feature.
+    match /project_files/{allPaths=**} {
       allow read, write: if request.auth != null;
     }
+
+    // Health & Safety Files: Allow any authenticated user to read/write.
+    // This makes it work just like the projects feature, fixing the upload error.
+    match /health_and_safety_files/{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+
   }
 }
