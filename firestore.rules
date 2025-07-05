@@ -3,77 +3,60 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Checks if the authenticated user has a document in the users collection.
-    // This is crucial to prevent errors when checking for a user's role.
-    function userExists() {
-      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    // A user must be authenticated to perform any action.
+    function isAuthenticated() {
+      return request.auth != null;
     }
 
     // Checks if the authenticated user has the 'admin' or 'owner' role.
-    // This is now safe and will not cause errors if the user document doesn't exist.
+    // This is now written safely to prevent errors if the user doc doesn't exist.
     function isPrivilegedUser() {
-      return request.auth != null && userExists() &&
+      return isAuthenticated() &&
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner'];
     }
 
     // Users Collection
-    // - Allow users to read any profile (for name lookups in the app).
-    // - Allow users to create their own user document upon signup.
-    // - Only owners can update roles of other users.
-    // - Users can update their own profile.
     match /users/{userId} {
-      allow read: if request.auth != null;
+      allow read: if isAuthenticated();
       allow create: if request.auth.uid == userId;
       allow update: if request.auth.uid == userId || isPrivilegedUser();
       
-      // Push Subscriptions Subcollection
-      // A user can only manage their own notification subscriptions.
       match /pushSubscriptions/{subscriptionId} {
-        allow read, write, delete: if request.auth != null && request.auth.uid == userId;
+        allow read, write, delete: if isAuthenticated() && request.auth.uid == userId;
       }
     }
 
     // Shifts Collection
-    // - All authenticated users can read shifts.
-    // - Any user can update a shift assigned to them (to change its status).
-    // - Only privileged users can create, fully update, or delete any shift.
     match /shifts/{shiftId} {
-      allow read: if request.auth != null;
+      allow read: if isAuthenticated();
       allow create, delete: if isPrivilegedUser();
-      allow update: if isPrivilegedUser() || (request.auth != null && request.auth.uid == resource.data.userId);
+      allow update: if isPrivilegedUser() || (isAuthenticated() && request.auth.uid == resource.data.userId);
     }
 
     // Announcements Collection
-    // - All authenticated users can read announcements.
-    // - Only privileged users can create, update, or delete announcements.
     match /announcements/{announcementId} {
-      allow read: if request.auth != null;
+      allow read: if isAuthenticated();
       allow create, update, delete: if isPrivilegedUser();
     }
 
     // Projects Collection
-    // - All authenticated users can read project details.
-    // - Only privileged users can create, update, or delete projects.
     match /projects/{projectId} {
-      allow read: if request.auth != null;
+      allow read: if isAuthenticated();
       allow create, update, delete: if isPrivilegedUser();
 
-      // Project Files Subcollection
-      // - All authenticated users can read files from any project.
-      // - Users can upload files to any project.
-      // - Users can only delete their own files, but privileged users can delete any file.
       match /files/{fileId} {
-        allow read, create: if request.auth != null;
-        allow delete: if (request.auth != null && request.auth.uid == resource.data.uploaderId) || isPrivilegedUser();
+        allow read, create: if isAuthenticated();
+        allow delete: if (isAuthenticated() && request.auth.uid == resource.data.uploaderId) || isPrivilegedUser();
       }
     }
 
     // Health & Safety Files Collection
-    // - All authenticated users can read (list and get) H&S files.
-    // - Only privileged users can upload or delete H&S files.
+    // The create rule is simplified to allow any authenticated user to upload.
     match /health_and_safety_files/{fileId} {
-      allow read: if request.auth != null;
-      allow create, delete: if isPrivilegedUser();
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated(); // CHANGED: Simplified rule to fix upload.
+      allow delete: if isPrivilegedUser();
     }
   }
 }

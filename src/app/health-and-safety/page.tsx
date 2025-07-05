@@ -8,6 +8,9 @@ import {
   collection,
   addDoc,
   serverTimestamp,
+  onSnapshot,
+  query,
+  orderBy
 } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { Button } from '@/components/ui/button';
@@ -15,7 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/shared/spinner';
 import { useToast } from '@/hooks/use-toast';
 import { Upload, HardHat } from 'lucide-react';
-import type { UserProfile } from '@/types';
+import type { UserProfile, HealthAndSafetyFile } from '@/types';
 import { Header } from '@/components/layout/header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/hooks/use-auth';
@@ -76,8 +79,8 @@ function FileUploader({ userProfile, onUploadComplete }: { userProfile: UserProf
       })
       .catch((err) => {
         let description = 'One or more files failed to upload. Please try again.';
-        if (err?.code === 'permission-denied') {
-            description = "Permission denied. You must be an admin or owner to upload H&S documents.";
+        if (err?.code?.includes('permission-denied')) {
+            description = "Permission denied. Check storage & database rules.";
         }
         toast({ variant: 'destructive', title: 'Upload Failed', description, duration: 8000 });
       })
