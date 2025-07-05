@@ -1,11 +1,28 @@
+
 rules_version = '2';
+
 service firebase.storage {
   match /b/{bucket}/o {
-    // Allow any authenticated user to read and write to storage.
-    // In a production app, you might tighten these rules further,
-    // but this ensures the core functionality works.
+    
+    // Default deny all access
     match /{allPaths=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if false;
+    }
+
+    // Rules for project files
+    match /project_files/{projectId}/{fileName} {
+      // Any authenticated user can read any project file.
+      allow read: if request.auth != null;
+
+      // Any authenticated user can upload (create) a new file.
+      // We add a size limit of 5MB per file.
+      allow create: if request.auth != null && request.resource.size < 5 * 1024 * 1024;
+      
+      // Allow a user to delete a file if their UID is stored in the file's custom metadata,
+      // OR if the user trying to delete is an admin or owner.
+      allow delete: if request.auth != null && 
+                     (request.auth.uid == resource.metadata.uploaderId || 
+                      get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner']);
     }
   }
 }
