@@ -143,12 +143,12 @@ export default function HealthAndSafetyPage() {
   }, [user, isAuthLoading, router]);
   
   useEffect(() => {
-    // Only run the query if we have a user, otherwise security rules will deny it.
-    if (!user) {
+    if (isAuthLoading || !user) {
       setLoading(false);
       return;
     }
 
+    setLoading(true);
     const q = query(collection(db, 'health_and_safety_files'), orderBy('uploadedAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setFiles(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as HealthAndSafetyFile)));
@@ -165,7 +165,7 @@ export default function HealthAndSafetyPage() {
       setLoading(false);
     });
     return () => unsubscribe();
-  }, [toast, user]);
+  }, [toast, user, isAuthLoading]);
   
   const handleDeleteFile = async (file: HealthAndSafetyFile) => {
     try {
