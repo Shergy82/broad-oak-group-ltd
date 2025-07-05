@@ -26,6 +26,8 @@ export interface Project {
   id: string; // Firestore document ID
   address: string;
   bNumber?: string;
+  council?: string;
+  manager?: string;
 }
 
 export interface ProjectFile {

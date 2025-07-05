@@ -1,6 +1,10 @@
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { db, storage } from '@/lib/firebase';
 import {
   collection,
@@ -48,30 +52,36 @@ import {
     AlertDialogFooter,
     AlertDialogHeader,
     AlertDialogTitle,
-    AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 
-// --- Helper Components ---
+
+const projectSchema = z.object({
+  address: z.string().min(1, 'Address is required.'),
+  bNumber: z.string().min(1, 'B Number is required.'),
+  council: z.string().min(1, 'Council is required.'),
+  manager: z.string().min(1, 'Manager is required.'),
+});
 
 function CreateProjectDialog({ open, onOpenChange }: { open: boolean, onOpenChange: (open: boolean) => void }) {
-  const [address, setAddress] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
+  
+  const form = useForm<z.infer<typeof projectSchema>>({
+    resolver: zodResolver(projectSchema),
+    defaultValues: { address: '', bNumber: '', council: '', manager: '' },
+  });
 
-  const handleCreateProject = async () => {
-    if (!address) {
-      toast({ variant: 'destructive', title: 'Missing Information', description: 'Please provide an address.' });
-      return;
-    }
+  const handleCreateProject = async (values: z.infer<typeof projectSchema>) => {
     setIsLoading(true);
     try {
-      await addDoc(collection(db, 'projects'), { address });
+      await addDoc(collection(db, 'projects'), values);
       toast({ title: 'Success', description: 'Project created successfully.' });
-      setAddress('');
+      form.reset();
       onOpenChange(false);
     } catch (error) {
       console.error('Error creating project:', error);
-      toast({ variant: 'destructive', title: 'Error', description: 'Could not create project.' });
+      toast({ variant: 'destructive', title: 'Error', description: 'Could not create project. Check Firestore rules.' });
     } finally {
       setIsLoading(false);
     }
@@ -90,17 +100,28 @@ function CreateProjectDialog({ open, onOpenChange }: { open: boolean, onOpenChan
           <DialogTitle>Create New Project</DialogTitle>
           <DialogDescription>Add a new project to the database. You can upload files to it after creation.</DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4 py-4">
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="address" className="text-right">Address</Label>
-            <Input id="address" value={address} onChange={(e) => setAddress(e.target.value)} className="col-span-3" />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button onClick={handleCreateProject} disabled={isLoading}>
-            {isLoading ? <Spinner /> : 'Create Project'}
-          </Button>
-        </DialogFooter>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(handleCreateProject)} className="space-y-4 py-4">
+            <FormField control={form.control} name="address" render={({ field }) => (
+                <FormItem><FormLabel>Address</FormLabel><FormControl><Input placeholder="123 Main Street..." {...field} /></FormControl><FormMessage /></FormItem>
+            )}/>
+            <FormField control={form.control} name="bNumber" render={({ field }) => (
+                <FormItem><FormLabel>B Number</FormLabel><FormControl><Input placeholder="B-..." {...field} /></FormControl><FormMessage /></FormItem>
+            )}/>
+            <FormField control={form.control} name="council" render={({ field }) => (
+                <FormItem><FormLabel>Council</FormLabel><FormControl><Input placeholder="Council Name" {...field} /></FormControl><FormMessage /></FormItem>
+            )}/>
+            <FormField control={form.control} name="manager" render={({ field }) => (
+                <FormItem><FormLabel>Manager</FormLabel><FormControl><Input placeholder="Manager Name" {...field} /></FormControl><FormMessage /></FormItem>
+            )}/>
+             <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isLoading}>Cancel</Button>
+                <Button type="submit" disabled={isLoading}>
+                    {isLoading ? <Spinner /> : 'Create Project'}
+                </Button>
+            </DialogFooter>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   );
@@ -220,18 +241,15 @@ function FileManagerDialog({ project, open, onOpenChange }: { project: Project |
     }, [project]);
 
     const handleDeleteFile = async (file: ProjectFile) => {
+        if (!project) return;
         try {
-            // Delete from Storage
             const fileRef = ref(storage, file.fullPath);
             await deleteObject(fileRef);
-            
-            // Delete from Firestore
-            await deleteDoc(doc(db, `projects/${project!.id}/files`, file.id));
-
+            await deleteDoc(doc(db, `projects/${project.id}/files`, file.id));
             toast({ title: "File Deleted", description: `Successfully deleted ${file.name}.` });
         } catch (error) {
             console.error("Error deleting file:", error);
-            toast({ variant: 'destructive', title: "Error", description: "Could not delete file. It may have already been removed." });
+            toast({ variant: 'destructive', title: "Error", description: "Could not delete file. Check Firestore rules and Storage permissions." });
         }
     };
 
@@ -304,8 +322,6 @@ function FileManagerDialog({ project, open, onOpenChange }: { project: Project |
     );
 }
 
-// --- Main Component ---
-
 export function ProjectManager() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -328,7 +344,10 @@ export function ProjectManager() {
 
   const filteredProjects = useMemo(() => {
     return projects.filter(project =>
-      project.address.toLowerCase().includes(searchTerm.toLowerCase())
+      project.address.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      project.bNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      project.council?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      project.manager?.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [projects, searchTerm]);
 
@@ -354,6 +373,9 @@ export function ProjectManager() {
           <TableHeader>
             <TableRow>
               <TableHead>Address</TableHead>
+              <TableHead>B Number</TableHead>
+              <TableHead>Council</TableHead>
+              <TableHead>Manager</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -361,12 +383,12 @@ export function ProjectManager() {
             {loading ? (
               Array.from({ length: 3 }).map((_, i) => (
                 <TableRow key={i}>
-                  <TableCell colSpan={2}><Skeleton className="h-8 w-full" /></TableCell>
+                  <TableCell colSpan={5}><Skeleton className="h-8 w-full" /></TableCell>
                 </TableRow>
               ))
             ) : filteredProjects.length === 0 ? (
                 <TableRow>
-                    <TableCell colSpan={2} className="h-24 text-center">
+                    <TableCell colSpan={5} className="h-24 text-center">
                         No projects found.
                     </TableCell>
                 </TableRow>
@@ -374,6 +396,9 @@ export function ProjectManager() {
               filteredProjects.map(project => (
                 <TableRow key={project.id}>
                   <TableCell className="font-medium">{project.address}</TableCell>
+                  <TableCell>{project.bNumber}</TableCell>
+                  <TableCell>{project.council}</TableCell>
+                  <TableCell>{project.manager}</TableCell>
                   <TableCell className="text-right">
                     <Button variant="outline" size="sm" onClick={() => handleManageFiles(project)}>
                       <FolderOpen className="mr-2" />
