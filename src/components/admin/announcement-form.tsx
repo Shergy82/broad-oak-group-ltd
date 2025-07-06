@@ -58,6 +58,15 @@ export function AnnouncementForm({ currentUser, announcement, open, onOpenChange
 
   const handleSubmit = async (values: z.infer<typeof formSchema>) => {
     if (!db) return;
+    if (!currentUser?.uid || !currentUser?.name) {
+      toast({
+        variant: 'destructive',
+        title: 'Cannot Post Announcement',
+        description: 'Your user information is missing. Please try logging out and back in.',
+      });
+      return;
+    }
+    
     setIsLoading(true);
     try {
       if (isEditing && announcement) {

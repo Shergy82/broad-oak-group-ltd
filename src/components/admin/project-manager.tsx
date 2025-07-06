@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -15,9 +14,11 @@ import {
   deleteDoc,
   doc,
   serverTimestamp,
-  Timestamp
+  Timestamp,
+  writeBatch,
+  getDocs
 } from 'firebase/firestore';
-import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject, listAll } from 'firebase/storage';
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import {
@@ -328,23 +329,25 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                                                           <Download className="h-4 w-4" />
                                                       </Button>
                                                     </a>
-                                                    <AlertDialog>
-                                                        <AlertDialogTrigger asChild>
-                                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10">
-                                                                <Trash2 className="h-4 w-4" />
-                                                            </Button>
-                                                        </AlertDialogTrigger>
-                                                        <AlertDialogContent>
-                                                            <AlertDialogHeader>
-                                                                <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                                                                <AlertDialogDescription>This will permanently delete the file <span className="font-semibold">{file.name}</span>. This action cannot be undone.</AlertDialogDescription>
-                                                            </AlertDialogHeader>
-                                                            <AlertDialogFooter>
-                                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                                <AlertDialogAction onClick={() => handleDeleteFile(file)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
-                                                            </AlertDialogFooter>
-                                                        </AlertDialogContent>
-                                                    </AlertDialog>
+                                                     {['admin', 'owner'].includes(userProfile.role) && (
+                                                        <AlertDialog>
+                                                            <AlertDialogTrigger asChild>
+                                                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10">
+                                                                    <Trash2 className="h-4 w-4" />
+                                                                </Button>
+                                                            </AlertDialogTrigger>
+                                                            <AlertDialogContent>
+                                                                <AlertDialogHeader>
+                                                                    <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                                                                    <AlertDialogDescription>This will permanently delete the file <span className="font-semibold">{file.name}</span>. This action cannot be undone.</AlertDialogDescription>
+                                                                </AlertDialogHeader>
+                                                                <AlertDialogFooter>
+                                                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                                    <AlertDialogAction onClick={() => handleDeleteFile(file)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+                                                                </AlertDialogFooter>
+                                                            </AlertDialogContent>
+                                                        </AlertDialog>
+                                                     )}
                                                 </TableCell>
                                             </TableRow>
                                         ))}
@@ -370,6 +373,7 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
   const [isCreateProjectDialogOpen, setCreateProjectDialogOpen] = useState(false);
   const [isFileManagerOpen, setFileManagerOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const { toast } = useToast();
 
   useEffect(() => {
     const q = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
@@ -395,6 +399,38 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
   const handleManageFiles = (project: Project) => {
     setSelectedProject(project);
     setFileManagerOpen(true);
+  };
+  
+  const handleDeleteProject = async (project: Project) => {
+    if (!['admin', 'owner'].includes(userProfile.role)) {
+        toast({ variant: 'destructive', title: 'Permission Denied', description: 'You do not have permission to delete projects.' });
+        return;
+    }
+
+    toast({ title: 'Deleting Project...', description: 'This may take a moment.' });
+    try {
+        const batch = writeBatch(db);
+
+        // Delete files subcollection
+        const filesQuery = query(collection(db, `projects/${project.id}/files`));
+        const filesSnapshot = await getDocs(filesQuery);
+        filesSnapshot.forEach(doc => batch.delete(doc.ref));
+
+        // Delete main project doc
+        batch.delete(doc(db, 'projects', project.id));
+
+        await batch.commit();
+
+        // Delete files from storage
+        const storageFolderRef = ref(storage, `project_files/${project.id}`);
+        const allFiles = await listAll(storageFolderRef);
+        await Promise.all(allFiles.items.map(fileRef => deleteObject(fileRef)));
+
+        toast({ title: 'Success', description: 'Project and all its files have been deleted.' });
+    } catch (error) {
+        console.error("Error deleting project:", error);
+        toast({ variant: 'destructive', title: 'Error', description: 'Could not delete project. See console for details.' });
+    }
   };
 
   return (
@@ -448,11 +484,34 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                         <TableCell>{project.createdAt ? format(project.createdAt.toDate(), 'dd/MM/yyyy') : 'N/A'}</TableCell>
                         <TableCell>{project.createdBy ?? 'N/A'}</TableCell>
                         <TableCell>{project.nextReviewDate ? format(project.nextReviewDate.toDate(), 'dd/MM/yyyy') : 'N/A'}</TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="text-right space-x-2">
                             <Button variant="outline" size="sm" onClick={() => handleManageFiles(project)}>
                             <FolderOpen className="mr-2 h-4 w-4" />
-                            Manage Files
+                            Files
                             </Button>
+                            {['admin', 'owner'].includes(userProfile.role) && (
+                                 <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                        <Button variant="destructive" size="sm">
+                                            <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                        </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                            <AlertDialogDescription>
+                                                This will permanently delete the project <span className="font-semibold">"{project.address}"</span> and all of its associated files. This action cannot be undone.
+                                            </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                            <AlertDialogAction onClick={() => handleDeleteProject(project)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                                Delete Project
+                                            </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                </AlertDialog>
+                            )}
                         </TableCell>
                         </TableRow>
                     ))}
@@ -473,11 +532,34 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                              <div><strong>Created:</strong> {project.createdAt ? format(project.createdAt.toDate(), 'dd/MM/yyyy') : 'N/A'} by {project.createdBy || 'N/A'}</div>
                              <div><strong>Next Review:</strong> {project.nextReviewDate ? format(project.nextReviewDate.toDate(), 'dd/MM/yyyy') : 'N/A'}</div>
                         </CardContent>
-                        <CardFooter>
+                        <CardFooter className="grid grid-cols-2 gap-2">
                             <Button variant="outline" className="w-full" onClick={() => handleManageFiles(project)}>
                                 <FolderOpen className="mr-2 h-4 w-4" />
                                 Manage Files
                             </Button>
+                             {['admin', 'owner'].includes(userProfile.role) && (
+                                <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                        <Button variant="destructive" className="w-full">
+                                            <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                        </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                            <AlertDialogDescription>
+                                                This will permanently delete the project <span className="font-semibold">"{project.address}"</span> and all of its associated files. This action cannot be undone.
+                                            </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                            <AlertDialogAction onClick={() => handleDeleteProject(project)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                                Delete Project
+                                            </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                </AlertDialog>
+                            )}
                         </CardFooter>
                     </Card>
                 ))}
