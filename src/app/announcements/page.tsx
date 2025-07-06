@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -136,7 +135,7 @@ export default function AnnouncementsPage() {
                       <CardHeader>
                         <CardTitle>{announcement.title}</CardTitle>
                         <CardDescription>
-                          Posted by {announcement.authorName} on {format(announcement.createdAt.toDate(), 'PPP')}
+                          Posted by {announcement.authorName} {announcement.createdAt ? `on ${format(announcement.createdAt.toDate(), 'PPP')}` : ''}
                         </CardDescription>
                       </CardHeader>
                       <CardContent>
