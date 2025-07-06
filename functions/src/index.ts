@@ -82,7 +82,7 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
         data: { url: `/dashboard` },
       };
     } else if (change.after.exists && change.before.exists) {
-      // A shift is updated. Check for meaningful changes.
+      // A shift is updated. This is the definitive check for meaningful changes.
       const before = shiftDataBefore;
       const after = shiftDataAfter;
       
@@ -91,22 +91,26 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
         return;
       }
 
-      // Compare relevant fields.
-      const taskChanged = before.task !== after.task;
-      const addressChanged = before.address !== after.address;
-      const bNumberChanged = (before.bNumber || '') !== (after.bNumber || '');
+      // --- Robust comparison logic ---
 
+      // 1. Compare string values, tolerant of whitespace and null/undefined differences.
+      const taskChanged = (before.task || "").trim() !== (after.task || "").trim();
+      const addressChanged = (before.address || "").trim() !== (after.address || "").trim();
+      const bNumberChanged = (before.bNumber || "").trim() !== (after.bNumber || "").trim();
+      const typeChanged = before.type !== after.type;
+
+      // 2. Compare dates with day-level precision, ignoring time-of-day.
       const beforeDate = before.date.toDate();
       const afterDate = after.date.toDate();
-      // Compare the actual date part of the timestamp, ignoring time-of-day differences.
       const dateChanged = 
           beforeDate.getUTCFullYear() !== afterDate.getUTCFullYear() ||
           beforeDate.getUTCMonth() !== afterDate.getUTCMonth() ||
           beforeDate.getUTCDate() !== afterDate.getUTCDate();
 
-      const typeChanged = before.type !== after.type;
+      // 3. Determine if any meaningful change occurred.
+      const hasMeaningfulChange = taskChanged || addressChanged || dateChanged || typeChanged || bNumberChanged;
 
-      if (taskChanged || addressChanged || dateChanged || typeChanged || bNumberChanged) {
+      if (hasMeaningfulChange) {
         userId = after.userId;
 
         const changedFields = [];
@@ -116,7 +120,6 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
         if (typeChanged) changedFields.push('time (AM/PM)');
         if (bNumberChanged) changedFields.push('B Number');
 
-        
         let body = `Details for one of your shifts have changed. Please check the app.`;
         if (changedFields.length > 0) {
             const changes = changedFields.join(' & ');
@@ -129,12 +132,12 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
           data: { url: `/dashboard` },
         };
       } else {
-        // No meaningful change, so no notification.
+        // This is the crucial part: No meaningful change was detected, so no notification will be sent.
         functions.logger.log(`Shift ${shiftId} was updated, but no significant fields changed. No notification sent.`);
         return;
       }
     } else {
-      functions.logger.log(`Shift ${shiftId} was updated, no notification sent.`);
+      functions.logger.log(`Shift ${shiftId} write event occurred, but it was not a create, update, or delete. No notification sent.`);
       return;
     }
 
