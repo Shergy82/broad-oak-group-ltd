@@ -289,43 +289,36 @@ export const deleteProjectAndFiles = functions.region("europe-west2").https.onCa
     }
 
     try {
+        const bucket = admin.storage().bucket();
+        const prefix = `project_files/${projectId}/`;
+
+        // Step 1: Atomically delete all associated files from Cloud Storage using a prefix match.
+        // This is more robust than relying on file paths stored in Firestore.
+        await bucket.deleteFiles({ prefix });
+        functions.logger.log(`Successfully deleted all files with prefix "${prefix}" from Storage.`);
+
+        // Step 2: Delete all documents from the 'files' subcollection in Firestore.
         const projectRef = db.collection('projects').doc(projectId);
-        const filesRef = projectRef.collection('files');
-        const filesSnapshot = await filesRef.get();
-
-        // 2. Delete files from Cloud Storage
-        const bucket = admin.storage().bucket(); // Default bucket
-        const deleteStoragePromises: Promise<any>[] = [];
-
-        filesSnapshot.forEach(doc => {
-            const fileData = doc.data();
-            if (fileData.fullPath) {
-                functions.logger.log(`Deleting from storage: ${fileData.fullPath}`);
-                deleteStoragePromises.push(bucket.file(fileData.fullPath).delete().catch(err => {
-                    // Log error but don't fail the whole process if a file is already gone
-                    functions.logger.error(`Failed to delete ${fileData.fullPath} from storage:`, err);
-                }));
-            }
-        });
-        await Promise.all(deleteStoragePromises);
-        functions.logger.log(`Finished deleting ${deleteStoragePromises.length} files from storage for project ${projectId}.`);
-
-        // 3. Delete documents from Firestore subcollection using a batch
+        const filesQuerySnapshot = await projectRef.collection('files').get();
+        
         const batch = db.batch();
-        filesSnapshot.forEach(doc => {
+        
+        filesQuerySnapshot.forEach(doc => {
             batch.delete(doc.ref);
         });
 
-        // 4. Delete main project document
+        // Step 3: Delete the main project document itself.
         batch.delete(projectRef);
 
+        // Step 4: Commit all Firestore deletions in a single atomic operation.
         await batch.commit();
         functions.logger.log(`Successfully deleted project ${projectId} and its subcollections from Firestore.`);
 
-        return { success: true, message: `Project ${projectId} deleted successfully.` };
+        return { success: true, message: `Project ${projectId} and all associated files deleted successfully.` };
 
     } catch (error: any) {
         functions.logger.error(`Error deleting project ${projectId}:`, error);
-        throw new functions.https.HttpsError("internal", "An unexpected error occurred while deleting the project.", error.message);
+        // Avoid leaking detailed internal error messages to the client.
+        throw new functions.https.HttpsError("internal", "An unexpected error occurred while deleting the project. Please check the function logs.");
     }
 });
