@@ -54,7 +54,8 @@ export function FileUploader() {
         const data = e.target?.result;
         if (!data) throw new Error("Could not read file data.");
         
-        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+        // Removed cellDates: true to handle date parsing manually for robustness
+        const workbook = XLSX.read(data, { type: 'array' });
         
         const usersSnapshot = await getDocs(collection(db, 'users'));
         const nameToUidMap = new Map<string, string>();
@@ -69,14 +70,37 @@ export function FileUploader() {
         });
         userNames.sort((a, b) => b.length - a.length);
 
+        // Robust date parsing function
         const parseDate = (dateValue: any): Date | null => {
-            if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
+            if (!dateValue) return null;
+
+            // Handle dates parsed as JS Date objects by a library
+            if (dateValue instanceof Date) {
+                if (isNaN(dateValue.getTime())) return null;
                 return new Date(Date.UTC(dateValue.getFullYear(), dateValue.getMonth(), dateValue.getDate()));
             }
+
+            // Handle Excel's serial number date format
             if (typeof dateValue === 'number' && dateValue > 1) {
-                const excelBaseDate = new Date(Date.UTC(1899, 11, 30));
-                const d = new Date(excelBaseDate.getTime() + dateValue * 24 * 60 * 60 * 1000);
-                return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+                // Formula to convert Excel serial date to JS Date, then normalize to UTC midnight
+                const jsDate = new Date(Math.round((dateValue - 25569) * 864e5));
+                return new Date(Date.UTC(jsDate.getUTCFullYear(), jsDate.getUTCMonth(), jsDate.getUTCDate()));
+            }
+            
+            // Handle dates formatted as strings (e.g., "DD/MM/YYYY" or "DD-MM-YYYY")
+            if (typeof dateValue === 'string') {
+                const parts = dateValue.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/);
+                if (parts) {
+                    const day = parseInt(parts[1], 10);
+                    const month = parseInt(parts[2], 10) - 1; // JS months are 0-indexed
+                    const year = parseInt(parts[3], 10);
+                    if (year > 1900 && month >= 0 && month < 12 && day > 0 && day <= 31) {
+                        const d = new Date(Date.UTC(year, month, day));
+                        if (!isNaN(d.getTime())) {
+                            return d;
+                        }
+                    }
+                }
             }
             return null;
         };
@@ -103,13 +127,12 @@ export function FileUploader() {
             let dates: (Date | null)[] = [];
             for (let i = 0; i < jsonData.length; i++) {
                 const row = jsonData[i] || [];
-                if (row.length > 2 && row.slice(2).some(cell => cell instanceof Date || (typeof cell === 'number' && cell > 40000))) {
-                    const potentialDates = row.map(parseDate);
-                    if (potentialDates.filter(d => d !== null).length >= 1) {
-                        dateRowIndex = i;
-                        dates = potentialDates;
-                        break;
-                    }
+                // Looser check for a date row: look for parsable dates in any format
+                const potentialDates = row.map(parseDate);
+                if (row.length > 2 && potentialDates.slice(2).filter(d => d !== null).length > 0) {
+                     dateRowIndex = i;
+                     dates = potentialDates;
+                     break;
                 }
             }
             if (dateRowIndex === -1) continue;

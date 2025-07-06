@@ -92,45 +92,44 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
       }
 
       // --- Robust comparison logic ---
+      const changedFields: string[] = [];
 
       // 1. Compare string values, tolerant of whitespace and null/undefined differences.
-      const taskChanged = (before.task || "").trim() !== (after.task || "").trim();
-      const addressChanged = (before.address || "").trim() !== (after.address || "").trim();
-      const bNumberChanged = (before.bNumber || "").trim() !== (after.bNumber || "").trim();
-      const typeChanged = before.type !== after.type;
+      if ((before.task || "").trim() !== (after.task || "").trim()) {
+        changedFields.push('task');
+      }
+      if ((before.address || "").trim() !== (after.address || "").trim()) {
+        changedFields.push('location');
+      }
+      if ((before.bNumber || "").trim() !== (after.bNumber || "").trim()) {
+        changedFields.push('B Number');
+      }
+      if (before.type !== after.type) {
+        changedFields.push('time (AM/PM)');
+      }
 
       // 2. Compare dates with day-level precision, ignoring time-of-day.
       const beforeDate = before.date.toDate();
       const afterDate = after.date.toDate();
-      const dateChanged = 
-          beforeDate.getUTCFullYear() !== afterDate.getUTCFullYear() ||
+      if (beforeDate.getUTCFullYear() !== afterDate.getUTCFullYear() ||
           beforeDate.getUTCMonth() !== afterDate.getUTCMonth() ||
-          beforeDate.getUTCDate() !== afterDate.getUTCDate();
+          beforeDate.getUTCDate() !== afterDate.getUTCDate()) {
+        changedFields.push('date');
+      }
 
-      // 3. Determine if any meaningful change occurred.
-      const hasMeaningfulChange = taskChanged || addressChanged || dateChanged || typeChanged || bNumberChanged;
-
-      if (hasMeaningfulChange) {
+      // 3. Determine if any meaningful change occurred and build the notification.
+      if (changedFields.length > 0) {
         userId = after.userId;
 
-        const changedFields = [];
-        if (taskChanged) changedFields.push('task');
-        if (addressChanged) changedFields.push('location');
-        if (dateChanged) changedFields.push('date');
-        if (typeChanged) changedFields.push('time (AM/PM)');
-        if (bNumberChanged) changedFields.push('B Number');
-
-        let body = `Details for one of your shifts have changed. Please check the app.`;
-        if (changedFields.length > 0) {
-            const changes = changedFields.join(' & ');
-            body = `The ${changes} for one of your shifts has been updated.`;
-        }
+        const changes = changedFields.join(' & ');
+        const body = `The ${changes} for one of your shifts has been updated.`;
 
         payload = {
           title: "Your Shift Has Been Updated",
           body: body,
           data: { url: `/dashboard` },
         };
+        functions.logger.log(`Meaningful change detected for shift ${shiftId}. Changes: ${changes}. Sending notification.`);
       } else {
         // This is the crucial part: No meaningful change was detected, so no notification will be sent.
         functions.logger.log(`Shift ${shiftId} was updated, but no significant fields changed. No notification sent.`);
