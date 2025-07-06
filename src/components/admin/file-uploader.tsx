@@ -32,11 +32,17 @@ export function FileUploader() {
   };
 
   const parseDateFromExcel = (excelDate: number): Date => {
-    // This formula converts Excel's serial date number to a JS Date.
-    // It's timezone-agnostic at this point.
     const d = new Date(Math.round((excelDate - 25569) * 86400 * 1000));
-    // We then create a new Date object based on the UTC components to ensure it's at UTC midnight.
     return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  };
+  
+  const formatDateKey = (d: Date): string => {
+    // Manually construct the YYYY-MM-DD string from UTC components
+    // to avoid any potential timezone interpretation issues with toISOString().
+    const year = d.getUTCFullYear();
+    const month = (d.getUTCMonth() + 1).toString().padStart(2, '0');
+    const day = d.getUTCDate().toString().padStart(2, '0');
+    return `${year}-${month}-${day}`;
   };
 
   const handleImport = async () => {
@@ -69,16 +75,12 @@ export function FileUploader() {
             }
         });
 
-        // Sort names by length descending to match longer names first (e.g., "John Smith" before "John")
         userNames.sort((a, b) => b.length - a.length);
 
         const parseDate = (dateValue: any): Date | null => {
-            // If XLSX parsing with `cellDates: true` provides a valid JS Date object
             if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
-                // Normalize to UTC midnight to strip time and timezone info
                 return new Date(Date.UTC(dateValue.getFullYear(), dateValue.getMonth(), dateValue.getDate()));
             }
-            // If the cell is a number (Excel's date format)
              if (typeof dateValue === 'number' && dateValue > 1) {
                 return parseDateFromExcel(dateValue);
             }
@@ -104,14 +106,10 @@ export function FileUploader() {
             const worksheet = workbook.Sheets[sheetName];
             const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, blankrows: false, defval: '' });
 
-            if (jsonData.length < 2) {
-                console.log(`Skipping sheet "${sheetName}" because it is too short or empty.`);
-                continue;
-            }
+            if (jsonData.length < 2) continue;
 
             let dateRowIndex = -1;
             let dates: (Date | null)[] = [];
-            // Find the row with dates. It should have at least 3 valid dates.
             for (let i = 0; i < jsonData.length; i++) {
                 const row = jsonData[i] || [];
                 if (row.length > 0) {
@@ -124,10 +122,7 @@ export function FileUploader() {
                 }
             }
 
-            if (dateRowIndex === -1) {
-                console.log(`Skipping sheet "${sheetName}" because no valid date row was found.`);
-                continue;
-            }
+            if (dateRowIndex === -1) continue;
 
             dates.forEach(d => {
                 if (d) allDatesFound.push(d);
@@ -135,12 +130,10 @@ export function FileUploader() {
             
             let currentProjectAddress = '';
             let currentBNumber = '';
-            // Start reading data from the row after the date row
             for (let r = dateRowIndex + 1; r < jsonData.length; r++) {
                 const rowData = jsonData[r];
                 if (!rowData || rowData.every(cell => !cell || cell.toString().trim() === '')) continue;
                 
-                // Project address is always in the first column of a data row
                 const addressCandidate = (rowData[0] || '').toString().trim();
                 if (addressCandidate) {
                     currentProjectAddress = addressCandidate;
@@ -151,18 +144,16 @@ export function FileUploader() {
                     }
                 }
 
-                if (!currentProjectAddress) continue; // Skip rows without a project address
+                if (!currentProjectAddress) continue;
 
                 for (let c = 2; c < rowData.length; c++) {
                     const cellValue = (rowData[c] || '').toString().trim().replace(/[\u2012\u2013\u2014\u2015]/g, '-');
                     const shiftDate = dates[c];
 
-                    // Skip empty cells, holiday markers, etc.
                     if (!cellValue || !shiftDate || cellValue.toLowerCase().includes('holiday') || cellValue.toLowerCase().includes('on hold')) continue;
                     
                     let parsedShift: { task: string; userId: string; type: 'am' | 'pm' | 'all-day' } | null = null;
                     
-                    // Match operative name from the cell value
                     for (const name of userNames) {
                         const escapedName = name.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
                         const regex = new RegExp(`\\s*-\\s*${escapedName}$`, 'i');
@@ -201,13 +192,12 @@ export function FileUploader() {
                     }
                 }
             }
-        } // End of sheet loop
+        }
 
         if (allDatesFound.length === 0) {
             throw new Error("No valid dates found in any of the spreadsheet tabs. Ensure at least one tab has a valid date row.");
         }
         
-        // Find the min/max dates to query Firestore efficiently
         const minDate = new Date(Math.min(...allDatesFound.map(d => d.getTime())));
         const maxDate = new Date(Math.max(...allDatesFound.map(d => d.getTime())));
 
@@ -219,17 +209,8 @@ export function FileUploader() {
         const shiftsSnapshot = await getDocs(shiftsQuery);
         const existingShiftsMap = new Map<string, Shift & { id: string }>();
 
-        const formatDateKey = (d: Date) => {
-          // Format as YYYY-MM-DD
-          return d.toISOString().split('T')[0];
-        };
-        
         shiftsSnapshot.forEach(doc => {
             const shift = { id: doc.id, ...doc.data() } as Shift & { id: string };
-            // ** THE FIX IS HERE **
-            // We now use Date.UTC to create a date object that represents midnight UTC,
-            // which strips timezone information and matches how the Excel dates are processed.
-            // This ensures the keys for existing shifts and new shifts match perfectly.
             const shiftDate = new Date(Date.UTC(shift.date.toDate().getUTCFullYear(), shift.date.toDate().getUTCMonth(), shift.date.toDate().getUTCDate()));
             const key = `${shift.userId}-${formatDateKey(shiftDate)}-${shift.type}`;
             existingShiftsMap.set(key, shift);
@@ -245,7 +226,6 @@ export function FileUploader() {
             const existingShift = existingShiftsMap.get(key);
 
             if (existingShift) {
-                // Shift exists. Check if it needs updating.
                 const bNumberChanged = (existingShift.bNumber || '') !== (newShift.bNumber || '');
                 if (existingShift.task !== newShift.task || existingShift.address !== newShift.address || bNumberChanged) {
                     const shiftDocRef = doc(db, 'shifts', existingShift.id);
@@ -256,10 +236,8 @@ export function FileUploader() {
                     });
                     shiftsUpdated++;
                 }
-                // Remove from map so it's not deleted later
                 existingShiftsMap.delete(key);
             } else {
-                // This is a new shift, create it.
                 const shiftDocRef = doc(collection(db, 'shifts'));
                 batch.set(shiftDocRef, {
                     userId: newShift.userId,
@@ -274,7 +252,6 @@ export function FileUploader() {
             }
         }
 
-        // Any shifts left in the map were in the DB but not in the Excel file, so delete them.
         let shiftsDeleted = 0;
         for (const shiftToDelete of existingShiftsMap.values()) {
             batch.delete(doc(db, 'shifts', shiftToDelete.id));
@@ -316,7 +293,6 @@ export function FileUploader() {
                 description: "The schedule in the file matches the current database.",
             });
         }
-
 
         setFile(null);
         const fileInput = document.getElementById('shift-file-input') as HTMLInputElement;
