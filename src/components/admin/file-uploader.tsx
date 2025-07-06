@@ -36,15 +36,6 @@ export function FileUploader() {
     return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
   };
   
-  const formatDateKey = (d: Date): string => {
-    // Manually construct the YYYY-MM-DD string from UTC components
-    // to avoid any potential timezone interpretation issues with toISOString().
-    const year = d.getUTCFullYear();
-    const month = (d.getUTCMonth() + 1).toString().padStart(2, '0');
-    const day = d.getUTCDate().toString().padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
   const handleImport = async () => {
     if (!file || !db) {
       setError('Please select a file first.');
@@ -201,70 +192,50 @@ export function FileUploader() {
         const minDate = new Date(Math.min(...allDatesFound.map(d => d.getTime())));
         const maxDate = new Date(Math.max(...allDatesFound.map(d => d.getTime())));
 
+        // --- DESTRUCTIVE IMPORT LOGIC ---
+        // 1. Find all existing shifts within the date range of the imported file.
         const shiftsQuery = query(
             collection(db, 'shifts'),
             where('date', '>=', Timestamp.fromDate(minDate)),
             where('date', '<=', Timestamp.fromDate(maxDate))
         );
-        const shiftsSnapshot = await getDocs(shiftsQuery);
-        const existingShiftsMap = new Map<string, Shift & { id: string }>();
-
-        shiftsSnapshot.forEach(doc => {
-            const shift = { id: doc.id, ...doc.data() } as Shift & { id: string };
-            const shiftDate = new Date(Date.UTC(shift.date.toDate().getUTCFullYear(), shift.date.toDate().getUTCMonth(), shift.date.toDate().getUTCDate()));
-            const key = `${shift.userId}-${formatDateKey(shiftDate)}-${shift.type}`;
-            existingShiftsMap.set(key, shift);
-        });
+        const shiftsToDeleteSnapshot = await getDocs(shiftsQuery);
 
         const batch = writeBatch(db);
-        let shiftsAdded = 0;
-        let shiftsUpdated = 0;
-        let projectsAdded = 0;
-
-        for (const newShift of allNewShiftsFromExcel) {
-            const key = `${newShift.userId}-${formatDateKey(newShift.date)}-${newShift.type}`;
-            const existingShift = existingShiftsMap.get(key);
-
-            if (existingShift) {
-                const bNumberChanged = (existingShift.bNumber || '') !== (newShift.bNumber || '');
-                if (existingShift.task !== newShift.task || existingShift.address !== newShift.address || bNumberChanged) {
-                    const shiftDocRef = doc(db, 'shifts', existingShift.id);
-                    batch.update(shiftDocRef, {
-                        task: newShift.task,
-                        address: newShift.address,
-                        bNumber: newShift.bNumber,
-                    });
-                    shiftsUpdated++;
-                }
-                existingShiftsMap.delete(key);
-            } else {
-                const shiftDocRef = doc(collection(db, 'shifts'));
-                batch.set(shiftDocRef, {
-                    userId: newShift.userId,
-                    date: Timestamp.fromDate(newShift.date),
-                    type: newShift.type,
-                    status: 'pending-confirmation',
-                    address: newShift.address,
-                    task: newShift.task,
-                    bNumber: newShift.bNumber || '',
-                });
-                shiftsAdded++;
-            }
-        }
-
         let shiftsDeleted = 0;
-        for (const shiftToDelete of existingShiftsMap.values()) {
-            batch.delete(doc(db, 'shifts', shiftToDelete.id));
+        
+        // 2. Add a 'delete' operation for every single one of them to the batch.
+        shiftsToDeleteSnapshot.forEach(doc => {
+            batch.delete(doc.ref);
             shiftsDeleted++;
+        });
+
+        // 3. Add a 'create' operation for every shift found in the Excel file.
+        let shiftsAdded = 0;
+        for (const newShift of allNewShiftsFromExcel) {
+            const shiftDocRef = doc(collection(db, 'shifts'));
+            batch.set(shiftDocRef, {
+                userId: newShift.userId,
+                date: Timestamp.fromDate(newShift.date),
+                type: newShift.type,
+                status: 'pending-confirmation',
+                address: newShift.address,
+                task: newShift.task,
+                bNumber: newShift.bNumber || '',
+            });
+            shiftsAdded++;
         }
         
+        // 4. Handle project creation as before.
+        let projectsAdded = 0;
         projectsToCreate.forEach(project => {
             const projectDocRef = doc(collection(db, 'projects'));
             batch.set(projectDocRef, project);
             projectsAdded++;
         });
 
-        if (shiftsAdded > 0 || shiftsUpdated > 0 || shiftsDeleted > 0 || projectsAdded > 0) {
+        // 5. Commit the batch of deletions and creations.
+        if (shiftsDeleted > 0 || shiftsAdded > 0 || projectsAdded > 0) {
             await batch.commit();
         }
 
@@ -272,25 +243,24 @@ export function FileUploader() {
             toast({
                 variant: 'destructive',
                 title: 'Partial Import: Operatives Not Found',
-                description: `Imported ${shiftsAdded + shiftsUpdated} shifts. The following operatives were not found and their shifts were skipped: ${Array.from(allUnknownOperatives).join(', ')}. Please check spelling or add them as users.`,
+                description: `Imported ${shiftsAdded} shifts. The following operatives were not found and their shifts were skipped: ${Array.from(allUnknownOperatives).join(', ')}. Please check spelling or add them as users.`,
             });
         }
         
         let descriptionParts = [];
         if (shiftsAdded > 0) descriptionParts.push(`added ${shiftsAdded} new`);
-        if (shiftsUpdated > 0) descriptionParts.push(`updated ${shiftsUpdated}`);
-        if (shiftsDeleted > 0) descriptionParts.push(`removed ${shiftsDeleted}`);
         if (projectsAdded > 0) descriptionParts.push(`created ${projectsAdded} new project(s)`);
+        if (shiftsDeleted > 0) descriptionParts.push(`cleared ${shiftsDeleted} existing shifts in the date range`);
 
         if (descriptionParts.length > 0) {
             toast({
-                title: 'Schedule Updated',
-                description: `Successfully ${descriptionParts.join(', ')} shifts.`,
+                title: 'Schedule Updated Successfully',
+                description: `Successfully ${descriptionParts.join(', ')}.`,
             });
         } else if (allUnknownOperatives.size === 0) {
             toast({
-                title: 'No Changes Needed',
-                description: "The schedule in the file matches the current database.",
+                title: 'No Changes Made',
+                description: "The spreadsheet contained no shifts to import.",
             });
         }
 
