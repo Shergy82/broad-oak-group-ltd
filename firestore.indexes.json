@@ -1,16 +1,6 @@
 {
   "indexes": [
     {
-      "collectionGroup": "health_and_safety_files",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "uploadedAt",
-          "order": "DESCENDING"
-        }
-      ]
-    },
-    {
       "collectionGroup": "announcements",
       "queryScope": "COLLECTION",
       "fields": [
