@@ -54,7 +54,6 @@ export function FileUploader() {
         const data = e.target?.result;
         if (!data) throw new Error("Could not read file data.");
         
-        // Removed cellDates: true to handle date parsing manually for robustness
         const workbook = XLSX.read(data, { type: 'array' });
         
         const usersSnapshot = await getDocs(collection(db, 'users'));
@@ -70,29 +69,21 @@ export function FileUploader() {
         });
         userNames.sort((a, b) => b.length - a.length);
 
-        // Robust date parsing function
         const parseDate = (dateValue: any): Date | null => {
             if (!dateValue) return null;
-
-            // Handle dates parsed as JS Date objects by a library
             if (dateValue instanceof Date) {
                 if (isNaN(dateValue.getTime())) return null;
                 return new Date(Date.UTC(dateValue.getFullYear(), dateValue.getMonth(), dateValue.getDate()));
             }
-
-            // Handle Excel's serial number date format
             if (typeof dateValue === 'number' && dateValue > 1) {
-                // Formula to convert Excel serial date to JS Date, then normalize to UTC midnight
                 const jsDate = new Date(Math.round((dateValue - 25569) * 864e5));
                 return new Date(Date.UTC(jsDate.getUTCFullYear(), jsDate.getUTCMonth(), jsDate.getUTCDate()));
             }
-            
-            // Handle dates formatted as strings (e.g., "DD/MM/YYYY" or "DD-MM-YYYY")
             if (typeof dateValue === 'string') {
                 const parts = dateValue.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/);
                 if (parts) {
                     const day = parseInt(parts[1], 10);
-                    const month = parseInt(parts[2], 10) - 1; // JS months are 0-indexed
+                    const month = parseInt(parts[2], 10) - 1;
                     const year = parseInt(parts[3], 10);
                     if (year > 1900 && month >= 0 && month < 12 && day > 0 && day <= 31) {
                         const d = new Date(Date.UTC(year, month, day));
@@ -107,21 +98,12 @@ export function FileUploader() {
 
         const isLikelyAddress = (str: string): boolean => {
             if (!str || str.length < 10) return false;
-        
             const lowerCaseStr = str.toLowerCase();
-        
-            // Reject common header-like phrases explicitly.
             if (lowerCaseStr.includes('week commencing') || lowerCaseStr.includes('project address') || lowerCaseStr.includes('job address')) {
                 return false;
             }
-        
-            // A real address usually has at least one number (house/flat number or postcode).
-            const hasNumber = /\d/.test(str);
-            if (!hasNumber) return false;
-        
-            // A real address usually has multiple parts separated by spaces.
+            if (!/\d/.test(str)) return false;
             if (str.split(' ').length < 2) return false;
-        
             return true;
         };
 
@@ -134,7 +116,7 @@ export function FileUploader() {
         });
 
         const shiftsFromExcel: ParsedShift[] = [];
-        const allUnknownOperatives = new Set<string>();
+        const unknownOperativesCount = new Map<string, number>();
         const allDatesFound: Date[] = [];
 
         for (const sheetName of workbook.SheetNames) {
@@ -147,7 +129,6 @@ export function FileUploader() {
             let dates: (Date | null)[] = [];
             for (let i = 0; i < jsonData.length; i++) {
                 const row = jsonData[i] || [];
-                // Looser check for a date row: look for parsable dates in any format
                 const potentialDates = row.map(parseDate);
                 if (row.length > 2 && potentialDates.slice(2).filter(d => d !== null).length > 0) {
                      dateRowIndex = i;
@@ -210,7 +191,10 @@ export function FileUploader() {
                     if (parsedShift) {
                          shiftsFromExcel.push({ ...parsedShift, date: shiftDate, address: currentProjectAddress, task: parsedShift.task, bNumber: currentBNumber });
                     } else if (cellValue.includes('-')) {
-                        allUnknownOperatives.add(cellValue.substring(cellValue.lastIndexOf('-') + 1).trim());
+                        const unknownName = cellValue.substring(cellValue.lastIndexOf('-') + 1).trim();
+                        if (unknownName) {
+                            unknownOperativesCount.set(unknownName, (unknownOperativesCount.get(unknownName) || 0) + 1);
+                        }
                     }
                 }
             }
@@ -224,7 +208,6 @@ export function FileUploader() {
         const maxDate = new Date(Math.max(...allDatesFound.map(d => d.getTime())));
 
         // --- RECONCILIATION LOGIC ---
-        // 1. Fetch existing shifts in the date range.
         const shiftsQuery = query(
             collection(db, 'shifts'),
             where('date', '>=', Timestamp.fromDate(minDate)),
@@ -232,7 +215,6 @@ export function FileUploader() {
         );
         const existingShiftsSnapshot = await getDocs(shiftsQuery);
 
-        // 2. Create a map of existing shifts for easy lookup.
         const existingShiftsMap = new Map<string, Shift>();
         existingShiftsSnapshot.forEach(doc => {
             const shiftData = { id: doc.id, ...doc.data() } as Shift;
@@ -246,13 +228,12 @@ export function FileUploader() {
 
         const excelKeys = new Set<string>();
 
-        // 3. Compare Excel shifts to existing shifts.
         for (const excelShift of shiftsFromExcel) {
             const key = getShiftKey(excelShift);
             excelKeys.add(key);
             const existingShift = existingShiftsMap.get(key);
 
-            if (existingShift) { // Shift exists, check for changes
+            if (existingShift) {
                 const taskChanged = (existingShift.task || "").trim() !== (excelShift.task || "").trim();
                 const addressChanged = (existingShift.address || "").trim() !== (excelShift.address || "").trim();
                 const bNumberChanged = (existingShift.bNumber || "").trim() !== (excelShift.bNumber || "").trim();
@@ -266,7 +247,7 @@ export function FileUploader() {
                     batch.update(doc(db, 'shifts', existingShift.id), updateData);
                     shiftsUpdated++;
                 }
-            } else { // Shift is new
+            } else {
                 const newShiftData = {
                     ...excelShift,
                     date: Timestamp.fromDate(excelShift.date),
@@ -277,7 +258,6 @@ export function FileUploader() {
             }
         }
 
-        // 4. Any shift in the map that wasn't in the Excel file is to be deleted.
         for (const [key, shift] of existingShiftsMap.entries()) {
             if (!excelKeys.has(key)) {
                 batch.delete(doc(db, 'shifts', shift.id));
@@ -285,7 +265,6 @@ export function FileUploader() {
             }
         }
         
-        // 5. Handle project creation.
         let projectsAdded = 0;
         projectsToCreate.forEach(project => {
             projectsAdded++;
@@ -298,7 +277,6 @@ export function FileUploader() {
             });
         });
 
-        // 6. Commit all changes at once.
         if (shiftsCreated > 0 || shiftsUpdated > 0 || shiftsDeleted > 0 || projectsAdded > 0) {
             await batch.commit();
         }
@@ -314,18 +292,22 @@ export function FileUploader() {
                 title: 'Import Complete',
                 description: `Successfully processed the file: ${descriptionParts.join(', ')}.`,
             });
-        } else if (allUnknownOperatives.size === 0) {
+        } else if (unknownOperativesCount.size === 0) {
             toast({
                 title: 'No Changes Detected',
                 description: "The schedule was up-to-date. No changes were made.",
             });
         }
         
-        if (allUnknownOperatives.size > 0) {
+        if (unknownOperativesCount.size > 0) {
+            const unknownOperativesSummary = Array.from(unknownOperativesCount.entries())
+                .map(([name, count]) => `${name} (${count} shift${count > 1 ? 's' : ''})`)
+                .join(', ');
+
             toast({
                 variant: 'destructive',
                 title: 'Unrecognized Operatives',
-                description: `Shifts for the following were skipped: ${Array.from(allUnknownOperatives).join(', ')}. Please check spelling or add them as users.`,
+                description: `Shifts for the following were skipped: ${unknownOperativesSummary}. Please check spelling or add them as users.`,
                 duration: 10000,
             });
         }
