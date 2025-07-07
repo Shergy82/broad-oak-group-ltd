@@ -105,6 +105,26 @@ export function FileUploader() {
             return null;
         };
 
+        const isLikelyAddress = (str: string): boolean => {
+            if (!str || str.length < 10) return false;
+        
+            const lowerCaseStr = str.toLowerCase();
+        
+            // Reject common header-like phrases explicitly.
+            if (lowerCaseStr.includes('week commencing') || lowerCaseStr.includes('project address') || lowerCaseStr.includes('job address')) {
+                return false;
+            }
+        
+            // A real address usually has at least one number (house/flat number or postcode).
+            const hasNumber = /\d/.test(str);
+            if (!hasNumber) return false;
+        
+            // A real address usually has multiple parts separated by spaces.
+            if (str.split(' ').length < 2) return false;
+        
+            return true;
+        };
+
         const projectsToCreate = new Map<string, { address: string; bNumber: string; council: string, manager: string }>();
         const existingProjectsSnapshot = await getDocs(collection(db, 'projects'));
         const existingAddresses = new Set<string>();
@@ -146,7 +166,7 @@ export function FileUploader() {
                 if (!rowData || rowData.every(cell => !cell || cell.toString().trim() === '')) continue;
                 
                 const addressCandidate = (rowData[0] || '').toString().trim();
-                if (addressCandidate) {
+                if (isLikelyAddress(addressCandidate)) {
                     currentProjectAddress = addressCandidate;
                     currentBNumber = (rowData[1] || '').toString().trim();
                     if (currentProjectAddress && !existingAddresses.has(currentProjectAddress.toLowerCase()) && !projectsToCreate.has(currentProjectAddress.toLowerCase())) {
