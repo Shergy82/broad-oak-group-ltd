@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -24,7 +23,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { mockUsers } from '@/lib/mock-data';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Terminal } from 'lucide-react';
 
@@ -45,7 +43,7 @@ export default function UserManagementPage() {
     }
     
     if (!db) {
-      setUsers(mockUsers);
+      setUsers([]);
       setLoading(false);
       return;
     }
@@ -57,11 +55,7 @@ export default function UserManagementPage() {
       querySnapshot.forEach((doc) => {
         fetchedUsers.push({ uid: doc.id, ...doc.data() } as UserProfile);
       });
-      if (fetchedUsers.length === 0) {
-        setUsers(mockUsers);
-      } else {
-        setUsers(fetchedUsers.sort((a, b) => a.name.localeCompare(b.name)));
-      }
+      setUsers(fetchedUsers.sort((a, b) => a.name.localeCompare(b.name)));
       setLoading(false);
     }, (error) => {
       console.error("Error fetching users: ", error);
@@ -70,7 +64,7 @@ export default function UserManagementPage() {
         title: 'Permission Error',
         description: "Could not fetch user list. Please check Firestore security rules.",
       });
-      setUsers(mockUsers);
+      setUsers([]);
       setLoading(false);
     });
 

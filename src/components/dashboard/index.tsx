@@ -12,7 +12,6 @@ import { isToday, isSameWeek, addDays, format } from 'date-fns';
 import type { Shift } from '@/types';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Clock, Download, RefreshCw, Sunrise, Sunset, Terminal, History } from 'lucide-react';
-import { mockShifts } from '@/lib/mock-data';
 import { Button } from '@/components/ui/button';
 
 const getCorrectedLocalDate = (date: { toDate: () => Date }) => {
@@ -30,7 +29,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!isFirebaseConfigured || !db || !user) {
-      setShifts(mockShifts);
+      setShifts([]);
       setLoading(false);
       return;
     }
@@ -45,20 +44,17 @@ export default function Dashboard() {
         fetchedShifts.push({ id: doc.id, ...doc.data() } as Shift);
       });
       
-      if (fetchedShifts.length === 0) {
-          setShifts(mockShifts);
-      } else {
-          const typeOrder = { 'am': 1, 'pm': 2, 'all-day': 3 };
-          fetchedShifts.sort((a, b) => {
-              const dateA = getCorrectedLocalDate(a.date).getTime();
-              const dateB = getCorrectedLocalDate(b.date).getTime();
-              if (dateA !== dateB) {
-                  return dateA - dateB;
-              }
-              return typeOrder[a.type] - typeOrder[b.type];
-          });
-          setShifts(fetchedShifts);
-      }
+      const typeOrder = { 'am': 1, 'pm': 2, 'all-day': 3 };
+      fetchedShifts.sort((a, b) => {
+          const dateA = getCorrectedLocalDate(a.date).getTime();
+          const dateB = getCorrectedLocalDate(b.date).getTime();
+          if (dateA !== dateB) {
+              return dateA - dateB;
+          }
+          return typeOrder[a.type] - typeOrder[b.type];
+      });
+      setShifts(fetchedShifts);
+      
       setLoading(false);
     }, (e: any) => {
       console.error("Error fetching shifts: ", e);

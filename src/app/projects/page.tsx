@@ -10,7 +10,6 @@ import { Header } from '@/components/layout/header';
 import { Spinner } from '@/components/shared/spinner';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { mockProjects } from '@/lib/mock-data';
 import { Building } from 'lucide-react';
 import { ProjectFiles } from '@/components/projects/project-files';
 import { useUserProfile } from '@/hooks/use-user-profile';
@@ -41,7 +40,7 @@ export default function ProjectsPage() {
     }
 
     if (!db) {
-      setProjects(mockProjects);
+      setProjects([]);
       setLoading(false);
       return;
     }
@@ -59,7 +58,7 @@ export default function ProjectsPage() {
       setLoading(false);
     }, (error) => {
       console.error("Error fetching projects: ", error);
-      setProjects(mockProjects);
+      setProjects([]);
       setLoading(false);
     });
 
