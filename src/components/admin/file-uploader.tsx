@@ -130,7 +130,7 @@ export function FileUploader() {
             for (let i = 0; i < jsonData.length; i++) {
                 const row = jsonData[i] || [];
                 const potentialDates = row.map(parseDate);
-                if (row.length > 2 && potentialDates.slice(2).filter(d => d !== null).length > 0) {
+                if (row.length > 3 && potentialDates.slice(3).filter(d => d !== null).length > 0) {
                      dateRowIndex = i;
                      dates = potentialDates;
                      break;
@@ -142,6 +142,7 @@ export function FileUploader() {
             
             let currentProjectAddress = '';
             let currentBNumber = '';
+            let currentManager = '';
             for (let r = dateRowIndex + 1; r < jsonData.length; r++) {
                 const rowData = jsonData[r];
                 if (!rowData || rowData.every(cell => !cell || cell.toString().trim() === '')) continue;
@@ -150,14 +151,15 @@ export function FileUploader() {
                 if (isLikelyAddress(addressCandidate)) {
                     currentProjectAddress = addressCandidate;
                     currentBNumber = (rowData[1] || '').toString().trim();
+                    currentManager = (rowData[2] || '').toString().trim();
                     if (currentProjectAddress && !existingAddresses.has(currentProjectAddress.toLowerCase()) && !projectsToCreate.has(currentProjectAddress.toLowerCase())) {
-                        projectsToCreate.set(currentProjectAddress.toLowerCase(), { address: currentProjectAddress, bNumber: currentBNumber, council: '', manager: '' });
+                        projectsToCreate.set(currentProjectAddress.toLowerCase(), { address: currentProjectAddress, bNumber: currentBNumber, council: '', manager: currentManager });
                     }
                 }
 
                 if (!currentProjectAddress) continue;
 
-                for (let c = 2; c < rowData.length; c++) {
+                for (let c = 3; c < rowData.length; c++) {
                     const cellValue = (rowData[c] || '').toString().trim().replace(/[\u2012\u2013\u2014\u2015]/g, '-');
                     const shiftDate = dates[c];
 

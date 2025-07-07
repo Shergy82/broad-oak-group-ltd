@@ -29,10 +29,10 @@ export default function AdminPage() {
               </p>
               <ul className="list-disc pl-5 space-y-1">
                 <li>
-                  <strong>Project Details:</strong> The importer looks for a 'Project Address' in Column A and a 'B Number' in Column B. Any rows below that address will be associated with it until a new address is found in Column A.
+                  <strong>Project Details:</strong> The importer looks for a 'Project Address' in Column A, a 'B Number' in Column B, and the 'Manager Name' in Column C. Any rows below that address will be associated with it until a new address is found in Column A.
                 </li>
                 <li>
-                  <strong>Date Row:</strong> The importer will automatically find the row containing the week's dates (e.g., in DD/MM/YYYY format), which must be above the task data. Daily shift columns start from Column C.
+                  <strong>Date Row:</strong> The importer will automatically find the row containing the week's dates (e.g., in DD/MM/YYYY format), which must be above the task data. Daily shift columns start from Column D.
                 </li>
                 <li>
                   <strong>Task & Operative Cells:</strong> In the grid, each cell corresponding to a date should contain the task description, a hyphen, and the operative's full name.
@@ -50,15 +50,15 @@ export default function AdminPage() {
               </ul>
               <p className="font-semibold pt-2">Example Structure:</p>
               <pre className="mt-2 rounded-md bg-muted p-4 text-xs font-mono overflow-x-auto">
-{`+------------------------+--------------+-----------------------------+------------------------------+
-| A (Project Address)    | B (B Number) | C (Date ->)                 | D (Date ->)                  |
-+------------------------+--------------+-----------------------------+------------------------------+
-|                        |              | 09/06/2025                  | 10/06/2025                   |
-+------------------------+--------------+-----------------------------+------------------------------+
-| 9 Eardley Crescent,... | B-123        | FIT TRAY AM - Phil Shergold | STUD WALL PM - Phil Shergold |
-+------------------------+--------------+-----------------------------+------------------------------+
-| 14 Oak Avenue,...      | B-456        | PLUMBING PREP - John Doe    | EXT. PAINTING - Jane Smith   |
-+------------------------+--------------+-----------------------------+------------------------------+`}
+{`+------------------------+--------------+------------------+-----------------------------+------------------------------+
+| A (Project Address)    | B (B Number) | C (Manager Name) | D (Date ->)                 | E (Date ->)                  |
++------------------------+--------------+------------------+-----------------------------+------------------------------+
+|                        |              |                  | 09/06/2025                  | 10/06/2025                   |
++------------------------+--------------+------------------+-----------------------------+------------------------------+
+| 9 Eardley Crescent,... | B-123        | John Smith       | FIT TRAY AM - Phil Shergold | STUD WALL PM - Phil Shergold |
++------------------------+--------------+------------------+-----------------------------+------------------------------+
+| 14 Oak Avenue,...      | B-456        | Jane Doe         | PLUMBING PREP - John Doe    | EXT. PAINTING - Jane Smith   |
++------------------------+--------------+------------------+-----------------------------+------------------------------+`}
               </pre>
             </div>
           </CardHeader>
