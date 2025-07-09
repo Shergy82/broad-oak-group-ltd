@@ -25,9 +25,9 @@ import {
     AlertDialogFooter,
     AlertDialogHeader,
     AlertDialogTitle,
+    AlertDialogTrigger
 } from "@/components/ui/alert-dialog"
 import { ShiftFormDialog } from './shift-form-dialog';
-import { AlertDialogTrigger } from '@radix-ui/react-alert-dialog';
 
 
 const getStatusBadge = (shift: Shift) => {
@@ -258,33 +258,46 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
           startY: tableStartY,
           headStyles: { fillColor: [6, 95, 212] },
           didParseCell: (data) => {
-            if (data.section === 'body' && data.column.dataKey === 2) {
+            if (data.section === 'body' && data.column.dataKey === 2) { // Task & Address column
               const rowData = body[data.row.index];
               if (rowData.notes) {
+                // Combine task/address and the note into a multi-line cell
                 data.cell.text = [rowData.task, '', rowData.notes];
               }
             }
           },
           willDrawCell: (data) => {
-            if (data.section === 'body' && data.column.dataKey === 2) {
-              const rowData = body[data.row.index];
-              if (rowData.notes) {
-                  const textPos = data.cell.getTextPos();
-                  // Approximate note height based on line breaks and font size
-                  const noteLines = doc.splitTextToSize(rowData.notes, data.cell.width - data.cell.padding('horizontal')).length;
-                  const noteHeight = noteLines * (doc.getFontSize() * 1.15) / doc.internal.scaleFactor + data.cell.padding('vertical');
-                  
-                  // Draw yellow background behind the note
-                  doc.setFillColor(255, 252, 204); // A light yellow
-                  doc.rect(
-                      data.cell.x,
-                      textPos.y - noteHeight + data.cell.padding('top') + 1, // Adjust Y position
-                      data.cell.width,
-                      noteHeight,
-                      'F'
-                  );
-              }
-            }
+             if (data.section === 'body' && data.column.dataKey === 2) { // Task & Address column
+                const rowData = body[data.row.index];
+                if (rowData.notes) {
+                    // Set style for drawing the highlight
+                    doc.setFont(doc.getFont().fontName, 'italic');
+                    doc.setFontSize(9);
+                    const noteText = rowData.notes;
+                    
+                    // Calculate text dimensions
+                    const noteDimensions = doc.getTextDimensions(noteText, { fontSize: 9 });
+
+                    // We need to find the correct y position for the note
+                    const taskLines = doc.splitTextToSize(rowData.task, data.cell.contentWidth).length;
+                    const taskHeight = taskLines * doc.getFontSize() * 0.8 / doc.internal.scaleFactor;
+                    const noteY = data.cell.y + taskHeight + data.cell.padding('top') + 2;
+                    
+                    // Draw highlight rectangle behind the note
+                    doc.setFillColor(255, 252, 204); // Light yellow
+                    doc.rect(
+                        data.cell.x + data.cell.padding('left'),
+                        noteY - noteDimensions.h - 0.5, // Adjust Y to be behind text
+                        noteDimensions.w + 1, // Add padding
+                        noteDimensions.h + 1, // Add padding
+                        'F'
+                    );
+                    
+                    // Reset font for other cells
+                    doc.setFont(doc.getFont().fontName, 'normal');
+                    doc.setFontSize(10);
+                }
+             }
           },
         });
 
