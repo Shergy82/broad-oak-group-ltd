@@ -247,55 +247,20 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
           };
         });
         
-        // --- Calculate table height to prevent orphaned headers ---
-        let tableHeight = 0;
-        const userNameHeaderHeight = 7;
-        const spacing = 5;
-
-        // Temporarily apply styles to calculate height without drawing
-        autoTable(doc, {
-            head,
-            body: body.map(row => [row.date, row.type, row.task + (row.notes ? `\n\n${row.notes}` : ''), row.status]),
-            startY: finalY,
-            didParseCell: (data) => {
-                 if (data.section === 'body' && data.column.dataKey === 2 && (body[data.row.index] as any).notes) {
-                    if (data.cell.text && data.cell.text.length > 0) {
-                        const notes = (body[data.row.index] as any).notes;
-                        const taskText = data.cell.text[0];
-                        data.cell.text = [taskText, '', notes];
-                    }
-                }
-            },
-            // Use a hook that runs before drawing, but after layout calculation
-            willDrawPage: (data) => {
-                tableHeight = data.cursor.y - finalY;
-            },
-            // Setting a high startY off-page to prevent actual drawing during calculation
-            startY: pageHeight * 2,
-        });
-
-        const totalBlockHeight = userNameHeaderHeight + tableHeight + spacing;
-
-        if (finalY + totalBlockHeight > pageHeight - 20) { // 20 for bottom margin
-            doc.addPage();
-            finalY = 20; // Reset Y for new page
-        }
-
-        // --- Now draw the actual content ---
         doc.setFontSize(12);
-        doc.text(user.name, pageContentMargin, finalY);
-        finalY += 7;
-
+        const nameHeaderY = (doc as any).lastAutoTable.finalY ? (doc as any).lastAutoTable.finalY + 10 : finalY;
+        doc.text(user.name, pageContentMargin, nameHeaderY);
+        const tableStartY = nameHeaderY + 7;
+        
         autoTable(doc, {
           head,
           body: body.map(row => [row.date, row.type, row.task, row.status]),
-          startY: finalY,
+          startY: tableStartY,
           headStyles: { fillColor: [6, 95, 212] },
           didParseCell: (data) => {
             if (data.section === 'body' && data.column.dataKey === 2) {
               const rowData = body[data.row.index];
               if (rowData.notes) {
-                // Add note text with some vertical padding
                 data.cell.text = [rowData.task, '', rowData.notes];
               }
             }
@@ -304,17 +269,16 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
             if (data.section === 'body' && data.column.dataKey === 2) {
               const rowData = body[data.row.index];
               if (rowData.notes) {
-                  const cellHeight = data.cell.height;
                   const textPos = data.cell.getTextPos();
-                  // Estimate note height based on font size and line breaks
+                  // Approximate note height based on line breaks and font size
                   const noteLines = doc.splitTextToSize(rowData.notes, data.cell.width - data.cell.padding('horizontal')).length;
                   const noteHeight = noteLines * (doc.getFontSize() * 1.15) / doc.internal.scaleFactor + data.cell.padding('vertical');
                   
                   // Draw yellow background behind the note
-                  doc.setFillColor(255, 252, 204); // Yellow
+                  doc.setFillColor(255, 252, 204); // A light yellow
                   doc.rect(
                       data.cell.x,
-                      textPos.y - (noteHeight - data.cell.padding('bottom')*1.5),
+                      textPos.y - noteHeight + data.cell.padding('top') + 1, // Adjust Y position
                       data.cell.width,
                       noteHeight,
                       'F'
