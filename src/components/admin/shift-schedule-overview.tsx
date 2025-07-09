@@ -212,8 +212,8 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     const generateTablesForPeriod = (title: string, shiftsForPeriod: Shift[]) => {
       if (shiftsForPeriod.length === 0) return;
 
-      if (finalY > 40) {
-        finalY += 5;
+      if (finalY > 40) { // Add extra space between "This Week" and "Next Week"
+        finalY += 8;
       }
       doc.setFontSize(16);
       doc.text(title, pageContentMargin, finalY);
@@ -250,8 +250,17 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
           };
         });
         
-        const tableStartY = (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 10 : finalY;
+        // This calculates where the table should start
+        let tableStartY = (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 10 : finalY;
         
+        // Check for page overflow before drawing user name and table
+        const estimatedHeight = 10 + (body.length + 1) * 10; // Simple height estimation
+        if (tableStartY + estimatedHeight > pageHeight - 20) {
+          doc.addPage();
+          tableStartY = 20;
+          finalY = 20;
+        }
+
         doc.setFontSize(12);
         doc.setFont(doc.getFont().fontName, 'bold');
         doc.text(user.name, pageContentMargin, tableStartY - 4);
@@ -265,28 +274,33 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
             finalY = data.cursor?.y || 0;
           },
           didParseCell: (data) => {
-            if (data.section === 'body' && data.column.dataKey === 2) {
+            if (data.section === 'body' && data.column.dataKey === 2) { // Task & Address column
               const rowData = body[data.row.index];
               if (rowData.notes) {
-                data.cell.text = [rowData.task, `\n${rowData.notes}`];
+                // Combine task and note into a single cell text array
+                data.cell.text = [rowData.task, rowData.notes];
               }
             }
           },
-          willDrawCell: (data) => {
-             if (data.section === 'body' && data.column.dataKey === 2) {
+           willDrawCell: (data) => {
+             if (data.section === 'body' && data.column.dataKey === 2) { // Task & Address column
                 const rowData = body[data.row.index];
                 if (rowData.notes) {
+                    // Split text to find where the notes begin
                     const textLines = doc.splitTextToSize(rowData.task, data.cell.contentWidth);
                     const textHeight = textLines.length * (doc.getLineHeight() / doc.internal.scaleFactor);
-                    const noteStartY = data.cell.y + textHeight;
+                    const noteStartY = data.cell.y + textHeight + 1; // Add padding
+                    
+                    const noteLines = doc.splitTextToSize(rowData.notes, data.cell.contentWidth);
+                    const noteHeight = noteLines.length * (doc.getLineHeight() / doc.internal.scaleFactor);
 
                     doc.setFillColor(255, 252, 204); // Light yellow
-                    
+                    // Draw a rect behind the notes text
                     doc.rect(
                         data.cell.x,
-                        noteStartY,
+                        noteStartY - (doc.getLineHeight() / doc.internal.scaleFactor) * 0.75, // Adjust for better alignment
                         data.cell.width,
-                        (data.cell.height - textHeight),
+                        noteHeight + 2,
                         'F'
                     );
                 }
