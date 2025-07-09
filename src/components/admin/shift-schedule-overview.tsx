@@ -212,7 +212,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     const generateTablesForPeriod = (title: string, shiftsForPeriod: Shift[]) => {
       if (shiftsForPeriod.length === 0) return;
 
-      if (finalY > 40) { // Add space if it's not the first section
+      if (finalY > 40) {
         finalY += 5;
       }
       doc.setFontSize(16);
@@ -252,6 +252,10 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
         
         const tableStartY = (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 10 : finalY;
         
+        doc.setFontSize(12);
+        doc.setFont(doc.getFont().fontName, 'bold');
+        doc.text(user.name, pageContentMargin, tableStartY - 4);
+
         autoTable(doc, {
           head,
           body: body.map(row => [row.date, row.type, row.task, row.status]),
@@ -261,41 +265,33 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
             finalY = data.cursor?.y || 0;
           },
           didParseCell: (data) => {
-            if (data.section === 'body' && data.column.dataKey === 2) { // Task & Address column
+            if (data.section === 'body' && data.column.dataKey === 2) {
               const rowData = body[data.row.index];
               if (rowData.notes) {
-                // Combine task/address and the note into a multi-line cell
-                data.cell.text = [rowData.task, '', rowData.notes];
+                data.cell.text = [rowData.task, `\n${rowData.notes}`];
               }
             }
           },
           willDrawCell: (data) => {
-             if (data.section === 'body' && data.column.dataKey === 2) { // Task & Address column
+             if (data.section === 'body' && data.column.dataKey === 2) {
                 const rowData = body[data.row.index];
                 if (rowData.notes) {
                     const textLines = doc.splitTextToSize(rowData.task, data.cell.contentWidth);
-                    const textHeight = textLines.length * doc.getLineHeight();
-                    const noteY = data.cell.y + (textHeight / doc.internal.scaleFactor) - (doc.getFontSize() / doc.internal.scaleFactor) + 2.5;
+                    const textHeight = textLines.length * (doc.getLineHeight() / doc.internal.scaleFactor);
+                    const noteStartY = data.cell.y + textHeight;
 
                     doc.setFillColor(255, 252, 204); // Light yellow
                     
                     doc.rect(
                         data.cell.x,
-                        noteY,
+                        noteStartY,
                         data.cell.width,
-                        (data.cell.height - (textHeight / doc.internal.scaleFactor)),
+                        (data.cell.height - textHeight),
                         'F'
                     );
                 }
              }
           },
-          didDrawCell: (data) => {
-            if (data.section === 'head' && data.row.index === 0) {
-              doc.setFontSize(12);
-              doc.setFont(doc.getFont().fontName, 'bold');
-              doc.text(user.name, pageContentMargin, data.cell.y - 10);
-            }
-          }
         });
         finalY = (doc as any).lastAutoTable.finalY;
       }
