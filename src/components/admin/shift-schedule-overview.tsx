@@ -212,6 +212,9 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     const generateTablesForPeriod = (title: string, shiftsForPeriod: Shift[]) => {
       if (shiftsForPeriod.length === 0) return;
 
+      if (finalY > 40) { // Add space if it's not the first section
+        finalY += 5;
+      }
       doc.setFontSize(16);
       doc.text(title, pageContentMargin, finalY);
       finalY += 10;
@@ -247,19 +250,16 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
           };
         });
         
-        doc.setFontSize(12);
-        
-        // Use the last table's final Y position if available, otherwise use the running `finalY`
-        const nameHeaderY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 10 : finalY;
-        doc.text(user.name, pageContentMargin, nameHeaderY);
-
-        const tableStartY = nameHeaderY + 7;
+        const tableStartY = (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 10 : finalY;
         
         autoTable(doc, {
           head,
           body: body.map(row => [row.date, row.type, row.task, row.status]),
           startY: tableStartY,
           headStyles: { fillColor: [6, 95, 212] },
+          didDrawPage: (data) => {
+            finalY = data.cursor?.y || 0;
+          },
           didParseCell: (data) => {
             if (data.section === 'body' && data.column.dataKey === 2) { // Task & Address column
               const rowData = body[data.row.index];
@@ -273,10 +273,6 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
              if (data.section === 'body' && data.column.dataKey === 2) { // Task & Address column
                 const rowData = body[data.row.index];
                 if (rowData.notes) {
-                    doc.setFont(doc.getFont().fontName, 'italic');
-                    doc.setFontSize(9);
-                    const noteText = rowData.notes;
-                    
                     const textLines = doc.splitTextToSize(rowData.task, data.cell.contentWidth);
                     const textHeight = textLines.length * doc.getLineHeight();
                     const noteY = data.cell.y + (textHeight / doc.internal.scaleFactor) - (doc.getFontSize() / doc.internal.scaleFactor) + 2.5;
@@ -290,15 +286,19 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                         (data.cell.height - (textHeight / doc.internal.scaleFactor)),
                         'F'
                     );
-
-                    doc.setFont(doc.getFont().fontName, 'normal');
-                    doc.setFontSize(10);
                 }
              }
           },
+          didDrawCell: (data) => {
+            if (data.section === 'head' && data.row.index === 0) {
+              doc.setFontSize(12);
+              doc.setFont(doc.getFont().fontName, 'bold');
+              doc.text(user.name, pageContentMargin, data.cell.y - 10);
+            }
+          }
         });
+        finalY = (doc as any).lastAutoTable.finalY;
       }
-      finalY = (doc as any).lastAutoTable.finalY + 15;
     };
 
     generateTablesForPeriod("This Week's Shifts", thisWeekShifts);
