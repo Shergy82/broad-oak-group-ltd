@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { RefreshCw, Terminal, MessageSquareText, PlusCircle, Edit, Trash2, Download, History, Trash, Users2, X } from 'lucide-react';
+import { RefreshCw, Terminal, MessageSquareText, PlusCircle, Edit, Trash2, Download, History, Trash, Users2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -571,23 +571,17 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                     <CardDescription>A list of all upcoming shifts for the team, which updates in real-time.</CardDescription>
                 </div>
                 <div className="flex items-center gap-2 shrink-0 flex-wrap justify-start sm:justify-end">
-                    <div className="flex items-center gap-1 w-full sm:w-auto">
-                        <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-                            <SelectTrigger className="w-full sm:w-[200px]">
-                                <SelectValue placeholder="All Users" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {users.map(user => (
-                                    <SelectItem key={user.uid} value={user.uid}>{user.name}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                        {selectedUserId && (
-                            <Button variant="ghost" size="icon" onClick={() => setSelectedUserId('')} className="shrink-0">
-                                <X className="h-4 w-4" />
-                            </Button>
-                        )}
-                    </div>
+                     <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+                        <SelectTrigger className="w-full sm:w-[200px]">
+                            <SelectValue placeholder="All Users" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="">All Users</SelectItem>
+                            {users.map(user => (
+                                <SelectItem key={user.uid} value={user.uid}>{user.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
                     {isOwner && (
                         <Button onClick={handleAddShift} className="w-full sm:w-auto">
                             <PlusCircle className="mr-2 h-4 w-4" />

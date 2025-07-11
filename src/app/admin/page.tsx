@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState } from 'react';
@@ -11,7 +12,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Button } from '@/components/ui/button';
 import { Download, FileWarning } from 'lucide-react';
 import { format } from 'date-fns';
-import { NotificationToggle } from '@/components/admin/notification-toggle';
 
 export default function AdminPage() {
   const { userProfile } = useUserProfile();
@@ -153,7 +153,6 @@ export default function AdminPage() {
 
       {isOwner && (
         <>
-          <NotificationToggle />
           <VapidKeyGenerator />
           <TestNotificationSender />
           <ShiftScheduleOverview userProfile={userProfile} />
