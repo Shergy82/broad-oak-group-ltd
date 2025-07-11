@@ -80,7 +80,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
   const [selectedShift, setSelectedShift] = useState<Shift | null>(null);
   const [shiftToDelete, setShiftToDelete] = useState<Shift | null>(null);
   const [isDeletingAll, setIsDeletingAll] = useState(false);
-  const [selectedUserId, setSelectedUserId] = useState<string>('');
+  const [selectedUserId, setSelectedUserId] = useState<string>('all');
   const { toast } = useToast();
   
   const isOwner = userProfile.role === 'owner';
@@ -132,7 +132,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
   };
   
   const filteredShifts = useMemo(() => {
-    if (!selectedUserId) {
+    if (selectedUserId === 'all') {
       return shifts;
     }
     return shifts.filter(shift => shift.userId === selectedUserId);
@@ -315,11 +315,11 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     };
 
     const today = new Date();
-    const allThisWeekShifts = shifts.filter(s => isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 }) && (!selectedUserId || s.userId === selectedUserId));
+    const allThisWeekShifts = shifts.filter(s => isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 }) && (selectedUserId === 'all' || s.userId === selectedUserId));
     const allNextWeekShifts = shifts.filter(s => {
       const shiftDate = getCorrectedLocalDate(s.date);
       const startOfNextWeek = addDays(today, 7);
-      return isSameWeek(shiftDate, startOfNextWeek, { weekStartsOn: 1 }) && (!selectedUserId || s.userId === selectedUserId);
+      return isSameWeek(shiftDate, startOfNextWeek, { weekStartsOn: 1 }) && (selectedUserId === 'all' || s.userId === selectedUserId);
     });
 
     generateTablesForPeriod("This Week's Shifts", allThisWeekShifts);
@@ -371,7 +371,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                         <TableHeader>
                             <TableRow>
                                 <TableHead className="w-[180px]">Date</TableHead>
-                                { !selectedUserId && <TableHead className="w-[180px]">Operative</TableHead> }
+                                { selectedUserId === 'all' && <TableHead className="w-[180px]">Operative</TableHead> }
                                 <TableHead>Task &amp; Address</TableHead>
                                 <TableHead className="text-right w-[110px]">Type</TableHead>
                                 <TableHead className="text-right w-[160px]">Status</TableHead>
@@ -382,7 +382,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                             {shiftsToRender.map(shift => (
                                 <TableRow key={shift.id}>
                                     <TableCell className="font-medium">{format(getCorrectedLocalDate(shift.date), 'eeee, MMM d')}</TableCell>
-                                    { !selectedUserId && <TableCell>{userNameMap.get(shift.userId) || 'Unknown'}</TableCell> }
+                                    { selectedUserId === 'all' && <TableCell>{userNameMap.get(shift.userId) || 'Unknown'}</TableCell> }
                                     <TableCell>
                                         <div>{shift.task}</div>
                                         <div className="text-xs text-muted-foreground">{shift.address}</div>
@@ -451,7 +451,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                             </div>
                         </CardHeader>
                         <CardContent className="text-sm text-muted-foreground space-y-1">
-                            { !selectedUserId && <div><strong>Operative:</strong> {userNameMap.get(shift.userId) || 'Unknown'}</div> }
+                            { selectedUserId === 'all' && <div><strong>Operative:</strong> {userNameMap.get(shift.userId) || 'Unknown'}</div> }
                             <div><strong>Date:</strong> {format(getCorrectedLocalDate(shift.date), 'eeee, MMM d')}</div>
                         </CardContent>
                         <CardFooter className="p-2 bg-muted/30 flex justify-between items-center">
@@ -576,7 +576,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                             <SelectValue placeholder="All Users" />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="">All Users</SelectItem>
+                            <SelectItem value="all">All Users</SelectItem>
                             {users.map(user => (
                                 <SelectItem key={user.uid} value={user.uid}>{user.name}</SelectItem>
                             ))}
