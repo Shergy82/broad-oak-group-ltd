@@ -43,6 +43,14 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
     const shiftId = context.params.shiftId;
     functions.logger.log(`Function triggered for shiftId: ${shiftId}`);
 
+    // --- Master Notification Toggle Check ---
+    const settingsRef = db.collection('settings').doc('notifications');
+    const settingsDoc = await settingsRef.get();
+    if (settingsDoc.exists && settingsDoc.data()?.enabled === false) {
+      functions.logger.log('Global notifications are disabled by the owner. Aborting.');
+      return;
+    }
+
     const config = functions.config();
     const publicKey = config.webpush?.public_key;
     const privateKey = config.webpush?.private_key;
@@ -182,6 +190,14 @@ export const projectReviewNotifier = functions
   .pubsub.schedule("every 24 hours")
   .onRun(async (context) => {
     functions.logger.log("Running daily project review notifier.");
+
+    // --- Master Notification Toggle Check ---
+    const settingsRef = db.collection('settings').doc('notifications');
+    const settingsDoc = await settingsRef.get();
+    if (settingsDoc.exists && settingsDoc.data()?.enabled === false) {
+      functions.logger.log('Global notifications are disabled by the owner. Aborting project review notifier.');
+      return;
+    }
 
     const config = functions.config();
     const publicKey = config.webpush?.public_key;
