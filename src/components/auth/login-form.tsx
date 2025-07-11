@@ -21,6 +21,7 @@ import { Spinner } from '@/components/shared/spinner';
 import { UnconfiguredForm } from '@/components/auth/unconfigured-form';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Terminal } from "lucide-react"
+import Link from 'next/link';
 
 const formSchema = z.object({
   email: z.string().email({ message: 'Please enter a valid email address.' }),
@@ -78,7 +79,7 @@ export function LoginForm() {
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
         {error && (
             <Alert variant="destructive">
               <Terminal className="h-4 w-4" />
@@ -104,7 +105,15 @@ export function LoginForm() {
           name="password"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Password</FormLabel>
+              <div className="flex items-center justify-between">
+                <FormLabel>Password</FormLabel>
+                <Link
+                    href="/forgot-password"
+                    className="text-sm font-medium text-primary hover:underline"
+                >
+                    Forgot password?
+                </Link>
+              </div>
               <FormControl>
                 <Input type="password" placeholder="••••••••" {...field} />
               </FormControl>
@@ -112,9 +121,11 @@ export function LoginForm() {
             </FormItem>
           )}
         />
-        <Button type="submit" className="w-full" disabled={isLoading}>
-          {isLoading ? <Spinner /> : 'Log In'}
-        </Button>
+        <div className="pt-2">
+            <Button type="submit" className="w-full" disabled={isLoading}>
+              {isLoading ? <Spinner /> : 'Log In'}
+            </Button>
+        </div>
       </form>
     </Form>
   );
