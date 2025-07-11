@@ -38,6 +38,38 @@ export const getVapidPublicKey = functions.region("europe-west2").https.onCall((
     return { publicKey };
 });
 
+export const setNotificationStatus = functions.region("europe-west2").https.onCall(async (data, context) => {
+    // 1. Authentication check
+    if (!context.auth) {
+        throw new functions.https.HttpsError("unauthenticated", "You must be logged in to perform this action.");
+    }
+
+    // 2. Authorization check
+    const uid = context.auth.uid;
+    const userDoc = await db.collection("users").doc(uid).get();
+    const userProfile = userDoc.data();
+    if (!userProfile || userProfile.role !== 'owner') {
+        throw new functions.https.HttpsError("permission-denied", "Only the account owner can change notification settings.");
+    }
+    
+    // 3. Validation
+    const { enabled } = data;
+    if (typeof enabled !== 'boolean') {
+        throw new functions.https.HttpsError("invalid-argument", "The 'enabled' field must be a boolean value.");
+    }
+    
+    // 4. Execution
+    try {
+        const settingsRef = db.collection('settings').doc('notifications');
+        await settingsRef.set({ enabled: enabled }, { merge: true });
+        functions.logger.log(`Owner ${uid} set global notifications to: ${enabled}`);
+        return { success: true };
+    } catch (error) {
+        functions.logger.error("Error updating notification settings:", error);
+        throw new functions.https.HttpsError("internal", "An unexpected error occurred while updating the settings.");
+    }
+});
+
 export const sendShiftNotification = functions.region("europe-west2").firestore.document("shifts/{shiftId}")
   .onWrite(async (change, context) => {
     const shiftId = context.params.shiftId;

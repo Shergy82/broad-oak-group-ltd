@@ -1,99 +1,88 @@
-
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
   
-    // Helper function to get the role of the currently authenticated user.
+    // Helper function to get user's role from their profile document
     function getUserRole(userId) {
       return get(/databases/$(database)/documents/users/$(userId)).data.role;
     }
-    
-    // Helper function to check if the user has a privileged role (admin or owner).
-    function isPrivileged(userId) {
-      let userRole = getUserRole(userId);
-      return userRole == 'admin' || userRole == 'owner';
-    }
-    
-    // Helper function to check if the user is the designated owner of the app.
-    function isOwner(userId) {
-      return getUserRole(userId) == 'owner';
-    }
 
-    // /users/{userId}
+    // USERS
+    // Users can read their own profile.
+    // Users can create their own profile upon signup.
+    // Only admins/owners can update other user profiles (except for their own role).
     match /users/{userId} {
-      // Any user can create their own user document upon signing up.
+      allow read: if request.auth.uid == userId;
       allow create: if request.auth.uid == userId;
       
-      // A user can read their own profile. Admins/owners can read any profile.
-      allow read: if request.auth.uid == userId || isPrivileged(request.auth.uid);
-      
-      // A user can update their own profile data. Owners can update any user's role.
-      allow update: if request.auth.uid == userId || isOwner(request.auth.uid);
-      
-      // No user should be able to delete user documents directly.
-      allow delete: if false;
-      
-      // Subscriptions subcollection
-      match /pushSubscriptions/{subscriptionId} {
-        // A user can manage their own push notification subscriptions.
-        allow read, write, delete: if request.auth.uid == userId;
-      }
+      // Allow user to update their own profile, but not their role.
+      allow update: if request.auth.uid == userId
+                      && !("role" in request.resource.data);
+                      
+      // Allow admins/owners to update other users, but not change an owner's role.
+      allow update: if getUserRole(request.auth.uid) in ['admin', 'owner']
+                      && resource.data.role != 'owner';
     }
     
-    // /shifts/{shiftId}
-    match /shifts/{shiftId} {
-        // Admins and owners can create, update, and delete any shift.
-        allow create, delete: if isPrivileged(request.auth.uid);
-        
-        // Users can read any shift (for team schedule view).
-        // Admins/Owners can update any shift.
-        // A regular user can only update their own assigned shifts (e.g., changing status).
-        allow read, update: if request.auth != null && 
-                              (isPrivileged(request.auth.uid) || resource.data.userId == request.auth.uid);
+    // PUSH SUBSCRIPTIONS
+    // Users can only manage their own push notification subscriptions.
+    match /users/{userId}/pushSubscriptions/{subscriptionId} {
+      allow read, write: if request.auth.uid == userId;
     }
     
-    // /settings/notifications
-    match /settings/notifications {
-      // Any authenticated user can read the master toggle state.
+    // SETTINGS
+    match /settings/{docId} {
+      // Any authenticated user can read settings (e.g., to see if notifications are enabled).
       allow read: if request.auth != null;
-      
-      // Only the user with the 'owner' role can change it.
-      allow write: if isOwner(request.auth.uid);
+      // Writes are handled by a secure Cloud Function, so no direct client writes are allowed.
+      allow write: if false; 
     }
 
-    // /projects/{projectId}
-    match /projects/{projectId} {
-        // Any authenticated user can view the list of projects.
-        allow read: if request.auth != null;
-        
-        // Only admins or owners can create, update, or delete projects.
-        allow create, update, delete: if isPrivileged(request.auth.uid);
-        
-        // Files subcollection
-        match /files/{fileId} {
-            // Any authenticated user can view the file list for any project.
-            allow read: if request.auth != null;
-            
-            // Any authenticated user can upload a file (create a file document).
-            allow create: if request.auth != null;
-            
-            // Only the user who uploaded the file, or an admin/owner, can delete it.
-            allow delete: if request.auth != null && 
-                          (isPrivileged(request.auth.uid) || resource.data.uploaderId == request.auth.uid);
-            
-            // File documents are not designed to be updated.
-            allow update: if false;
-        }
+    // SHIFTS
+    // Users can read their own shifts.
+    // Admins/owners can read all shifts.
+    // Admins/owners can create/delete shifts.
+    // Users can update the status of their own shifts.
+    match /shifts/{shiftId} {
+      allow read: if request.auth.uid == resource.data.userId 
+                  || getUserRole(request.auth.uid) in ['admin', 'owner'];
+                  
+      allow create, delete: if getUserRole(request.auth.uid) in ['admin', 'owner'];
+      
+      // Allow users to update specific fields (status, notes) on their own shifts.
+      allow update: if request.auth.uid == resource.data.userId
+                     && request.resource.data.keys().hasAll(['status', 'notes'])
+                     && request.resource.data.size() == 2;
+                     
+      // Allow admins/owners to update any field on any shift.
+      allow update: if getUserRole(request.auth.uid) in ['admin', 'owner'];
     }
     
-    // /announcements/{announcementId}
+    // PROJECTS
+    // All authenticated users can read all projects.
+    // Only admins/owners can create/delete/update projects.
+    match /projects/{projectId} {
+       allow read: if request.auth != null;
+       allow write: if getUserRole(request.auth.uid) in ['admin', 'owner'];
+    }
+    
+    // PROJECT FILES
+    // All authenticated users can read all project files.
+    // Any user can create (upload) a file.
+    // Users can delete their own files. Admins/owners can delete any file.
+    match /projects/{projectId}/files/{fileId} {
+        allow read, create: if request.auth != null;
+        allow delete: if request.auth.uid == resource.data.uploaderId
+                      || getUserRole(request.auth.uid) in ['admin', 'owner'];
+    }
+    
+    // ANNOUNCEMENTS
+    // All authenticated users can read announcements.
+    // Only admins/owners can create/update/delete them.
     match /announcements/{announcementId} {
-        // Any authenticated user can read announcements.
-        allow read: if request.auth != null;
-        
-        // Only admins or owners can create, update, or delete announcements.
-        allow create, update, delete: if isPrivileged(request.auth.uid);
+      allow read: if request.auth != null;
+      allow write: if getUserRole(request.auth.uid) in ['admin', 'owner'];
     }
     
   }

@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db, functions, httpsCallable } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
@@ -35,7 +35,7 @@ export function NotificationToggle() {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Could not load notification settings.',
+        description: 'Could not load notification settings. Please check Firestore rules.',
       });
       setIsLoading(false);
     });
@@ -44,25 +44,31 @@ export function NotificationToggle() {
   }, [toast]);
 
   const handleToggle = async (checked: boolean) => {
-    if (!db) return;
+    if (!functions) {
+        toast({ variant: 'destructive', title: 'Error', description: 'Functions service not available.' });
+        return;
+    };
     setIsLoading(true);
+
     try {
-      const settingsRef = doc(db, 'settings', 'notifications');
-      await setDoc(settingsRef, { enabled: checked }, { merge: true });
+      const setNotificationStatus = httpsCallable<{ enabled: boolean }, { success: boolean }>(functions, 'setNotificationStatus');
+      await setNotificationStatus({ enabled: checked });
+      // The onSnapshot listener will update the state automatically,
+      // but we can set it here for a faster UI response.
       setIsEnabled(checked);
       toast({
         title: 'Settings Updated',
         description: `Notifications are now globally ${checked ? 'ENABLED' : 'DISABLED'}.`,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error updating notification settings:", error);
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Could not update settings. Check Firestore rules.',
+        description: error.message || 'Could not update settings.',
       });
     } finally {
-      setIsLoading(false);
+      // Let the snapshot listener handle the final loading state
     }
   };
 
