@@ -33,7 +33,6 @@ export function usePushNotifications() {
   useEffect(() => {
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window) {
       setIsSupported(true);
-      // Defer setting permission until client-side mount to avoid hydration errors
       setPermission(Notification.permission as PermissionState);
     }
   }, []);
@@ -47,10 +46,10 @@ export function usePushNotifications() {
         setVapidKey(result.data.publicKey);
       } catch (error: any) {
         console.error('Could not get VAPID public key from server:', error);
-        let description = 'Could not connect to the push notification service.';
+        let description = 'Could not connect to the push notification service. Please try again later.';
         
         if (error.code === 'not-found') {
-          description = 'The backend notification service is not yet deployed or configured. Please check the admin panel for instructions.';
+          description = 'The backend notification service has not been deployed yet. The account owner can find setup instructions in the Admin panel.';
         }
         
         toast({
@@ -68,7 +67,8 @@ export function usePushNotifications() {
   
   useEffect(() => {
     const checkSubscription = async () => {
-      if (!isSupported || !navigator.serviceWorker.ready) return;
+      if (!isSupported || !user || !vapidKey) return;
+      
       const swRegistration = await navigator.serviceWorker.ready;
       try {
         const subscription = await swRegistration.pushManager.getSubscription();
@@ -79,20 +79,20 @@ export function usePushNotifications() {
       }
     };
 
-    if (isSupported) {
-        checkSubscription();
-    }
-  }, [isSupported, user]);
+    checkSubscription();
+  }, [isSupported, user, vapidKey]);
 
   const subscribe = useCallback(async () => {
-    if (!isSupported || !user || !vapidKey || permission !== 'prompt') {
-      if (permission === 'denied') {
-        // This case will be handled by the UI button opening a dialog
+    if (!isSupported || !user || !vapidKey) {
+        toast({ variant: 'destructive', title: 'Error', description: 'Push notifications are not supported or not configured.'});
         return;
-      }
-      return;
     };
     
+    if (permission === 'denied') {
+        toast({ variant: 'destructive', title: 'Permission Denied', description: 'Please enable notifications in your browser settings.'});
+        return;
+    }
+
     setIsSubscribing(true);
 
     try {
@@ -103,7 +103,6 @@ export function usePushNotifications() {
         applicationServerKey,
       });
 
-      // Update permission state after prompt
       setPermission(Notification.permission as PermissionState);
       
       const subscriptionJson = subscription.toJSON();
@@ -121,9 +120,13 @@ export function usePushNotifications() {
       });
     } catch (error: any) {
         console.error('Error subscribing to push notifications:', error);
-        // Update permission state in case of error (e.g., user denied)
         setPermission(Notification.permission as PermissionState);
         setIsSubscribed(false);
+        if (error.name === 'NotAllowedError') {
+             toast({ variant: 'destructive', title: 'Subscription Blocked', description: 'You denied the notification permission. To enable it, please go to your browser settings.' });
+        } else {
+             toast({ variant: 'destructive', title: 'Subscription Failed', description: 'An unexpected error occurred.' });
+        }
     } finally {
         setIsSubscribing(false);
     }
