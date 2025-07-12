@@ -253,7 +253,7 @@ export function FileUploader({ onImportComplete }: FileUploaderProps) {
                     const namePart = parts.pop()!;
                     let task = parts.join('-').trim();
                     
-                    const nameCandidates = namePart.split(/[/&+|,]/).map(name => name.trim()).filter(Boolean);
+                    const nameCandidates = namePart.split(/[/&+,]/).map(name => name.trim()).filter(Boolean);
 
                     for (const nameCandidate of nameCandidates) {
                         if (!nameCandidate) continue;
@@ -418,8 +418,3 @@ export function FileUploader({ onImportComplete }: FileUploaderProps) {
     </div>
   );
 }
-
-    
-    
-
-    
