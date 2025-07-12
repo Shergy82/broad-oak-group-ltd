@@ -80,13 +80,13 @@ export default function AdminPage() {
                   The format must be: <code>Task Description - Operative Name</code>. Spacing around the hyphen does not matter.
                 </li>
                 <li>
-                  <strong>Shift Type (AM/PM):</strong> You can optionally add "AM" or "PM" to the task description (e.g., <code>FIT TRAY AM - Phil Shergold</code>). If neither is found, the shift will default to 'All Day'.
+                  <strong>Shift Type (AM/PM):</strong> You can specify a morning or afternoon shift by adding "AM" or "PM" to the task description (e.g., <code>FIT TRAY AM - Phil Shergold</code>). If neither is found, the shift will default to 'All Day'.
                 </li>
                 <li>
                   <strong>Operative Name Matching:</strong> The operative's name in the sheet must exactly match their full name in the user list above.
                 </li>
                 <li>
-                  <strong>Ignored Cells:</strong> Any cells that are empty, do not contain a recognized 'Task - Name' format, or contain words like `holiday` or `on hold` will be skipped.
+                  <strong>Ignored Cells:</strong> Any cells that are empty, do not contain a recognized 'Task - Name' format, contain parentheses `()`, or contain words like `holiday` or `on hold` will be skipped.
                 </li>
               </ul>
               <p className="font-semibold pt-2">Example Structure:</p>
