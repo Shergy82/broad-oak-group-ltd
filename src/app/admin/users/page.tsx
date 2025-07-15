@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -33,11 +34,9 @@ export default function UserManagementPage() {
   const { toast } = useToast();
 
   useEffect(() => {
-    // The parent admin layout already handles loading state, so we just wait for a profile.
     if (!currentUserProfile) return;
 
-    // Only fetch users if the current user is an owner.
-    if (currentUserProfile.role !== 'owner') {
+    if (!['owner', 'admin'].includes(currentUserProfile.role)) {
       setLoading(false);
       return;
     }
@@ -73,6 +72,10 @@ export default function UserManagementPage() {
 
   const handleRoleChange = async (userId: string, newRole: 'user' | 'admin' | 'owner') => {
     if (!db) return;
+    if (currentUserProfile?.role !== 'owner') {
+        toast({ variant: 'destructive', title: 'Permission Denied', description: 'Only the owner can change user roles.' });
+        return;
+    }
     const userDocRef = doc(db, 'users', userId);
     try {
       await updateDoc(userDocRef, { role: newRole });
@@ -92,25 +95,23 @@ export default function UserManagementPage() {
   
   const isRoleChangeDisabled = (targetUser: UserProfile) => {
     if (!currentUserProfile) return true;
+    // Only the owner can make changes.
+    if (currentUserProfile.role !== 'owner') return true;
     // Cannot change your own role
     if (currentUserProfile.uid === targetUser.uid) return true;
     // The designated owner's role cannot be changed
     if (targetUser.role === 'owner') return true;
-    // Admins cannot change other admins' roles (though only owners can see this page now)
-    if (currentUserProfile.role === 'admin' && targetUser.role === 'admin') return true;
 
     return false;
   }
 
-  // The AdminLayout handles initial loading, but we add our role check here.
-  // currentUserProfile is guaranteed to be loaded by the parent layout.
-  if (currentUserProfile && currentUserProfile.role !== 'owner') {
+  if (currentUserProfile && !['owner', 'admin'].includes(currentUserProfile.role)) {
       return (
           <Alert variant="destructive">
               <Terminal className="h-4 w-4" />
               <AlertTitle>Access Denied</AlertTitle>
               <AlertDescription>
-                  You do not have the required permissions to view this page. Access is restricted to the account owner.
+                  You do not have the required permissions to view this page. Access is restricted to admins and the account owner.
               </AlertDescription>
           </Alert>
       );
