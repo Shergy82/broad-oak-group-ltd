@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/shared/spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Upload } from 'lucide-react';
-import type { Shift, UserProfile } from '@/types';
+import type { Shift, UserProfile, ShiftStatus } from '@/types';
 
 type ParsedShift = Omit<Shift, 'id' | 'status' | 'date'> & { date: Date };
 type UserMapEntry = { uid: string; normalizedName: string; originalName: string; };
@@ -184,19 +184,24 @@ export function FileUploader({ onImportComplete }: FileUploaderProps) {
         });
 
         const isLikelyAddress = (str: string): boolean => {
-            if (!str || str.length < 10) return false;
+            if (!str || typeof str !== 'string' || str.length < 5) return false;
             const lowerCaseStr = str.toLowerCase();
-            if (lowerCaseStr.includes('week commencing') || lowerCaseStr.includes('project address') || lowerCaseStr.includes('job address')) {
+            // Exclude common headers or task-like entries
+            if (lowerCaseStr.includes('week commencing') || lowerCaseStr.includes('project address') || lowerCaseStr.includes('job address') || lowerCaseStr.includes('-')) {
                 return false;
             }
-            if (!/\d/.test(str)) return false;
-            if (str.split(' ').length < 2) return false;
+            // A typical address has at least one number and one letter
+            if (!/\d/.test(str) || !/[a-zA-Z]/.test(str)) return false;
+            // It's likely an address if it has more than one word.
+            if (str.trim().split(' ').length < 2) return false;
             return true;
         };
         
         const shiftsFromExcel: ParsedShift[] = [];
         const failedShifts: FailedShift[] = [];
         const allDatesFound: Date[] = [];
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
 
         for (const sheetName of workbook.SheetNames) {
             const worksheet = workbook.Sheets[sheetName];
@@ -208,10 +213,10 @@ export function FileUploader({ onImportComplete }: FileUploaderProps) {
             let dates: (Date | null)[] = [];
             for (let i = 0; i < jsonData.length; i++) {
                 const row = jsonData[i] || [];
-                const potentialDates = row.map(parseDate);
-                if (row.length > 2 && potentialDates.slice(2).filter(d => d !== null).length > 0) {
+                 // A date row should have at least 3 potential dates from column C onwards
+                if (row.length > 2 && row.slice(2).filter(cell => !!parseDate(cell)).length >= 3) {
                      dateRowIndex = i;
-                     dates = potentialDates;
+                     dates = row.map(parseDate);
                      break;
                 }
             }
@@ -245,12 +250,14 @@ export function FileUploader({ onImportComplete }: FileUploaderProps) {
                     
                     const parts = cellValue.split('-').map(p => p.trim());
                     if (parts.length < 2) {
-                        failedShifts.push({
-                            date: shiftDate,
-                            projectAddress: currentProjectAddress,
-                            cellContent: cellValue,
-                            reason: "Invalid format. Expected 'Task - Operative Name'."
-                        });
+                        if (shiftDate >= today) {
+                            failedShifts.push({
+                                date: shiftDate,
+                                projectAddress: currentProjectAddress,
+                                cellContent: cellValue,
+                                reason: "Invalid format. Expected 'Task - Operative Name'."
+                            });
+                        }
                         continue;
                     }
 
@@ -274,12 +281,14 @@ export function FileUploader({ onImportComplete }: FileUploaderProps) {
                             }
                             shiftsFromExcel.push({ task: processedTask, userId: foundUser.uid, type, date: shiftDate, address: currentProjectAddress, bNumber: currentBNumber });
                         } else {
-                            failedShifts.push({
-                                date: shiftDate,
-                                projectAddress: currentProjectAddress,
-                                cellContent: cellValue,
-                                reason: `Unrecognized Operative: "${nameCandidate}".`
-                            });
+                            if (shiftDate >= today) {
+                                failedShifts.push({
+                                    date: shiftDate,
+                                    projectAddress: currentProjectAddress,
+                                    cellContent: cellValue,
+                                    reason: `Unrecognized Operative: "${nameCandidate}".`
+                                });
+                            }
                         }
                     }
                 }
@@ -319,6 +328,12 @@ export function FileUploader({ onImportComplete }: FileUploaderProps) {
             excelKeys.add(key);
             const existingShift = existingShiftsMap.get(key);
 
+            // Do not modify shifts that have been completed or marked incomplete
+            const protectedStatuses: ShiftStatus[] = ['completed', 'incomplete'];
+            if (existingShift && protectedStatuses.includes(existingShift.status)) {
+                continue;
+            }
+
             if (existingShift) {
                 // Address or B-number might be updated even if task is the same
                 if (existingShift.task !== excelShift.task || existingShift.address !== excelShift.address || existingShift.bNumber !== excelShift.bNumber) {
@@ -343,6 +358,11 @@ export function FileUploader({ onImportComplete }: FileUploaderProps) {
 
         for (const [key, shift] of existingShiftsMap.entries()) {
             if (!excelKeys.has(key)) {
+                // Do not delete shifts that have been completed or marked incomplete
+                const protectedStatuses: ShiftStatus[] = ['completed', 'incomplete'];
+                if (protectedStatuses.includes(shift.status)) {
+                    continue;
+                }
                 batch.delete(doc(db, 'shifts', shift.id));
                 shiftsDeleted++;
             }
