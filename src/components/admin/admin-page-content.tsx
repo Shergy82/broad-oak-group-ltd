@@ -21,7 +21,13 @@ export default function AdminPageContent() {
   const isOwner = userProfile && userProfile.role === 'owner';
 
   const handleImportComplete = (report: FailedShift[]) => {
-    setFailedShifts(report);
+    // Sort the report by date as soon as it's received
+    const sortedReport = report.sort((a, b) => {
+        if (!a.date) return 1;
+        if (!b.date) return -1;
+        return a.date.getTime() - b.date.getTime();
+    });
+    setFailedShifts(sortedReport);
   };
   
   const handleDownloadPdf = async () => {
