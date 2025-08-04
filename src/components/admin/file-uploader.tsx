@@ -29,8 +29,6 @@ interface FileUploaderProps {
 
 
 // --- Helper Functions ---
-// Moved outside the component to ensure they are always initialized.
-
 const levenshtein = (a: string, b: string): number => {
     if (a.length === 0) return b.length;
     if (b.length === 0) return a.length;
@@ -76,7 +74,6 @@ const findUser = (name: string, userMap: UserMapEntry[]): UserMapEntry | null =>
         const nameParts = user.originalName.split(' ');
         const firstNameNormalized = nameParts.length > 0 ? normalizeText(nameParts[0]) : '';
         
-        // Case 1: Nickname match (e.g., "Dave" for "David")
         if (user.normalizedName.includes(normalizedName) || (firstNameNormalized && firstNameNormalized.includes(normalizedName))) {
             if (distance < minDistance) {
                 minDistance = distance;
@@ -84,15 +81,13 @@ const findUser = (name: string, userMap: UserMapEntry[]): UserMapEntry | null =>
             }
         }
         
-        // Case 2: Typo match
-        const threshold = Math.max(1, Math.floor(normalizedName.length / 4)); // Allow more typos for longer names
+        const threshold = Math.max(1, Math.floor(normalizedName.length / 4));
         if (distance <= threshold && distance < minDistance) {
             minDistance = distance;
             bestMatch = user;
         }
     }
     
-    // Only return a fuzzy match if it's a very confident one
     if (bestMatch && minDistance < 3) {
             return bestMatch;
     }
@@ -103,12 +98,10 @@ const findUser = (name: string, userMap: UserMapEntry[]): UserMapEntry | null =>
 const parseDate = (dateValue: any): Date | null => {
     if (!dateValue) return null;
     if (dateValue instanceof Date) {
-            // Standardize to UTC midnight to avoid timezone issues
         const d = dateValue;
         return !isNaN(d.getTime()) ? new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())) : null;
     }
     if (typeof dateValue === 'number' && dateValue > 1) {
-        // Handle Excel's serial date number format
         const d = new Date(Math.round((dateValue - 25569) * 864e5));
         return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
     }
@@ -116,7 +109,7 @@ const parseDate = (dateValue: any): Date | null => {
         const parts = dateValue.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/);
         if (parts) {
             const day = parseInt(parts[1], 10);
-            const month = parseInt(parts[2], 10) - 1; // JS months are 0-indexed
+            const month = parseInt(parts[2], 10) - 1;
             const year = parseInt(parts[3], 10);
             if (year > 1900 && month >= 0 && month < 12 && day > 0 && day <= 31) {
                 return new Date(Date.UTC(year, month, day));
@@ -124,6 +117,21 @@ const parseDate = (dateValue: any): Date | null => {
         }
     }
     return null;
+};
+
+const isLikelyAddress = (str: string): boolean => {
+    if (!str || typeof str !== 'string' || str.length < 5) return false;
+    const lowerCaseStr = str.toLowerCase();
+    const excludedKeywords = ['week commencing', 'project address', 'job address', 'information:', 'house:'];
+    if (excludedKeywords.some(keyword => lowerCaseStr.startsWith(keyword))) {
+        return false;
+    }
+    if (lowerCaseStr.includes('completion date')) {
+        return false;
+    }
+    if (!/\d/.test(str) || !/[a-zA-Z]/.test(str)) return false;
+    if (str.trim().split(/\s+/).length < 2) return false;
+    return true;
 };
 
 
@@ -144,11 +152,10 @@ export function FileUploader({ onImportComplete }: FileUploaderProps) {
     }
   };
 
-  const getShiftKey = (shift: { userId: string; date: Date | Timestamp; type: 'am' | 'pm' | 'all-day'; task: string }): string => {
-    // Ensure date is a Date object before calling toISOString
+  const getShiftKey = (shift: { userId: string; date: Date | Timestamp; type: 'am' | 'pm' | 'all-day'; task: string; address: string }): string => {
     const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
     const normalizedDate = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-    return `${shift.userId}-${normalizedDate.toISOString().slice(0, 10)}-${shift.type}-${shift.task.trim().toLowerCase()}`;
+    return `${shift.userId}-${normalizedDate.toISOString().slice(0, 10)}-${shift.type}-${shift.task.trim().toLowerCase()}-${shift.address.trim().toLowerCase()}`;
   };
 
 
@@ -160,7 +167,7 @@ export function FileUploader({ onImportComplete }: FileUploaderProps) {
 
     setIsUploading(true);
     setError(null);
-    onImportComplete([]); // Clear previous report
+    onImportComplete([]);
 
     const reader = new FileReader();
     reader.onload = async (e) => {
@@ -182,20 +189,6 @@ export function FileUploader({ onImportComplete }: FileUploaderProps) {
               });
             }
         });
-
-        const isLikelyAddress = (str: string): boolean => {
-            if (!str || typeof str !== 'string' || str.length < 5) return false;
-            const lowerCaseStr = str.toLowerCase();
-            // Exclude common headers or task-like entries
-            if (lowerCaseStr.includes('week commencing') || lowerCaseStr.includes('project address') || lowerCaseStr.includes('job address') || lowerCaseStr.includes('-')) {
-                return false;
-            }
-            // A typical address has at least one number and one letter
-            if (!/\d/.test(str) || !/[a-zA-Z]/.test(str)) return false;
-            // It's likely an address if it has more than one word.
-            if (str.trim().split(' ').length < 2) return false;
-            return true;
-        };
         
         const shiftsFromExcel: ParsedShift[] = [];
         const failedShifts: FailedShift[] = [];
@@ -203,55 +196,69 @@ export function FileUploader({ onImportComplete }: FileUploaderProps) {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
+        // --- Master Date Row Identification ---
+        let dateRow: any[] = [];
+        let dateRowIndex = -1;
+        let masterDates: (Date | null)[] = [];
+
         for (const sheetName of workbook.SheetNames) {
             const worksheet = workbook.Sheets[sheetName];
             const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, blankrows: false, defval: '' });
 
-            if (jsonData.length < 2) continue;
-
-            let dateRowIndex = -1;
-            let dates: (Date | null)[] = [];
             for (let i = 0; i < jsonData.length; i++) {
                 const row = jsonData[i] || [];
-                 // A date row should have at least 3 potential dates from column C onwards
-                if (row.length > 2 && row.slice(2).filter(cell => !!parseDate(cell)).length >= 3) {
-                     dateRowIndex = i;
-                     dates = row.map(parseDate);
-                     break;
+                if (row.length > 2) {
+                    const potentialDates = row.slice(2).map(parseDate);
+                    const validDateCount = potentialDates.filter(d => d !== null).length;
+                    if (validDateCount >= 3) {
+                        dateRow = row;
+                        dateRowIndex = i;
+                        masterDates = row.map(parseDate);
+                        break;
+                    }
                 }
             }
-            if (dateRowIndex === -1) continue;
+            if (dateRowIndex !== -1) break;
+        }
 
-            dates.forEach(d => { if (d) allDatesFound.push(d); });
-            
+        if (dateRowIndex === -1) {
+            throw new Error("No valid date row found in the workbook. Please ensure at least one sheet has a row with dates (e.g., DD/MM/YYYY) above the shift data.");
+        }
+        
+        masterDates.forEach(d => { if (d) allDatesFound.push(d); });
+        
+        // --- Process Each Sheet ---
+        for (const sheetName of workbook.SheetNames) {
+            const worksheet = workbook.Sheets[sheetName];
+            const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, blankrows: false, defval: '' });
+
             let currentProjectAddress = '';
             let currentBNumber = '';
-            for (let r = dateRowIndex + 1; r < jsonData.length; r++) {
-                const rowData = jsonData[r];
-                if (!rowData || rowData.every(cell => !cell || cell.toString().trim() === '')) continue;
+            
+            for (let r = 0; r < jsonData.length; r++) {
+                const rowData = jsonData[r] || [];
+                if (!rowData.some(cell => cell.toString().trim() !== '')) continue;
                 
                 const addressCandidate = (rowData[0] || '').toString().trim();
                 if (isLikelyAddress(addressCandidate)) {
                     currentProjectAddress = addressCandidate;
-                    currentBNumber = (rowData[1] || '').toString().trim();
+                    const bNumberCandidate = (rowData[1] || '').toString().trim();
+                    if(bNumberCandidate) currentBNumber = bNumberCandidate;
                 }
 
-                if (!currentProjectAddress) continue;
+                if (!currentProjectAddress || r <= dateRowIndex) continue;
 
                 for (let c = 2; c < rowData.length; c++) {
                     const cellValue = (rowData[c] || '').toString().trim().replace(/[\u2012\u2013\u2014\u2015]/g, '-');
-
-                    if (!cellValue || cellValue.toLowerCase().includes('holiday') || cellValue.toLowerCase().includes('on hold') || /\(.*\)/.test(cellValue)) {
+                    const shiftDate = masterDates[c];
+                    
+                    if (!cellValue || !shiftDate || cellValue.toLowerCase().includes('holiday') || cellValue.toLowerCase().includes('on hold')) {
                         continue;
                     }
-                    
-                    const shiftDate = dates[c];
-                    if (!shiftDate) continue;
-                    
+
+                    // Strict check for "Task - Name" format
                     const parts = cellValue.split('-').map(p => p.trim());
-                    if (parts.length < 2) {
-                        continue; // Silently skip invalid formats
-                    }
+                    if (parts.length < 2) continue;
 
                     const namePart = parts.pop()!;
                     let task = parts.join('-').trim();
@@ -286,10 +293,6 @@ export function FileUploader({ onImportComplete }: FileUploaderProps) {
                 }
             }
         }
-
-        if (allDatesFound.length === 0) {
-            throw new Error("No valid dates found. Ensure the file is an .xlsx spreadsheet (not a .url shortcut) and contains a row with dates in DD/MM/YYYY format.");
-        }
         
         const minDate = new Date(Math.min(...allDatesFound.map(d => d.getTime())));
         const maxDate = new Date(Math.max(...allDatesFound.map(d => d.getTime())));
@@ -311,8 +314,6 @@ export function FileUploader({ onImportComplete }: FileUploaderProps) {
         const batch = writeBatch(db);
         let shiftsCreated = 0;
         let shiftsUpdated = 0;
-        let shiftsDeleted = 0;
-
         const excelKeys = new Set<string>();
 
         for (const excelShift of shiftsFromExcel) {
@@ -320,14 +321,12 @@ export function FileUploader({ onImportComplete }: FileUploaderProps) {
             excelKeys.add(key);
             const existingShift = existingShiftsMap.get(key);
 
-            // Do not modify shifts that have been completed or marked incomplete
             const protectedStatuses: ShiftStatus[] = ['completed', 'incomplete'];
             if (existingShift && protectedStatuses.includes(existingShift.status)) {
                 continue;
             }
 
             if (existingShift) {
-                // Address or B-number might be updated even if task is the same
                 if (existingShift.task !== excelShift.task || existingShift.address !== excelShift.address || existingShift.bNumber !== excelShift.bNumber) {
                     const updateData = {
                         task: excelShift.task,
@@ -347,27 +346,14 @@ export function FileUploader({ onImportComplete }: FileUploaderProps) {
                 shiftsCreated++;
             }
         }
-
-        for (const [key, shift] of existingShiftsMap.entries()) {
-            if (!excelKeys.has(key)) {
-                // Do not delete shifts that have been completed or marked incomplete
-                const protectedStatuses: ShiftStatus[] = ['completed', 'incomplete'];
-                if (protectedStatuses.includes(shift.status)) {
-                    continue;
-                }
-                batch.delete(doc(db, 'shifts', shift.id));
-                shiftsDeleted++;
-            }
-        }
         
-        if (shiftsCreated > 0 || shiftsUpdated > 0 || shiftsDeleted > 0) {
+        if (shiftsCreated > 0 || shiftsUpdated > 0) {
             await batch.commit();
         }
         
         let descriptionParts = [];
         if (shiftsCreated > 0) descriptionParts.push(`created ${shiftsCreated} new shift(s)`);
         if (shiftsUpdated > 0) descriptionParts.push(`updated ${shiftsUpdated} shift(s)`);
-        if (shiftsDeleted > 0) descriptionParts.push(`deleted ${shiftsDeleted} shift(s)`);
 
         if (descriptionParts.length > 0) {
             toast({
@@ -434,5 +420,3 @@ export function FileUploader({ onImportComplete }: FileUploaderProps) {
     </div>
   );
 }
-
-    
