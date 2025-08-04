@@ -196,64 +196,58 @@ export function FileUploader({ onImportComplete }: FileUploaderProps) {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
-        // --- Master Date Row Identification ---
-        let dateRow: any[] = [];
-        let dateRowIndex = -1;
-        let masterDates: (Date | null)[] = [];
-
+        // --- Process Each Sheet ---
         for (const sheetName of workbook.SheetNames) {
             const worksheet = workbook.Sheets[sheetName];
             const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, blankrows: false, defval: '' });
+            
+            // --- Sheet-Specific Date Row Identification ---
+            let dateRow: any[] = [];
+            let dateRowIndex = -1;
+            let sheetDates: (Date | null)[] = [];
 
             for (let i = 0; i < jsonData.length; i++) {
                 const row = jsonData[i] || [];
                 if (row.length > 2) {
                     const potentialDates = row.slice(2).map(parseDate);
                     const validDateCount = potentialDates.filter(d => d !== null).length;
-                    if (validDateCount >= 3) {
+                    if (validDateCount >= 3) { // Requires at least 3 valid dates
                         dateRow = row;
                         dateRowIndex = i;
-                        masterDates = row.map(parseDate);
+                        sheetDates = row.map(parseDate);
                         break;
                     }
                 }
             }
-            if (dateRowIndex !== -1) break;
-        }
-
-        if (dateRowIndex === -1) {
-            throw new Error("No valid date row found in the workbook. Please ensure at least one sheet has a row with dates (e.g., DD/MM/YYYY) above the shift data.");
-        }
+            if (dateRowIndex === -1) {
+                console.log(`Skipping sheet "${sheetName}" because no valid date row was found.`);
+                continue; // Skip this sheet if no date row is found
+            }
+            
+            sheetDates.forEach(d => { if (d) allDatesFound.push(d); });
         
-        masterDates.forEach(d => { if (d) allDatesFound.push(d); });
-        
-        // --- Process Each Sheet ---
-        for (const sheetName of workbook.SheetNames) {
-            const worksheet = workbook.Sheets[sheetName];
-            const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, blankrows: false, defval: '' });
-
             let currentProjectAddress = '';
             let currentBNumber = '';
             
-            for (let r = 0; r < jsonData.length; r++) {
+            for (let r = dateRowIndex + 1; r < jsonData.length; r++) {
                 const rowData = jsonData[r] || [];
                 if (!rowData.some(cell => cell.toString().trim() !== '')) continue;
                 
                 const addressCandidate = (rowData[0] || '').toString().trim();
                 if (isLikelyAddress(addressCandidate)) {
                     currentProjectAddress = addressCandidate;
-                    const bNumberCandidate = (rowData[1] || '').toString().trim();
-                    if(bNumberCandidate) currentBNumber = bNumberCandidate;
+                    currentBNumber = (rowData[1] || '').toString().trim();
                 }
 
-                if (!currentProjectAddress || r <= dateRowIndex) continue;
+                if (!currentProjectAddress) continue;
 
                 for (let c = 2; c < rowData.length; c++) {
-                    // Normalize cell content: replace newlines with spaces and trim
-                    const cellValue = (rowData[c] || '').toString().replace(/\r?\n|\r/g, " ").trim().replace(/[\u2012\u2013\u2014\u2015]/g, '-');
-                    const shiftDate = masterDates[c];
+                    const shiftDate = sheetDates[c];
+                    if (!shiftDate) continue; // Skip if there's no date for this column
                     
-                    if (!cellValue || !shiftDate || cellValue.toLowerCase().includes('holiday') || cellValue.toLowerCase().includes('on hold') || (cellValue.includes('(') && cellValue.includes(')'))) {
+                    const cellValue = (rowData[c] || '').toString().replace(/\r?\n|\r/g, " ").trim().replace(/[\u2012\u2013\u2014\u2015]/g, '-');
+                    
+                    if (!cellValue || cellValue.toLowerCase().includes('holiday') || cellValue.toLowerCase().includes('on hold')) {
                         continue;
                     }
 
@@ -281,20 +275,24 @@ export function FileUploader({ onImportComplete }: FileUploaderProps) {
                             }
                             shiftsFromExcel.push({ task: processedTask, userId: foundUser.uid, type, date: shiftDate, address: currentProjectAddress, bNumber: currentBNumber });
                         } else {
-                            if (shiftDate >= today) {
+                             if (shiftDate >= today) {
                                 failedShifts.push({
                                     date: shiftDate,
                                     projectAddress: currentProjectAddress,
                                     cellContent: cellValue,
                                     reason: `Unrecognized Operative: "${nameCandidate}".`
                                 });
-                            }
+                             }
                         }
                     }
                 }
             }
         }
         
+        if (allDatesFound.length === 0) {
+            throw new Error("No valid shifts found in any sheet. Please ensure at least one sheet has a valid date row and shift data.");
+        }
+
         const minDate = new Date(Math.min(...allDatesFound.map(d => d.getTime())));
         const maxDate = new Date(Math.max(...allDatesFound.map(d => d.getTime())));
 
@@ -315,11 +313,9 @@ export function FileUploader({ onImportComplete }: FileUploaderProps) {
         const batch = writeBatch(db);
         let shiftsCreated = 0;
         let shiftsUpdated = 0;
-        const excelKeys = new Set<string>();
 
         for (const excelShift of shiftsFromExcel) {
             const key = getShiftKey(excelShift);
-            excelKeys.add(key);
             const existingShift = existingShiftsMap.get(key);
 
             const protectedStatuses: ShiftStatus[] = ['completed', 'incomplete'];
