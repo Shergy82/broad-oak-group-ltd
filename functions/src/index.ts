@@ -57,7 +57,7 @@ export const getNotificationStatus = functions.region("europe-west2").https.onCa
     try {
         const settingsRef = db.collection('settings').doc('notifications');
         const docSnap = await settingsRef.get();
-        if (docSnap.exists && docSnap.data()?.enabled === false) {
+        if (docSnap.exists() && docSnap.data()?.enabled === false) {
             return { enabled: false };
         }
         return { enabled: true }; // Default to enabled
@@ -108,7 +108,7 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
     // --- Master Notification Toggle Check ---
     const settingsRef = db.collection('settings').doc('notifications');
     const settingsDoc = await settingsRef.get();
-    if (settingsDoc.exists && settingsDoc.data()?.enabled === false) {
+    if (settingsDoc.exists() && settingsDoc.data()?.enabled === false) {
       functions.logger.log('Global notifications are disabled by the owner. Aborting.');
       return;
     }
@@ -256,7 +256,7 @@ export const projectReviewNotifier = functions
     // --- Master Notification Toggle Check ---
     const settingsRef = db.collection('settings').doc('notifications');
     const settingsDoc = await settingsRef.get();
-    if (settingsDoc.exists && settingsDoc.data()?.enabled === false) {
+    if (settingsDoc.exists() && settingsDoc.data()?.enabled === false) {
       functions.logger.log('Global notifications are disabled by the owner. Aborting project review notifier.');
       return;
     }
@@ -419,7 +419,7 @@ export const deleteProjectFile = functions.region("europe-west2").https.onCall(a
         const fileRef = db.collection('projects').doc(projectId).collection('files').doc(fileId);
         const fileDoc = await fileRef.get();
 
-        if (!fileDoc.exists) {
+        if (!fileDoc.exists()) {
             throw new functions.https.HttpsError("not-found", "The specified file does not exist.");
         }
 
@@ -568,3 +568,5 @@ export const deleteAllProjects = functions.region("europe-west2").https.onCall(a
         throw new functions.https.HttpsError("internal", "An error occurred while deleting all projects. Please check the function logs.");
     }
 });
+
+    
