@@ -205,7 +205,7 @@ export default function AnnouncementsPage() {
                           </CardContent>
                           {isPrivilegedUser && (
                             <CardFooter className="flex-col items-stretch p-0">
-                                <div className="flex justify-end gap-2 bg-muted/30 p-3">
+                                <div className="flex justify-end gap-2 bg-muted/30 p-3 border-t">
                                    <Button variant="outline" size="sm" onClick={() => handleEdit(announcement)}>
                                      <Edit className="mr-2 h-4 w-4" />
                                      Edit
