@@ -1,9 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { db, functions, httpsCallable } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
+import { functions, httpsCallable } from '@/lib/firebase';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -17,30 +16,30 @@ export function NotificationToggle() {
   const { toast } = useToast();
 
   useEffect(() => {
-    if (!db) {
-      setIsLoading(false);
-      return;
+    async function fetchStatus() {
+        if (!functions) {
+            setIsLoading(false);
+            return;
+        }
+        setIsLoading(true);
+        try {
+            const getNotificationStatus = httpsCallable<{ }, { enabled: boolean }>(functions, 'getNotificationStatus');
+            const result = await getNotificationStatus();
+            setIsEnabled(result.data.enabled);
+        } catch (error: any) {
+            console.error("Error fetching notification settings:", error);
+            toast({
+                variant: 'destructive',
+                title: 'Error',
+                description: error.message || 'Could not load notification settings.',
+            });
+            // Default to a safe state on error
+            setIsEnabled(false);
+        } finally {
+            setIsLoading(false);
+        }
     }
-    const settingsRef = doc(db, 'settings', 'notifications');
-    const unsubscribe = onSnapshot(settingsRef, (docSnap) => {
-      if (docSnap.exists() && docSnap.data().enabled === false) {
-        setIsEnabled(false);
-      } else {
-        // Default to enabled if doc doesn't exist or field is true/missing
-        setIsEnabled(true);
-      }
-      setIsLoading(false);
-    }, (error) => {
-      console.error("Error fetching notification settings:", error);
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Could not load notification settings. Please check Firestore rules.',
-      });
-      setIsLoading(false);
-    });
-
-    return () => unsubscribe();
+    fetchStatus();
   }, [toast]);
 
   const handleToggle = async (checked: boolean) => {
@@ -53,8 +52,7 @@ export function NotificationToggle() {
     try {
       const setNotificationStatus = httpsCallable<{ enabled: boolean }, { success: boolean }>(functions, 'setNotificationStatus');
       await setNotificationStatus({ enabled: checked });
-      // The onSnapshot listener will update the state automatically,
-      // but we can set it here for a faster UI response.
+      
       setIsEnabled(checked);
       toast({
         title: 'Settings Updated',
@@ -68,7 +66,7 @@ export function NotificationToggle() {
         description: error.message || 'Could not update settings.',
       });
     } finally {
-      // Let the snapshot listener handle the final loading state
+       setIsLoading(false);
     }
   };
 

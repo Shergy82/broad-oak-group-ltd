@@ -38,6 +38,35 @@ export const getVapidPublicKey = functions.region("europe-west2").https.onCall((
     return { publicKey };
 });
 
+export const getNotificationStatus = functions.region("europe-west2").https.onCall(async (data, context) => {
+    // 1. Authentication check
+    if (!context.auth) {
+        throw new functions.https.HttpsError("unauthenticated", "You must be logged in to perform this action.");
+    }
+
+    // 2. Authorization check
+    const uid = context.auth.uid;
+    const userDoc = await db.collection("users").doc(uid).get();
+    const userProfile = userDoc.data();
+    if (!userProfile || userProfile.role !== 'owner') {
+        throw new functions.https.HttpsError("permission-denied", "Only the account owner can view notification settings.");
+    }
+    
+    // 3. Execution
+    try {
+        const settingsRef = db.collection('settings').doc('notifications');
+        const docSnap = await settingsRef.get();
+        if (docSnap.exists() && docSnap.data()?.enabled === false) {
+            return { enabled: false };
+        }
+        return { enabled: true }; // Default to enabled
+    } catch (error) {
+        functions.logger.error("Error reading notification settings:", error);
+        throw new functions.https.HttpsError("internal", "An unexpected error occurred while reading the settings.");
+    }
+});
+
+
 export const setNotificationStatus = functions.region("europe-west2").https.onCall(async (data, context) => {
     // 1. Authentication check
     if (!context.auth) {
