@@ -1,3 +1,4 @@
+
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import * as webPush from "web-push";
@@ -56,7 +57,7 @@ export const getNotificationStatus = functions.region("europe-west2").https.onCa
     try {
         const settingsRef = db.collection('settings').doc('notifications');
         const docSnap = await settingsRef.get();
-        if (docSnap.exists() && docSnap.data()?.enabled === false) {
+        if (docSnap.exists && docSnap.data()?.enabled === false) {
             return { enabled: false };
         }
         return { enabled: true }; // Default to enabled
