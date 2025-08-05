@@ -183,11 +183,7 @@ exports.sendShiftNotification = functions.region("europe-west2").firestore.docum
             changedFields.push('time (AM/PM)');
         }
         // 2. Compare dates with day-level precision, ignoring time-of-day.
-        const beforeDate = before.date.toDate();
-        const afterDate = after.date.toDate();
-        if (beforeDate.getUTCFullYear() !== afterDate.getUTCFullYear() ||
-            beforeDate.getUTCMonth() !== afterDate.getUTCMonth() ||
-            beforeDate.getUTCDate() !== afterDate.getUTCDate()) {
+        if (before.date && after.date && !before.date.isEqual(after.date)) {
             changedFields.push('date');
         }
         // 3. Determine if any meaningful change occurred and build the notification.
@@ -505,5 +501,3 @@ exports.deleteAllProjects = functions.region("europe-west2").https.onCall(async 
     }
 });
 //# sourceMappingURL=index.js.map
-
-    

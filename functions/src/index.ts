@@ -178,11 +178,7 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
       }
 
       // 2. Compare dates with day-level precision, ignoring time-of-day.
-      const beforeDate = before.date.toDate();
-      const afterDate = after.date.toDate();
-      if (beforeDate.getUTCFullYear() !== afterDate.getUTCFullYear() ||
-          beforeDate.getUTCMonth() !== afterDate.getUTCMonth() ||
-          beforeDate.getUTCDate() !== afterDate.getUTCDate()) {
+      if (before.date && after.date && !before.date.isEqual(after.date)) {
         changedFields.push('date');
       }
 
@@ -568,5 +564,3 @@ export const deleteAllProjects = functions.region("europe-west2").https.onCall(a
         throw new functions.https.HttpsError("internal", "An error occurred while deleting all projects. Please check the function logs.");
     }
 });
-
-    
