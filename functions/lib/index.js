@@ -24,7 +24,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteAllProjects = exports.deleteAllShifts = exports.deleteProjectFile = exports.deleteProjectAndFiles = exports.projectReviewNotifier = exports.sendShiftNotification = exports.setNotificationStatus = exports.getNotificationStatus = exports.getVapidPublicKey = void 0;
+exports.deleteAllProjects = exports.deleteAllShifts = exports.deleteProjectFile = exports.deleteProjectAndFiles = exports.projectReviewNotifier = exports.sendShiftNotification = exports.getVapidPublicKey = void 0;
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
 const webPush = __importStar(require("web-push"));
@@ -61,77 +61,14 @@ exports.getVapidPublicKey = functions.region("europe-west2").https.onCall((data,
     }
     return { publicKey };
 });
-exports.getNotificationStatus = functions.region("europe-west2").https.onCall(async (data, context) => {
-    var _a;
-    // 1. Authentication check
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "You must be logged in to perform this action.");
-    }
-    // 2. Authorization check
-    const uid = context.auth.uid;
-    const userDoc = await db.collection("users").doc(uid).get();
-    const userProfile = userDoc.data();
-    if (!userProfile || userProfile.role !== 'owner') {
-        throw new functions.https.HttpsError("permission-denied", "Only the account owner can view notification settings.");
-    }
-    // 3. Execution
-    try {
-        const settingsRef = db.collection('settings').doc('notifications');
-        const docSnap = await settingsRef.get();
-        if (docSnap.exists() && ((_a = docSnap.data()) === null || _a === void 0 ? void 0 : _a.enabled) === false) {
-            return { enabled: false };
-        }
-        return { enabled: true }; // Default to enabled
-    }
-    catch (error) {
-        functions.logger.error("Error reading notification settings:", error);
-        throw new functions.https.HttpsError("internal", "An unexpected error occurred while reading the settings.");
-    }
-});
-exports.setNotificationStatus = functions.region("europe-west2").https.onCall(async (data, context) => {
-    // 1. Authentication check
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "You must be logged in to perform this action.");
-    }
-    // 2. Authorization check
-    const uid = context.auth.uid;
-    const userDoc = await db.collection("users").doc(uid).get();
-    const userProfile = userDoc.data();
-    if (!userProfile || userProfile.role !== 'owner') {
-        throw new functions.https.HttpsError("permission-denied", "Only the account owner can change notification settings.");
-    }
-    // 3. Validation
-    const { enabled } = data;
-    if (typeof enabled !== 'boolean') {
-        throw new functions.https.HttpsError("invalid-argument", "The 'enabled' field must be a boolean value.");
-    }
-    // 4. Execution
-    try {
-        const settingsRef = db.collection('settings').doc('notifications');
-        await settingsRef.set({ enabled: enabled }, { merge: true });
-        functions.logger.log(`Owner ${uid} set global notifications to: ${enabled}`);
-        return { success: true };
-    }
-    catch (error) {
-        functions.logger.error("Error updating notification settings:", error);
-        throw new functions.https.HttpsError("internal", "An unexpected error occurred while updating the settings.");
-    }
-});
 exports.sendShiftNotification = functions.region("europe-west2").firestore.document("shifts/{shiftId}")
     .onWrite(async (change, context) => {
-    var _a, _b, _c, _d, _e, _f, _g;
+    var _a, _b, _c, _d, _e;
     const shiftId = context.params.shiftId;
     functions.logger.log(`Function triggered for shiftId: ${shiftId}`);
-    // --- Master Notification Toggle Check ---
-    const settingsRef = db.collection('settings').doc('notifications');
-    const settingsDoc = await settingsRef.get();
-    if (settingsDoc.exists() && ((_a = settingsDoc.data()) === null || _a === void 0 ? void 0 : _a.enabled) === false) {
-        functions.logger.log('Global notifications are disabled by the owner. Aborting.');
-        return;
-    }
     const config = functions.config();
-    const publicKey = (_b = config.webpush) === null || _b === void 0 ? void 0 : _b.public_key;
-    const privateKey = (_c = config.webpush) === null || _c === void 0 ? void 0 : _c.private_key;
+    const publicKey = (_a = config.webpush) === null || _a === void 0 ? void 0 : _a.public_key;
+    const privateKey = (_b = config.webpush) === null || _b === void 0 ? void 0 : _b.private_key;
     if (!publicKey || !privateKey) {
         functions.logger.error("CRITICAL: VAPID keys are not configured. Run the Firebase CLI command from the 'VAPID Key Generator' in the admin panel.");
         return;
@@ -170,10 +107,10 @@ exports.sendShiftNotification = functions.region("europe-west2").firestore.docum
         // --- Robust comparison logic ---
         const changedFields = [];
         // 1. Compare string values, tolerant of whitespace and null/undefined differences.
-        if (((_d = before.task) !== null && _d !== void 0 ? _d : "").trim() !== ((_e = after.task) !== null && _e !== void 0 ? _e : "").trim()) {
+        if (((_c = before.task) !== null && _c !== void 0 ? _c : "").trim() !== ((_d = after.task) !== null && _d !== void 0 ? _d : "").trim()) {
             changedFields.push('task');
         }
-        if (((_f = before.address) !== null && _f !== void 0 ? _f : "").trim() !== ((_g = after.address) !== null && _g !== void 0 ? _g : "").trim()) {
+        if (((_e = before.address) !== null && _e !== void 0 ? _e : "").trim() !== (after.address || "").trim()) {
             changedFields.push('location');
         }
         if ((before.bNumber || "").trim() !== (after.bNumber || "").trim()) {
@@ -243,18 +180,11 @@ exports.projectReviewNotifier = functions
     .region("europe-west2")
     .pubsub.schedule("every 24 hours")
     .onRun(async (context) => {
-    var _a, _b, _c;
+    var _a, _b;
     functions.logger.log("Running daily project review notifier.");
-    // --- Master Notification Toggle Check ---
-    const settingsRef = db.collection('settings').doc('notifications');
-    const settingsDoc = await settingsRef.get();
-    if (settingsDoc.exists() && ((_a = settingsDoc.data()) === null || _a === void 0 ? void 0 : _a.enabled) === false) {
-        functions.logger.log('Global notifications are disabled by the owner. Aborting project review notifier.');
-        return;
-    }
     const config = functions.config();
-    const publicKey = (_b = config.webpush) === null || _b === void 0 ? void 0 : _b.public_key;
-    const privateKey = (_c = config.webpush) === null || _c === void 0 ? void 0 : _c.private_key;
+    const publicKey = (_a = config.webpush) === null || _a === void 0 ? void 0 : _a.public_key;
+    const privateKey = (_b = config.webpush) === null || _b === void 0 ? void 0 : _b.private_key;
     if (!publicKey || !privateKey) {
         functions.logger.error("CRITICAL: VAPID keys are not configured. Cannot send project review notifications.");
         return;
@@ -376,7 +306,7 @@ exports.deleteProjectFile = functions.region("europe-west2").https.onCall(async 
     try {
         const fileRef = db.collection('projects').doc(projectId).collection('files').doc(fileId);
         const fileDoc = await fileRef.get();
-        if (!fileDoc.exists()) {
+        if (!fileDoc.exists) {
             throw new functions.https.HttpsError("not-found", "The specified file does not exist.");
         }
         const fileData = fileDoc.data();

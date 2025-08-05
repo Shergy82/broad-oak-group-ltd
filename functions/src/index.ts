@@ -39,79 +39,10 @@ export const getVapidPublicKey = functions.region("europe-west2").https.onCall((
     return { publicKey };
 });
 
-export const getNotificationStatus = functions.region("europe-west2").https.onCall(async (data, context) => {
-    // 1. Authentication check
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "You must be logged in to perform this action.");
-    }
-
-    // 2. Authorization check
-    const uid = context.auth.uid;
-    const userDoc = await db.collection("users").doc(uid).get();
-    const userProfile = userDoc.data();
-    if (!userProfile || userProfile.role !== 'owner') {
-        throw new functions.https.HttpsError("permission-denied", "Only the account owner can view notification settings.");
-    }
-    
-    // 3. Execution
-    try {
-        const settingsRef = db.collection('settings').doc('notifications');
-        const docSnap = await settingsRef.get();
-        if (docSnap.exists() && docSnap.data()?.enabled === false) {
-            return { enabled: false };
-        }
-        return { enabled: true }; // Default to enabled
-    } catch (error) {
-        functions.logger.error("Error reading notification settings:", error);
-        throw new functions.https.HttpsError("internal", "An unexpected error occurred while reading the settings.");
-    }
-});
-
-
-export const setNotificationStatus = functions.region("europe-west2").https.onCall(async (data, context) => {
-    // 1. Authentication check
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "You must be logged in to perform this action.");
-    }
-
-    // 2. Authorization check
-    const uid = context.auth.uid;
-    const userDoc = await db.collection("users").doc(uid).get();
-    const userProfile = userDoc.data();
-    if (!userProfile || userProfile.role !== 'owner') {
-        throw new functions.https.HttpsError("permission-denied", "Only the account owner can change notification settings.");
-    }
-    
-    // 3. Validation
-    const { enabled } = data;
-    if (typeof enabled !== 'boolean') {
-        throw new functions.https.HttpsError("invalid-argument", "The 'enabled' field must be a boolean value.");
-    }
-    
-    // 4. Execution
-    try {
-        const settingsRef = db.collection('settings').doc('notifications');
-        await settingsRef.set({ enabled: enabled }, { merge: true });
-        functions.logger.log(`Owner ${uid} set global notifications to: ${enabled}`);
-        return { success: true };
-    } catch (error) {
-        functions.logger.error("Error updating notification settings:", error);
-        throw new functions.https.HttpsError("internal", "An unexpected error occurred while updating the settings.");
-    }
-});
-
 export const sendShiftNotification = functions.region("europe-west2").firestore.document("shifts/{shiftId}")
   .onWrite(async (change, context) => {
     const shiftId = context.params.shiftId;
     functions.logger.log(`Function triggered for shiftId: ${shiftId}`);
-
-    // --- Master Notification Toggle Check ---
-    const settingsRef = db.collection('settings').doc('notifications');
-    const settingsDoc = await settingsRef.get();
-    if (settingsDoc.exists() && settingsDoc.data()?.enabled === false) {
-      functions.logger.log('Global notifications are disabled by the owner. Aborting.');
-      return;
-    }
 
     const config = functions.config();
     const publicKey = config.webpush?.public_key;
@@ -248,14 +179,6 @@ export const projectReviewNotifier = functions
   .pubsub.schedule("every 24 hours")
   .onRun(async (context) => {
     functions.logger.log("Running daily project review notifier.");
-
-    // --- Master Notification Toggle Check ---
-    const settingsRef = db.collection('settings').doc('notifications');
-    const settingsDoc = await settingsRef.get();
-    if (settingsDoc.exists() && settingsDoc.data()?.enabled === false) {
-      functions.logger.log('Global notifications are disabled by the owner. Aborting project review notifier.');
-      return;
-    }
 
     const config = functions.config();
     const publicKey = config.webpush?.public_key;
@@ -415,7 +338,7 @@ export const deleteProjectFile = functions.region("europe-west2").https.onCall(a
         const fileRef = db.collection('projects').doc(projectId).collection('files').doc(fileId);
         const fileDoc = await fileRef.get();
 
-        if (!fileDoc.exists()) {
+        if (!fileDoc.exists) {
             throw new functions.https.HttpsError("not-found", "The specified file does not exist.");
         }
 

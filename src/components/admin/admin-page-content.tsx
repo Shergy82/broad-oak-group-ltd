@@ -5,20 +5,16 @@ import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { FileUploader, FailedShift } from '@/components/admin/file-uploader';
 import { ShiftScheduleOverview } from '@/components/admin/shift-schedule-overview';
-import { VapidKeyGenerator } from '@/components/admin/vapid-key-generator';
-import { TestNotificationSender } from '@/components/admin/test-notification-sender';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Download, FileWarning } from 'lucide-react';
 import { format } from 'date-fns';
-import { NotificationToggle } from './notification-toggle';
 
 export default function AdminPageContent() {
   const { userProfile } = useUserProfile();
   const [failedShifts, setFailedShifts] = useState<FailedShift[]>([]);
   const isPrivilegedUser = userProfile && ['admin', 'owner'].includes(userProfile.role);
-  const isOwner = userProfile && userProfile.role === 'owner';
 
   const handleImportComplete = (report: FailedShift[]) => {
     // Sort the report by date as soon as it's received
@@ -156,14 +152,6 @@ export default function AdminPageContent() {
                 </Button>
               </CardFooter>
           </Card>
-      )}
-
-      {isOwner && (
-        <>
-          <VapidKeyGenerator />
-          <NotificationToggle />
-          <TestNotificationSender />
-        </>
       )}
       
       {isPrivilegedUser && userProfile && (
