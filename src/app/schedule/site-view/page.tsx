@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -95,24 +96,19 @@ export default function SiteSchedulePage() {
             return;
         }
 
-        const today = startOfToday();
-        const startOfWeek = addDays(today, -(today.getDay() === 0 ? 6 : today.getDay() -1));
-        const endOfWeek = addDays(startOfWeek, 6);
-
+        // New, more robust query logic. Query only by address.
         const shiftsQuery = query(
             collection(db, 'shifts'), 
-            where('address', '==', selectedProject.address),
-            where('date', '>=', startOfWeek),
-            where('date', '<=', endOfWeek)
+            where('address', '==', selectedProject.address)
         );
 
         const unsubscribe = onSnapshot(shiftsQuery, (snapshot) => {
             const fetchedShifts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift));
-            setShifts(fetchedShifts);
+            setShifts(fetchedShifts); // We will filter by week in the useMemo hook
             setLoading(false);
         }, (err) => {
             console.error("Error fetching shifts:", err);
-            setError("Could not fetch shifts for this project.");
+            setError("Could not fetch shifts for this project. Check permissions and try again.");
             setLoading(false);
         });
 
@@ -122,10 +118,15 @@ export default function SiteSchedulePage() {
     const userNameMap = useMemo(() => new Map(users.map(u => [u.uid, u.name])), [users]);
 
     const weekShifts = useMemo(() => {
+        const today = startOfToday();
+        
+        // Filter the fetched shifts for the current week on the client-side
+        const currentWeekShifts = shifts.filter(s => isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 }));
+
         const grouped: { [key: string]: Shift[] } = {
             'Monday': [], 'Tuesday': [], 'Wednesday': [], 'Thursday': [], 'Friday': [], 'Saturday': [], 'Sunday': [],
         };
-        shifts.forEach(shift => {
+        currentWeekShifts.forEach(shift => {
             const dayName = format(getCorrectedLocalDate(shift.date), 'eeee');
             if (grouped[dayName]) {
                 grouped[dayName].push(shift);
@@ -135,7 +136,7 @@ export default function SiteSchedulePage() {
     }, [shifts]);
 
     const selectedProject = projects.find(p => p.id === selectedProjectId);
-    const hasShifts = shifts.length > 0;
+    const hasShifts = Object.values(weekShifts).some(dayShifts => dayShifts.length > 0);
     
     const weekDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
     const weekendDays = ['Saturday', 'Sunday'];
