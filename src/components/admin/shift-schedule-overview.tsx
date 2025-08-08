@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { RefreshCw, Terminal, MessageSquareText, PlusCircle, Edit, Trash2, Download, History, Trash, Users2 } from 'lucide-react';
+import { RefreshCw, Terminal, MessageSquareText, PlusCircle, Edit, Trash2, Download, History, Trash, Users2, Building } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { ShiftFormDialog } from './shift-form-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useRouter } from 'next/navigation';
 
 
 const getStatusBadge = (shift: Shift) => {
@@ -82,6 +83,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
   const [isDeletingAll, setIsDeletingAll] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string>('all');
   const { toast } = useToast();
+  const router = useRouter();
   
   const isOwner = userProfile.role === 'owner';
 
@@ -571,27 +573,16 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                     <CardDescription>A list of all upcoming shifts for the team, which updates in real-time.</CardDescription>
                 </div>
                 <div className="flex items-center gap-2 shrink-0 flex-wrap justify-start sm:justify-end">
-                     <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-                        <SelectTrigger className="w-full sm:w-[200px]">
-                            <SelectValue placeholder="All Users" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">All Users</SelectItem>
-                            {users.map(user => (
-                                <SelectItem key={user.uid} value={user.uid}>{user.name}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
+                     <Button variant="outline" onClick={() => router.push('/schedule/site-view')}>
+                        <Building className="mr-2 h-4 w-4" />
+                        Site View
+                    </Button>
                     {isOwner && (
                         <Button onClick={handleAddShift} className="w-full sm:w-auto">
                             <PlusCircle className="mr-2 h-4 w-4" />
                             Add Shift
                         </Button>
                     )}
-                    <Button variant="outline" size="sm" onClick={handleDownloadPdf} disabled={loading}>
-                        <Download className="mr-2 h-4 w-4" />
-                        PDF
-                    </Button>
                     <Button variant="outline" size="sm" onClick={() => setRefreshKey(prev => prev + 1)}>
                         <RefreshCw className="mr-2 h-4 w-4" />
                         Refresh
@@ -621,6 +612,25 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                         </AlertDialog>
                     )}
                 </div>
+            </div>
+             <div className="pt-4 flex flex-col sm:flex-row gap-4 items-center">
+                <div className="flex-grow w-full sm:w-auto">
+                     <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+                        <SelectTrigger className="w-full sm:w-[250px]">
+                            <SelectValue placeholder="All Users" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Users</SelectItem>
+                            {users.map(user => (
+                                <SelectItem key={user.uid} value={user.uid}>{user.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+                <Button variant="outline" size="sm" onClick={handleDownloadPdf} disabled={loading} className="w-full sm:w-auto">
+                    <Download className="mr-2 h-4 w-4" />
+                    Download PDF
+                </Button>
             </div>
         </CardHeader>
         <CardContent>
