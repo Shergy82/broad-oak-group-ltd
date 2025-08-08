@@ -2,10 +2,10 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { Project, Shift, UserProfile } from '@/types';
-import { addDays, format, isSameWeek, startOfToday } from 'date-fns';
+import type { Shift, UserProfile } from '@/types';
+import { isSameWeek, format, startOfToday } from 'date-fns';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -44,24 +44,25 @@ const DayCard = ({ day, shifts, userNameMap }: { day: string, shifts: Shift[], u
 
 
 export default function SiteSchedulePage() {
-    const [projects, setProjects] = useState<Project[]>([]);
-    const [shifts, setShifts] = useState<Shift[]>([]);
+    const [allShifts, setAllShifts] = useState<Shift[]>([]);
     const [users, setUsers] = useState<UserProfile[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+    const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
     const router = useRouter();
 
     useEffect(() => {
-        const projectsQuery = query(collection(db, 'projects'));
+        const shiftsQuery = query(collection(db, 'shifts'));
         const usersQuery = query(collection(db, 'users'));
 
-        const unsubProjects = onSnapshot(projectsQuery, (snapshot) => {
-            const fetchedProjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project));
-            setProjects(fetchedProjects.sort((a,b) => a.address.localeCompare(b.address)));
+        const unsubShifts = onSnapshot(shiftsQuery, (snapshot) => {
+            const fetchedShifts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift));
+            setAllShifts(fetchedShifts);
+            setLoading(false);
         }, (err) => {
-            console.error("Error fetching projects:", err);
-            setError("Could not fetch project data.");
+            console.error("Error fetching shifts:", err);
+            setError("Could not fetch shift data.");
+            setLoading(false);
         });
         
         const unsubUsers = onSnapshot(usersQuery, (snapshot) => {
@@ -73,66 +74,45 @@ export default function SiteSchedulePage() {
         });
 
         return () => {
-            unsubProjects();
+            unsubShifts();
             unsubUsers();
         };
     }, []);
 
-    useEffect(() => {
-        if (!selectedProjectId) {
-            setShifts([]);
-            setLoading(false);
-            return;
-        }
-        setLoading(true);
+    const availableAddresses = useMemo(() => {
+        if (loading) return [];
+        const addresses = new Set(allShifts.map(shift => shift.address));
+        return Array.from(addresses).sort((a,b) => a.localeCompare(b));
+    }, [allShifts, loading]);
 
-        const selectedProject = projects.find(p => p.id === selectedProjectId);
-        if (!selectedProject) {
-            setShifts([]);
-            setLoading(false);
-            return;
-        }
-
-        // New, more robust query logic. Query only by address.
-        const shiftsQuery = query(
-            collection(db, 'shifts'), 
-            where('address', '==', selectedProject.address)
-        );
-
-        const unsubscribe = onSnapshot(shiftsQuery, (snapshot) => {
-            const fetchedShifts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift));
-            setShifts(fetchedShifts); // We will filter by week in the useMemo hook
-            setLoading(false);
-        }, (err) => {
-            console.error("Error fetching shifts:", err);
-            setError("Could not fetch shifts for this project. Check permissions and try again.");
-            setLoading(false);
-        });
-
-        return () => unsubscribe();
-    }, [selectedProjectId, projects]);
 
     const userNameMap = useMemo(() => new Map(users.map(u => [u.uid, u.name])), [users]);
 
     const weekShifts = useMemo(() => {
         const today = startOfToday();
         
-        // Filter the fetched shifts for the current week on the client-side
-        const currentWeekShifts = shifts.filter(s => isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 }));
+        if (!selectedAddress) {
+            return {};
+        }
+
+        // Filter the fetched shifts for the selected address and current week
+        const relevantShifts = allShifts.filter(s => 
+            s.address === selectedAddress &&
+            isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 })
+        );
 
         const grouped: { [key: string]: Shift[] } = {
             'Monday': [], 'Tuesday': [], 'Wednesday': [], 'Thursday': [], 'Friday': [], 'Saturday': [], 'Sunday': [],
         };
-        currentWeekShifts.forEach(shift => {
+        relevantShifts.forEach(shift => {
             const dayName = format(getCorrectedLocalDate(shift.date), 'eeee');
             if (grouped[dayName]) {
                 grouped[dayName].push(shift);
             }
         });
         return grouped;
-    }, [shifts]);
+    }, [allShifts, selectedAddress]);
 
-    const selectedProject = projects.find(p => p.id === selectedProjectId);
     const hasShifts = Object.values(weekShifts).some(dayShifts => dayShifts.length > 0);
     
     const weekDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
@@ -162,14 +142,14 @@ export default function SiteSchedulePage() {
                     </Button>
                 </div>
                 <div className="pt-4">
-                    <Select onValueChange={setSelectedProjectId} value={selectedProjectId || ''}>
+                    <Select onValueChange={setSelectedAddress} value={selectedAddress || ''}>
                         <SelectTrigger className="w-full sm:w-[400px]">
                             <SelectValue placeholder="Select a property address..." />
                         </SelectTrigger>
                         <SelectContent>
-                            {projects.map(project => (
-                                <SelectItem key={project.id} value={project.id}>
-                                    {project.address}
+                            {availableAddresses.map(address => (
+                                <SelectItem key={address} value={address}>
+                                    {address}
                                 </SelectItem>
                             ))}
                         </SelectContent>
@@ -177,7 +157,7 @@ export default function SiteSchedulePage() {
                 </div>
             </CardHeader>
             <CardContent>
-                {!selectedProjectId ? (
+                {!selectedAddress ? (
                     <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center h-60">
                         <Building2 className="mx-auto h-12 w-12 text-muted-foreground" />
                         <h3 className="mt-4 text-lg font-semibold">No Property Selected</h3>
@@ -196,7 +176,7 @@ export default function SiteSchedulePage() {
                      <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center h-60">
                         <CalendarDays className="mx-auto h-12 w-12 text-muted-foreground" />
                         <h3 className="mt-4 text-lg font-semibold">No Shifts This Week</h3>
-                        <p className="mt-2 text-sm text-muted-foreground">There is no work scheduled for "{selectedProject?.address}" this week.</p>
+                        <p className="mt-2 text-sm text-muted-foreground">There is no work scheduled for "{selectedAddress}" this week.</p>
                     </div>
                 ) : (
                     <div className="space-y-6">
@@ -205,7 +185,7 @@ export default function SiteSchedulePage() {
                            {weekDays.map(day => <DayCard key={day} day={day} shifts={weekShifts[day]} userNameMap={userNameMap} />)}
                         </div>
 
-                         {(weekShifts['Saturday'].length > 0 || weekShifts['Sunday'].length > 0) && (
+                         {(weekShifts['Saturday']?.length > 0 || weekShifts['Sunday']?.length > 0) && (
                             <>
                                 <h3 className="text-xl font-semibold tracking-tight pt-4">Weekend</h3>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
