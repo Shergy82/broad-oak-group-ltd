@@ -56,9 +56,9 @@ export const acknowledgeAnnouncement = functions.region("europe-west2").https.on
     const batch = db.batch();
 
     try {
-        announcementIds.forEach((id: string) => {
-            if (typeof id !== 'string') return;
-            const announcementRef = db.collection('announcements').doc(id);
+        announcementIds.forEach((announcementId: string) => {
+            if (typeof announcementId !== 'string') return;
+            const announcementRef = db.collection('announcements').doc(announcementId);
             // Use set with merge to safely create or update the viewedBy map
             batch.set(announcementRef, { viewedBy: { [uid]: now } }, { merge: true });
         });
@@ -523,4 +523,5 @@ export const deleteAllProjects = functions.region("europe-west2").https.onCall(a
 });
 
 
+    
     
