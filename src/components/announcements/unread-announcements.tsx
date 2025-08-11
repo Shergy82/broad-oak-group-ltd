@@ -1,9 +1,10 @@
-
 'use client';
 
 import { useState } from 'react';
 import type { User } from 'firebase/auth';
 import { format } from 'date-fns';
+import { doc, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 import type { Announcement } from '@/types';
 import { Button } from '@/components/ui/button';
 import {
@@ -33,11 +34,25 @@ export function UnreadAnnouncements({ announcements, user, onClose }: UnreadAnno
   const handleAcknowledge = async () => {
     setIsLoading(true);
     try {
-      // Use localStorage as a simple, client-side way to acknowledge announcements.
-      // This avoids all backend complexity and permission issues.
+      if (!db) {
+          throw new Error("Firestore is not available.");
+      }
+
+      // 1. Use local storage to immediately hide the dialog
       const acknowledgedIds = announcements.map(a => a.id);
       localStorage.setItem(`acknowledgedAnnouncements_${user.uid}`, JSON.stringify(acknowledgedIds));
       
+      // 2. Write acknowledgement to Firestore for admin viewing
+      const batch = writeBatch(db);
+      announcements.forEach((announcement) => {
+        const ackRef = doc(db, `announcements/${announcement.id}/acknowledgedBy`, user.uid);
+        batch.set(ackRef, { 
+            acknowledgedAt: serverTimestamp(),
+            userName: user.displayName || 'Unknown User'
+        });
+      });
+      await batch.commit();
+
       toast({
         title: 'Announcements Acknowledged',
         description: 'You can now proceed to your dashboard.',
@@ -45,12 +60,15 @@ export function UnreadAnnouncements({ announcements, user, onClose }: UnreadAnno
       
       onClose();
     } catch (error: any) {
-      console.error("Failed to save acknowledgements to localStorage:", error);
+      console.error("Failed to save acknowledgements:", error);
+      // Even if Firestore fails, we proceed because local storage succeeded.
+      // This ensures the user is not blocked.
       toast({
         variant: 'destructive',
-        title: 'Error',
-        description: 'Could not save your acknowledgement. Please try again.',
+        title: 'Error Syncing',
+        description: 'Could not save your acknowledgement to the server, but you can continue.',
       });
+      onClose();
     } finally {
       setIsLoading(false);
     }

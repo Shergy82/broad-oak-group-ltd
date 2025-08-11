@@ -1,10 +1,9 @@
-
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { collection, onSnapshot, query, orderBy, doc, deleteDoc, collectionGroup, getDocs } from 'firebase/firestore';
-import { format, formatDistanceToNow } from 'date-fns';
+import { collection, onSnapshot, query, orderBy, doc, deleteDoc, getDocs } from 'firebase/firestore';
+import { format } from 'date-fns';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserProfile } from '@/hooks/use-user-profile';
@@ -12,7 +11,7 @@ import { Header } from '@/components/layout/header';
 import { Spinner } from '@/components/shared/spinner';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Megaphone, PlusCircle, Trash2, Edit, Eye } from 'lucide-react';
+import { Megaphone, PlusCircle, Trash2, Edit, Eye, Users } from 'lucide-react';
 import { AnnouncementForm } from '@/components/admin/announcement-form';
 import type { Announcement, UserProfile } from '@/types';
 import { useToast } from '@/hooks/use-toast';
@@ -27,13 +26,7 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger
 } from "@/components/ui/alert-dialog"
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion"
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { AcknowledgementViewer } from '@/components/announcements/acknowledgement-viewer';
 
 
 export default function AnnouncementsPage() {
@@ -43,24 +36,13 @@ export default function AnnouncementsPage() {
   const { toast } = useToast();
 
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-  const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isViewerOpen, setIsViewerOpen] = useState(false);
   const [selectedAnnouncement, setSelectedAnnouncement] = useState<Announcement | null>(null);
 
   const isPrivilegedUser = userProfile && ['admin', 'owner'].includes(userProfile.role);
-
-  const userNameMap = useMemo(() => new Map(users.map(u => [u.uid, u.name])), [users]);
-  
-  const getInitials = (name?: string) => {
-    if (!name) return '??';
-    return name
-      .split(' ')
-      .map((n) => n[0])
-      .join('')
-      .toUpperCase();
-  };
 
   useEffect(() => {
     if (!isAuthLoading && !user) {
@@ -85,20 +67,10 @@ export default function AnnouncementsPage() {
       setLoading(false);
     });
 
-    let unsubscribeUsers = () => {};
-
-    if (isPrivilegedUser) {
-        const usersQuery = query(collection(db, 'users'));
-        unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
-            setUsers(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile)));
-        });
-    }
-
     return () => {
         unsubscribeAnnouncements();
-        unsubscribeUsers();
     };
-  }, [toast, isPrivilegedUser]);
+  }, [toast]);
   
   const handleCreate = () => {
     setSelectedAnnouncement(null);
@@ -110,12 +82,24 @@ export default function AnnouncementsPage() {
     setIsFormOpen(true);
   }
 
+  const handleViewAcknowledgements = (announcement: Announcement) => {
+    setSelectedAnnouncement(announcement);
+    setIsViewerOpen(true);
+  }
+
   const handleDelete = async (announcementId: string) => {
     if (!db) return;
     try {
+        const acknowledgementsRef = collection(db, 'announcements', announcementId, 'acknowledgedBy');
+        const acknowledgementsSnap = await getDocs(acknowledgementsRef);
+        const batch = doc(db).firestore.batch();
+        acknowledgementsSnap.forEach(doc => batch.delete(doc.ref));
+        await batch.commit();
+
         await deleteDoc(doc(db, 'announcements', announcementId));
-        toast({ title: 'Success', description: 'Announcement deleted.' });
+        toast({ title: 'Success', description: 'Announcement and all acknowledgements deleted.' });
     } catch (error) {
+        console.error('Error deleting announcement:', error)
         toast({ variant: 'destructive', title: 'Error', description: 'Could not delete announcement.' });
     }
   }
@@ -177,6 +161,10 @@ export default function AnnouncementsPage() {
                           </CardContent>
                           {isPrivilegedUser && (
                             <CardFooter className="flex justify-end gap-2 bg-muted/30 p-3 border-t">
+                                   <Button variant="outline" size="sm" onClick={() => handleViewAcknowledgements(announcement)}>
+                                     <Users className="mr-2 h-4 w-4" />
+                                     Viewed By
+                                   </Button>
                                    <Button variant="outline" size="sm" onClick={() => handleEdit(announcement)}>
                                      <Edit className="mr-2 h-4 w-4" />
                                      Edit
@@ -216,12 +204,19 @@ export default function AnnouncementsPage() {
       </div>
       
       {isPrivilegedUser && userProfile && (
-         <AnnouncementForm
-            currentUser={userProfile}
-            announcement={selectedAnnouncement}
-            open={isFormOpen}
-            onOpenChange={setIsFormOpen}
-          />
+         <>
+            <AnnouncementForm
+                currentUser={userProfile}
+                announcement={selectedAnnouncement}
+                open={isFormOpen}
+                onOpenChange={setIsFormOpen}
+            />
+            <AcknowledgementViewer
+                announcement={selectedAnnouncement}
+                open={isViewerOpen}
+                onOpenChange={setIsViewerOpen}
+            />
+         </>
       )}
     </>
   );

@@ -1,4 +1,3 @@
-
 import type { Timestamp } from 'firebase/firestore';
 
 export type ShiftStatus = 'pending-confirmation' | 'confirmed' | 'completed' | 'incomplete';
@@ -68,5 +67,10 @@ export interface Announcement {
   authorId: string;
   createdAt: Timestamp;
   updatedAt?: Timestamp;
-  viewedBy?: { [key: string]: Timestamp }; // Optional, as it's not being written to anymore
+}
+
+export interface Acknowledgement {
+    id: string; // This will be the user's UID
+    userName: string;
+    acknowledgedAt: Timestamp;
 }
