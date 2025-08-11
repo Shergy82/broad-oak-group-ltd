@@ -39,6 +39,40 @@ export const getVapidPublicKey = functions.region("europe-west2").https.onCall((
     return { publicKey };
 });
 
+export const acknowledgeAnnouncement = functions.region("europe-west2").https.onCall(async (data, context) => {
+    // 1. Authentication check
+    if (!context.auth) {
+        throw new functions.https.HttpsError("unauthenticated", "You must be logged in to perform this action.");
+    }
+    
+    // 2. Validation
+    const { announcementIds } = data;
+    if (!Array.isArray(announcementIds) || announcementIds.length === 0) {
+        throw new functions.https.HttpsError("invalid-argument", "The function must be called with an 'announcementIds' array.");
+    }
+
+    const uid = context.auth.uid;
+    const now = admin.firestore.Timestamp.now();
+    const batch = db.batch();
+
+    try {
+        announcementIds.forEach((id: string) => {
+            if (typeof id !== 'string') return;
+            const announcementRef = db.collection('announcements').doc(id);
+            // Use dot notation to update a specific field within the 'viewedBy' map
+            batch.update(announcementRef, { [`viewedBy.${uid}`]: now });
+        });
+
+        await batch.commit();
+        functions.logger.log(`User ${uid} acknowledged ${announcementIds.length} announcement(s).`);
+        return { success: true };
+    } catch (error) {
+        functions.logger.error(`Error acknowledging announcements for user ${uid}:`, error);
+        throw new functions.https.HttpsError("internal", "An unexpected error occurred while acknowledging the announcements.");
+    }
+});
+
+
 export const sendShiftNotification = functions.region("europe-west2").firestore.document("shifts/{shiftId}")
   .onWrite(async (change, context) => {
     const shiftId = context.params.shiftId;

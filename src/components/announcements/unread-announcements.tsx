@@ -5,8 +5,7 @@ import { useState } from 'react';
 import type { User } from 'firebase/auth';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
-import { writeBatch, doc, Timestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { functions, httpsCallable } from '@/lib/firebase';
 import type { Announcement } from '@/types';
 import { Button } from '@/components/ui/button';
 import {
@@ -16,6 +15,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogClose,
 } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
@@ -31,37 +31,32 @@ interface UnreadAnnouncementsProps {
 export function UnreadAnnouncements({ announcements, user, onClose }: UnreadAnnouncementsProps) {
   const [isOpen, setIsOpen] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
-  const router = useRouter();
   const { toast } = useToast();
 
   const handleAcknowledge = async () => {
-    if (!db) return;
+    if (!functions) {
+        toast({ variant: 'destructive', title: 'Error', description: 'Functions service not available.' });
+        return;
+    }
     setIsLoading(true);
 
     try {
-      const batch = writeBatch(db);
-      const now = Timestamp.now();
-
-      announcements.forEach(announcement => {
-        const announcementRef = doc(db, 'announcements', announcement.id);
-        const newViewEntry = `viewedBy.${user.uid}`;
-        batch.update(announcementRef, { [newViewEntry]: now });
-      });
-
-      await batch.commit();
+      const acknowledgeFn = httpsCallable(functions, 'acknowledgeAnnouncement');
+      const announcementIds = announcements.map(a => a.id);
+      await acknowledgeFn({ announcementIds });
       
       toast({
         title: 'Announcements Acknowledged',
         description: 'You can now proceed to your dashboard.',
       });
       
-      onClose(); // This will now correctly hide the modal
-    } catch (error) {
+      onClose();
+    } catch (error: any) {
       console.error("Failed to mark announcements as viewed:", error);
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Could not save your acknowledgement. Please try again.',
+        description: error.message || 'Could not save your acknowledgement. Please try again.',
       });
     } finally {
       setIsLoading(false);
@@ -71,7 +66,7 @@ export function UnreadAnnouncements({ announcements, user, onClose }: UnreadAnno
   const handleDialogClose = (open: boolean) => {
       if (!open) {
           setIsOpen(false);
-          onClose(); // This ensures the dashboard re-renders correctly
+          onClose();
       }
   }
 
@@ -92,7 +87,7 @@ export function UnreadAnnouncements({ announcements, user, onClose }: UnreadAnno
               <div key={announcement.id} className="p-4 rounded-lg bg-muted/50">
                 <h3 className="font-semibold">{announcement.title}</h3>
                 <p className="text-xs text-muted-foreground mb-2">
-                  Posted by {announcement.authorName} on {format(announcement.createdAt.toDate(), 'PPP')}
+                  Posted by {announcement.authorName} on {announcement.createdAt?.toDate() ? format(announcement.createdAt.toDate(), 'PPP') : '...'}
                 </p>
                 <p className="whitespace-pre-wrap text-sm">{announcement.content}</p>
               </div>
@@ -101,7 +96,12 @@ export function UnreadAnnouncements({ announcements, user, onClose }: UnreadAnno
         </ScrollArea>
 
         <DialogFooter>
-          <Button onClick={handleAcknowledge} disabled={isLoading} className="w-full">
+          <DialogClose asChild>
+            <Button type="button" variant="secondary">
+                Close
+            </Button>
+          </DialogClose>
+          <Button onClick={handleAcknowledge} disabled={isLoading} className="w-full sm:w-auto">
             {isLoading ? <Spinner /> : 
             <>
                 <Check className="mr-2 h-4 w-4" />
@@ -113,10 +113,4 @@ export function UnreadAnnouncements({ announcements, user, onClose }: UnreadAnno
       </DialogContent>
     </Dialog>
   );
-}
-
-declare module '@/components/ui/dialog' {
-    interface DialogContentProps {
-        hideCloseButton?: boolean;
-    }
 }
