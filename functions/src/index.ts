@@ -59,8 +59,8 @@ export const acknowledgeAnnouncement = functions.region("europe-west2").https.on
         announcementIds.forEach((id: string) => {
             if (typeof id !== 'string') return;
             const announcementRef = db.collection('announcements').doc(id);
-            // Use dot notation to update a specific field within the 'viewedBy' map
-            batch.update(announcementRef, { [`viewedBy.${uid}`]: now });
+            // Use set with merge to safely create or update the viewedBy map
+            batch.set(announcementRef, { viewedBy: { [uid]: now } }, { merge: true });
         });
 
         await batch.commit();
