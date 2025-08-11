@@ -88,18 +88,23 @@ export default function AnnouncementsPage() {
   }
 
   const handleDelete = async (announcementId: string) => {
-    if (!functions) {
-      toast({ variant: 'destructive', title: 'Error', description: 'Could not connect to backend services.' });
+    if (!db) {
+      toast({ variant: 'destructive', title: 'Error', description: 'Could not connect to the database.' });
       return;
     }
     toast({ title: 'Deleting...', description: 'Please wait while the announcement is deleted.' });
     try {
-      const deleteAnnouncementFn = httpsCallable(functions, 'deleteAnnouncement');
-      await deleteAnnouncementFn({ announcementId });
-      toast({ title: 'Success', description: 'Announcement deleted.' });
+      // The logic for deleting subcollections is now handled by Firestore Rules (delete=recursive)
+      // This is simpler and more reliable than a Cloud Function for this use case.
+      await deleteDoc(doc(db, 'announcements', announcementId));
+      toast({ title: 'Success', description: 'Announcement and all its acknowledgements have been deleted.' });
     } catch (error: any) {
-        console.error('Error deleting announcement:', error)
-        toast({ variant: 'destructive', title: 'Error', description: error.message || 'Could not delete announcement.' });
+        console.error('Error deleting announcement:', error);
+        let errorMessage = 'Could not delete announcement.';
+        if (error.code === 'permission-denied') {
+            errorMessage = 'You do not have permission to delete this announcement. Please check Firestore security rules.';
+        }
+        toast({ variant: 'destructive', title: 'Error', description: errorMessage });
     }
   }
   

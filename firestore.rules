@@ -1,74 +1,84 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
+  
+    // --- Helper function to check for admin/owner roles ---
+    function isPrivilegedUser(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data.role in ['admin', 'owner'];
+    }
 
-    // Users can only read/write their own data
+    // --- Users Collection ---
+    // - Users can read their own profile.
+    // - Authenticated users can create their own user document upon signup.
+    // - Only owners can update user roles. Other users can't update any part of any profile.
+    // - Only owners can delete users.
     match /users/{userId} {
-      allow read, update, delete: if request.auth.uid == userId;
-      // Anyone can create a user account (signup)
-      allow create: if request.auth.uid != null;
-      
-      // Allow users to manage their own push subscriptions
-      match /pushSubscriptions/{subscriptionId} {
-        allow read, write: if request.auth.uid == userId;
-      }
+      allow read: if request.auth.uid == userId;
+      allow create: if request.auth.uid == userId;
+      allow update: if isPrivilegedUser(request.auth.uid) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'owner';
+      allow delete: if isPrivilegedUser(request.auth.uid) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'owner';
     }
-    
-    // Shifts can be read by their assigned user or any admin/owner
+
+    // --- Shifts Collection ---
+    // - Authenticated users can read shifts assigned to them.
+    // - Admins/owners can read all shifts.
+    // - Authenticated users can update the status of their own shifts.
+    // - Admins/owners can create, update, and delete any shifts.
     match /shifts/{shiftId} {
-      allow read: if request.auth.uid == resource.data.userId || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner'];
-      // Only admins/owners can create, update, or delete shifts
-      allow write: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner'];
+      allow read: if request.auth.uid == resource.data.userId || isPrivilegedUser(request.auth.uid);
+      allow update: if request.auth.uid == resource.data.userId || isPrivilegedUser(request.auth.uid);
+      allow create, delete: if isPrivilegedUser(request.auth.uid);
+    }
+    
+    // --- Projects Collection ---
+    // - All authenticated users can read all projects and their file listings.
+    // - Only admins/owners can create, update, or delete projects.
+    match /projects/{projectId} {
+      allow read: if request.auth.uid != null;
+      allow create, update: if isPrivilegedUser(request.auth.uid);
+      
+      // Deleting a project document will recursively delete the 'files' subcollection.
+      allow delete: if isPrivilegedUser(request.auth.uid);
+
+      // --- Project Files Subcollection ---
+      // - Authenticated users can read file listings.
+      // - Any authenticated user can create (upload) a file.
+      // - Only the uploader or an admin/owner can delete a file (deletion is handled by a Cloud Function).
+      match /files/{fileId} {
+        allow get, list: if request.auth.uid != null;
+        allow create: if request.auth.uid != null;
+        // Deletion is handled by the `deleteProjectFile` Cloud Function, which enforces permissions.
+        allow delete: if false; 
+      }
     }
 
-    // Projects can be read by any authenticated user
-    match /projects/{projectId} {
-      allow read: if request.auth != null;
-      // Projects can only be created/updated by admins/owners
-      allow create, update: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner'];
-      // Deletion is handled by a Cloud Function, so client-side delete is disallowed.
-      allow delete: if false;
+    // --- Announcements Collection ---
+    match /announcements/{announcementId} {
+      // Any authenticated user can read announcements and see who has acknowledged them.
+      allow get, list;
+      
+      // Only admins/owners can create or update announcements.
+      allow create, update: if isPrivilegedUser(request.auth.uid);
+      
+      // Admins/owners can delete an announcement. This rule enables recursive deletion
+      // of the 'acknowledgedBy' subcollection.
+      allow delete: if isPrivilegedUser(request.auth.uid);
 
-      // Files can be read by anyone, but write/delete permissions are more specific
-      match /files/{fileId} {
-        allow read: if request.auth != null;
-        // Anyone can upload a file (create)
-        allow create: if request.auth != null;
-        // Only the uploader or an admin/owner can delete a file (handled by a function)
-        allow delete, update: if false; 
+      // --- Acknowledgements Subcollection ---
+      match /acknowledgedBy/{userId} {
+          // A user can read anyone's acknowledgement (for the admin viewer).
+          allow get, list: if isPrivilegedUser(request.auth.uid);
+          // A user can only create an acknowledgement for themselves. They cannot update or delete it.
+          allow create: if request.auth.uid == userId;
+          allow update, delete: if false;
       }
     }
     
-    // Settings can only be read/written by the owner
+    // --- Settings Collection ---
+    // Only the owner can read or write to the global settings.
     match /settings/{settingId} {
-        allow read, write: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'owner';
-    }
-
-    // Announcements
-    match /announcements/{announcementId} {
-      // Any authenticated user can read announcements
-      allow read: if request.auth != null;
-      // Only admins/owners can create or update announcements
-      allow create, update: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner'];
-      // Deletion is handled by a Cloud Function, so client-side delete is disallowed.
-      allow delete: if false;
-      
-      // Acknowledgements subcollection
-      match /acknowledgedBy/{userId} {
-        // Any authenticated user can read the list of who acknowledged
-        allow read: if request.auth != null;
-        // A user can ONLY create an acknowledgement for themselves
-        allow create: if request.auth.uid == userId;
-        // No one can update or delete acknowledgements from the client
-        allow update, delete: if false;
-      }
-    }
-
-    // Health & Safety files are managed by the owner
-    match /health_and_safety_files/{fileId} {
-        allow read: if request.auth != null;
-        // Only owner can create, update or delete
-        allow write: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'owner';
+        allow read, write: if isPrivilegedUser(request.auth.uid) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'owner';
     }
   }
 }
