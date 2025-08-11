@@ -11,7 +11,7 @@ import { Header } from '@/components/layout/header';
 import { Spinner } from '@/components/shared/spinner';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Megaphone, PlusCircle, Trash2, Edit, Eye, Users } from 'lucide-react';
+import { Megaphone, PlusCircle, Trash2, Edit } from 'lucide-react';
 import { AnnouncementForm } from '@/components/admin/announcement-form';
 import type { Announcement, UserProfile } from '@/types';
 import { useToast } from '@/hooks/use-toast';
@@ -26,8 +26,6 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger
 } from "@/components/ui/alert-dialog"
-import { AcknowledgementViewer } from '@/components/announcements/acknowledgement-viewer';
-
 
 export default function AnnouncementsPage() {
   const { user, isLoading: isAuthLoading } = useAuth();
@@ -39,7 +37,6 @@ export default function AnnouncementsPage() {
   const [loading, setLoading] = useState(true);
   
   const [isFormOpen, setIsFormOpen] = useState(false);
-  const [isViewerOpen, setIsViewerOpen] = useState(false);
   const [selectedAnnouncement, setSelectedAnnouncement] = useState<Announcement | null>(null);
 
   const isPrivilegedUser = userProfile && ['admin', 'owner'].includes(userProfile.role);
@@ -82,11 +79,6 @@ export default function AnnouncementsPage() {
     setIsFormOpen(true);
   }
 
-  const handleViewAcknowledgements = (announcement: Announcement) => {
-    setSelectedAnnouncement(announcement);
-    setIsViewerOpen(true);
-  }
-
   const handleDelete = async (announcementId: string) => {
     if (!db) {
       toast({ variant: 'destructive', title: 'Error', description: 'Could not connect to the database.' });
@@ -94,10 +86,8 @@ export default function AnnouncementsPage() {
     }
     toast({ title: 'Deleting...', description: 'Please wait while the announcement is deleted.' });
     try {
-      // The logic for deleting subcollections is now handled by Firestore Rules (delete=recursive)
-      // This is simpler and more reliable than a Cloud Function for this use case.
       await deleteDoc(doc(db, 'announcements', announcementId));
-      toast({ title: 'Success', description: 'Announcement and all its acknowledgements have been deleted.' });
+      toast({ title: 'Success', description: 'Announcement has been deleted.' });
     } catch (error: any) {
         console.error('Error deleting announcement:', error);
         let errorMessage = 'Could not delete announcement.';
@@ -165,10 +155,6 @@ export default function AnnouncementsPage() {
                           </CardContent>
                           {isPrivilegedUser && (
                             <CardFooter className="flex justify-end gap-2 bg-muted/30 p-3 border-t">
-                                   <Button variant="outline" size="sm" onClick={() => handleViewAcknowledgements(announcement)}>
-                                     <Users className="mr-2 h-4 w-4" />
-                                     Viewed By
-                                   </Button>
                                    <Button variant="outline" size="sm" onClick={() => handleEdit(announcement)}>
                                      <Edit className="mr-2 h-4 w-4" />
                                      Edit
@@ -185,7 +171,7 @@ export default function AnnouncementsPage() {
                                               <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
                                               <AlertDialogDescription>
                                                   This action cannot be undone. This will permanently delete the announcement titled "{announcement.title}".
-                                              </AlertDialogDescription>
+                                              </Description>
                                           </AlertDialogHeader>
                                           <AlertDialogFooter>
                                               <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -214,11 +200,6 @@ export default function AnnouncementsPage() {
                 announcement={selectedAnnouncement}
                 open={isFormOpen}
                 onOpenChange={setIsFormOpen}
-            />
-            <AcknowledgementViewer
-                announcement={selectedAnnouncement}
-                open={isViewerOpen}
-                onOpenChange={setIsViewerOpen}
             />
          </>
       )}
