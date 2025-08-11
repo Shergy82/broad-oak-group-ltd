@@ -9,13 +9,14 @@ import { isSameWeek, format, startOfToday, addDays } from 'date-fns';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { ArrowLeft, Building2, CalendarDays, Search, Terminal } from 'lucide-react';
+import { ArrowLeft, Building2, CalendarDays, Download, Search, Terminal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useRouter } from 'next/navigation';
 import { getCorrectedLocalDate } from '@/lib/utils';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
+import { useToast } from '@/hooks/use-toast';
 
 
 const DayCard = ({ day, shifts, userNameMap }: { day: string, shifts: Shift[], userNameMap: Map<string, string> }) => {
@@ -87,6 +88,7 @@ export default function SiteSchedulePage() {
     const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
     const [addressSearchTerm, setAddressSearchTerm] = useState('');
     const router = useRouter();
+    const { toast } = useToast();
 
     useEffect(() => {
         const shiftsQuery = query(collection(db, 'shifts'));
@@ -186,6 +188,70 @@ export default function SiteSchedulePage() {
         };
     }, [allShifts, selectedAddress]);
 
+    const handleDownloadPdf = async () => {
+        if (!selectedAddress) {
+            toast({
+                variant: 'destructive',
+                title: 'No Property Selected',
+                description: 'Please select a property to generate a PDF schedule.',
+            });
+            return;
+        }
+
+        const { default: jsPDF } = await import('jspdf');
+        const { default: autoTable } = await import('jspdf-autotable');
+
+        const doc = new jsPDF();
+        const generationDate = new Date();
+
+        doc.setFontSize(18);
+        doc.text(`Work Schedule for: ${selectedAddress}`, 14, 22);
+        doc.setFontSize(11);
+        doc.setTextColor(100);
+        doc.text(`Generated on: ${format(generationDate, 'PPP p')}`, 14, 28);
+        
+        let finalY = 35;
+
+        const generateTableForWeek = (title: string, shiftsForPeriod: { [key: string]: Shift[] }) => {
+            const allWeekShifts = Object.values(shiftsForPeriod).flat();
+            if (allWeekShifts.length === 0) return;
+
+            doc.setFontSize(16);
+            doc.text(title, 14, finalY);
+            finalY += 10;
+            
+            allWeekShifts.sort((a,b) => getCorrectedLocalDate(a.date).getTime() - getCorrectedLocalDate(b.date).getTime());
+
+            const head = [['Date', 'Operative', 'Task', 'Type']];
+            const body = allWeekShifts.map(shift => [
+                format(getCorrectedLocalDate(shift.date), 'EEE, dd MMM'),
+                userNameMap.get(shift.userId) || 'Unknown',
+                shift.task,
+                shift.type === 'all-day' ? 'All Day' : shift.type.toUpperCase()
+            ]);
+
+            autoTable(doc, {
+                head,
+                body,
+                startY: finalY,
+                headStyles: { fillColor: [6, 95, 212] },
+                didDrawPage: (data) => {
+                    finalY = data.cursor?.y || 0;
+                }
+            });
+            finalY = (doc as any).lastAutoTable.finalY + 15;
+        }
+        
+        generateTableForWeek('This Week', thisWeekShifts);
+        generateTableForWeek('Next Week', nextWeekShifts);
+
+        if (Object.values(thisWeekShifts).flat().length === 0 && Object.values(nextWeekShifts).flat().length === 0) {
+            doc.text("No shifts scheduled for this property for this week or next.", 14, finalY);
+        }
+
+        doc.save(`schedule_${selectedAddress.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
+    };
+
     if (error) {
         return (
             <Alert variant="destructive">
@@ -209,8 +275,8 @@ export default function SiteSchedulePage() {
                         Back to Team View
                     </Button>
                 </div>
-                <div className="pt-4 space-y-4">
-                     <div className="relative">
+                <div className="pt-4 flex flex-col sm:flex-row gap-4">
+                     <div className="relative flex-grow">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input 
                             placeholder="Search addresses..."
@@ -219,6 +285,12 @@ export default function SiteSchedulePage() {
                             className="w-full sm:w-[400px] pl-10"
                         />
                     </div>
+                    <Button variant="outline" onClick={handleDownloadPdf} disabled={!selectedAddress || loading}>
+                        <Download className="mr-2 h-4 w-4" />
+                        Download PDF
+                    </Button>
+                </div>
+                 <div className="pt-2">
                     <Select onValueChange={setSelectedAddress} value={selectedAddress || ''}>
                         <SelectTrigger className="w-full sm:w-[400px]">
                             <SelectValue placeholder="Select a property address..." />
@@ -273,5 +345,7 @@ export default function SiteSchedulePage() {
         </Card>
     );
 }
+
+    
 
     
