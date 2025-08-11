@@ -542,3 +542,5 @@ exports.deleteAnnouncement = functions.region("europe-west2").https.onCall(async
     }
 });
 //# sourceMappingURL=index.js.map
+
+    

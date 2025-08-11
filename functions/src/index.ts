@@ -415,7 +415,7 @@ export const deleteProjectFile = functions.region("europe-west2").https.onCall(a
         const fileRef = db.collection('projects').doc(projectId).collection('files').doc(fileId);
         const fileDoc = await fileRef.get();
 
-        if (!fileDoc.exists()) {
+        if (!fileDoc.exists) {
             throw new functions.https.HttpsError("not-found", "The specified file does not exist.");
         }
 
@@ -614,3 +614,5 @@ export const deleteAnnouncement = functions.region("europe-west2").https.onCall(
     throw new functions.https.HttpsError("internal", "An unexpected error occurred while deleting the announcement.");
   }
 });
+
+    
