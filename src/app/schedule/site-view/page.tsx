@@ -203,21 +203,30 @@ export default function SiteSchedulePage() {
 
         const doc = new jsPDF();
         const generationDate = new Date();
+        const pageContentMargin = 14;
+        const pageWidth = doc.internal.pageSize.width;
+        const maxTextWidth = pageWidth - (pageContentMargin * 2);
+
+        const titleText = `Work Schedule for: ${selectedAddress}`;
+        const titleLines = doc.splitTextToSize(titleText, maxTextWidth);
 
         doc.setFontSize(18);
-        doc.text(`Work Schedule for: ${selectedAddress}`, 14, 22);
+        doc.text(titleLines, pageContentMargin, 22);
+        
+        const titleHeight = doc.getTextDimensions(titleLines).h;
+        let finalY = 22 + titleHeight; // Start next element below the title
+
         doc.setFontSize(11);
         doc.setTextColor(100);
-        doc.text(`Generated on: ${format(generationDate, 'PPP p')}`, 14, 28);
+        doc.text(`Generated on: ${format(generationDate, 'PPP p')}`, pageContentMargin, finalY);
+        finalY += 10;
         
-        let finalY = 35;
-
         const generateTableForWeek = (title: string, shiftsForPeriod: { [key: string]: Shift[] }) => {
             const allWeekShifts = Object.values(shiftsForPeriod).flat();
             if (allWeekShifts.length === 0) return;
 
             doc.setFontSize(16);
-            doc.text(title, 14, finalY);
+            doc.text(title, pageContentMargin, finalY);
             finalY += 10;
             
             allWeekShifts.sort((a,b) => getCorrectedLocalDate(a.date).getTime() - getCorrectedLocalDate(b.date).getTime());
@@ -345,7 +354,3 @@ export default function SiteSchedulePage() {
         </Card>
     );
 }
-
-    
-
-    
