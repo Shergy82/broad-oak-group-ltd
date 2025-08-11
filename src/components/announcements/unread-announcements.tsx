@@ -11,6 +11,7 @@ import type { Announcement } from '@/types';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -70,11 +71,16 @@ export function UnreadAnnouncements({ announcements, user }: UnreadAnnouncements
       setIsLoading(false);
     }
   };
+  
+  const handleClose = () => {
+      setIsOpen(false);
+      router.replace('/dashboard');
+  }
 
   return (
     // The Dialog is used here as a modal that overlays the entire screen
-    <Dialog open={isOpen} onOpenChange={() => {}}>
-      <DialogContent className="max-w-2xl" onInteractOutside={(e) => e.preventDefault()} hideCloseButton={true}>
+    <Dialog open={isOpen} onOpenChange={handleClose}>
+      <DialogContent className="max-w-2xl" onInteractOutside={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle>New Announcements</DialogTitle>
           <DialogDescription>
