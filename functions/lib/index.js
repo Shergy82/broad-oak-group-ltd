@@ -1,4 +1,3 @@
-
 "use strict";
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -30,9 +29,6 @@ const admin = __importStar(require("firebase-admin"));
 const webPush = __importStar(require("web-push"));
 admin.initializeApp();
 const db = admin.firestore();
-// Define a converter for the PushSubscription type.
-// This is the modern, correct way to handle typed data with Firestore.
-// It ensures that when we fetch data, it's already in the correct shape.
 const pushSubscriptionConverter = {
     toFirestore(subscription) {
         return { endpoint: subscription.endpoint, keys: subscription.keys };
@@ -51,7 +47,6 @@ const pushSubscriptionConverter = {
         };
     }
 };
-// This is the v1 SDK syntax for onCall functions
 exports.getVapidPublicKey = functions.region("europe-west2").https.onCall((data, context) => {
     var _a;
     const publicKey = (_a = functions.config().webpush) === null || _a === void 0 ? void 0 : _a.public_key;
@@ -67,15 +62,16 @@ exports.acknowledgeAnnouncement = functions.region("europe-west2").https.onCall(
         throw new functions.https.HttpsError("unauthenticated", "You must be logged in to perform this action.");
     }
     // 2. Validation
-    const { announcementIds } = data;
+    // The data passed from a v1 callable function is the payload directly.
+    const announcementIds = data;
     if (!Array.isArray(announcementIds) || announcementIds.length === 0) {
-        throw new functions.https.HttpsError("invalid-argument", "The function must be called with an 'announcementIds' array.");
+        throw new functions.https.HttpsError("invalid-argument", `The function must be called with an array of announcement IDs. Received: ${JSON.stringify(announcementIds)}`);
     }
     const uid = context.auth.uid;
     const now = admin.firestore.Timestamp.now();
     const batch = db.batch();
     try {
-        announcementIds.forEach((announcementId) => {
+        announcementIds.forEach(announcementId => {
             if (typeof announcementId !== 'string' || announcementId.length === 0) {
                 functions.logger.warn("Skipping invalid announcementId:", announcementId);
                 return;
@@ -464,5 +460,3 @@ exports.deleteAllProjects = functions.region("europe-west2").https.onCall(async 
     }
 });
 //# sourceMappingURL=index.js.map
-
-    

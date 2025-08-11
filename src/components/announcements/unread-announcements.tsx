@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -43,7 +42,9 @@ export function UnreadAnnouncements({ announcements, user, onClose }: UnreadAnno
     try {
       const acknowledgeFn = httpsCallable(functions, 'acknowledgeAnnouncement');
       const announcementIds = announcements.map(a => a.id);
-      await acknowledgeFn({ announcementIds });
+      // This is the corrected call. The payload should be the array directly,
+      // not an object containing the array.
+      await acknowledgeFn(announcementIds);
       
       toast({
         title: 'Announcements Acknowledged',

@@ -1,4 +1,3 @@
-
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import * as webPush from "web-push";
@@ -6,9 +5,6 @@ import * as webPush from "web-push";
 admin.initializeApp();
 const db = admin.firestore();
 
-// Define a converter for the PushSubscription type.
-// This is the modern, correct way to handle typed data with Firestore.
-// It ensures that when we fetch data, it's already in the correct shape.
 const pushSubscriptionConverter = {
     toFirestore(subscription: webPush.PushSubscription): admin.firestore.DocumentData {
         return { endpoint: subscription.endpoint, keys: subscription.keys };
@@ -28,8 +24,6 @@ const pushSubscriptionConverter = {
     }
 };
 
-
-// This is the v1 SDK syntax for onCall functions
 export const getVapidPublicKey = functions.region("europe-west2").https.onCall((data, context) => {
     const publicKey = functions.config().webpush?.public_key;
     if (!publicKey) {
@@ -46,9 +40,10 @@ export const acknowledgeAnnouncement = functions.region("europe-west2").https.on
     }
     
     // 2. Validation
-    const { announcementIds } = data;
+    // The data passed from a v1 callable function is the payload directly.
+    const announcementIds = data;
     if (!Array.isArray(announcementIds) || announcementIds.length === 0) {
-        throw new functions.https.HttpsError("invalid-argument", "The function must be called with an 'announcementIds' array.");
+        throw new functions.https.HttpsError("invalid-argument", `The function must be called with an array of announcement IDs. Received: ${JSON.stringify(announcementIds)}`);
     }
 
     const uid = context.auth.uid;
@@ -56,7 +51,7 @@ export const acknowledgeAnnouncement = functions.region("europe-west2").https.on
     const batch = db.batch();
 
     try {
-        announcementIds.forEach((announcementId: any) => {
+        announcementIds.forEach(announcementId => {
             if (typeof announcementId !== 'string' || announcementId.length === 0) {
                  functions.logger.warn("Skipping invalid announcementId:", announcementId);
                  return;
@@ -525,10 +520,3 @@ export const deleteAllProjects = functions.region("europe-west2").https.onCall(a
         throw new functions.https.HttpsError("internal", "An error occurred while deleting all projects. Please check the function logs.");
     }
 });
-
-
-    
-    
-    
-
-    
