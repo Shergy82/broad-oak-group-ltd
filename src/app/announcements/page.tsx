@@ -1,8 +1,9 @@
+
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { collection, onSnapshot, query, orderBy, doc, deleteDoc, updateDoc, arrayUnion, writeBatch, Timestamp } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, doc, deleteDoc } from 'firebase/firestore';
 import { format, formatDistanceToNow } from 'date-fns';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/use-auth';
@@ -98,28 +99,6 @@ export default function AnnouncementsPage() {
         unsubscribeUsers();
     };
   }, [toast, isPrivilegedUser]);
-
-  useEffect(() => {
-    if (user && userProfile && !isPrivilegedUser && announcements.length > 0) {
-      const batch = writeBatch(db);
-      const announcementsToUpdate = announcements.filter(announcement => {
-        // Ensure viewedBy exists and check if the user's ID is in the keys.
-        return !announcement.viewedBy || !Object.keys(announcement.viewedBy).includes(user.uid);
-      });
-
-      if (announcementsToUpdate.length > 0) {
-        announcementsToUpdate.forEach(announcement => {
-          const announcementRef = doc(db, 'announcements', announcement.id);
-          const newViewEntry = `viewedBy.${user.uid}`;
-          batch.update(announcementRef, { [newViewEntry]: Timestamp.now() });
-        });
-
-        batch.commit().catch(err => {
-          console.error("Failed to mark announcements as viewed:", err);
-        });
-      }
-    }
-  }, [announcements, user, userProfile, isPrivilegedUser]);
   
   const handleCreate = () => {
     setSelectedAnnouncement(null);
