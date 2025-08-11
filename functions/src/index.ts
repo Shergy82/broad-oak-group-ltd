@@ -575,9 +575,9 @@ export const deleteAnnouncement = functions.region("europe-west2").https.onCall(
   const userDoc = await db.collection("users").doc(uid).get();
   const userProfile = userDoc.data();
 
-  // 2. Authorization check - ROBUST CHECK
+  // 2. Authorization check - ROBUST and SAFE check
   const userRole = userProfile?.role;
-  if (!userRole || !['admin', 'owner'].includes(userRole)) {
+  if (userRole !== 'admin' && userRole !== 'owner') {
     functions.logger.warn(`User ${uid} with role '${userRole}' attempted to delete an announcement without permission.`);
     throw new functions.https.HttpsError("permission-denied", "You do not have permission to perform this action.");
   }
@@ -616,5 +616,3 @@ export const deleteAnnouncement = functions.region("europe-west2").https.onCall(
     throw new functions.https.HttpsError("internal", "An unexpected error occurred while deleting the announcement.");
   }
 });
-
-    
