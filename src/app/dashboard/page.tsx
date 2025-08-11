@@ -52,14 +52,12 @@ export default function DashboardPage() {
     if (!user || loadingAnnouncements) {
       return [];
     }
-    // Filter out announcements created by admins/owners, and announcements the user has already viewed.
-    if (userProfile && ['admin', 'owner'].includes(userProfile.role)) {
-      return [];
-    }
+    // Filter announcements the current user has not yet viewed.
+    // This now applies to all users, including admins/owners.
     return announcements.filter(announcement => {
       return !announcement.viewedBy || !Object.keys(announcement.viewedBy).includes(user.uid);
     });
-  }, [announcements, user, userProfile, loadingAnnouncements]);
+  }, [announcements, user, loadingAnnouncements]);
   
   const isLoading = isAuthLoading || isProfileLoading || loadingAnnouncements;
 
