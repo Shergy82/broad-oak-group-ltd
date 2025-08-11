@@ -97,7 +97,7 @@ export function UnreadAnnouncements({ announcements, user, onClose }: UnreadAnno
 
         <DialogFooter>
           <DialogClose asChild>
-            <Button type="button" variant="secondary">
+            <Button type="button" variant="secondary" onClick={onClose}>
                 Close
             </Button>
           </DialogClose>
