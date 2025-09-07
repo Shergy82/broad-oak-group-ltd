@@ -30,6 +30,7 @@ import {
 import { ShiftFormDialog } from './shift-form-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useRouter } from 'next/navigation';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
 
 
 const getStatusBadge = (shift: Shift) => {
@@ -193,7 +194,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     }
   };
 
-  const handleDownloadPdf = async () => {
+  const handleDownloadPdf = async (period: 'this' | 'next' | 'both') => {
     const { default: jsPDF } = await import('jspdf');
     const { default: autoTable } = await import('jspdf-autotable');
 
@@ -303,23 +304,27 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                     finalY = data.cursor?.y || 0;
                 },
                 didParseCell: (data) => {
-                    const rowData = body[data.row.index];
-                    if (data.section === 'body' && data.column.dataKey === 2 && rowData?.notes) {
-                        data.cell.text = [rowData.task, rowData.notes];
+                    if (data.row.index >= 0) { // Check if it's a body row
+                        const rowData = body[data.row.index];
+                        if (data.section === 'body' && data.column.dataKey === 2 && rowData?.notes) {
+                            data.cell.text = [rowData.task, rowData.notes];
+                        }
                     }
                 },
                 willDrawCell: (data) => {
-                    const rowData = body[data.row.index];
-                    if (data.section === 'body' && data.column.dataKey === 2 && rowData?.notes) {
-                        const textLines = doc.splitTextToSize(rowData.task, data.cell.contentWidth);
-                        const textHeight = textLines.length * (doc.getLineHeight() / doc.internal.scaleFactor);
-                        const noteStartY = data.cell.y + textHeight + 1;
-                        
-                        const noteLines = doc.splitTextToSize(rowData.notes, data.cell.contentWidth);
-                        const noteHeight = noteLines.length * (doc.getLineHeight() / doc.internal.scaleFactor);
+                    if (data.row.index >= 0) { // Check if it's a body row
+                        const rowData = body[data.row.index];
+                        if (data.section === 'body' && data.column.dataKey === 2 && rowData?.notes) {
+                            const textLines = doc.splitTextToSize(rowData.task, data.cell.contentWidth);
+                            const textHeight = textLines.length * (doc.getLineHeight() / doc.internal.scaleFactor);
+                            const noteStartY = data.cell.y + textHeight + 1;
+                            
+                            const noteLines = doc.splitTextToSize(rowData.notes, data.cell.contentWidth);
+                            const noteHeight = noteLines.length * (doc.getLineHeight() / doc.internal.scaleFactor);
 
-                        doc.setFillColor(255, 252, 204);
-                        doc.rect( data.cell.x, noteStartY - (doc.getLineHeight() / doc.internal.scaleFactor) * 0.75, data.cell.width, noteHeight + 2, 'F');
+                            doc.setFillColor(255, 252, 204);
+                            doc.rect( data.cell.x, noteStartY - (doc.getLineHeight() / doc.internal.scaleFactor) * 0.75, data.cell.width, noteHeight + 2, 'F');
+                        }
                     }
                 },
             });
@@ -327,8 +332,12 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
         }
     };
 
-    generateTablesForPeriod("This Week's Shifts", allThisWeekShifts);
-    generateTablesForPeriod("Next Week's Shifts", allNextWeekShifts);
+    if (period === 'this' || period === 'both') {
+        generateTablesForPeriod("This Week's Shifts", allThisWeekShifts);
+    }
+    if (period === 'next' || period === 'both') {
+        generateTablesForPeriod("Next Week's Shifts", allNextWeekShifts);
+    }
 
     if (allThisWeekShifts.filter(s => selectedUserId === 'all' || s.userId === selectedUserId).length === 0 && 
         allNextWeekShifts.filter(s => selectedUserId === 'all' || s.userId === selectedUserId).length === 0) {
@@ -631,10 +640,19 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                         </SelectContent>
                     </Select>
                 </div>
-                <Button variant="outline" size="sm" onClick={handleDownloadPdf} disabled={loading} className="w-full sm:w-auto">
-                    <Download className="mr-2 h-4 w-4" />
-                    Download PDF
-                </Button>
+                 <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="sm" disabled={loading} className="w-full sm:w-auto">
+                            <Download className="mr-2 h-4 w-4" />
+                            Download PDF
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                        <DropdownMenuItem onClick={() => handleDownloadPdf('this')}>This Week</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleDownloadPdf('next')}>Next Week</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleDownloadPdf('both')}>Both Weeks</DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
             </div>
         </CardHeader>
         <CardContent>
