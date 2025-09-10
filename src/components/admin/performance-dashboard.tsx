@@ -8,7 +8,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { BarChart, Users } from 'lucide-react';
+import { BarChart, Download, Users } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { format } from 'date-fns';
 
 interface PerformanceMetrics {
   userId: string;
@@ -84,7 +86,7 @@ export function PerformanceDashboard() {
   const performanceData = useMemo((): PerformanceMetrics[] => {
     if (loading || error) return [];
 
-    return users.map(user => {
+    const metrics = users.map(user => {
       const userShifts = shifts.filter(s => s.userId === user.uid);
       const totalShifts = userShifts.length;
       
@@ -129,15 +131,72 @@ export function PerformanceDashboard() {
       };
     });
 
+    // Sort from best to worst
+    return metrics.sort((a, b) => {
+        if (a.completionRate !== b.completionRate) {
+            return b.completionRate - a.completionRate; // Higher completion rate is better
+        }
+        if (a.incompleteRate !== b.incompleteRate) {
+            return a.incompleteRate - b.incompleteRate; // Lower incomplete rate is better
+        }
+        return b.totalShifts - a.totalShifts; // More shifts is a good tie-breaker
+    });
+
   }, [users, shifts, loading, error]);
+
+  const handleDownloadPdf = async () => {
+    const { default: jsPDF } = await import('jspdf');
+    const { default: autoTable } = await import('jspdf-autotable');
+
+    const doc = new jsPDF();
+    const generationDate = new Date();
+
+    doc.setFontSize(18);
+    doc.text(`Operative Performance Report`, 14, 22);
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+    doc.text(`Generated on: ${format(generationDate, 'PPP p')}`, 14, 28);
+    
+    const head = [['Operative', 'Total Shifts', 'Completion %', 'Incomplete %', 'Avg. Acceptance']];
+    const body = performanceData.map(data => [
+        data.userName,
+        data.totalShifts.toString(),
+        `${data.completionRate.toFixed(1)}%`,
+        `${data.incompleteRate.toFixed(1)}%`,
+        data.avgAcceptanceTime,
+    ]);
+
+    autoTable(doc, {
+        head,
+        body,
+        startY: 35,
+        headStyles: { fillColor: [6, 95, 212] },
+        styles: {
+            halign: 'center'
+        },
+        columnStyles: {
+            0: { halign: 'left' }
+        }
+    });
+    
+    doc.save(`operative_performance_${format(generationDate, 'yyyy-MM-dd')}.pdf`);
+  };
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Operative Performance</CardTitle>
-        <CardDescription>
-          This dashboard provides key performance indicators for each operative based on their entire shift history.
-        </CardDescription>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+                <CardTitle>Operative Performance</CardTitle>
+                <CardDescription>
+                  This dashboard provides key performance indicators for each operative, sorted from best to worst.
+                </CardDescription>
+            </div>
+            <Button onClick={handleDownloadPdf} variant="outline" size="sm" disabled={loading || performanceData.length === 0}>
+                <Download className="mr-2" />
+                Download PDF
+            </Button>
+        </div>
       </CardHeader>
       <CardContent>
         {error && (
