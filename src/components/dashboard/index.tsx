@@ -14,6 +14,7 @@ import type { Shift } from '@/types';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Clock, Download, RefreshCw, Sunrise, Sunset, Terminal, History } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useToast } from '@/hooks/use-toast';
 
 const getCorrectedLocalDate = (date: { toDate: () => Date }) => {
     const d = date.toDate();
@@ -23,10 +24,21 @@ const getCorrectedLocalDate = (date: { toDate: () => Date }) => {
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [dismissedShiftIds, setDismissedShiftIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (user) {
+        const storedDismissedIds = localStorage.getItem(`dismissedShifts_${user.uid}`);
+        if (storedDismissedIds) {
+            setDismissedShiftIds(JSON.parse(storedDismissedIds));
+        }
+    }
+  }, [user]);
 
   useEffect(() => {
     if (!isFirebaseConfigured || !db || !user) {
@@ -72,6 +84,17 @@ export default function Dashboard() {
     return () => unsubscribe();
   }, [user, refreshKey]);
 
+  const handleDismissShift = (shiftId: string) => {
+      if (!user) return;
+      const newDismissedIds = [...dismissedShiftIds, shiftId];
+      setDismissedShiftIds(newDismissedIds);
+      localStorage.setItem(`dismissedShifts_${user.uid}`, JSON.stringify(newDismissedIds));
+      toast({
+        title: 'Shift Hidden',
+        description: 'The shift has been dismissed from your view.',
+      });
+  };
+
   const { 
     todayAmShifts,
     todayPmShifts,
@@ -86,11 +109,14 @@ export default function Dashboard() {
     today.setHours(0, 0, 0, 0);
     const fourWeeksAgo = subDays(today, 28);
 
+    // Filter out locally dismissed shifts first
+    const visibleShifts = shifts.filter(s => !dismissedShiftIds.includes(s.id));
+
     // 1. Separate shifts into active and historical
-    const activeShifts = shifts.filter(s => s.status !== 'completed' && s.status !== 'incomplete');
+    const activeShifts = visibleShifts.filter(s => s.status !== 'completed' && s.status !== 'incomplete');
     
     // Filter historical shifts to be within the last 4 weeks
-    const historicalShifts = shifts.filter(s => {
+    const historicalShifts = visibleShifts.filter(s => {
         const isHistorical = s.status === 'completed' || s.status === 'incomplete';
         if (!isHistorical) return false;
         const shiftDate = getCorrectedLocalDate(s.date);
@@ -144,7 +170,7 @@ export default function Dashboard() {
       allThisWeekShifts: allThisWeekShiftsData,
       allNextWeekShifts: allNextWeekShiftsData,
     };
-  }, [shifts]);
+  }, [shifts, dismissedShiftIds]);
 
   const handleDownloadPdf = async () => {
     const { default: jsPDF } = await import('jspdf');
@@ -382,7 +408,7 @@ export default function Dashboard() {
             </h3>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {historicalShifts.map(shift => (
-                    <ShiftCard key={shift.id} shift={shift} />
+                    <ShiftCard key={shift.id} shift={shift} onDismiss={handleDismissShift} />
                 ))}
             </div>
         </div>
@@ -390,5 +416,3 @@ export default function Dashboard() {
     </div>
   );
 }
-
-    

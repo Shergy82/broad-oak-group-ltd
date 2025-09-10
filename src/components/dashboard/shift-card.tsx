@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -10,7 +9,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/componen
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Clock, Sunrise, Sunset, ThumbsUp, CheckCircle2, XCircle, AlertTriangle, RotateCcw } from 'lucide-react';
+import { Clock, Sunrise, Sunset, ThumbsUp, CheckCircle2, XCircle, AlertTriangle, RotateCcw, Trash2 } from 'lucide-react';
 import { Spinner } from '@/components/shared/spinner';
 import type { Shift, ShiftStatus } from '@/types';
 import { useAuth } from '@/hooks/use-auth';
@@ -24,9 +23,11 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '../ui/alert-dialog';
 
 interface ShiftCardProps {
   shift: Shift;
+  onDismiss?: (shiftId: string) => void;
 }
 
 const shiftTypeDetails = {
@@ -42,7 +43,7 @@ const statusDetails: { [key in ShiftStatus]: { label: string; variant: 'default'
   incomplete: { label: 'Incomplete', variant: 'destructive', className: 'bg-amber-600 hover:bg-amber-700 text-white border-amber-600', icon: XCircle },
 };
 
-export function ShiftCard({ shift }: ShiftCardProps) {
+export function ShiftCard({ shift, onDismiss }: ShiftCardProps) {
   const router = useRouter();
   const { user } = useAuth();
   const { toast } = useToast();
@@ -56,6 +57,8 @@ export function ShiftCard({ shift }: ShiftCardProps) {
   const ShiftIcon = shiftTypeDetails[shift.type].icon;
   const statusInfo = statusDetails[shift.status];
   const StatusIcon = statusInfo.icon;
+  
+  const isHistorical = shift.status === 'completed' || shift.status === 'incomplete';
 
   const handleUpdateStatus = async (newStatus: ShiftStatus, notes?: string) => {
     if (!isFirebaseConfigured || !db || !user) {
@@ -155,10 +158,33 @@ export function ShiftCard({ shift }: ShiftCardProps) {
                 </Button>
             </div>
           )}
-          {(shift.status === 'completed' || shift.status === 'incomplete') && (
-            <Button variant="outline" onClick={() => handleUpdateStatus('confirmed')} className="w-full" disabled={isLoading}>
-               {isLoading ? <Spinner /> : <><RotateCcw className="mr-2 h-4 w-4" /> Re-open Shift</>}
-            </Button>
+          {isHistorical && (
+            <div className="grid grid-cols-2 gap-2">
+                 <Button variant="outline" onClick={() => handleUpdateStatus('confirmed')} className="w-full" disabled={isLoading}>
+                   {isLoading ? <Spinner /> : <><RotateCcw className="mr-2 h-4 w-4" /> Re-open</>}
+                </Button>
+                {onDismiss && (
+                   <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                           <Button variant="destructive" className="w-full" disabled={isLoading}>
+                                <Trash2 className="mr-2 h-4 w-4" /> Dismiss
+                            </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Dismiss Shift?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    This will hide the shift from your view. It will not be deleted. Are you sure?
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => onDismiss(shift.id)}>Dismiss</AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
+                )}
+            </div>
           )}
         </CardFooter>
       </Card>
