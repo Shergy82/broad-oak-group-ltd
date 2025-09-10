@@ -306,10 +306,10 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                 },
                 didParseCell: (data) => {
                     if (data.row.index >= 0 && data.section === 'body' && data.column.dataKey === 2) {
-                         const rowData = body[data.row.index];
-                         if (rowData?.notes) {
+                        const rowData = body[data.row.index];
+                        if (rowData?.notes) {
                             data.cell.text = [rowData.task, rowData.notes];
-                         }
+                        }
                     }
                 },
                 willDrawCell: (data) => {
@@ -430,11 +430,23 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     const truncateText = (text: string, maxLength: number) => {
         return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
     };
+    
+    // Sort shifts by status for the report
+    const statusOrder = {
+        'completed': 1,
+        'incomplete': 2,
+        'confirmed': 3,
+        'pending-confirmation': 4,
+    };
+    const sortedShifts = [...todaysShifts].sort((a, b) => {
+        return statusOrder[a.status] - statusOrder[b.status];
+    });
+
 
     autoTable(doc, {
         startY: lastY + 19,
         head: [['Operative', 'Task', 'Address', 'Type', 'Status']],
-        body: todaysShifts.map(shift => [
+        body: sortedShifts.map(shift => [
             userNameMap.get(shift.userId) || 'Unknown',
             truncateText(shift.task, 40),
             truncateText(shift.address, 35),
