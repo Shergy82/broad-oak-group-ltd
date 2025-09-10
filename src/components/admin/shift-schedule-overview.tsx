@@ -305,17 +305,17 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                     finalY = data.cursor?.y || 0;
                 },
                 didParseCell: (data) => {
-                    if (data.row.index >= 0) { // Check if it's a body row
-                        const rowData = body[data.row.index];
-                        if (rowData && data.section === 'body' && data.column.dataKey === 2 && rowData?.notes) {
+                    if (data.row.index >= 0 && data.section === 'body' && data.column.dataKey === 2) {
+                         const rowData = body[data.row.index];
+                         if (rowData?.notes) {
                             data.cell.text = [rowData.task, rowData.notes];
-                        }
+                         }
                     }
                 },
                 willDrawCell: (data) => {
-                    if (data.row.index >= 0) { // Check if it's a body row
+                    if (data.row.index >= 0 && data.section === 'body' && data.column.dataKey === 2) {
                         const rowData = body[data.row.index];
-                        if (rowData && data.section === 'body' && data.column.dataKey === 2 && rowData?.notes) {
+                        if (rowData?.notes) {
                             const textLines = doc.splitTextToSize(rowData.task, data.cell.contentWidth);
                             const textHeight = textLines.length * (doc.getLineHeight() / doc.internal.scaleFactor);
                             const noteStartY = data.cell.y + textHeight + 1;
@@ -427,17 +427,29 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
 
     doc.text('All Shifts for Today:', 14, lastY + 15);
 
+    const truncateText = (text: string, maxLength: number) => {
+        return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+    };
+
     autoTable(doc, {
         startY: lastY + 19,
         head: [['Operative', 'Task', 'Address', 'Type', 'Status']],
         body: todaysShifts.map(shift => [
             userNameMap.get(shift.userId) || 'Unknown',
-            shift.task,
-            shift.address,
+            truncateText(shift.task, 40),
+            truncateText(shift.address, 35),
             shift.type === 'all-day' ? 'All Day' : shift.type.toUpperCase(),
             shift.status.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
         ]),
         headStyles: { fillColor: [6, 95, 212] },
+        styles: {
+            cellPadding: 2,
+            fontSize: 8,
+            valign: 'middle',
+            overflow: 'linebreak'
+        },
+        rowPageBreak: 'avoid',
+        bodyStyles: { minCellHeight: 12 },
     });
 
     doc.save(`daily_report_${format(today, 'yyyy-MM-dd')}.pdf`);
