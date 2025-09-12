@@ -103,6 +103,7 @@ export const setNotificationStatus = functions.region("europe-west2").https.onCa
 export const sendShiftNotification = functions.region("europe-west2").firestore.document("shifts/{shiftId}")
   .onWrite(async (change, context) => {
     const shiftId = context.params.shiftId;
+    const shiftRef = change.after.ref; 
     functions.logger.log(`Function triggered for shiftId: ${shiftId}`);
 
     // --- Master Notification Toggle Check ---
@@ -123,7 +124,7 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
     }
 
     webPush.setVapidDetails(
-      "mailto:example@your-project.com",
+      "mailto:support@broadoak.com",
       publicKey,
       privateKey
     );
@@ -232,6 +233,7 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
 
     if (subscriptionsSnapshot.empty) {
       functions.logger.warn(`User ${userId} has no push subscriptions. Cannot send notification.`);
+      await shiftRef.set({ notificationStatus: 'no-subscription' }, { merge: true });
       return;
     }
 
@@ -250,8 +252,14 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
       });
     });
 
-    await Promise.all(sendPromises);
-    functions.logger.log(`Finished sending notifications for shift ${shiftId}.`);
+    try {
+      await Promise.all(sendPromises);
+      await shiftRef.set({ notificationStatus: 'sent' }, { merge: true });
+      functions.logger.log(`Finished sending notifications for shift ${shiftId}.`);
+    } catch (e) {
+      await shiftRef.set({ notificationStatus: 'failed' }, { merge: true });
+      functions.logger.error(`One or more notifications failed to send for shift ${shiftId}.`);
+    }
   });
 
 export const projectReviewNotifier = functions
@@ -278,7 +286,7 @@ export const projectReviewNotifier = functions
     }
 
     webPush.setVapidDetails(
-      "mailto:example@your-project.com",
+      "mailto:support@broadoak.com",
       publicKey,
       privateKey
     );
@@ -580,3 +588,5 @@ export const deleteAllProjects = functions.region("europe-west2").https.onCall(a
         throw new functions.https.HttpsError("internal", "An error occurred while deleting all projects. Please check the function logs.");
     }
 });
+
+    
