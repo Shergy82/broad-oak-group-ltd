@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -18,7 +17,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Spinner } from '@/components/shared/spinner';
-import { CalendarIcon } from 'lucide-react';
+import { CalendarIcon, Bug } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import type { Shift, UserProfile } from '@/types';
@@ -37,13 +36,15 @@ interface ShiftFormDialogProps {
     onOpenChange: (open: boolean) => void;
     users: UserProfile[];
     shift: Shift | null;
+    userProfile: UserProfile;
 }
 
-export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormDialogProps) {
+export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile }: ShiftFormDialogProps) {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [isDatePickerOpen, setDatePickerOpen] = useState(false);
   const isEditing = !!shift;
+  const isOwner = userProfile.role === 'owner';
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -116,6 +117,47 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormD
       setIsLoading(false);
     }
   };
+  
+  const handleCreateTestShift = async () => {
+    if (!db) return;
+    const testUser = users.find(u => u.name.toLowerCase().includes('phil shergold'));
+    if (!testUser) {
+        toast({
+            variant: 'destructive',
+            title: 'Test User Not Found',
+            description: "Could not find user 'Phil Shergold'. Please ensure the user exists."
+        });
+        return;
+    }
+    
+    setIsLoading(true);
+    try {
+        await addDoc(collection(db, 'shifts'), {
+            userId: testUser.uid,
+            date: Timestamp.fromDate(new Date()),
+            type: 'all-day',
+            status: 'pending-confirmation',
+            address: 'Test Shift Address',
+            task: 'This is a test shift for notification.',
+            bNumber: 'B-TEST',
+        });
+        toast({
+            title: 'Test Shift Created',
+            description: `A test shift has been created for ${testUser.name} to trigger a notification.`,
+        });
+        onOpenChange(false);
+    } catch (error) {
+        console.error('Error creating test shift:', error);
+        toast({
+            variant: 'destructive',
+            title: 'Error',
+            description: 'Could not create the test shift. Check Firestore rules and function logs.',
+        });
+    } finally {
+        setIsLoading(false);
+    }
+  };
+
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -264,11 +306,18 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift }: ShiftFormD
               )}
             />
 
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isLoading}>Cancel</Button>
-              <Button type="submit" disabled={isLoading}>
-                {isLoading ? <Spinner /> : isEditing ? 'Save Changes' : 'Create Shift'}
-              </Button>
+            <DialogFooter className="sm:justify-between">
+              {isOwner && !isEditing && (
+                <Button type="button" variant="secondary" onClick={handleCreateTestShift} disabled={isLoading}>
+                    <Bug className="mr-2 h-4 w-4" /> Create Test Shift
+                </Button>
+              )}
+              <div className="flex gap-2 justify-end">
+                <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isLoading}>Cancel</Button>
+                <Button type="submit" disabled={isLoading}>
+                  {isLoading ? <Spinner /> : isEditing ? 'Save Changes' : 'Create Shift'}
+                </Button>
+              </div>
             </DialogFooter>
           </form>
         </Form>

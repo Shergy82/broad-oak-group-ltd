@@ -804,6 +804,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                 onOpenChange={setIsFormOpen} 
                 users={users} 
                 shift={selectedShift} 
+                userProfile={userProfile}
             />
         )}
         
