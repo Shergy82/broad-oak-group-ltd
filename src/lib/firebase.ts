@@ -7,14 +7,14 @@ import { getStorage, type FirebaseStorage } from "firebase/storage";
 import { getFunctions, httpsCallable, type Functions } from "firebase/functions";
 
 
-// IMPORTANT: Your Firebase project configuration will be loaded from environment variables.
+// Your Firebase project configuration.
 const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyCmch6jop04hdM0GhAq4RmYv9CuH_TRH3w",
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "broad-oak-build-live.firebaseapp.com",
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "broad-oak-build-live",
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "broad-oak-build-live.appspot.com",
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "510466083182",
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "1:510466083182:web:6261a80a83ee1fc31bd97f",
+  apiKey: "AIzaSyCmch6jop04hdM0GhAq4RmYv9CuH_TRH3w",
+  authDomain: "broad-oak-build-live.firebaseapp.com",
+  projectId: "broad-oak-build-live",
+  storageBucket: "broad-oak-build-live.appspot.com",
+  messagingSenderId: "510466083182",
+  appId: "1:510466083182:web:6261a80a83ee1fc31bd97f",
 };
 
 // A flag to check if Firebase is configured
