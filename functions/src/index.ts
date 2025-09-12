@@ -159,46 +159,57 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
         functions.logger.log("Shift update detected, but data is missing. No notification sent.");
         return;
       }
-
-      // --- Robust comparison logic ---
-      const changedFields: string[] = [];
-
-      // 1. Compare string values, tolerant of whitespace and null/undefined differences.
-      if ((before.task || "").trim() !== (after.task || "").trim()) {
-        changedFields.push('task');
-      }
-      if ((before.address || "").trim() !== (after.address || "").trim()) {
-        changedFields.push('location');
-      }
-      if ((before.bNumber || "").trim() !== (after.bNumber || "").trim()) {
-        changedFields.push('B Number');
-      }
-      if (before.type !== after.type) {
-        changedFields.push('time (AM/PM)');
-      }
-
-      // 2. Compare dates with day-level precision, ignoring time-of-day.
-      if (before.date && after.date && !before.date.isEqual(after.date)) {
-        changedFields.push('date');
-      }
-
-      // 3. Determine if any meaningful change occurred and build the notification.
-      if (changedFields.length > 0) {
-        userId = after.userId;
-
-        const changes = changedFields.join(' & ');
-        const body = `The ${changes} for one of your shifts has been updated.`;
-
-        payload = {
-          title: "Your Shift Has Been Updated",
-          body: body,
-          data: { url: `/dashboard` },
-        };
-        functions.logger.log(`Meaningful change detected for shift ${shiftId}. Changes: ${changes}. Sending notification.`);
+      
+      // Case: Shift is re-assigned to a new user. Treat as "New Shift" for the new user.
+      if (before.userId !== after.userId) {
+          userId = after.userId;
+          payload = {
+              title: "New Shift Assigned",
+              body: `You have a new shift: ${after.task} at ${after.address}.`,
+              data: { url: `/dashboard` },
+          };
+          // We could also notify the old user of cancellation, but that might be noisy. Sticking to new assignment for now.
       } else {
-        // This is the crucial part: No meaningful change was detected, so no notification will be sent.
-        functions.logger.log(`Shift ${shiftId} was updated, but no significant fields changed. No notification sent.`);
-        return;
+        // --- Robust comparison logic for updates to the same user ---
+        const changedFields: string[] = [];
+
+        // 1. Compare string values, tolerant of whitespace and null/undefined differences.
+        if ((before.task || "").trim() !== (after.task || "").trim()) {
+            changedFields.push('task');
+        }
+        if ((before.address || "").trim() !== (after.address || "").trim()) {
+            changedFields.push('location');
+        }
+        if ((before.bNumber || "").trim() !== (after.bNumber || "").trim()) {
+            changedFields.push('B Number');
+        }
+        if (before.type !== after.type) {
+            changedFields.push('time (AM/PM)');
+        }
+
+        // 2. Compare dates with day-level precision, ignoring time-of-day.
+        if (before.date && after.date && !before.date.isEqual(after.date)) {
+            changedFields.push('date');
+        }
+
+        // 3. Determine if any meaningful change occurred and build the notification.
+        if (changedFields.length > 0) {
+            userId = after.userId;
+
+            const changes = changedFields.join(' & ');
+            const body = `The ${changes} for one of your shifts has been updated.`;
+
+            payload = {
+            title: "Your Shift Has Been Updated",
+            body: body,
+            data: { url: `/dashboard` },
+            };
+            functions.logger.log(`Meaningful change detected for shift ${shiftId}. Changes: ${changes}. Sending notification.`);
+        } else {
+            // This is the crucial part: No meaningful change was detected, so no notification will be sent.
+            functions.logger.log(`Shift ${shiftId} was updated, but no significant fields changed. No notification sent.`);
+            return;
+        }
       }
     } else {
       functions.logger.log(`Shift ${shiftId} write event occurred, but it was not a create, update, or delete. No notification sent.`);
@@ -300,6 +311,11 @@ export const projectReviewNotifier = functions
                 body: `It's time to review the project at ${address}. Please check if it can be archived.`,
                 data: { url: "/projects" },
             });
+
+            if (!creatorId) {
+              functions.logger.warn(`Skipping project ${projectDoc.id} because it has no creatorId.`);
+              continue;
+            }
 
             const subscriptionsSnapshot = await db
                 .collection("users")
