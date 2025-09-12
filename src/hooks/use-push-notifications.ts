@@ -37,9 +37,10 @@ export function usePushNotifications() {
     }
   }, []);
 
+  // Step 1: Fetch VAPID key once supported.
   useEffect(() => {
     async function fetchVapidKey() {
-      if (!functions) return;
+      if (!isSupported || !isFirebaseConfigured || !functions) return;
       try {
         const getVapidPublicKey = httpsCallable<{ }, { publicKey: string }>(functions, 'getVapidPublicKey');
         const result = await getVapidPublicKey();
@@ -60,11 +61,10 @@ export function usePushNotifications() {
         })
       }
     }
-    if (isFirebaseConfigured && isSupported) {
-        fetchVapidKey();
-    }
-  }, [toast, isSupported]);
+    fetchVapidKey();
+  }, [isSupported, toast]);
   
+  // Step 2: Check for subscription only AFTER user and VAPID key are available.
   useEffect(() => {
     const checkSubscription = async () => {
       if (!isSupported || !user || !vapidKey) return;
