@@ -638,10 +638,20 @@ export const deleteUser = functions.region("europe-west2").https.onCall(async (d
 
     // 3. Execution
     try {
-        // Delete from Firestore first
+        // Step 1: Delete subcollections (e.g., pushSubscriptions)
+        const subscriptionsRef = db.collection('users').doc(uid).collection('pushSubscriptions');
+        const subscriptionsSnapshot = await subscriptionsRef.get();
+        const batch = db.batch();
+        subscriptionsSnapshot.docs.forEach(doc => {
+            batch.delete(doc.ref);
+        });
+        await batch.commit();
+        functions.logger.log(`Deleted subcollections for user ${uid}.`);
+
+        // Step 2: Delete from Firestore
         await db.collection('users').doc(uid).delete();
         
-        // Then delete from Firebase Auth
+        // Step 3: Then delete from Firebase Auth
         await admin.auth().deleteUser(uid);
         
         functions.logger.log(`Owner ${callerUid} has permanently deleted user ${uid}.`);
