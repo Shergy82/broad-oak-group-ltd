@@ -10,7 +10,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { BarChart, Download, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { format } from 'date-fns';
+import { format, startOfWeek, startOfMonth } from 'date-fns';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface PerformanceMetrics {
   userId: string;
@@ -22,6 +23,8 @@ interface PerformanceMetrics {
   incompleteRate: number;
   avgAcceptanceTime: string;
 }
+
+type TimeRange = 'weekly' | 'monthly' | 'all-time';
 
 // Helper to calculate difference in hours
 const diffHours = (t2: Timestamp, t1: Timestamp) => {
@@ -51,6 +54,7 @@ export function PerformanceDashboard() {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [timeRange, setTimeRange] = useState<TimeRange>('all-time');
 
   useEffect(() => {
     const shiftsQuery = query(collection(db, 'shifts'));
@@ -85,14 +89,27 @@ export function PerformanceDashboard() {
 
   const performanceData = useMemo((): PerformanceMetrics[] => {
     if (loading || error) return [];
+    
+    const now = new Date();
+    let startDate: Date | null = null;
+    
+    if (timeRange === 'weekly') {
+        startDate = startOfWeek(now, { weekStartsOn: 1 });
+    } else if (timeRange === 'monthly') {
+        startDate = startOfMonth(now);
+    }
+    
+    const filteredShifts = startDate 
+        ? shifts.filter(s => s.date.toDate() >= startDate!)
+        : shifts;
 
     const metrics = users
       .map(user => {
-        const userShifts = shifts.filter(s => s.userId === user.uid);
+        const userShifts = filteredShifts.filter(s => s.userId === user.uid);
         const totalShifts = userShifts.length;
         
         if (totalShifts === 0) {
-          return null; // Return null for users with no shifts
+          return null; // Return null for users with no shifts in the selected range
         }
 
         const completed = userShifts.filter(s => s.status === 'completed').length;
@@ -135,7 +152,7 @@ export function PerformanceDashboard() {
         return b.totalShifts - a.totalShifts; // More shifts is a good tie-breaker
     });
 
-  }, [users, shifts, loading, error]);
+  }, [users, shifts, loading, error, timeRange]);
 
   const handleDownloadPdf = async () => {
     const { default: jsPDF } = await import('jspdf');
@@ -145,7 +162,7 @@ export function PerformanceDashboard() {
     const generationDate = new Date();
 
     doc.setFontSize(18);
-    doc.text(`Operative Performance Report`, 14, 22);
+    doc.text(`Operative Performance Report (${timeRange.charAt(0).toUpperCase() + timeRange.slice(1)})`, 14, 22);
     doc.setFontSize(11);
     doc.setTextColor(100);
     doc.text(`Generated on: ${format(generationDate, 'PPP p')}`, 14, 28);
@@ -172,7 +189,7 @@ export function PerformanceDashboard() {
         }
     });
     
-    doc.save(`operative_performance_${format(generationDate, 'yyyy-MM-dd')}.pdf`);
+    doc.save(`operative_performance_${timeRange}_${format(generationDate, 'yyyy-MM-dd')}.pdf`);
   };
 
   return (
@@ -185,10 +202,22 @@ export function PerformanceDashboard() {
                   This dashboard provides key performance indicators for each operative, sorted from best to worst.
                 </CardDescription>
             </div>
-            <Button onClick={handleDownloadPdf} variant="outline" size="sm" disabled={loading || performanceData.length === 0}>
-                <Download className="mr-2" />
-                Download PDF
-            </Button>
+            <div className="flex items-center gap-2">
+                <Select value={timeRange} onValueChange={(value) => setTimeRange(value as TimeRange)}>
+                    <SelectTrigger className="w-[180px]">
+                        <SelectValue placeholder="Select time range..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="weekly">This Week</SelectItem>
+                        <SelectItem value="monthly">This Month</SelectItem>
+                        <SelectItem value="all-time">All Time</SelectItem>
+                    </SelectContent>
+                </Select>
+                <Button onClick={handleDownloadPdf} variant="outline" size="sm" disabled={loading || performanceData.length === 0}>
+                    <Download className="mr-2" />
+                    Download PDF
+                </Button>
+            </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -228,7 +257,7 @@ export function PerformanceDashboard() {
                               <Users className="mx-auto h-12 w-12 text-muted-foreground" />
                               <h3 className="mt-4 text-lg font-semibold">No Operative Data</h3>
                               <p className="mt-2 text-sm text-muted-foreground">
-                                  No users with the 'user' role were found or none have been assigned shifts yet.
+                                  No users with the 'user' role were found or none have been assigned shifts in this period.
                               </p>
                           </div>
                       </TableCell>
