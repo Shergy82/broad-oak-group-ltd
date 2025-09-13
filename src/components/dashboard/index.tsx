@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { isToday, isSameWeek, addDays, format, subDays } from 'date-fns';
-import type { Shift } from '@/types';
+import type { Shift, ShiftStatus } from '@/types';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Clock, Download, RefreshCw, Sunrise, Sunset, Terminal, History } from 'lucide-react';
 import { Button } from '@/components/ui/button';
