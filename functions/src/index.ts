@@ -703,10 +703,9 @@ export const testUserDeletion = functions.region("europe-west2").https.onCall(as
         functions.logger.log("Test Deletion: Added dummy subcollection doc for", testUserUid);
 
 
-        // Step 3: Call the actual deleteUser function internally
-        const deleteFunction = httpsCallable(functions, 'deleteUser');
-        await deleteFunction({ uid: testUserUid });
-
+        // Step 3: Call the actual deleteUser function with the correct context.
+        // This simulates a call from the client as the owner.
+        await deleteUser({ uid: testUserUid }, { auth: context.auth });
         functions.logger.log("Test Deletion: deleteUser function executed successfully for", testUserUid);
 
         // Step 4: Verify deletion
@@ -726,6 +725,11 @@ export const testUserDeletion = functions.region("europe-west2").https.onCall(as
         if (userDoc.exists) {
             throw new Error("Firestore document was not deleted.");
         }
+        
+        const subcollectionSnapshot = await db.collection("users").doc(testUserUid).collection("pushSubscriptions").get();
+        if (!subcollectionSnapshot.empty) {
+            throw new Error("pushSubscriptions subcollection was not deleted.");
+        }
 
         functions.logger.log("Test Deletion: Verification complete. User deleted successfully.");
         return { success: true, message: "Test user created, deleted, and verified successfully." };
@@ -737,12 +741,19 @@ export const testUserDeletion = functions.region("europe-west2").https.onCall(as
         if (testUserUid) {
             try {
                 await admin.auth().deleteUser(testUserUid);
+                const subcollection = await db.collection("users").doc(testUserUid).collection("pushSubscriptions").get();
+                const batch = db.batch();
+                subcollection.forEach(doc => batch.delete(doc.ref));
+                await batch.commit();
                 await db.collection("users").doc(testUserUid).delete();
             } catch (cleanupError) {
                 functions.logger.error("Test Deletion: Cleanup failed.", cleanupError);
             }
         }
         
+        if (error instanceof functions.https.HttpsError) {
+            throw error;
+        }
         throw new functions.https.HttpsError("internal", `Test failed: ${error.message}`);
     }
 });
