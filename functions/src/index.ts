@@ -576,6 +576,7 @@ export const setUserStatus = functions.region("europe-west2").https.onCall(async
     const callerDoc = await db.collection("users").doc(callerUid).get();
     const callerProfile = callerDoc.data();
 
+    // CORRECTED: Only the 'owner' can perform this action.
     if (!callerProfile || callerProfile.role !== 'owner') {
         throw new functions.https.HttpsError("permission-denied", "Only the account owner can change user status.");
     }
@@ -621,6 +622,7 @@ export const deleteUser = functions.region("europe-west2").https.onCall(async (d
     const callerDoc = await db.collection("users").doc(callerUid).get();
     const callerProfile = callerDoc.data();
 
+    // CORRECTED: Only the owner can delete users.
     if (!callerProfile || callerProfile.role !== 'owner') {
         throw new functions.https.HttpsError("permission-denied", "Only the account owner can delete users.");
     }
@@ -641,12 +643,14 @@ export const deleteUser = functions.region("europe-west2").https.onCall(async (d
         // Step 1: Delete subcollections (e.g., pushSubscriptions)
         const subscriptionsRef = db.collection('users').doc(uid).collection('pushSubscriptions');
         const subscriptionsSnapshot = await subscriptionsRef.get();
-        const batch = db.batch();
-        subscriptionsSnapshot.docs.forEach(doc => {
-            batch.delete(doc.ref);
-        });
-        await batch.commit();
-        functions.logger.log(`Deleted subcollections for user ${uid}.`);
+        if (!subscriptionsSnapshot.empty) {
+            const batch = db.batch();
+            subscriptionsSnapshot.docs.forEach(doc => {
+                batch.delete(doc.ref);
+            });
+            await batch.commit();
+            functions.logger.log(`Deleted pushSubscriptions subcollection for user ${uid}.`);
+        }
 
         // Step 2: Delete from Firestore
         await db.collection('users').doc(uid).delete();
