@@ -342,6 +342,92 @@ export const projectReviewNotifier = functions
     }
   });
 
+export const pendingShiftNotifier = functions
+  .region("europe-west2")
+  .pubsub.schedule("every 1 hours")
+  .onRun(async (context) => {
+    functions.logger.log("Running hourly pending shift notifier.");
+
+    const settingsRef = db.collection('settings').doc('notifications');
+    const settingsDoc = await settingsRef.get();
+    if (settingsDoc.exists() && settingsDoc.data()?.enabled === false) {
+      functions.logger.log('Global notifications are disabled by the owner. Aborting pending shift notifier.');
+      return;
+    }
+
+    const config = functions.config();
+    const publicKey = config.webpush?.public_key;
+    const privateKey = config.webpush?.private_key;
+
+    if (!publicKey || !privateKey) {
+      functions.logger.error("CRITICAL: VAPID keys are not configured. Cannot send pending shift reminders.");
+      return;
+    }
+
+    webPush.setVapidDetails("mailto:example@your-project.com", publicKey, privateKey);
+
+    try {
+      const pendingShiftsQuery = db.collection("shifts").where("status", "==", "pending-confirmation");
+      const querySnapshot = await pendingShiftsQuery.get();
+
+      if (querySnapshot.empty) {
+        functions.logger.log("No pending shifts found.");
+        return;
+      }
+
+      const shiftsByUser = new Map<string, any[]>();
+      querySnapshot.forEach(doc => {
+        const shift = doc.data();
+        if (shift.userId) {
+          if (!shiftsByUser.has(shift.userId)) {
+            shiftsByUser.set(shift.userId, []);
+          }
+          shiftsByUser.get(shift.userId)!.push(shift);
+        }
+      });
+
+      for (const [userId, userShifts] of shiftsByUser.entries()) {
+        const subscriptionsSnapshot = await db
+          .collection("users")
+          .doc(userId)
+          .collection("pushSubscriptions")
+          .withConverter(pushSubscriptionConverter)
+          .get();
+
+        if (subscriptionsSnapshot.empty) {
+          functions.logger.warn(`User ${userId} has ${userShifts.length} pending shift(s) but no push subscriptions.`);
+          continue;
+        }
+
+        const notificationPayload = JSON.stringify({
+          title: "Pending Shifts Reminder",
+          body: `You have ${userShifts.length} shift(s) awaiting your confirmation. Please review them in the app.`,
+          data: { url: "/dashboard" },
+        });
+
+        functions.logger.log(`Sending reminder to user ${userId} for ${userShifts.length} pending shift(s).`);
+
+        const sendPromises = subscriptionsSnapshot.docs.map(subDoc => {
+          const subscription = subDoc.data();
+          return webPush.sendNotification(subscription, notificationPayload).catch((error: any) => {
+            functions.logger.error(`Error sending notification to user ${userId}:`, error);
+            if (error.statusCode === 410 || error.statusCode === 404) {
+              functions.logger.log(`Deleting invalid subscription for user ${userId}.`);
+              return subDoc.ref.delete();
+            }
+            return null;
+          });
+        });
+
+        await Promise.all(sendPromises);
+      }
+
+      functions.logger.log("Finished processing pending shift reminders.");
+    } catch (error) {
+      functions.logger.error("Error running pendingShiftNotifier:", error);
+    }
+  });
+
 export const deleteProjectAndFiles = functions.region("europe-west2").https.onCall(async (data, context) => {
     functions.logger.log("Received request to delete project:", data.projectId);
 
