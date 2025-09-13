@@ -1,3 +1,5 @@
+
+'use server';
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import * as webPush from "web-push";
@@ -574,18 +576,15 @@ export const setUserStatus = functions.region("europe-west2").https.onCall(async
     const callerDoc = await db.collection("users").doc(callerUid).get();
     const callerProfile = callerDoc.data();
 
-    if (!callerProfile || !['admin', 'owner'].includes(callerProfile.role)) {
-        throw new functions.https.HttpsError("permission-denied", "Only administrators can change user status.");
+    // Corrected Authorization: Only the 'owner' can perform these actions.
+    if (!callerProfile || callerProfile.role !== 'owner') {
+        throw new functions.https.HttpsError("permission-denied", "Only the account owner can change user status.");
     }
     
     // 2. Validation
     const { uid, disabled, newStatus } = data;
-    if (typeof uid !== 'string' || typeof disabled !== 'boolean' || typeof newStatus !== 'string') {
-        throw new functions.https.HttpsError("invalid-argument", "The function requires a 'uid' (string), 'disabled' (boolean), and 'newStatus' (string) argument.");
-    }
-
-    if (callerProfile.role !== 'owner') {
-        throw new functions.https.HttpsError("permission-denied", "Only the owner can perform this action.");
+    if (typeof uid !== 'string' || typeof disabled !== 'boolean' || (newStatus && typeof newStatus !== 'string')) {
+        throw new functions.https.HttpsError("invalid-argument", "The function requires a 'uid' (string), 'disabled' (boolean), and optionally 'newStatus' (string) argument.");
     }
 
     // Owner cannot disable themselves.
@@ -598,11 +597,15 @@ export const setUserStatus = functions.region("europe-west2").https.onCall(async
         // Update Firebase Auth user
         await admin.auth().updateUser(uid, { disabled });
         
-        // Update user status in Firestore
-        const userDocRef = db.collection('users').doc(uid);
-        await userDocRef.update({ status: newStatus });
+        // If a new status is provided, update it in Firestore
+        if (newStatus) {
+            const userDocRef = db.collection('users').doc(uid);
+            await userDocRef.update({ status: newStatus });
+            functions.logger.log(`Owner ${callerUid} has set user ${uid} to status: ${newStatus} (Auth disabled: ${disabled}).`);
+        } else {
+            functions.logger.log(`Owner ${callerUid} has set Auth disabled state for user ${uid} to: ${disabled}.`);
+        }
 
-        functions.logger.log(`Admin ${callerUid} has set user ${uid} to status: ${newStatus} (Auth disabled: ${disabled}).`);
         return { success: true };
     } catch (error: any) {
         functions.logger.error(`Error updating status for user ${uid}:`, error);
@@ -676,3 +679,5 @@ export const onUserCreate = functions.region("europe-west2").auth.user().onCreat
         functions.logger.warn(`Could not find Firestore profile for new user ${user.uid}. Cannot set initial disabled state.`);
     }
 });
+
+    
