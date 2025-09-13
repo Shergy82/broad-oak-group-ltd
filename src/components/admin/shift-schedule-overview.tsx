@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Terminal, MessageSquareText, PlusCircle, Edit, Trash2, Download, History, Trash, Users2, Building, BarChart2, HardHat } from 'lucide-react';
+import { Terminal, MessageSquareText, PlusCircle, Edit, Trash2, Download, History, Trash, Users2, Building, BarChart2, HardHat, ThumbsDown } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -45,6 +45,27 @@ const getStatusBadge = (shift: Shift) => {
             return <Badge {...baseProps} className="bg-teal-500 hover:bg-teal-600"><HardHat className="mr-1.5 h-3 w-3" />On Site</Badge>;
         case 'completed':
             return <Badge {...baseProps} className="bg-green-600 hover:bg-green-700 text-white">Completed</Badge>;
+        case 'rejected':
+             return (
+                <div className="flex items-center gap-1 justify-end">
+                    <Badge variant="destructive" {...baseProps}><ThumbsDown className="mr-1.5 h-3 w-3" />Rejected</Badge>
+                    {shift.notes && (
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-7 w-7">
+                                    <MessageSquareText className="h-4 w-4 text-muted-foreground" />
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-64 sm:w-80">
+                                <div className="space-y-2">
+                                    <h4 className="font-medium leading-none">Reason for Rejection</h4>
+                                    <p className="text-sm text-muted-foreground">{shift.notes}</p>
+                                </div>
+                            </PopoverContent>
+                        </Popover>
+                    )}
+                </div>
+            );
         case 'incomplete':
              return (
                 <div className="flex items-center gap-1 justify-end">
@@ -277,7 +298,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                     type: shift.type === 'all-day' ? 'All Day' : shift.type.toUpperCase(),
                     task: taskAndAddress,
                     status: statusText,
-                    notes: (shift.status === 'incomplete' && shift.notes) ? `Note: ${shift.notes}` : null,
+                    notes: ((shift.status === 'incomplete' || shift.status === 'rejected') && shift.notes) ? `Note: ${shift.notes}` : null,
                 };
                 return rowData;
             });
@@ -439,6 +460,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
         'incomplete': 2,
         'confirmed': 3,
         'pending-confirmation': 4,
+        'rejected': 5,
     };
     const sortedShifts = [...todaysShifts].sort((a, b) => {
         const aStatus = a.status || 'pending-confirmation';
@@ -451,6 +473,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
       incomplete: { bg: [255, 239, 213], text: [139, 69, 19] },
       confirmed: { bg: [224, 236, 255], text: [0, 0, 128] },
       'pending-confirmation': { bg: [245, 245, 245], text: [105, 105, 105] },
+      rejected: { bg: [255, 228, 225], text: [178, 34, 34]},
     };
 
 
@@ -653,7 +676,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
         });
     }
 
-    const activeShifts = sortShifts(weekShifts.filter(s => s.status === 'pending-confirmation' || s.status === 'confirmed' || s.status === 'on-site'));
+    const activeShifts = sortShifts(weekShifts.filter(s => s.status === 'pending-confirmation' || s.status === 'confirmed' || s.status === 'on-site' || s.status === 'rejected'));
     const historicalShifts = sortShifts(weekShifts.filter(s => s.status === 'completed' || s.status === 'incomplete'))
       .sort((a,b) => getCorrectedLocalDate(b.date).getTime() - getCorrectedLocalDate(a.date).getTime());
 
