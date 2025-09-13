@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { startOfWeek, startOfMonth, isWithinInterval } from 'date-fns';
+import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval } from 'date-fns';
 import { Award } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import type { Shift, UserProfile } from '@/types';
@@ -55,8 +55,22 @@ export function PerformanceAwards({ allShifts, allUsers }: PerformanceAwardsProp
 
     const { weeklyTop, monthlyTop, allTimeTop } = useMemo(() => {
         const now = new Date();
-        const weeklyShifts = allShifts.filter(s => s.createdAt && isWithinInterval(s.createdAt.toDate(), { start: startOfWeek(now, { weekStartsOn: 1 }), end: now }));
-        const monthlyShifts = allShifts.filter(s => s.createdAt && isWithinInterval(s.createdAt.toDate(), { start: startOfMonth(now), end: now }));
+        
+        // Weekly: Monday to Friday of the current week.
+        const startOfThisWeek = startOfWeek(now, { weekStartsOn: 1 });
+        const endOfThisWeek = endOfWeek(now, { weekStartsOn: 1 });
+        const weeklyShifts = allShifts.filter(s => {
+            if (!s.createdAt) return false;
+            const shiftDate = s.createdAt.toDate();
+            // Get day of week (0 for Sunday, 1 for Monday, ..., 6 for Saturday)
+            const dayOfWeek = shiftDate.getDay();
+            // Only include shifts from Monday (1) to Friday (5)
+            const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+            return isWeekday && isWithinInterval(shiftDate, { start: startOfThisWeek, end: endOfThisWeek });
+        });
+
+        // Monthly: First day to last day of the current month.
+        const monthlyShifts = allShifts.filter(s => s.createdAt && isWithinInterval(s.createdAt.toDate(), { start: startOfMonth(now), end: endOfMonth(now) }));
 
         return {
             weeklyTop: calculateTopPerformer(weeklyShifts, allUsers),
