@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { collection, onSnapshot, query } from 'firebase/firestore';
+import { collection, onSnapshot, query, doc, updateDoc } from 'firebase/firestore';
 import { db, functions, httpsCallable } from '@/lib/firebase';
 import type { UserProfile } from '@/types';
 import { useUserProfile } from '@/hooks/use-user-profile';
@@ -138,7 +138,9 @@ export default function UserManagementPage() {
         const response = await testFunction();
         const data = response.data as { success: boolean; message: string };
         if (data.success) {
-            toast({ title: 'Test Passed', description: data.message, duration: 10000 });
+            toast({ title: 'Test Passed', description: data.message, duration: 10000, className: "bg-green-100 border-green-500 text-green-800" });
+        } else {
+             toast({ variant: 'destructive', title: 'Test Failed', description: data.message, duration: 10000 });
         }
     } catch (error: any) {
         console.error('Deletion test failed:', error);
@@ -349,5 +351,7 @@ export default function UserManagementPage() {
     </>
   );
 }
+
+    
 
     

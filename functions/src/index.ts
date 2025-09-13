@@ -655,19 +655,18 @@ export const deleteUser = functions.region("europe-west2").https.onCall(async (d
   } catch (error: any) {
     functions.logger.error(`Error deleting user ${uid}:`, error);
 
+    // This is the critical change: if the user is already gone from Auth,
+    // we log it and proceed as if successful, because the end state is the same.
     if (error.code === "auth/user-not-found") {
-      // If the auth user is already gone, log it but don't fail the whole operation.
-      // The main goal is to clean up, so if it's already partly clean, that's okay.
-      functions.logger.warn(`User ${uid} was already deleted from Firebase Auth.`);
-    } else {
-        // For other errors, re-throw a clear error message.
-        throw new functions.https.HttpsError("internal", `An unexpected error occurred while deleting the user: ${error.message}`);
+      functions.logger.warn(`User ${uid} was already deleted from Firebase Auth. Continuing cleanup.`);
+      // We can return success here because the main goal is to ensure the user is gone.
+      // If the Auth user is already gone, we've achieved part of the goal.
+      // The Firestore deletes would have already run.
+      return { success: true, message: "User was already deleted from Authentication. Cleanup finished." };
     }
     
-    // If an error occurred but we want to ensure the function completes gracefully,
-    // we might still return a success if the main records are gone.
-    // For now, we will throw, but this could be changed based on desired behavior.
-    return { success: true, message: "User deletion process completed, though some errors were encountered." };
+    // For other errors, re-throw a clear error message.
+    throw new functions.https.HttpsError("internal", `An unexpected error occurred while deleting the user: ${error.message}`);
   }
 });
 
@@ -777,5 +776,7 @@ export const testUserDeletion = functions.region("europe-west2").https.onCall(as
         throw new functions.https.HttpsError("internal", `Test failed: ${error.message}`);
     }
 });
+
+    
 
     
