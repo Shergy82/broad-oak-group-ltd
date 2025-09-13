@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
-import { doc, updateDoc, deleteField } from 'firebase/firestore';
+import { doc, updateDoc, deleteField, serverTimestamp } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '@/lib/firebase';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -76,11 +76,15 @@ export function ShiftCard({ shift, onDismiss }: ShiftCardProps) {
     try {
       const shiftRef = doc(db, 'shifts', shift.id);
       
-      const updateData: { status: ShiftStatus; notes?: any } = { status: newStatus };
+      const updateData: { status: ShiftStatus; notes?: any, confirmedAt?: any } = { status: newStatus };
       if (notes) {
         updateData.notes = notes;
       } else if (newStatus === 'confirmed' || newStatus === 'completed') { 
         updateData.notes = deleteField();
+      }
+
+      if (newStatus === 'confirmed') {
+        updateData.confirmedAt = serverTimestamp();
       }
       
       await updateDoc(shiftRef, updateData as any);

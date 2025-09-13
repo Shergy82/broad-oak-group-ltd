@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { db } from '@/lib/firebase';
-import { doc, writeBatch } from 'firebase/firestore';
+import { doc, writeBatch, serverTimestamp } from 'firebase/firestore';
 import type { Shift } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
@@ -43,7 +43,7 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
       
       shiftIds.forEach(shiftId => {
         const shiftRef = doc(db, 'shifts', shiftId);
-        batch.update(shiftRef, { status: 'confirmed' });
+        batch.update(shiftRef, { status: 'confirmed', confirmedAt: serverTimestamp() });
       });
       
       await batch.commit();

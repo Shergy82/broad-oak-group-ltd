@@ -23,13 +23,18 @@ const getCorrectedLocalDate = (date: { toDate: () => Date }) => {
     return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
 };
 
-export default function Dashboard() {
+export default function Dashboard({ allShifts }: { allShifts: Shift[] }) {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [shifts, setShifts] = useState<Shift[]>([]);
+  const [shifts, setShifts] = useState<Shift[]>(allShifts);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dismissedShiftIds, setDismissedShiftIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    setShifts(allShifts);
+    setLoading(false);
+  }, [allShifts]);
 
   useEffect(() => {
     if (user) {
@@ -38,50 +43,6 @@ export default function Dashboard() {
             setDismissedShiftIds(JSON.parse(storedDismissedIds));
         }
     }
-  }, [user]);
-
-  useEffect(() => {
-    if (!isFirebaseConfigured || !db || !user) {
-      setShifts([]);
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    const shiftsCollection = collection(db, 'shifts');
-    const q = query(shiftsCollection, where('userId', '==', user.uid));
-
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const fetchedShifts: Shift[] = [];
-      querySnapshot.forEach((doc) => {
-        fetchedShifts.push({ id: doc.id, ...doc.data() } as Shift);
-      });
-      
-      const typeOrder = { 'am': 1, 'pm': 2, 'all-day': 3 };
-      fetchedShifts.sort((a, b) => {
-          const dateA = getCorrectedLocalDate(a.date).getTime();
-          const dateB = getCorrectedLocalDate(b.date).getTime();
-          if (dateA !== dateB) {
-              return dateA - dateB;
-          }
-          return typeOrder[a.type] - typeOrder[b.type];
-      });
-      setShifts(fetchedShifts);
-      
-      setLoading(false);
-    }, (e: any) => {
-      console.error("Error fetching shifts: ", e);
-      let errorMessage = 'Failed to fetch shifts. Please try again later.';
-      if (e.code === 'permission-denied') {
-        errorMessage = "You don't have permission to view shifts. Please check your Firestore security rules in the Firebase Console.";
-      } else if (e.code === 'failed-precondition') {
-          errorMessage = 'Could not fetch shifts. This is likely due to a missing database index. Please check the browser console for a link to create the required index in Firebase.';
-      }
-      setError(errorMessage);
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
   }, [user]);
 
   const handleDismissShift = (shiftId: string) => {
@@ -414,7 +375,3 @@ export default function Dashboard() {
     </div>
   );
 }
-
-    
-
-    

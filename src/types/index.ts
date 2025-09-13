@@ -13,6 +13,8 @@ export interface Shift {
   task: string;
   bNumber?: string;
   notes?: string;
+  createdAt: Timestamp;
+  confirmedAt?: Timestamp;
 }
 
 export interface UserProfile {

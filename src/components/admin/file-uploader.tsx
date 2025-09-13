@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
-import { collection, writeBatch, doc, getDocs, query, where, Timestamp } from 'firebase/firestore';
+import { collection, writeBatch, doc, getDocs, query, where, Timestamp, serverTimestamp } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,7 +13,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Upload } from 'lucide-react';
 import type { Shift, UserProfile, ShiftStatus } from '@/types';
 
-type ParsedShift = Omit<Shift, 'id' | 'status' | 'date'> & { date: Date };
+type ParsedShift = Omit<Shift, 'id' | 'status' | 'date' | 'createdAt'> & { date: Date };
 type UserMapEntry = { uid: string; normalizedName: string; originalName: string; };
 
 export interface FailedShift {
@@ -343,6 +343,7 @@ export function FileUploader({ onImportComplete }: FileUploaderProps) {
                     ...excelShift,
                     date: Timestamp.fromDate(excelShift.date),
                     status: 'pending-confirmation',
+                    createdAt: serverTimestamp(),
                 };
                 batch.set(doc(collection(db, 'shifts')), newShiftData);
                 shiftsCreated++;

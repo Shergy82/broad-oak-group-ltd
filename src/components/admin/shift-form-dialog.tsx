@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -5,7 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { db } from '@/lib/firebase';
-import { collection, addDoc, updateDoc, doc, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, doc, Timestamp, serverTimestamp } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -106,6 +107,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile 
         await addDoc(collection(db, 'shifts'), {
           ...dataToSave,
           status: 'pending-confirmation',
+          createdAt: serverTimestamp(),
         });
         toast({ title: 'Success', description: 'Shift created.' });
       }
@@ -140,6 +142,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile 
             address: 'Test Shift Address',
             task: 'This is a test shift for notification.',
             bNumber: 'B-TEST',
+            createdAt: serverTimestamp(),
         });
         toast({
             title: 'Test Shift Created',
