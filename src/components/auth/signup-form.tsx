@@ -6,7 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { doc, setDoc, Timestamp } from 'firebase/firestore';
+import { doc, setDoc, Timestamp, getDocs, collection, query } from 'firebase/firestore';
 import { auth, db, isFirebaseConfigured } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,7 +22,8 @@ import { useToast } from '@/hooks/use-toast';
 import { Spinner } from '@/components/shared/spinner';
 import { UnconfiguredForm } from '@/components/auth/unconfigured-form';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Terminal } from "lucide-react"
+import { Terminal, CheckCircle } from "lucide-react"
+import Link from 'next/link';
 
 const formSchema = z.object({
   firstName: z.string().min(1, { message: 'First name is required.' })
@@ -38,6 +39,7 @@ export function SignUpForm() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -55,7 +57,14 @@ export function SignUpForm() {
 
     setIsLoading(true);
     setError(null);
+    setSuccess(false);
+
     try {
+      // Check if any user exists. If not, the first user becomes the owner.
+      const usersQuery = query(collection(db, 'users'));
+      const usersSnapshot = await getDocs(usersQuery);
+      const isFirstUser = usersSnapshot.empty;
+      
       const userCredential = await createUserWithEmailAndPassword(auth, values.email, values.password);
       const user = userCredential.user;
       
@@ -63,12 +72,8 @@ export function SignUpForm() {
 
       await updateProfile(user, { displayName: fullName });
 
-      const userRole = values.email.toLowerCase() === 'phil.s@broadoakgroup.com' ? 'owner' : 'user';
-      const userStatus = userRole === 'owner' ? 'active' : 'pending-approval';
-
-      // The user must be disabled in Auth first to prevent login before approval
-      // This will be handled by a Cloud Function triggered by user creation for non-owners.
-      // For now, we just set the Firestore status.
+      const userRole = isFirstUser ? 'owner' : 'user';
+      const userStatus = isFirstUser ? 'active' : 'pending-approval';
 
       await setDoc(doc(db, 'users', user.uid), {
         name: fullName,
@@ -78,12 +83,11 @@ export function SignUpForm() {
         status: userStatus,
         createdAt: Timestamp.now(),
       });
-
-      toast({
-        title: 'Account Created & Pending Approval',
-        description: "Your account has been created. An administrator will approve it shortly, and you will then be able to log in.",
-      });
       
+      setSuccess(true);
+      
+      // Sign the user out immediately after registration so they can't access the app
+      // until they are approved (or if they are the first user/owner).
       await auth.signOut();
       
       form.reset();
@@ -99,7 +103,7 @@ export function SignUpForm() {
                   errorMessage = 'The password is too weak. Please choose a stronger password.';
                   break;
               case 'permission-denied':
-                  errorMessage = "You don't have permission to create an account. Please check your Firestore security rules to allow user creation (e.g., allow create: if request.auth.uid == userId;).";
+                  errorMessage = "You don't have permission to create an account. Please check your Firestore security rules to allow user creation (e.g., allow create: if true;).";
                   break;
               default:
                   errorMessage = `Sign-up failed: ${error.message}`;
@@ -115,6 +119,25 @@ export function SignUpForm() {
 
   if (!isFirebaseConfigured || !auth) {
     return <UnconfiguredForm />;
+  }
+
+  if (success) {
+      return (
+        <>
+            <Alert className="border-green-500 text-green-700 [&>svg]:text-green-500">
+                <CheckCircle className="h-4 w-4" />
+                <AlertTitle>Account Created</AlertTitle>
+                <AlertDescription>
+                    Your account has been created and is now awaiting administrator approval. You will be able to log in once your account has been activated.
+                </AlertDescription>
+            </Alert>
+             <p className="mt-6 text-center text-sm text-muted-foreground">
+                <Link href="/login" className="font-semibold text-primary hover:underline">
+                    Back to Log in
+                </Link>
+            </p>
+        </>
+      )
   }
 
   return (

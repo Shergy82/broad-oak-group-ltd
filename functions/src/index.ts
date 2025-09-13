@@ -585,7 +585,7 @@ export const setUserStatus = functions.region("europe-west2").https.onCall(async
     const { uid, disabled, newStatus } = data;
     const validStatuses = ['active', 'suspended', 'pending-approval'];
 
-    if (typeof uid !== 'string' || typeof disabled !== 'boolean' || !newStatus || !validStatuses.includes(newStatus)) {
+    if (typeof uid !== 'string' || typeof disabled !== 'boolean' || !validStatuses.includes(newStatus)) {
         throw new functions.https.HttpsError("invalid-argument", `Invalid arguments provided. 'uid' must be a string, 'disabled' a boolean, and 'newStatus' must be one of ${validStatuses.join(', ')}.`);
     }
 
@@ -662,25 +662,18 @@ export const onUserCreate = functions.region("europe-west2").auth.user().onCreat
 
     if (userDoc.exists()) {
         const userProfile = userDoc.data();
-        // If the user is not an owner, disable their account in Auth until approved.
-        // This prevents them from logging in.
-        if (userProfile && userProfile.role !== 'owner') {
+        // If the user is not an owner and their status is pending, disable their account in Auth until approved.
+        if (userProfile && userProfile.role !== 'owner' && userProfile.status === 'pending-approval') {
             try {
                 await admin.auth().updateUser(user.uid, { disabled: true });
                 functions.logger.log(`Successfully disabled account for new user ${user.uid} pending admin approval.`);
             } catch (error) {
                 functions.logger.error(`Failed to disable account for new user ${user.uid}:`, error);
             }
-        } else {
+        } else if (userProfile && userProfile.role === 'owner') {
              functions.logger.log(`User ${user.uid} is an owner. Account remains enabled.`);
         }
     } else {
         functions.logger.warn(`Could not find Firestore profile for new user ${user.uid}. Cannot set initial disabled state.`);
     }
 });
-
-    
-
-    
-
-  
