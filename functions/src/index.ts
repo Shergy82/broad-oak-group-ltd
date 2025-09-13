@@ -651,31 +651,3 @@ export const deleteUser = functions.region("europe-west2").https.onCall(async (d
         throw new functions.https.HttpsError("internal", `An unexpected error occurred while deleting the user: ${error.message}`);
     }
 });
-
-
-export const onUserCreate = functions.region("europe-west2").auth.user().onCreate(async (user) => {
-    functions.logger.log(`New user created: ${user.uid}, email: ${user.email}`);
-
-    // Find the user profile in Firestore
-    const userDocRef = db.collection('users').doc(user.uid);
-    const userDoc = await userDocRef.get();
-
-    if (userDoc.exists()) {
-        const userProfile = userDoc.data();
-        // If the user is not an owner and their status is pending, disable their account in Auth until approved.
-        if (userProfile && userProfile.role !== 'owner' && userProfile.status === 'pending-approval') {
-            try {
-                await admin.auth().updateUser(user.uid, { disabled: true });
-                functions.logger.log(`Successfully disabled account for new user ${user.uid} pending admin approval.`);
-            } catch (error) {
-                functions.logger.error(`Failed to disable account for new user ${user.uid}:`, error);
-            }
-        } else if (userProfile && userProfile.role === 'owner') {
-             functions.logger.log(`User ${user.uid} is an owner. Account remains enabled.`);
-        }
-    } else {
-        functions.logger.warn(`Could not find Firestore profile for new user ${user.uid}. Cannot set initial disabled state.`);
-    }
-});
-
-    

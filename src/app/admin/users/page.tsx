@@ -202,7 +202,7 @@ export default function UserManagementPage() {
                 : 'As an admin, you can view all users and their assigned roles.'
             }
         </CardDescription>
-        {currentUserProfile?.role === 'admin' && (
+        {currentUserProfile?.role !== 'owner' && (
             <Alert className="mt-4">
                 <ShieldX className="h-4 w-4" />
                 <AlertTitle>Read-Only Access</AlertTitle>
@@ -282,7 +282,7 @@ export default function UserManagementPage() {
                                             <UserCheck className="mr-2 h-4 w-4" />
                                             Reactivate User
                                         </DropdownMenuItem>
-                                    ) : user.status !== 'pending-approval' && (
+                                    ) : user.status === 'active' && (
                                         <DropdownMenuItem onClick={() => executeUserAction('suspend', user)}>
                                             <UserX className="mr-2 h-4 w-4" />
                                             Suspend User
@@ -325,5 +325,3 @@ export default function UserManagementPage() {
     </>
   );
 }
-
-    

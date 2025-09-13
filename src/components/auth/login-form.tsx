@@ -85,7 +85,7 @@ export function LoginForm() {
             errorMessage = 'Invalid email or password. Please try again.';
             break;
           case 'auth/user-disabled':
-            errorMessage = 'This account has been disabled. Please contact an administrator.';
+            errorMessage = 'This account has been disabled or suspended. Please contact an administrator.';
             break;
           case 'auth/too-many-requests':
             errorMessage = 'Too many login attempts. Please try again later.';
