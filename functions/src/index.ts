@@ -659,3 +659,90 @@ export const deleteUser = functions.region("europe-west2").https.onCall(async (d
     throw new functions.https.HttpsError("internal", "An unexpected error occurred while deleting the user.");
   }
 });
+
+export const testUserDeletion = functions.region("europe-west2").https.onCall(async (data, context) => {
+    if (!context.auth || !context.auth.uid) {
+        throw new functions.https.HttpsError("unauthenticated", "You must be logged in to run this test.");
+    }
+    const callerUid = context.auth.uid;
+    const callerDoc = await db.collection("users").doc(callerUid).get();
+    const callerProfile = callerDoc.data();
+    if (!callerProfile || callerProfile.role !== 'owner') {
+        throw new functions.https.HttpsError("permission-denied", "Only the owner can run this test.");
+    }
+
+    const testEmail = `test-delete-${Date.now()}@example.com`;
+    const testPassword = "temporaryPassword123";
+    let testUserUid = "";
+
+    try {
+        // Step 1: Create a temporary user in Auth
+        const userRecord = await admin.auth().createUser({
+            email: testEmail,
+            password: testPassword,
+            displayName: "Deletion Test User",
+        });
+        testUserUid = userRecord.uid;
+        functions.logger.log("Test Deletion: Created temporary auth user", testUserUid);
+
+        // Step 2: Create a corresponding document in Firestore
+        await db.collection("users").doc(testUserUid).set({
+            name: "Deletion Test User",
+            email: testEmail,
+            role: 'user',
+            status: 'active',
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        functions.logger.log("Test Deletion: Created temporary firestore doc for", testUserUid);
+        
+        // Add a dummy subcollection document
+        await db.collection("users").doc(testUserUid).collection("pushSubscriptions").add({
+            endpoint: "dummy_endpoint",
+            keys: { p256dh: "dummy_key", auth: "dummy_auth" }
+        });
+        functions.logger.log("Test Deletion: Added dummy subcollection doc for", testUserUid);
+
+
+        // Step 3: Call the actual deleteUser function internally
+        const deleteFunction = httpsCallable(functions, 'deleteUser');
+        await deleteFunction({ uid: testUserUid });
+
+        functions.logger.log("Test Deletion: deleteUser function executed successfully for", testUserUid);
+
+        // Step 4: Verify deletion
+        try {
+            await admin.auth().getUser(testUserUid);
+            // If this doesn't throw, the user still exists, which is a failure
+            throw new Error("Auth user was not deleted.");
+        } catch (error: any) {
+            if (error.code !== 'auth/user-not-found') {
+                // Some other error occurred during verification
+                throw error;
+            }
+            // This is the expected outcome, user is not found.
+        }
+
+        const userDoc = await db.collection("users").doc(testUserUid).get();
+        if (userDoc.exists) {
+            throw new Error("Firestore document was not deleted.");
+        }
+
+        functions.logger.log("Test Deletion: Verification complete. User deleted successfully.");
+        return { success: true, message: "Test user created, deleted, and verified successfully." };
+
+    } catch (error: any) {
+        functions.logger.error("Test Deletion: An error occurred during the test.", error);
+        
+        // Cleanup attempt in case of failure mid-way
+        if (testUserUid) {
+            try {
+                await admin.auth().deleteUser(testUserUid);
+                await db.collection("users").doc(testUserUid).delete();
+            } catch (cleanupError) {
+                functions.logger.error("Test Deletion: Cleanup failed.", cleanupError);
+            }
+        }
+        
+        throw new functions.https.HttpsError("internal", `Test failed: ${error.message}`);
+    }
+});

@@ -8,13 +8,77 @@ import { ShiftScheduleOverview } from '@/components/admin/shift-schedule-overvie
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { Download, FileWarning } from 'lucide-react';
+import { Download, FileWarning, FlaskConical } from 'lucide-react';
 import { format } from 'date-fns';
+import { functions, httpsCallable } from '@/lib/firebase';
+import { useToast } from '@/hooks/use-toast';
+import { Spinner } from '../shared/spinner';
+
+function DeletionTester() {
+    const [isLoading, setIsLoading] = useState(false);
+    const [result, setResult] = useState<string | null>(null);
+    const { toast } = useToast();
+
+    const handleTest = async () => {
+        setIsLoading(true);
+        setResult(null);
+        if (!functions) {
+            toast({ variant: 'destructive', title: 'Error', description: 'Functions not available.' });
+            setIsLoading(false);
+            return;
+        }
+
+        try {
+            const testFunction = httpsCallable(functions, 'testUserDeletion');
+            const response = await testFunction();
+            const data = response.data as { success: boolean; message: string };
+            if (data.success) {
+                toast({ title: 'Test Passed', description: data.message });
+                setResult(`SUCCESS: ${data.message}`);
+            } else {
+                toast({ variant: 'destructive', title: 'Test Failed', description: data.message });
+                setResult(`FAILURE: ${data.message}`);
+            }
+        } catch (error: any) {
+            console.error('Deletion test failed:', error);
+            toast({ variant: 'destructive', title: 'Test Crashed', description: error.message || 'An unknown error occurred.' });
+            setResult(`CRASH: ${error.message}`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                    <FlaskConical />
+                    Deletion Function Test
+                </CardTitle>
+                <CardDescription>
+                    Click the button below to run a live test on the `deleteUser` Cloud Function. This will create and then immediately attempt to delete a temporary user.
+                </CardDescription>
+            </CardHeader>
+            <CardContent>
+                <Button onClick={handleTest} disabled={isLoading}>
+                    {isLoading ? <Spinner /> : 'Run Deletion Test'}
+                </Button>
+                {result && (
+                    <div className="mt-4 rounded-md bg-muted p-4 text-sm font-mono">
+                        <p>Test Result:</p>
+                        <p className={result.startsWith('SUCCESS') ? 'text-green-600' : 'text-destructive'}>{result}</p>
+                    </div>
+                )}
+            </CardContent>
+        </Card>
+    )
+}
 
 export default function AdminPageContent() {
   const { userProfile } = useUserProfile();
   const [failedShifts, setFailedShifts] = useState<FailedShift[]>([]);
   const isPrivilegedUser = userProfile && ['admin', 'owner'].includes(userProfile.role);
+  const isOwner = userProfile && userProfile.role === 'owner';
 
   const handleImportComplete = (report: FailedShift[]) => {
     // Sort the report by date as soon as it's received
@@ -59,6 +123,10 @@ export default function AdminPageContent() {
 
   return (
     <div className="space-y-8">
+
+      {isOwner && (
+        <DeletionTester />
+      )}
       
       {isPrivilegedUser && (
         <Card>
