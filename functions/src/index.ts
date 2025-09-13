@@ -606,7 +606,7 @@ export const setUserStatus = functions.region("europe-west2").https.onCall(async
         return { success: true };
     } catch (error: any) {
         functions.logger.error(`Error updating status for user ${uid}:`, error);
-        throw new functions.httpshttps.HttpsError("internal", `An unexpected error occurred: ${error.message}`);
+        throw new functions.https.HttpsError("internal", `An unexpected error occurred: ${error.message}`);
     }
 });
 
