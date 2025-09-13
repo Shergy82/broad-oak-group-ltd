@@ -2,8 +2,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { collection, onSnapshot, query, doc, updateDoc } from 'firebase/firestore';
-import { db, functions, httpsCallable } from '@/lib/firebase';
+import { collection, onSnapshot, query } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 import type { UserProfile } from '@/types';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { useToast } from '@/hooks/use-toast';
@@ -17,27 +17,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Terminal, ShieldCheck, ShieldX, MoreHorizontal, UserCheck, UserX, Trash2, CheckCircle2, FlaskConical } from 'lucide-react';
+import { ShieldX } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Button } from '@/components/ui/button';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { Spinner } from '@/components/shared/spinner';
 
 export default function UserManagementPage() {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [actionUser, setActionUser] = useState<UserProfile | null>(null);
-  const [isDeleteAlertOpen, setDeleteAlertOpen] = useState(false);
-  const [isTestRunning, setIsTestRunning] = useState(false);
   const { userProfile: currentUserProfile } = useUserProfile();
   const { toast } = useToast();
   const isOwner = currentUserProfile?.role === 'owner';
@@ -72,128 +58,7 @@ export default function UserManagementPage() {
 
     return () => unsubscribe();
   }, [currentUserProfile, toast]);
-
-  const executeUserAction = async (action: 'approve' | 'suspend' | 'reactivate' | 'delete', targetUser: UserProfile) => {
-    if (!functions) {
-        toast({ variant: 'destructive', title: 'Error', description: 'Functions service not available.' });
-        return;
-    }
-     if (!isOwner) {
-        toast({ variant: 'destructive', title: 'Permission Denied', description: 'Only the owner can manage users.' });
-        return;
-    }
-    
-    let callableFunction;
-    let payload;
-    let successMessage = '';
-    
-    try {
-        if (action === 'delete') {
-            callableFunction = httpsCallable(functions, 'deleteUser');
-            payload = { uid: targetUser.uid };
-            successMessage = `User ${targetUser.name} has been permanently deleted.`;
-        } else {
-            callableFunction = httpsCallable(functions, 'setUserStatus');
-            switch (action) {
-                case 'approve':
-                    payload = { uid: targetUser.uid, disabled: false, newStatus: 'active' };
-                    successMessage = `User ${targetUser.name} has been approved.`;
-                    break;
-                case 'suspend':
-                    payload = { uid: targetUser.uid, disabled: true, newStatus: 'suspended' };
-                    successMessage = `User ${targetUser.name} has been suspended.`;
-                    break;
-                case 'reactivate':
-                    payload = { uid: targetUser.uid, disabled: false, newStatus: 'active' };
-                    successMessage = `User ${targetUser.name} has been reactivated.`;
-                    break;
-            }
-        }
-        
-        await callableFunction(payload);
-        
-        toast({ title: 'Success', description: successMessage });
-
-    } catch (error: any) {
-        console.error(`Error performing action '${action}' on user:`, error);
-        toast({ variant: 'destructive', title: 'Action Failed', description: error.message || 'An unexpected error occurred.'});
-    } finally {
-        if (action === 'delete') {
-            setDeleteAlertOpen(false);
-            setActionUser(null);
-        }
-    }
-  };
-
-  const handleRunDeletionTest = async () => {
-    setIsTestRunning(true);
-    if (!functions) {
-        toast({ variant: 'destructive', title: 'Error', description: 'Functions not available.' });
-        setIsTestRunning(false);
-        return;
-    }
-
-    try {
-        const testFunction = httpsCallable(functions, 'testUserDeletion');
-        const response = await testFunction();
-        const data = response.data as { success: boolean; message: string };
-        if (data.success) {
-            toast({ title: 'Test Passed', description: data.message, duration: 10000, className: "bg-green-100 border-green-500 text-green-800" });
-        } else {
-             toast({ variant: 'destructive', title: 'Test Failed', description: data.message, duration: 10000 });
-        }
-    } catch (error: any) {
-        console.error('Deletion test failed:', error);
-        toast({ variant: 'destructive', title: 'Test Failed', description: error.message || 'An unknown error occurred.', duration: 10000 });
-    } finally {
-        setIsTestRunning(false);
-    }
-  };
   
-  const isActionDisabled = (targetUser: UserProfile) => {
-    // Only the owner can perform actions
-    if (!isOwner) return true;
-    // The owner cannot act on themselves
-    if (currentUserProfile?.uid === targetUser.uid) return true;
-    return false;
-  }
-
-  const renderRoleCell = (user: UserProfile) => {
-    const roleMap: {[key: string]: string} = { 'user': 'User', 'admin': 'Admin', 'owner': 'Owner' };
-    
-    // Anyone who is not the owner sees a read-only badge.
-    // The owner also sees a read-only badge for themselves or other owners.
-    if (!isOwner || user.role === 'owner' || user.uid === currentUserProfile?.uid) {
-      return (
-        <Badge variant={user.role === 'owner' ? 'default' : user.role === 'admin' ? 'secondary' : 'outline'} className="capitalize">
-          {roleMap[user.role] || user.role}
-        </Badge>
-      );
-    }
-       
-    // The owner can change roles for non-owner users.
-    return (
-        <Select
-            defaultValue={user.role}
-            onValueChange={(newRole: 'user' | 'admin') => {
-                 if (!db) return;
-                 const userDocRef = doc(db, 'users', user.uid);
-                 updateDoc(userDocRef, { role: newRole })
-                    .then(() => toast({ title: 'Success', description: "User role updated successfully."}))
-                    .catch((e) => toast({ variant: 'destructive', title: 'Error', description: e.message || 'Failed to update user role.' }));
-            }}
-        >
-            <SelectTrigger className="w-[120px]">
-              <SelectValue placeholder="Select role" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="user">User</SelectItem>
-              <SelectItem value="admin">Admin</SelectItem>
-            </SelectContent>
-        </Select>
-    );
-  }
-
   const getStatusBadge = (status?: 'active' | 'suspended' | 'pending-approval') => {
       switch (status) {
           case 'active':
@@ -208,44 +73,19 @@ export default function UserManagementPage() {
   }
 
   return (
-    <>
     <Card>
       <CardHeader>
-         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div>
-                <CardTitle>User Management</CardTitle>
-                 <CardDescription>
-                    {isOwner
-                        ? 'As the owner, you can view, assign roles, approve, and manage user accounts.' 
-                        : 'As an admin, you can view all users and their assigned roles.'
-                    }
-                </CardDescription>
-            </div>
-             {isOwner && (
-                <Button onClick={handleRunDeletionTest} disabled={isTestRunning} variant="outline" size="sm">
-                    {isTestRunning ? <Spinner className="mr-2"/> : <FlaskConical className="mr-2"/>}
-                    Run Deletion Test
-                </Button>
-            )}
-        </div>
-        {!isOwner && (
-            <Alert className="mt-4">
-                <ShieldX className="h-4 w-4" />
-                <AlertTitle>Read-Only Access</AlertTitle>
-                <AlertDescription>
-                   Only the account owner can modify user roles or status.
-                </AlertDescription>
-            </Alert>
-        )}
-         {isOwner && (
-            <Alert className="mt-4 border-primary/50 text-primary [&>svg]:text-primary">
-                <ShieldCheck className="h-4 w-4" />
-                <AlertTitle>Owner Privileges</AlertTitle>
-                <AlertDescription>
-                   You can assign roles, approve, suspend, or delete users. You cannot change your own role or suspend yourself.
-                </AlertDescription>
-            </Alert>
-        )}
+        <CardTitle>User Management</CardTitle>
+        <CardDescription>
+            View all users and their assigned roles in the system.
+        </CardDescription>
+        <Alert className="mt-4">
+            <ShieldX className="h-4 w-4" />
+            <AlertTitle>Notice</AlertTitle>
+            <AlertDescription>
+                User management actions (approval, suspension, deletion) are currently disabled. This page provides a read-only view of user data.
+            </AlertDescription>
+        </Alert>
       </CardHeader>
       <CardContent>
         <Table>
@@ -257,7 +97,6 @@ export default function UserManagementPage() {
               <TableHead>Phone Number</TableHead>
               <TableHead>Role</TableHead>
               <TableHead>Status</TableHead>
-              { isOwner && <TableHead className="text-right">Actions</TableHead> }
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -268,9 +107,8 @@ export default function UserManagementPage() {
                   <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                   <TableCell><Skeleton className="h-4 w-40" /></TableCell>
                   <TableCell><Skeleton className="h-4 w-28" /></TableCell>
-                  <TableCell><Skeleton className="h-10 w-32" /></TableCell>
                   <TableCell><Skeleton className="h-6 w-20" /></TableCell>
-                  { isOwner && <TableCell><Skeleton className="h-10 w-10 ml-auto" /></TableCell> }
+                  <TableCell><Skeleton className="h-6 w-20" /></TableCell>
                 </TableRow>
               ))
             ) : (
@@ -280,49 +118,14 @@ export default function UserManagementPage() {
                   <TableCell>{user.createdAt?.toDate().toLocaleDateString() ?? 'N/A'}</TableCell>
                   <TableCell>{user.email}</TableCell>
                   <TableCell>{user.phoneNumber}</TableCell>
-                  <TableCell>{renderRoleCell(user)}</TableCell>
+                  <TableCell>
+                     <Badge variant={user.role === 'owner' ? 'default' : user.role === 'admin' ? 'secondary' : 'outline'} className="capitalize">
+                        {user.role}
+                    </Badge>
+                  </TableCell>
                   <TableCell>
                       {getStatusBadge(user.status)}
                   </TableCell>
-                   {isOwner && (
-                     <TableCell className="text-right">
-                        {!isActionDisabled(user) && (
-                             <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button variant="ghost" className="h-8 w-8 p-0">
-                                        <span className="sr-only">Open menu</span>
-                                        <MoreHorizontal className="h-4 w-4" />
-                                    </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                    <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                                    <DropdownMenuSeparator />
-                                    {user.status === 'pending-approval' && (
-                                        <DropdownMenuItem onClick={() => executeUserAction('approve', user)}>
-                                            <CheckCircle2 className="mr-2 h-4 w-4" />
-                                            Approve User
-                                        </DropdownMenuItem>
-                                    )}
-                                    {user.status === 'suspended' ? (
-                                        <DropdownMenuItem onClick={() => executeUserAction('reactivate', user)}>
-                                            <UserCheck className="mr-2 h-4 w-4" />
-                                            Reactivate User
-                                        </DropdownMenuItem>
-                                    ) : user.status === 'active' && (
-                                        <DropdownMenuItem onClick={() => executeUserAction('suspend', user)}>
-                                            <UserX className="mr-2 h-4 w-4" />
-                                            Suspend User
-                                        </DropdownMenuItem>
-                                    )}
-                                    <DropdownMenuItem className="text-destructive" onClick={() => { setActionUser(user); setDeleteAlertOpen(true); }}>
-                                        <Trash2 className="mr-2 h-4 w-4" />
-                                        Delete User
-                                    </DropdownMenuItem>
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-                        )}
-                     </TableCell>
-                   )}
                 </TableRow>
               ))
             )}
@@ -330,30 +133,5 @@ export default function UserManagementPage() {
         </Table>
       </CardContent>
     </Card>
-    
-    <AlertDialog open={isDeleteAlertOpen} onOpenChange={setDeleteAlertOpen}>
-        <AlertDialogContent>
-            <AlertDialogHeader>
-                <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                <AlertDialogDescription>
-                    This action cannot be undone. This will permanently delete the account for <span className="font-bold">{actionUser?.name}</span> and all of their associated data. They will no longer be able to log in.
-                </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-                <AlertDialogCancel onClick={() => setActionUser(null)}>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={() => actionUser && executeUserAction('delete', actionUser)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                    Yes, Delete User
-                </AlertDialogAction>
-            </AlertDialogFooter>
-        </AlertDialogContent>
-    </AlertDialog>
-
-    </>
   );
 }
-
-    
-
-    
-
-    
