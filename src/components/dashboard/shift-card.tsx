@@ -79,7 +79,7 @@ export function ShiftCard({ shift, onDismiss }: ShiftCardProps) {
       const updateData: { status: ShiftStatus; notes?: any } = { status: newStatus };
       if (notes) {
         updateData.notes = notes;
-      } else if (newStatus === 'confirmed' || newStatus === 'on-site') { // Also remove notes when going back to 'on-site'
+      } else if (newStatus === 'confirmed' || newStatus === 'completed') { 
         updateData.notes = deleteField();
       }
       
@@ -155,7 +155,7 @@ export function ShiftCard({ shift, onDismiss }: ShiftCardProps) {
                 {isLoading ? <Spinner /> : <><HardHat className="mr-2 h-4 w-4" /> On Site</>}
             </Button>
           )}
-          {(shift.status === 'on-site') && (
+          {shift.status === 'on-site' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                  <Button onClick={() => handleUpdateStatus('completed')} className="w-full bg-green-500 text-white hover:bg-green-600" disabled={isLoading}>
                     {isLoading ? <Spinner /> : <><CheckCircle2 className="mr-2 h-4 w-4" /> Complete</>}
@@ -167,7 +167,7 @@ export function ShiftCard({ shift, onDismiss }: ShiftCardProps) {
           )}
           {isHistorical && (
             <div className="grid grid-cols-2 gap-2">
-                 <Button variant="outline" onClick={() => handleUpdateStatus('confirmed')} className="w-full" disabled={isLoading}>
+                 <Button variant="outline" onClick={() => handleUpdateStatus('on-site')} className="w-full" disabled={isLoading}>
                    {isLoading ? <Spinner /> : <><RotateCcw className="mr-2 h-4 w-4" /> Re-open</>}
                 </Button>
                 {onDismiss && (
@@ -227,5 +227,3 @@ export function ShiftCard({ shift, onDismiss }: ShiftCardProps) {
     </>
   );
 }
-
-    
