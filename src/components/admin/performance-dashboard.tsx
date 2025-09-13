@@ -160,9 +160,10 @@ export function PerformanceDashboard() {
 
     const doc = new jsPDF();
     const generationDate = new Date();
+    const timeRangeTitle = timeRange.charAt(0).toUpperCase() + timeRange.slice(1);
 
     doc.setFontSize(18);
-    doc.text(`Operative Performance Report (${timeRange.charAt(0).toUpperCase() + timeRange.slice(1)})`, 14, 22);
+    doc.text(`Operative Performance Report (${timeRangeTitle})`, 14, 22);
     doc.setFontSize(11);
     doc.setTextColor(100);
     doc.text(`Generated on: ${format(generationDate, 'PPP p')}`, 14, 28);
@@ -214,7 +215,7 @@ export function PerformanceDashboard() {
                     </SelectContent>
                 </Select>
                 <Button onClick={handleDownloadPdf} variant="outline" size="sm" disabled={loading || performanceData.length === 0}>
-                    <Download className="mr-2" />
+                    <Download className="mr-2 h-4 w-4" />
                     Download PDF
                 </Button>
             </div>
