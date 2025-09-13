@@ -76,5 +76,3 @@ export interface Acknowledgement {
     userName: string;
     acknowledgedAt: Timestamp;
 }
-
-    
