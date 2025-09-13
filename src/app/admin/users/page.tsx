@@ -91,9 +91,20 @@ export default function UserManagementPage() {
             successMessage = `User ${targetUser.name} has been permanently deleted.`;
         } else {
             callableFunction = httpsCallable(functions, 'setUserStatus');
-            const isDisabled = action === 'suspend';
-            payload = { uid: targetUser.uid, disabled: isDisabled, newStatus: action === 'approve' ? 'active' : (isDisabled ? 'suspended' : 'active') };
-            successMessage = `User ${targetUser.name} has been ${action}d.`;
+            switch (action) {
+                case 'approve':
+                    payload = { uid: targetUser.uid, disabled: false, newStatus: 'active' };
+                    successMessage = `User ${targetUser.name} has been approved.`;
+                    break;
+                case 'suspend':
+                    payload = { uid: targetUser.uid, disabled: true, newStatus: 'suspended' };
+                    successMessage = `User ${targetUser.name} has been suspended.`;
+                    break;
+                case 'reactivate':
+                    payload = { uid: targetUser.uid, disabled: false, newStatus: 'active' };
+                    successMessage = `User ${targetUser.name} has been reactivated.`;
+                    break;
+            }
         }
         
         await callableFunction(payload);
@@ -308,3 +319,5 @@ export default function UserManagementPage() {
     </>
   );
 }
+
+    

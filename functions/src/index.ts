@@ -584,7 +584,7 @@ export const setUserStatus = functions.region("europe-west2").https.onCall(async
     // 2. Validation
     const { uid, disabled, newStatus } = data;
     if (typeof uid !== 'string' || typeof disabled !== 'boolean' || (newStatus && typeof newStatus !== 'string')) {
-        throw new functions.https.HttpsError("invalid-argument", "The function requires a 'uid' (string), 'disabled' (boolean), and optionally 'newStatus' (string) argument.");
+        throw new functions.https.HttpsError("invalid-argument", "The function requires a 'uid' (string), 'disabled' (boolean), and 'newStatus' (string) arguments.");
     }
 
     // Owner cannot disable themselves.
@@ -597,19 +597,16 @@ export const setUserStatus = functions.region("europe-west2").https.onCall(async
         // Update Firebase Auth user
         await admin.auth().updateUser(uid, { disabled });
         
-        // If a new status is provided, update it in Firestore
-        if (newStatus) {
-            const userDocRef = db.collection('users').doc(uid);
-            await userDocRef.update({ status: newStatus });
-            functions.logger.log(`Owner ${callerUid} has set user ${uid} to status: ${newStatus} (Auth disabled: ${disabled}).`);
-        } else {
-            functions.logger.log(`Owner ${callerUid} has set Auth disabled state for user ${uid} to: ${disabled}.`);
-        }
+        // Update Firestore status
+        const userDocRef = db.collection('users').doc(uid);
+        await userDocRef.update({ status: newStatus });
+        
+        functions.logger.log(`Owner ${callerUid} has set user ${uid} to status: ${newStatus} (Auth disabled: ${disabled}).`);
 
         return { success: true };
     } catch (error: any) {
         functions.logger.error(`Error updating status for user ${uid}:`, error);
-        throw new functions.https.HttpsError("internal", `An unexpected error occurred: ${error.message}`);
+        throw new functions.httpshttps.HttpsError("internal", `An unexpected error occurred: ${error.message}`);
     }
 });
 
@@ -679,5 +676,7 @@ export const onUserCreate = functions.region("europe-west2").auth.user().onCreat
         functions.logger.warn(`Could not find Firestore profile for new user ${user.uid}. Cannot set initial disabled state.`);
     }
 });
+
+    
 
     
