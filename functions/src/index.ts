@@ -583,8 +583,10 @@ export const setUserStatus = functions.region("europe-west2").https.onCall(async
     
     // 2. Validation
     const { uid, disabled, newStatus } = data;
-    if (typeof uid !== 'string' || typeof disabled !== 'boolean' || (newStatus && typeof newStatus !== 'string')) {
-        throw new functions.https.HttpsError("invalid-argument", "The function requires a 'uid' (string), 'disabled' (boolean), and 'newStatus' (string) arguments.");
+    const validStatuses = ['active', 'suspended', 'pending-approval'];
+
+    if (typeof uid !== 'string' || typeof disabled !== 'boolean' || (newStatus && !validStatuses.includes(newStatus))) {
+        throw new functions.https.HttpsError("invalid-argument", "The function requires 'uid' (string), 'disabled' (boolean), and a valid 'newStatus' (string) argument.");
     }
 
     // Owner cannot disable themselves.
@@ -606,7 +608,7 @@ export const setUserStatus = functions.region("europe-west2").https.onCall(async
         return { success: true };
     } catch (error: any) {
         functions.logger.error(`Error updating status for user ${uid}:`, error);
-        throw new functions.https.HttpsError("internal", `An unexpected error occurred: ${error.message}`);
+        throw new functions.https.HttpsError("internal", `An unexpected error occurred while updating user status: ${error.message}`);
     }
 });
 
