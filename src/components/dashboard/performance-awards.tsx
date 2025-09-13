@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useMemo } from 'react';
@@ -56,17 +57,13 @@ export function PerformanceAwards({ allShifts, allUsers }: PerformanceAwardsProp
     const { weeklyTop, monthlyTop, allTimeTop } = useMemo(() => {
         const now = new Date();
         
-        // Weekly: Monday to Friday of the current week.
+        // Weekly: Monday to Sunday of the current week.
         const startOfThisWeek = startOfWeek(now, { weekStartsOn: 1 });
         const endOfThisWeek = endOfWeek(now, { weekStartsOn: 1 });
         const weeklyShifts = allShifts.filter(s => {
             if (!s.createdAt) return false;
             const shiftDate = s.createdAt.toDate();
-            // Get day of week (0 for Sunday, 1 for Monday, ..., 6 for Saturday)
-            const dayOfWeek = shiftDate.getDay();
-            // Only include shifts from Monday (1) to Friday (5)
-            const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
-            return isWeekday && isWithinInterval(shiftDate, { start: startOfThisWeek, end: endOfThisWeek });
+            return isWithinInterval(shiftDate, { start: startOfThisWeek, end: endOfThisWeek });
         });
 
         // Monthly: First day to last day of the current month.
