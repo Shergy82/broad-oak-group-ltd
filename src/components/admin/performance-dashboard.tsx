@@ -86,50 +86,43 @@ export function PerformanceDashboard() {
   const performanceData = useMemo((): PerformanceMetrics[] => {
     if (loading || error) return [];
 
-    const metrics = users.map(user => {
-      const userShifts = shifts.filter(s => s.userId === user.uid);
-      const totalShifts = userShifts.length;
-      
-      if (totalShifts === 0) {
+    const metrics = users
+      .map(user => {
+        const userShifts = shifts.filter(s => s.userId === user.uid);
+        const totalShifts = userShifts.length;
+        
+        if (totalShifts === 0) {
+          return null; // Return null for users with no shifts
+        }
+
+        const completed = userShifts.filter(s => s.status === 'completed').length;
+        const incomplete = userShifts.filter(s => s.status === 'incomplete').length;
+        const completionRate = totalShifts > 0 ? (completed / totalShifts) * 100 : 0;
+        const incompleteRate = totalShifts > 0 ? (incomplete / totalShifts) * 100 : 0;
+
+        // Calculate average acceptance time
+        const acceptanceTimes: number[] = [];
+        userShifts.forEach(shift => {
+            // This assumes shift.createdAt and shift.confirmedAt exist and are Timestamps
+            // We will need to add `confirmedAt` to the shift update logic later.
+            // For now, we mock the calculation.
+        });
+
+        // Mock acceptance time for now
+        const mockRandomHours = Math.random() * 8 + 0.5;
+
         return {
           userId: user.uid,
           userName: user.name,
-          totalShifts: 0,
-          completed: 0,
-          incomplete: 0,
-          completionRate: 0,
-          incompleteRate: 0,
-          avgAcceptanceTime: 'N/A'
+          totalShifts,
+          completed,
+          incomplete,
+          completionRate,
+          incompleteRate,
+          avgAcceptanceTime: formatDuration(mockRandomHours)
         };
-      }
-
-      const completed = userShifts.filter(s => s.status === 'completed').length;
-      const incomplete = userShifts.filter(s => s.status === 'incomplete').length;
-      const completionRate = totalShifts > 0 ? (completed / totalShifts) * 100 : 0;
-      const incompleteRate = totalShifts > 0 ? (incomplete / totalShifts) * 100 : 0;
-
-      // Calculate average acceptance time
-      const acceptanceTimes: number[] = [];
-      userShifts.forEach(shift => {
-          // This assumes shift.createdAt and shift.confirmedAt exist and are Timestamps
-          // We will need to add `confirmedAt` to the shift update logic later.
-          // For now, we mock the calculation.
-      });
-
-      // Mock acceptance time for now
-      const mockRandomHours = Math.random() * 8 + 0.5;
-
-      return {
-        userId: user.uid,
-        userName: user.name,
-        totalShifts,
-        completed,
-        incomplete,
-        completionRate,
-        incompleteRate,
-        avgAcceptanceTime: formatDuration(mockRandomHours)
-      };
-    });
+      })
+      .filter((metric): metric is PerformanceMetrics => metric !== null); // Filter out the nulls
 
     // Sort from best to worst
     return metrics.sort((a, b) => {
@@ -235,7 +228,7 @@ export function PerformanceDashboard() {
                               <Users className="mx-auto h-12 w-12 text-muted-foreground" />
                               <h3 className="mt-4 text-lg font-semibold">No Operative Data</h3>
                               <p className="mt-2 text-sm text-muted-foreground">
-                                  No users with the 'user' role were found. Performance metrics will appear here once operatives have assigned shifts.
+                                  No users with the 'user' role were found or none have been assigned shifts yet.
                               </p>
                           </div>
                       </TableCell>
