@@ -10,8 +10,9 @@ import { Header } from '@/components/layout/header';
 import { Spinner } from '@/components/shared/spinner';
 import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { Announcement } from '@/types';
+import type { Announcement, Shift } from '@/types';
 import { UnreadAnnouncements } from '@/components/announcements/unread-announcements';
+import { NewShiftsDialog } from '@/components/dashboard/new-shifts-dialog';
 
 export default function DashboardPage() {
   const { user, isLoading: isAuthLoading } = useAuth();
@@ -19,8 +20,10 @@ export default function DashboardPage() {
   const router = useRouter();
 
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-  const [loadingAnnouncements, setLoadingAnnouncements] = useState(true);
+  const [allShifts, setAllShifts] = useState<Shift[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
   const [showAnnouncements, setShowAnnouncements] = useState(true);
+  const [showNewShifts, setShowNewShifts] = useState(true);
 
   useEffect(() => {
     if (!isAuthLoading && !user) {
@@ -30,43 +33,54 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!user || !db) {
-      setLoadingAnnouncements(false);
+      setLoadingData(false);
       return;
-    };
+    }
+    setLoadingData(true);
 
     const announcementsQuery = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'));
-    const unsubscribeAnnouncements = onSnapshot(announcementsQuery, (snapshot) => {
-      const fetchedAnnouncements = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement));
-      setAnnouncements(fetchedAnnouncements);
-      setLoadingAnnouncements(false);
-    }, (error) => {
-      console.error("Error fetching announcements:", error);
-      setLoadingAnnouncements(false);
-    });
+    const shiftsQuery = query(collection(db, 'shifts'), where('userId', '==', user.uid));
+    
+    const unsubAnnouncements = onSnapshot(announcementsQuery, (snapshot) => {
+      setAnnouncements(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement)));
+    }, (error) => console.error("Error fetching announcements:", error));
 
+    const unsubShifts = onSnapshot(shiftsQuery, (snapshot) => {
+        setAllShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
+    }, (error) => console.error("Error fetching shifts:", error));
+
+    // Combine loading state
+    const combinedUnsubscribe = () => {
+        unsubAnnouncements();
+        unsubShifts();
+        setLoadingData(false);
+    };
+    
+    // A simple timeout to consider data loaded.
+    const timer = setTimeout(() => setLoadingData(false), 2000);
 
     return () => {
-        unsubscribeAnnouncements();
+      clearTimeout(timer);
+      unsubAnnouncements();
+      unsubShifts();
     };
   }, [user]);
 
   const unreadAnnouncements = useMemo(() => {
-    if (!user || loadingAnnouncements || announcements.length === 0) {
-      return [];
-    }
+    if (!user || loadingData || announcements.length === 0) return [];
     
-    // Check localStorage for acknowledged announcements.
     const storedAcknowledged = localStorage.getItem(`acknowledgedAnnouncements_${user.uid}`);
     const acknowledgedIds = new Set(storedAcknowledged ? JSON.parse(storedAcknowledged) : []);
 
-    // Filter out announcements that have already been acknowledged.
-    const newUnreadAnnouncements = announcements.filter(a => !acknowledgedIds.has(a.id));
+    return announcements.filter(a => !acknowledgedIds.has(a.id));
+  }, [announcements, user, loadingData]);
 
-    return newUnreadAnnouncements;
-
-  }, [announcements, user, loadingAnnouncements]);
+  const newShifts = useMemo(() => {
+    if (!user || loadingData || allShifts.length === 0) return [];
+    return allShifts.filter(shift => shift.status === 'pending-confirmation');
+  }, [allShifts, user, loadingData]);
   
-  const isLoading = isAuthLoading || isProfileLoading || loadingAnnouncements;
+  const isLoading = isAuthLoading || isProfileLoading || loadingData;
 
   if (isLoading || !user) {
     return (
@@ -74,6 +88,17 @@ export default function DashboardPage() {
         <Spinner size="lg" />
       </div>
     );
+  }
+
+  // --- Dialog Rendering Logic ---
+  // Priority: 1. New Shifts, 2. Announcements
+  if (newShifts.length > 0 && showNewShifts) {
+    return (
+        <NewShiftsDialog
+            shifts={newShifts}
+            onClose={() => setShowNewShifts(false)}
+        />
+    )
   }
 
   if (unreadAnnouncements.length > 0 && showAnnouncements) {
