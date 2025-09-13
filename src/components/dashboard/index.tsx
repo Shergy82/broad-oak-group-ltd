@@ -15,6 +15,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Clock, Download, Sunrise, Sunset, Terminal, History } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
+import { UserStatsDashboard } from './user-stats-dashboard';
 
 const getCorrectedLocalDate = (date: { toDate: () => Date }) => {
     const d = date.toDate();
@@ -324,26 +325,27 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="w-full">
+    <div className="w-full space-y-8">
       {user?.displayName && (
-        <h2 className="mb-4 text-xl md:text-2xl font-semibold tracking-tight">
-          Hi, {user.displayName.split(' ')[0]}
-        </h2>
-      )}
-      <Tabs defaultValue="today" className="w-full">
-        <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <TabsList>
-            <TabsTrigger value="today">Today</TabsTrigger>
-            <TabsTrigger value="this-week">This Week</TabsTrigger>
-            <TabsTrigger value="next-week">Next Week</TabsTrigger>
-          </TabsList>
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <h2 className="text-xl md:text-2xl font-semibold tracking-tight">
+              Hi, {user.displayName.split(' ')[0]}
+            </h2>
             <Button variant="outline" size="sm" onClick={handleDownloadPdf} disabled={loading}>
               <Download className="mr-2 h-4 w-4" />
-              Download PDF
+              Download Schedule
             </Button>
-          </div>
         </div>
+      )}
+
+      <UserStatsDashboard allShifts={shifts} />
+      
+      <Tabs defaultValue="today" className="w-full">
+        <TabsList>
+          <TabsTrigger value="today">Today</TabsTrigger>
+          <TabsTrigger value="this-week">This Week</TabsTrigger>
+          <TabsTrigger value="next-week">Next Week</TabsTrigger>
+        </TabsList>
         <TabsContent value="today">
           {loading ? (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -412,5 +414,7 @@ export default function Dashboard() {
     </div>
   );
 }
+
+    
 
     
