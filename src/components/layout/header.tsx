@@ -71,6 +71,10 @@ export function Header() {
                   <Megaphone className="mr-2" />
                   <span>Announcements</span>
                 </DropdownMenuItem>
+                 <DropdownMenuItem onClick={() => router.push('/stats')} className="cursor-pointer">
+                  <TrendingUp className="mr-2" />
+                  <span>Stats</span>
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => router.push('/projects')} className="cursor-pointer">
                   <Briefcase className="mr-2" />
                   <span>Projects</span>
