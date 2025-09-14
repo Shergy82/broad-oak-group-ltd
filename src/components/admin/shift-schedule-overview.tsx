@@ -3,16 +3,16 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { collection, onSnapshot, query, doc, deleteDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, doc, deleteDoc, writeBatch, where, getDocs } from 'firebase/firestore';
 import { db, functions, httpsCallable } from '@/lib/firebase';
 import type { Shift, UserProfile } from '@/types';
-import { addDays, format, isSameWeek, isToday } from 'date-fns';
+import { addDays, format, isSameWeek, isToday, startOfWeek } from 'date-fns';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Terminal, MessageSquareText, PlusCircle, Edit, Trash2, Download, History, Trash, Users2, Building, BarChart2, HardHat, ThumbsDown } from 'lucide-react';
+import { Terminal, MessageSquareText, PlusCircle, Edit, Trash2, Download, History, Trash, Users2, Building, BarChart2, HardHat, ThumbsDown, CircleEllipsis } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -103,9 +103,9 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
   const [error, setError] = useState<string | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [selectedShift, setSelectedShift] = useState<Shift | null>(null);
-  const [shiftToDelete, setShiftToDelete] = useState<Shift | null>(null);
-  const [isDeletingAll, setIsDeletingAll] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string>('all');
+  const [activeTab, setActiveTab] = useState('today');
   const { toast } = useToast();
   const router = useRouter();
   
@@ -176,8 +176,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
 
     const nextWeekShifts = filteredShifts.filter(s => {
         const shiftDate = getCorrectedLocalDate(s.date);
-        const startOfThisWeek = addDays(today, - (today.getDay() === 0 ? 6 : today.getDay() - 1));
-        const startOfNextWeek = addDays(startOfThisWeek, 7);
+        const startOfNextWeek = addDays(startOfWeek(today, { weekStartsOn: 1 }), 7);
         return isSameWeek(shiftDate, startOfNextWeek, { weekStartsOn: 1 });
     });
 
@@ -202,18 +201,12 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
   
   const handleDeleteShift = async (shift: Shift) => {
     if (!db) return;
-    if (!shift) {
-        setShiftToDelete(null);
-        return;
-    };
     try {
         await deleteDoc(doc(db, 'shifts', shift.id));
         toast({ title: 'Success', description: 'Shift has been deleted.' });
     } catch (error) {
         console.error("Error deleting shift:", error);
         toast({ variant: 'destructive', title: 'Error', description: 'Could not delete the shift.' });
-    } finally {
-        setShiftToDelete(null);
     }
   };
 
@@ -377,8 +370,8 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
         toast({ variant: 'destructive', title: 'Error', description: 'Firebase Functions service not available.' });
         return;
     }
-    setIsDeletingAll(true);
-    toast({ title: 'Deleting All Shifts...', description: 'This may take a moment.' });
+    setIsDeleting(true);
+    toast({ title: 'Deleting All Active Shifts...', description: 'This may take a moment.' });
     
     try {
         const deleteAllShiftsFn = httpsCallable(functions, 'deleteAllShifts');
@@ -392,7 +385,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
             description: error.message || 'An unknown error occurred.',
         });
     } finally {
-        setIsDeletingAll(false);
+        setIsDeleting(false);
     }
   };
 
@@ -738,34 +731,42 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                         Daily Report
                     </Button>
                     {isOwner && (
-                        <Button onClick={handleAddShift} className="w-full sm:w-auto">
+                       <div className="flex items-center gap-2">
+                        <Button onClick={handleAddShift}>
                             <PlusCircle className="mr-2 h-4 w-4" />
                             Add Shift
                         </Button>
-                    )}
-                    {isOwner && (
                         <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                                <Button variant="destructive" size="sm" disabled={isDeletingAll || shifts.length === 0}>
-                                    <Trash className="mr-2 h-4 w-4" />
-                                    {isDeletingAll ? 'Deleting...' : 'Delete All'}
-                                </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="outline" size="icon" className="h-10 w-10">
+                                <CircleEllipsis />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                <AlertDialogTrigger asChild>
+                                  <DropdownMenuItem className="text-destructive focus:bg-destructive/10 focus:text-destructive" disabled={isDeleting}>
+                                      <Trash className="mr-2" /> Delete All Active
+                                  </DropdownMenuItem>
+                                </AlertDialogTrigger>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                          <AlertDialogContent>
                                 <AlertDialogHeader>
                                     <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
                                     <AlertDialogDescription>
-                                        This action cannot be undone. This will permanently delete ALL shifts for EVERY user from the database.
+                                        This will permanently delete all active (published) shifts. Completed and incomplete shifts will not be affected. This action cannot be undone.
                                     </AlertDialogDescription>
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
                                     <AlertDialogCancel>Cancel</AlertDialogCancel>
                                     <AlertDialogAction onClick={handleDeleteAllShifts} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                                        Yes, Delete Everything
+                                        {isDeleting ? 'Deleting...' : 'Yes, Delete Active Shifts'}
                                     </AlertDialogAction>
                                 </AlertDialogFooter>
                             </AlertDialogContent>
                         </AlertDialog>
+                       </div>
                     )}
                 </div>
             </div>
@@ -799,7 +800,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
             </div>
         </CardHeader>
         <CardContent>
-            <Tabs defaultValue="today">
+            <Tabs defaultValue="today" onValueChange={setActiveTab}>
             <TabsList>
                 <TabsTrigger value="today">Today</TabsTrigger>
                 <TabsTrigger value="this-week">This Week</TabsTrigger>
@@ -827,25 +828,6 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                 userProfile={userProfile}
             />
         )}
-        
-        <AlertDialog open={!!shiftToDelete} onOpenChange={() => setShiftToDelete(null)}>
-            <AlertDialogContent>
-                <AlertDialogHeader>
-                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                        This action cannot be undone. This will permanently delete the shift for 
-                        <span className="font-semibold"> {shiftToDelete?.task}</span> at 
-                        <span className="font-semibold"> {shiftToDelete?.address}</span>.
-                    </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => handleDeleteShift(shiftToDelete!)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                        Delete
-                    </AlertDialogAction>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-        </AlertDialog>
     </>
   );
 }
