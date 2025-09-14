@@ -8,87 +8,29 @@ import { ShiftScheduleOverview } from '@/components/admin/shift-schedule-overvie
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { Download, FileWarning, FlaskConical } from 'lucide-react';
+import { Download, FileWarning, CheckCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { functions, httpsCallable } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { Spinner } from '../shared/spinner';
+import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
 
-function DeletionTester() {
-    const [isLoading, setIsLoading] = useState(false);
-    const [result, setResult] = useState<string | null>(null);
-    const { toast } = useToast();
-
-    const handleTest = async () => {
-        setIsLoading(true);
-        setResult(null);
-        if (!functions) {
-            toast({ variant: 'destructive', title: 'Error', description: 'Functions not available.' });
-            setIsLoading(false);
-            return;
-        }
-
-        try {
-            const testFunction = httpsCallable(functions, 'testUserDeletion');
-            const response = await testFunction();
-            const data = response.data as { success: boolean; message: string };
-            if (data.success) {
-                toast({ title: 'Test Passed', description: data.message });
-                setResult(`SUCCESS: ${data.message}`);
-            } else {
-                // This case should ideally not be hit if the function throws an error on failure.
-                toast({ variant: 'destructive', title: 'Test Failed', description: data.message });
-                setResult(`FAILURE: ${data.message}`);
-            }
-        } catch (error: any) {
-            console.error('Deletion test failed:', error);
-            toast({ variant: 'destructive', title: 'Test Crashed', description: error.message || 'An unknown error occurred.' });
-            setResult(`CRASH: ${error.message}`);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    return (
-        <Card>
-            <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                    <FlaskConical />
-                    Deletion Function Test
-                </CardTitle>
-                <CardDescription>
-                    Click the button below to run a live, end-to-end test on the `deleteUser` Cloud Function. This will create a temporary user and then immediately attempt to delete them, verifying that all associated data is removed.
-                </CardDescription>
-            </CardHeader>
-            <CardContent>
-                <Button onClick={handleTest} disabled={isLoading}>
-                    {isLoading ? <Spinner /> : 'Run Deletion Test'}
-                </Button>
-                {result && (
-                    <div className="mt-4 rounded-md bg-muted p-4 text-sm font-mono">
-                        <p>Test Result:</p>
-                        <p className={result.startsWith('SUCCESS') ? 'text-green-600' : 'text-destructive'}>{result}</p>
-                    </div>
-                )}
-            </CardContent>
-        </Card>
-    )
-}
 
 export default function AdminPageContent() {
   const { userProfile } = useUserProfile();
   const [failedShifts, setFailedShifts] = useState<FailedShift[]>([]);
+  const [importAttempted, setImportAttempted] = useState(false);
   const isPrivilegedUser = userProfile && ['admin', 'owner'].includes(userProfile.role);
   const isOwner = userProfile && userProfile.role === 'owner';
 
   const handleImportComplete = (report: FailedShift[]) => {
-    // Sort the report by date as soon as it's received
     const sortedReport = report.sort((a, b) => {
         if (!a.date) return 1;
         if (!b.date) return -1;
         return a.date.getTime() - b.date.getTime();
     });
     setFailedShifts(sortedReport);
+    setImportAttempted(true);
   };
   
   const handleDownloadPdf = async () => {
@@ -177,7 +119,7 @@ export default function AdminPageContent() {
         </Card>
       )}
 
-      {failedShifts.length > 0 && (
+      {importAttempted && failedShifts.length > 0 && (
           <Card>
               <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -218,6 +160,16 @@ export default function AdminPageContent() {
               </CardFooter>
           </Card>
       )}
+
+      {importAttempted && failedShifts.length === 0 && (
+          <Alert className="border-green-500 text-green-700">
+              <CheckCircle className="h-4 w-4 text-green-500" />
+              <AlertTitle>Import Successful</AlertTitle>
+              <AlertDescription>
+                  The file was processed successfully, and no errors were found. All shifts were reconciled.
+              </AlertDescription>
+          </Alert>
+      )}
       
       {isPrivilegedUser && userProfile && (
          <ShiftScheduleOverview userProfile={userProfile} />
@@ -226,5 +178,3 @@ export default function AdminPageContent() {
     </div>
   );
 }
-
-    
