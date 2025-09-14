@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { db } from '@/lib/firebase';
-import { doc, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { doc, writeBatch } from 'firebase/firestore';
 import type { Shift, ShiftStatus } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
@@ -82,7 +82,7 @@ interface NewShiftsDialogProps {
 export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
   const [isOpen, setIsOpen] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
-  const [processedShifts, setProcessedShifts] = useState<Record<string, ShiftStatus>>({});
+  const [acknowledgedShifts, setAcknowledgedShifts] = useState<Record<string, ShiftStatus>>({});
   const [shiftToReject, setShiftToReject] = useState<Shift | null>(null);
   const { toast } = useToast();
 
@@ -98,11 +98,12 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
 
       shiftIds.forEach(shiftId => {
         const shiftRef = doc(db, 'shifts', shiftId);
-        const updateData: { status: ShiftStatus, notes?: string, confirmedAt?: any } = { status: newStatus };
+        const updateData: { status: ShiftStatus, isNew: boolean, notes?: string } = {
+          status: newStatus,
+          isNew: false, // Mark as not new anymore
+        };
         
-        if (newStatus === 'confirmed') {
-            updateData.confirmedAt = serverTimestamp();
-        } else if (newStatus === 'rejected' && reason) {
+        if (newStatus === 'rejected' && reason) {
             updateData.notes = reason;
         }
 
@@ -112,14 +113,17 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
       
       await batch.commit();
 
-      setProcessedShifts(prev => ({ ...prev, ...newProcessed }));
+      setAcknowledgedShifts(prev => ({ ...prev, ...newProcessed }));
       
       toast({
-        title: `Shift(s) ${newStatus}`,
-        description: `Your schedule has been updated.`,
+        title: `Shift(s) Acknowledged`,
+        description: `Your response has been recorded.`,
       });
 
-      if (shifts.length === Object.keys(processedShifts).length + shiftsToUpdate.length) {
+      // Check if all shifts in the dialog have been processed
+      const allShiftsInDialog = shifts.map(s => s.id);
+      const processedIds = new Set([...Object.keys(acknowledgedShifts), ...shiftIds]);
+      if (allShiftsInDialog.every(id => processedIds.has(id))) {
           setTimeout(() => onClose(), 800);
       }
 
@@ -154,7 +158,7 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
       return '';
   }
 
-  const shiftsToProcess = shifts.filter(s => !processedShifts[s.id]);
+  const shiftsToProcess = shifts.filter(s => !acknowledgedShifts[s.id]);
 
   return (
     <>
@@ -163,14 +167,14 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
         <DialogHeader>
           <DialogTitle>You Have New Shifts</DialogTitle>
           <DialogDescription>
-            Please review and accept your newly assigned shifts below.
+            Please review and acknowledge your newly assigned shifts below.
           </DialogDescription>
         </DialogHeader>
 
         <ScrollArea className="max-h-[60vh] my-4 -mx-6 px-6">
           <div className="space-y-4 pr-1">
             {shifts.map(shift => {
-              const status = processedShifts[shift.id];
+              const status = acknowledgedShifts[shift.id];
               return (
                 <Card key={shift.id} className={getCardClassName(status)}>
                     <CardHeader className="flex flex-row items-start justify-between pb-3">

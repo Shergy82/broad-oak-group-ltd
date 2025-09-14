@@ -77,15 +77,15 @@ export function ShiftCard({ shift, onDismiss }: ShiftCardProps) {
     try {
       const shiftRef = doc(db, 'shifts', shift.id);
       
-      const updateData: { status: ShiftStatus; notes?: any, confirmedAt?: any } = { status: newStatus };
+      const updateData: { status: ShiftStatus; notes?: any, isNew?: boolean } = {
+        status: newStatus,
+        isNew: false
+      };
+
       if (notes) {
         updateData.notes = notes;
       } else if (newStatus === 'confirmed' || newStatus === 'completed') { 
         updateData.notes = deleteField();
-      }
-
-      if (newStatus === 'confirmed') {
-        updateData.confirmedAt = serverTimestamp();
       }
       
       await updateDoc(shiftRef, updateData as any);
@@ -150,11 +150,6 @@ export function ShiftCard({ shift, onDismiss }: ShiftCardProps) {
           )}
         </CardContent>
         <CardFooter className="p-2 bg-muted/30 grid grid-cols-1 gap-2">
-          {shift.status === 'pending-confirmation' && (
-            <Button onClick={() => handleUpdateStatus('confirmed')} className="w-full bg-accent text-accent-foreground hover:bg-accent/90" disabled={isLoading}>
-              {isLoading ? <Spinner /> : <><ThumbsUp className="mr-2 h-4 w-4" /> Accept Shift</>}
-            </Button>
-          )}
           {shift.status === 'confirmed' && (
              <Button onClick={() => handleUpdateStatus('on-site')} className="w-full bg-teal-500 text-white hover:bg-teal-600" disabled={isLoading}>
                 {isLoading ? <Spinner /> : <><HardHat className="mr-2 h-4 w-4" /> On Site</>}
