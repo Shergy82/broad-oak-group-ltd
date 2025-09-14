@@ -5,7 +5,7 @@ import { Header } from '@/components/layout/header';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { HelpCircle, Bell, ThumbsUp, HardHat, CheckCircle2, XCircle, Megaphone, TrendingUp, Briefcase } from 'lucide-react';
+import { HelpCircle, Bell, ThumbsUp, HardHat, CheckCircle2, XCircle, Megaphone, TrendingUp, Briefcase, SunMoon } from 'lucide-react';
 
 export default function HelpPage() {
   return (
@@ -108,8 +108,29 @@ export default function HelpPage() {
                   </ul>
                 </AccordionContent>
               </AccordionItem>
-              
+
               <AccordionItem value="item-6">
+                <AccordionTrigger>Health & Safety Documents</AccordionTrigger>
+                <AccordionContent className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <HardHat className="h-5 w-5 text-muted-foreground" />
+                    <p>From the main menu, select "Health & Safety" to access a shared folder of important documents. Click the button on this page to open the folder and explore the files.</p>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="item-7">
+                <AccordionTrigger>Annual Leave & Sickness</AccordionTrigger>
+                <AccordionContent className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <SunMoon className="h-5 w-5 text-muted-foreground" />
+                    <p>The "Annual Leave & Sickness" link in the main menu will take you to a separate application to manage your time off.</p>
+                  </div>
+                  <p>You will need to create an account in this separate application to register and report any sickness or holiday requests.</p>
+                </AccordionContent>
+              </AccordionItem>
+              
+              <AccordionItem value="item-8">
                 <AccordionTrigger>Enabling Push Notifications</AccordionTrigger>
                 <AccordionContent>
                   <Alert>
