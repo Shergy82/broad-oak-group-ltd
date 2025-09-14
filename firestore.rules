@@ -3,48 +3,84 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Helper function to check if the user is an admin or owner
+    function isPrivileged() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner'];
+    }
+
+    // Helper function to check if the user is the owner of the account
     function isOwner() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'owner';
     }
-
-    function isAdmin() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
-    }
-
-    function isPrivilegedUser() {
-      return isAdmin() || isOwner();
-    }
     
-    // Allow new users to create their own user document.
+    // USERS collection
     match /users/{userId} {
-      allow create: if request.auth.uid == userId;
-      allow read: if request.auth.uid == userId || isPrivilegedUser();
-      allow update, delete: if isPrivilegedUser();
-    }
+      // ANY authenticated user can create their OWN user document. This is for sign-up.
+      allow create: if request.auth != null && request.auth.uid == userId;
 
-    match /shifts/{shiftId} {
-      allow read, write: if isPrivilegedUser();
-      allow read, update: if request.auth.uid == resource.data.userId;
-    }
-
-    match /projects/{projectId} {
-      allow read: if request.auth != null;
-      allow create, update, delete: if isPrivilegedUser();
+      // Users can read their OWN document. Admins/Owners can read any user document.
+      allow read: if request.auth.uid == userId || isPrivileged();
       
-      match /files/{fileId} {
+      // Users can update their OWN document. Admins/Owners can update any user document.
+      allow update: if request.auth.uid == userId || isPrivileged();
+
+      // ONLY the owner can delete users (except for themselves).
+      allow delete: if isOwner() && request.auth.uid != userId;
+    }
+
+    // SHIFTS collection
+    match /shifts/{shiftId} {
+        // Any authenticated user can read/write shifts.
+        // More granular logic (e.g., only assigned user can update) is handled in the app's UI.
+        // Notifications are handled by a backend Cloud Function which has admin access.
+        allow read, write: if request.auth != null;
+    }
+
+    // PROJECTS collection & files subcollection
+    match /projects/{projectId} {
+        // Any authenticated user can view projects.
         allow read: if request.auth != null;
-        allow create: if request.auth != null;
-        allow delete: if isPrivilegedUser() || request.auth.uid == resource.data.uploaderId;
-      }
+        
+        // Only admins/owners can create, update, or delete projects.
+        allow write: if isPrivileged();
+
+        // FILES subcollection
+        match /files/{fileId} {
+            // Any authenticated user can view files.
+            allow read: if request.auth != null;
+
+            // Any authenticated user can create (upload) a file.
+            // Deletion is handled by a secure Cloud Function.
+            allow create: if request.auth != null;
+            allow update, delete: if isPrivileged();
+        }
     }
     
+    // ANNOUNCEMENTS collection
     match /announcements/{announcementId} {
+        // Any authenticated user can read announcements.
         allow read: if request.auth != null;
-        allow create, update, delete: if isPrivilegedUser();
+        
+        // Only admins/owners can create/update/delete announcements.
+        allow write: if isPrivileged();
+        
+        match /acknowledgedBy/{userId} {
+             // A user can only acknowledge for themselves.
+             allow write: if request.auth != null && request.auth.uid == userId;
+             // Only privileged users can see who has acknowledged.
+             allow read: if isPrivileged();
+        }
     }
     
-    match /settings/{docId} {
+    // SETTINGS collection
+    match /settings/{settingId} {
+        // Only the owner can read or write to the settings collection.
         allow read, write: if isOwner();
+    }
+    
+    // Default deny all other collections/documents
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
