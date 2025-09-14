@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -12,7 +11,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Spinner } from '@/components/shared/spinner';
 import type { Shift } from '@/types';
 import { format } from 'date-fns';
-import { Check, CheckCheck, X } from 'lucide-react';
+import { Check, CheckCheck, Gift } from 'lucide-react';
 
 interface NewShiftsDialogProps {
   shifts: Shift[];
@@ -88,20 +87,23 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
 
   return (
     <Dialog open={isOpen} onOpenChange={handleDialogClose}>
-      <DialogContent className="max-w-2xl" onInteractOutside={(e) => e.preventDefault()}>
+      <DialogContent className="max-w-3xl" onInteractOutside={(e) => e.preventDefault()}>
         <DialogHeader>
-          <DialogTitle>You have {shifts.length} new shift(s) awaiting confirmation</DialogTitle>
-          <DialogDescription>Please review and accept your newly assigned shifts.</DialogDescription>
+          <DialogTitle className="flex items-center gap-2">
+            <Gift className="text-primary h-6 w-6"/>
+            You have {shifts.length} new shift(s) awaiting confirmation
+          </DialogTitle>
+          <DialogDescription>Please review and accept your newly assigned shifts below.</DialogDescription>
         </DialogHeader>
 
         <ScrollArea className="max-h-[60vh] my-4 rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Date</TableHead>
+                <TableHead className="w-[120px]">Date</TableHead>
                 <TableHead>Task</TableHead>
                 <TableHead>Address</TableHead>
-                <TableHead className="text-right">Action</TableHead>
+                <TableHead className="text-right w-[120px]">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -126,10 +128,7 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
           </Table>
         </ScrollArea>
 
-        <DialogFooter className="flex-col sm:flex-row gap-2">
-          <Button type="button" variant="ghost" onClick={onClose} disabled={isLoading}>
-            <X className="mr-2 h-4 w-4" /> Close
-          </Button>
+        <DialogFooter>
           <Button onClick={handleAcceptAll} disabled={isLoading} className="w-full sm:w-auto">
             {isLoading ? <Spinner /> : <><CheckCheck className="mr-2 h-4 w-4" /> Accept All ({shifts.length})</>}
           </Button>
