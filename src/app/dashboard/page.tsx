@@ -8,12 +8,11 @@ import { useUserProfile } from '@/hooks/use-user-profile';
 import Dashboard from '@/components/dashboard/index';
 import { Header } from '@/components/layout/header';
 import { Spinner } from '@/components/shared/spinner';
-import { collection, onSnapshot, query, orderBy, Timestamp } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { Announcement, Shift, UserProfile } from '@/types';
+import type { Announcement, Shift } from '@/types';
 import { UnreadAnnouncements } from '@/components/announcements/unread-announcements';
 import { NewShiftsDialog } from '@/components/dashboard/new-shifts-dialog';
-import { PerformanceAwards } from '@/components/dashboard/performance-awards';
 
 export default function DashboardPage() {
   const { user, isLoading: isAuthLoading } = useAuth();
@@ -22,7 +21,6 @@ export default function DashboardPage() {
 
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [allShifts, setAllShifts] = useState<Shift[]>([]);
-  const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [showAnnouncements, setShowAnnouncements] = useState(true);
   const [showNewShifts, setShowNewShifts] = useState(true);
@@ -41,15 +39,13 @@ export default function DashboardPage() {
     setLoadingData(true);
 
     const announcementsQuery = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'));
-    const shiftsQuery = query(collection(db, 'shifts'));
-    const usersQuery = query(collection(db, 'users'));
+    const shiftsQuery = query(collection(db, 'shifts'), where('userId', '==', user.uid));
     
     let announcementsLoaded = false;
     let shiftsLoaded = false;
-    let usersLoaded = false;
 
     const checkAllDataLoaded = () => {
-        if (announcementsLoaded && shiftsLoaded && usersLoaded) {
+        if (announcementsLoaded && shiftsLoaded) {
             setLoadingData(false);
         }
     }
@@ -69,33 +65,17 @@ export default function DashboardPage() {
         shiftsLoaded = true;
         checkAllDataLoaded();
     }, (error) => {
-        console.error("Error fetching shifts:", error);
+        console.error("Error fetching user shifts:", error);
         shiftsLoaded = true;
-        checkAllDataLoaded();
-    });
-
-    const unsubUsers = onSnapshot(usersQuery, (snapshot) => {
-        setAllUsers(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile)));
-        usersLoaded = true;
-        checkAllDataLoaded();
-    }, (error) => {
-        console.error("Error fetching users:", error);
-        usersLoaded = true;
         checkAllDataLoaded();
     });
 
     return () => {
       unsubAnnouncements();
       unsubShifts();
-      unsubUsers();
     };
   }, [user]);
-
-  const userShifts = useMemo(() => {
-      if (!user) return [];
-      return allShifts.filter(shift => shift.userId === user.uid);
-  }, [allShifts, user]);
-
+  
   const unreadAnnouncements = useMemo(() => {
     if (!user || loadingData || announcements.length === 0) return [];
     
@@ -106,9 +86,9 @@ export default function DashboardPage() {
   }, [announcements, user, loadingData]);
 
   const newShifts = useMemo(() => {
-    if (!user || loadingData || userShifts.length === 0) return [];
-    return userShifts.filter(shift => shift.status === 'pending-confirmation');
-  }, [userShifts, user, loadingData]);
+    if (!user || loadingData || allShifts.length === 0) return [];
+    return allShifts.filter(shift => shift.status === 'pending-confirmation');
+  }, [allShifts, user, loadingData]);
   
   const isLoading = isAuthLoading || isProfileLoading || loadingData;
 
@@ -145,7 +125,7 @@ export default function DashboardPage() {
     <div className="flex min-h-screen w-full flex-col">
       <Header />
       <main className="flex flex-1 flex-col gap-6 p-4 md:p-8">
-        <Dashboard allShifts={userShifts} />
+        <Dashboard userShifts={allShifts} loading={loadingData} />
       </main>
     </div>
   );

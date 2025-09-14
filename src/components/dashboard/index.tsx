@@ -2,8 +2,6 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
-import { db, isFirebaseConfigured } from '@/lib/firebase';
 import { useAuth } from '@/hooks/use-auth';
 import { ShiftCard } from '@/components/dashboard/shift-card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -15,26 +13,13 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Clock, Download, Sunrise, Sunset, Terminal, History } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { UserStatsDashboard } from './user-stats-dashboard';
+import { getCorrectedLocalDate } from '@/lib/utils';
 
-const getCorrectedLocalDate = (date: { toDate: () => Date }) => {
-    const d = date.toDate();
-    // Use UTC date parts to create a local date object to avoid timezone issues.
-    return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-};
 
-export default function Dashboard({ allShifts }: { allShifts: Shift[] }) {
+export default function Dashboard({ userShifts, loading }: { userShifts: Shift[], loading: boolean }) {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [dismissedShiftIds, setDismissedShiftIds] = useState<string[]>([]);
-
-  useEffect(() => {
-    if (allShifts) {
-      setLoading(false);
-    }
-  }, [allShifts]);
 
   useEffect(() => {
     if (user) {
@@ -63,31 +48,23 @@ export default function Dashboard({ allShifts }: { allShifts: Shift[] }) {
     thisWeekShifts, 
     nextWeekShifts,
     historicalShifts,
-    allThisWeekShifts,
-    allNextWeekShifts,
   } = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const fourWeeksAgo = subDays(today, 28);
 
-    // Filter out locally dismissed shifts first
-    const visibleShifts = allShifts.filter(s => !dismissedShiftIds.includes(s.id));
+    const visibleShifts = userShifts.filter(s => !dismissedShiftIds.includes(s.id));
 
-    // 1. Separate shifts into active and historical
-    const activeStatuses: ShiftStatus[] = ['pending-confirmation', 'confirmed', 'on-site'];
+    const activeStatuses: ShiftStatus[] = ['pending-confirmation', 'confirmed', 'on-site', 'rejected'];
     const activeShifts = visibleShifts.filter(s => activeStatuses.includes(s.status));
     
-    // Filter historical shifts to be within the last 4 weeks
-    const historicalShifts = visibleShifts.filter(s => {
+    const historical = visibleShifts.filter(s => {
         const isHistorical = s.status === 'completed' || s.status === 'incomplete';
         if (!isHistorical) return false;
         const shiftDate = getCorrectedLocalDate(s.date);
         return shiftDate >= fourWeeksAgo;
-    });
+    }).sort((a, b) => getCorrectedLocalDate(b.date).getTime() - getCorrectedLocalDate(a.date).getTime());
 
-    historicalShifts.sort((a, b) => getCorrectedLocalDate(b.date).getTime() - getCorrectedLocalDate(a.date).getTime());
-
-    // 2. Group shifts for display using ONLY activeShifts
     const groupShiftsByDay = (weekShifts: Shift[]) => {
       const grouped: { [key: string]: Shift[] } = {};
       weekShifts.forEach(shift => {
@@ -100,11 +77,10 @@ export default function Dashboard({ allShifts }: { allShifts: Shift[] }) {
       return grouped;
     };
     
-    // Display shifts (from activeShifts)
     const activeTodayShifts = activeShifts.filter(s => isToday(getCorrectedLocalDate(s.date)));
-    const todayAmShifts = activeTodayShifts.filter(s => s.type === 'am');
-    const todayPmShifts = activeTodayShifts.filter(s => s.type === 'pm');
-    const todayAllDayShifts = activeTodayShifts.filter(s => s.type === 'all-day');
+    const todayAm = activeTodayShifts.filter(s => s.type === 'am');
+    const todayPm = activeTodayShifts.filter(s => s.type === 'pm');
+    const todayAllDay = activeTodayShifts.filter(s => s.type === 'all-day');
 
     const activeThisWeekShifts = activeShifts.filter(s => isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 }));
     
@@ -114,25 +90,15 @@ export default function Dashboard({ allShifts }: { allShifts: Shift[] }) {
         return isSameWeek(shiftDate, startOfNextWeek, { weekStartsOn: 1 });
     });
 
-    // 3. Group all shifts for PDF using the original `allShifts` array
-    const allThisWeekShiftsData = allShifts.filter(s => isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 }));
-    const allNextWeekShiftsData = allShifts.filter(s => {
-        const shiftDate = getCorrectedLocalDate(s.date);
-        const startOfNextWeek = addDays(today, 7);
-        return isSameWeek(shiftDate, startOfNextWeek, { weekStartsOn: 1 });
-    });
-
     return {
-      todayAmShifts,
-      todayPmShifts,
-      todayAllDayShifts,
+      todayAmShifts: todayAm,
+      todayPmShifts: todayPm,
+      todayAllDayShifts: todayAllDay,
       thisWeekShifts: groupShiftsByDay(activeThisWeekShifts),
       nextWeekShifts: groupShiftsByDay(activeNextWeekShifts),
-      historicalShifts,
-      allThisWeekShifts: allThisWeekShiftsData,
-      allNextWeekShifts: allNextWeekShiftsData,
+      historicalShifts: historical,
     };
-  }, [allShifts, dismissedShiftIds]);
+  }, [userShifts, dismissedShiftIds]);
 
   const handleDownloadPdf = async () => {
     const { default: jsPDF } = await import('jspdf');
@@ -148,7 +114,7 @@ export default function Dashboard({ allShifts }: { allShifts: Shift[] }) {
     doc.setTextColor(100);
     doc.text(`Generated on: ${format(generationDate, 'PPP p')}`, 14, 28);
     
-    let finalY = 35; // a running tally of the Y position on the page
+    let finalY = 35;
 
     const generateTableForShifts = (title: string, shiftsForTable: Shift[]) => {
       if (shiftsForTable.length === 0) return;
@@ -175,20 +141,26 @@ export default function Dashboard({ allShifts }: { allShifts: Shift[] }) {
           headStyles: { fillColor: [41, 128, 185], textColor: 255 },
           margin: { top: 10 },
           didDrawPage: (data) => {
-              // Reset Y for new page
               finalY = data.cursor?.y ?? finalY;
           },
       });
       
-      // The `lastAutoTable` property is on the jsPDF instance, not the autotable function result
       finalY = (doc as any).lastAutoTable.finalY + 15;
     };
     
-    generateTableForShifts("This Week's Shifts", allThisWeekShifts);
-    generateTableForShifts("Next Week's Shifts", allNextWeekShifts);
+    const today = new Date();
+    const thisWeek = userShifts.filter(s => isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 }));
+    const nextWeek = userShifts.filter(s => {
+        const shiftDate = getCorrectedLocalDate(s.date);
+        const startOfNextWeek = addDays(today, 7);
+        return isSameWeek(shiftDate, startOfNextWeek, { weekStartsOn: 1 });
+    });
 
-    if (allThisWeekShifts.length === 0 && allNextWeekShifts.length === 0) {
-      doc.text("No shifts scheduled.", 14, finalY);
+    generateTableForShifts("This Week's Shifts", thisWeek);
+    generateTableForShifts("Next Week's Shifts", nextWeek);
+
+    if (thisWeek.length === 0 && nextWeek.length === 0) {
+      doc.text("No shifts scheduled for this week or next week.", 14, finalY);
     }
     
     doc.save(`shift_schedule_${userName.replace(/\s/g, '_')}.pdf`);
@@ -204,14 +176,10 @@ export default function Dashboard({ allShifts }: { allShifts: Shift[] }) {
     if (loading) {
         return (
             <div className="space-y-6">
-                {weekdays.map((day) => (
+                {weekdays.slice(0,3).map((day) => (
                     <Card key={day}>
-                        <CardHeader>
-                            <CardTitle>{day}</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <Skeleton className="h-32 w-full" />
-                        </CardContent>
+                        <CardHeader><Skeleton className="h-6 w-32" /></CardHeader>
+                        <CardContent><Skeleton className="h-24 w-full" /></CardContent>
                     </Card>
                 ))}
             </div>
@@ -219,7 +187,7 @@ export default function Dashboard({ allShifts }: { allShifts: Shift[] }) {
     }
 
     if (!hasShiftsThisWeek) {
-        return <p className="text-muted-foreground mt-4 text-center">No shifts scheduled for this week.</p>;
+        return <p className="text-muted-foreground mt-4 text-center">No active shifts scheduled for this week.</p>;
     }
 
     return (
@@ -275,16 +243,6 @@ export default function Dashboard({ allShifts }: { allShifts: Shift[] }) {
     );
   };
   
-  if (error) {
-    return (
-      <Alert variant="destructive">
-        <Terminal className="h-4 w-4" />
-        <AlertTitle>Error Fetching Data</AlertTitle>
-        <AlertDescription>{error}</AlertDescription>
-      </Alert>
-    )
-  }
-
   return (
     <div className="w-full space-y-8">
       {user?.displayName && (
@@ -307,15 +265,15 @@ export default function Dashboard({ allShifts }: { allShifts: Shift[] }) {
         </TabsList>
         <TabsContent value="today">
           {loading ? (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 mt-4">
               {Array.from({ length: 3 }).map((_, i) => (
-                  <Skeleton key={i} className="h-32 w-full rounded-lg" />
+                  <Skeleton key={i} className="h-40 w-full rounded-lg" />
               ))}
             </div>
           ) : todayAmShifts.length === 0 && todayPmShifts.length === 0 && todayAllDayShifts.length === 0 ? (
-            <p className="col-span-full mt-4 text-center text-muted-foreground">No shifts scheduled for today.</p>
+            <p className="col-span-full mt-4 text-center text-muted-foreground">No active shifts scheduled for today.</p>
           ) : (
-            <div className="space-y-6">
+            <div className="space-y-6 mt-4">
               <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                   <div className="space-y-4">
                       <h3 className="flex items-center text-lg md:text-xl font-semibold text-sky-600 dark:text-sky-400"><Sunrise className="mr-2 h-5 w-5" /> AM Shifts</h3>
@@ -361,7 +319,7 @@ export default function Dashboard({ allShifts }: { allShifts: Shift[] }) {
         <div className="mt-8">
             <h3 className="text-xl md:text-2xl font-semibold tracking-tight mb-4 flex items-center">
                 <History className="mr-3 h-6 w-6 text-muted-foreground" />
-                Recently Completed &amp; Incomplete
+                Recently Completed & Incomplete
             </h3>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {historicalShifts.map(shift => (
