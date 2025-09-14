@@ -28,19 +28,26 @@ export function usePushNotifications() {
   const [isSubscribing, setIsSubscribing] = useState(false);
   const [isSupported, setIsSupported] = useState(false);
   const [vapidKey, setVapidKey] = useState<string | null>(null);
+  const [isKeyLoading, setIsKeyLoading] = useState(true);
   const [permission, setPermission] = useState<PermissionState | null>(null);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window) {
       setIsSupported(true);
       setPermission(Notification.permission as PermissionState);
+    } else {
+      setIsKeyLoading(false);
     }
   }, []);
 
   // Step 1: Fetch VAPID key once supported.
   useEffect(() => {
     async function fetchVapidKey() {
-      if (!isSupported || !isFirebaseConfigured || !functions) return;
+      if (!isSupported || !isFirebaseConfigured || !functions) {
+          setIsKeyLoading(false);
+          return;
+      };
+      setIsKeyLoading(true);
       try {
         const getVapidPublicKey = httpsCallable<{ }, { publicKey: string }>(functions, 'getVapidPublicKey');
         const result = await getVapidPublicKey();
@@ -53,12 +60,10 @@ export function usePushNotifications() {
           description = 'The backend notification service has not been deployed yet. The account owner can find setup instructions in the Admin panel.';
         }
         
-        toast({
-            variant: 'destructive',
-            title: 'Notification Service Unavailable',
-            description: description,
-            duration: 15000,
-        })
+        // We don't show a toast here anymore to avoid the intermittent error message.
+        // The button will just not render if the key isn't found.
+      } finally {
+          setIsKeyLoading(false);
       }
     }
     fetchVapidKey();
@@ -161,5 +166,5 @@ export function usePushNotifications() {
     }
   }, [isSupported, user, toast]);
 
-  return { isSupported, isSubscribed, isSubscribing, permission, subscribe, unsubscribe };
+  return { isSupported, isSubscribed, isSubscribing, isKeyLoading, vapidKey, permission, subscribe, unsubscribe };
 }

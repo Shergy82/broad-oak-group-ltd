@@ -16,10 +16,11 @@ import {
 } from '@/components/ui/dialog';
 
 export function NotificationButton() {
-  const { isSupported, isSubscribed, isSubscribing, permission, subscribe, unsubscribe } = usePushNotifications();
+  const { isSupported, isSubscribed, isSubscribing, isKeyLoading, vapidKey, permission, subscribe, unsubscribe } = usePushNotifications();
   const [isBlockedDialogOpen, setBlockedDialogOpen] = useState(false);
 
-  if (!isSupported) {
+  // Do not render the button if not supported, or if the VAPID key is missing after loading.
+  if (!isSupported || (!isKeyLoading && !vapidKey)) {
     return null;
   }
 
@@ -34,13 +35,14 @@ export function NotificationButton() {
   };
   
   const getIcon = () => {
-      if (isSubscribing) return <Spinner />;
+      if (isKeyLoading || isSubscribing) return <Spinner />;
       if (permission === 'denied') return <XCircle className="h-5 w-5 text-destructive" />;
       if (isSubscribed) return <Bell className="h-5 w-5 text-accent" />;
       return <BellOff className="h-5 w-5 text-muted-foreground" />;
   }
 
   const getTooltipContent = () => {
+      if (isKeyLoading) return 'Loading settings...';
       if (permission === 'denied') return 'Notifications blocked';
       if (isSubscribed) return 'Unsubscribe from notifications';
       return 'Subscribe to notifications';
@@ -51,7 +53,7 @@ export function NotificationButton() {
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" onClick={handleToggleSubscription} disabled={isSubscribing}>
+              <Button variant="ghost" size="icon" onClick={handleToggleSubscription} disabled={isKeyLoading || isSubscribing}>
                 {getIcon()}
               </Button>
             </TooltipTrigger>
