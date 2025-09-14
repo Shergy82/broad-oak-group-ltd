@@ -61,6 +61,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile 
   
   const getCorrectedLocalDate = (date: { toDate: () => Date }) => {
     const d = date.toDate();
+    // Use UTC date parts to create a local date object to avoid timezone issues when comparing.
     return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
   };
 
@@ -78,7 +79,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile 
       } else {
         form.reset({
           userId: '',
-          date: undefined,
+          date: new Date(),
           type: 'all-day',
           task: '',
           address: '',
@@ -105,7 +106,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile 
     try {
       if (isEditing && shift) {
         const shiftRef = doc(db, 'shifts', shift.id);
-        await updateDoc(shiftRef, dataToSave as any);
+        await updateDoc(shiftRef, { ...dataToSave, status: 'confirmed' } as any);
         toast({ title: 'Success', description: 'Shift updated.' });
       } else {
         await addDoc(collection(db, 'shifts'), {
@@ -126,12 +127,22 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile 
   
   const handleCreateTestShift = async () => {
     if (!db) return;
-    const testUser = users.find(u => u.name.toLowerCase().includes('phil shergold'));
+    
+    const selectedUserId = form.getValues('userId');
+    if (!selectedUserId) {
+        toast({
+            variant: 'destructive',
+            title: 'No User Selected',
+            description: "Please select an operative from the dropdown before creating a test shift."
+        });
+        return;
+    }
+    const testUser = users.find(u => u.uid === selectedUserId);
     if (!testUser) {
         toast({
             variant: 'destructive',
-            title: 'Test User Not Found',
-            description: "Could not find user 'Phil Shergold'. Please ensure the user exists."
+            title: 'User Not Found',
+            description: "The selected user could not be found."
         });
         return;
     }
@@ -183,7 +194,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile 
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Operative</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder="Select an operative" />
@@ -227,7 +238,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile 
                             mode="single"
                             selected={field.value}
                             onSelect={(date) => {
-                                field.onChange(date);
+                                if (date) field.onChange(date);
                                 setDatePickerOpen(false);
                             }}
                             initialFocus
