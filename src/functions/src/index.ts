@@ -1,5 +1,4 @@
 
-'use server';
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import * as webPush from "web-push";
@@ -160,22 +159,22 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
         functions.logger.log("Shift update detected, but data is missing. No notification sent.");
         return;
       }
-      
+
       // --- Robust comparison logic ---
       const changedFields: string[] = [];
 
       // 1. Compare string values, tolerant of whitespace and null/undefined differences.
       if ((before.task || "").trim() !== (after.task || "").trim()) {
-          changedFields.push('task');
+        changedFields.push('task');
       }
       if ((before.address || "").trim() !== (after.address || "").trim()) {
-          changedFields.push('location');
+        changedFields.push('location');
       }
       if ((before.bNumber || "").trim() !== (after.bNumber || "").trim()) {
-          changedFields.push('B Number');
+        changedFields.push('B Number');
       }
       if (before.type !== after.type) {
-          changedFields.push('time (AM/PM)');
+        changedFields.push('time (AM/PM)');
       }
 
       // 2. Compare dates with day-level precision, ignoring time-of-day.
@@ -185,21 +184,21 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
 
       // 3. Determine if any meaningful change occurred and build the notification.
       if (changedFields.length > 0) {
-          userId = after.userId;
+        userId = after.userId;
 
-          const changes = changedFields.join(' & ');
-          const body = `The ${changes} for one of your shifts has been updated.`;
+        const changes = changedFields.join(' & ');
+        const body = `The ${changes} for one of your shifts has been updated.`;
 
-          payload = {
-            title: "Your Shift Has Been Updated",
-            body: body,
-            data: { url: `/dashboard` },
-          };
-          functions.logger.log(`Meaningful change detected for shift ${shiftId}. Changes: ${changes}. Sending notification.`);
+        payload = {
+          title: "Your Shift Has Been Updated",
+          body: body,
+          data: { url: `/dashboard` },
+        };
+        functions.logger.log(`Meaningful change detected for shift ${shiftId}. Changes: ${changes}. Sending notification.`);
       } else {
-          // This is the crucial part: No meaningful change was detected, so no notification will be sent.
-          functions.logger.log(`Shift ${shiftId} was updated, but no significant fields changed. No notification sent.`);
-          return;
+        // This is the crucial part: No meaningful change was detected, so no notification will be sent.
+        functions.logger.log(`Shift ${shiftId} was updated, but no significant fields changed. No notification sent.`);
+        return;
       }
     } else {
       functions.logger.log(`Shift ${shiftId} write event occurred, but it was not a create, update, or delete. No notification sent.`);
@@ -342,92 +341,6 @@ export const projectReviewNotifier = functions
     }
   });
 
-export const pendingShiftNotifier = functions
-  .region("europe-west2")
-  .pubsub.schedule("every 1 hours")
-  .onRun(async (context) => {
-    functions.logger.log("Running hourly pending shift notifier.");
-
-    const settingsRef = db.collection('settings').doc('notifications');
-    const settingsDoc = await settingsRef.get();
-    if (settingsDoc.exists() && settingsDoc.data()?.enabled === false) {
-      functions.logger.log('Global notifications are disabled by the owner. Aborting pending shift notifier.');
-      return;
-    }
-
-    const config = functions.config();
-    const publicKey = config.webpush?.public_key;
-    const privateKey = config.webpush?.private_key;
-
-    if (!publicKey || !privateKey) {
-      functions.logger.error("CRITICAL: VAPID keys are not configured. Cannot send pending shift reminders.");
-      return;
-    }
-
-    webPush.setVapidDetails("mailto:example@your-project.com", publicKey, privateKey);
-
-    try {
-      const pendingShiftsQuery = db.collection("shifts").where("status", "==", "pending-confirmation");
-      const querySnapshot = await pendingShiftsQuery.get();
-
-      if (querySnapshot.empty) {
-        functions.logger.log("No pending shifts found.");
-        return;
-      }
-
-      const shiftsByUser = new Map<string, any[]>();
-      querySnapshot.forEach(doc => {
-        const shift = doc.data();
-        if (shift.userId) {
-          if (!shiftsByUser.has(shift.userId)) {
-            shiftsByUser.set(shift.userId, []);
-          }
-          shiftsByUser.get(shift.userId)!.push(shift);
-        }
-      });
-
-      for (const [userId, userShifts] of shiftsByUser.entries()) {
-        const subscriptionsSnapshot = await db
-          .collection("users")
-          .doc(userId)
-          .collection("pushSubscriptions")
-          .withConverter(pushSubscriptionConverter)
-          .get();
-
-        if (subscriptionsSnapshot.empty) {
-          functions.logger.warn(`User ${userId} has ${userShifts.length} pending shift(s) but no push subscriptions.`);
-          continue;
-        }
-
-        const notificationPayload = JSON.stringify({
-          title: "Pending Shifts Reminder",
-          body: `You have ${userShifts.length} shift(s) awaiting your confirmation. Please review them in the app.`,
-          data: { url: "/dashboard" },
-        });
-
-        functions.logger.log(`Sending reminder to user ${userId} for ${userShifts.length} pending shift(s).`);
-
-        const sendPromises = subscriptionsSnapshot.docs.map(subDoc => {
-          const subscription = subDoc.data();
-          return webPush.sendNotification(subscription, notificationPayload).catch((error: any) => {
-            functions.logger.error(`Error sending notification to user ${userId}:`, error);
-            if (error.statusCode === 410 || error.statusCode === 404) {
-              functions.logger.log(`Deleting invalid subscription for user ${userId}.`);
-              return subDoc.ref.delete();
-            }
-            return null;
-          });
-        });
-
-        await Promise.all(sendPromises);
-      }
-
-      functions.logger.log("Finished processing pending shift reminders.");
-    } catch (error) {
-      functions.logger.error("Error running pendingShiftNotifier:", error);
-    }
-  });
-
 export const deleteProjectAndFiles = functions.region("europe-west2").https.onCall(async (data, context) => {
     functions.logger.log("Received request to delete project:", data.projectId);
 
@@ -502,7 +415,7 @@ export const deleteProjectFile = functions.region("europe-west2").https.onCall(a
         const fileRef = db.collection('projects').doc(projectId).collection('files').doc(fileId);
         const fileDoc = await fileRef.get();
 
-        if (!fileDoc.exists) {
+        if (!fileDoc.exists()) {
             throw new functions.https.HttpsError("not-found", "The specified file does not exist.");
         }
 
@@ -650,108 +563,4 @@ export const deleteAllProjects = functions.region("europe-west2").https.onCall(a
         functions.logger.error("Error deleting all projects:", error);
         throw new functions.https.HttpsError("internal", "An error occurred while deleting all projects. Please check the function logs.");
     }
-});
-
-
-export const setUserStatus = functions.region("europe-west2").https.onCall(async (data, context) => {
-    // 1. Authentication & Authorization
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
-    }
-    const callerUid = context.auth.uid;
-    const callerDoc = await db.collection("users").doc(callerUid).get();
-    const callerProfile = callerDoc.data();
-
-    if (!callerProfile || callerProfile.role !== 'owner') {
-        throw new functions.https.HttpsError("permission-denied", "Only the account owner can change user status.");
-    }
-    
-    // 2. Validation
-    const { uid, disabled, newStatus } = data;
-    const validStatuses = ['active', 'suspended', 'pending-approval'];
-
-    if (typeof uid !== 'string' || typeof disabled !== 'boolean' || !validStatuses.includes(newStatus)) {
-        throw new functions.https.HttpsError("invalid-argument", `Invalid arguments provided. 'uid' must be a string, 'disabled' a boolean, and 'newStatus' must be one of ${validStatuses.join(', ')}.`);
-    }
-
-    if (uid === callerUid) {
-        throw new functions.https.HttpsError("permission-denied", "The account owner cannot suspend their own account.");
-    }
-    
-    // 3. Execution
-    try {
-        await admin.auth().updateUser(uid, { disabled });
-        
-        const userDocRef = db.collection('users').doc(uid);
-        await userDocRef.update({ status: newStatus });
-        
-        functions.logger.log(`Owner ${callerUid} has set user ${uid} to status: ${newStatus} (Auth disabled: ${disabled}).`);
-
-        return { success: true };
-    } catch (error: any) {
-        functions.logger.error(`Error updating status for user ${uid}:`, error);
-        throw new functions.https.HttpsError("internal", `An unexpected error occurred while updating user status: ${error.message}`);
-    }
-});
-
-
-export const deleteUser = functions.region("europe-west2").https.onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
-  }
-
-  const callerUid = context.auth.uid;
-  const callerDoc = await db.collection("users").doc(callerUid).get();
-  const callerProfile = callerDoc.data() as { role: string } | undefined;
-
-  if (!callerProfile || callerProfile.role !== 'owner') {
-    throw new functions.https.HttpsError("permission-denied", "Only the account owner can delete users.");
-  }
-
-  const { uid } = data;
-  if (typeof uid !== "string") {
-    throw new functions.https.HttpsError("invalid-argument", "The function requires a 'uid' (string) argument.");
-  }
-  if (uid === callerUid) {
-    throw new functions.https.HttpsError("permission-denied", "The account owner cannot delete their own account.");
-  }
-
-  try {
-    // Step 1: Delete all documents from the 'pushSubscriptions' subcollection.
-    const subscriptionsRef = db.collection("users").doc(uid).collection("pushSubscriptions");
-    const subscriptionsSnapshot = await subscriptionsRef.get();
-    if (!subscriptionsSnapshot.empty) {
-      const batch = db.batch();
-      subscriptionsSnapshot.docs.forEach(doc => batch.delete(doc.ref));
-      await batch.commit(); 
-      functions.logger.log(`Deleted ${subscriptionsSnapshot.size} push subscriptions for user ${uid}.`);
-    }
-
-    // Step 2: Delete the main user document from Firestore.
-    await db.collection("users").doc(uid).delete();
-    functions.logger.log(`Deleted Firestore document for user ${uid}.`);
-
-    // Step 3: Delete the user from Firebase Authentication.
-    await admin.auth().deleteUser(uid);
-    functions.logger.log(`Deleted Firebase Auth user ${uid}.`);
-
-    functions.logger.log(`Owner ${callerUid} successfully deleted user ${uid}`);
-    return { success: true };
-
-  } catch (error: any) {
-    functions.logger.error(`Error deleting user ${uid}:`, error);
-
-    // This is the critical change: if the user is already gone from Auth,
-    // we log it and proceed as if successful, because the end state is the same.
-    if (error.code === "auth/user-not-found") {
-      functions.logger.warn(`User ${uid} was already deleted from Firebase Auth. Continuing cleanup.`);
-      // We can return success here because the main goal is to ensure the user is gone.
-      // If the Auth user is already gone, we've achieved part of the goal.
-      // The Firestore deletes would have already run.
-      return { success: true, message: "User was already deleted from Authentication. Cleanup finished." };
-    }
-    
-    // For other errors, re-throw a clear error message.
-    throw new functions.https.HttpsError("internal", `An unexpected error occurred while deleting the user: ${error.message}`);
-  }
 });

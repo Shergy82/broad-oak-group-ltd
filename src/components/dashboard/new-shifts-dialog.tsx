@@ -2,25 +2,17 @@
 'use client';
 
 import { useState } from 'react';
-import { db } from '@/lib/firebase';
-import { doc, writeBatch, serverTimestamp } from 'firebase/firestore';
-import type { Shift, ShiftStatus } from '@/types';
 import { useToast } from '@/hooks/use-toast';
-import { format } from 'date-fns';
-
+import { db } from '@/lib/firebase';
+import { writeBatch, doc, Timestamp } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Spinner } from '@/components/shared/spinner';
-import { Check, CheckCheck, ThumbsDown, ThumbsUp, X } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui/card';
+import type { Shift } from '@/types';
+import { format } from 'date-fns';
+import { Check, CheckCheck, X } from 'lucide-react';
 
 interface NewShiftsDialogProps {
   shifts: Shift[];
@@ -30,59 +22,56 @@ interface NewShiftsDialogProps {
 export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
   const [isOpen, setIsOpen] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
-  const [acknowledgedShifts, setAcknowledgedShifts] = useState<Record<string, ShiftStatus>>({});
   const { toast } = useToast();
 
-  const handleUpdate = async (shiftsToUpdate: Shift[], newStatus: ShiftStatus) => {
-    if (shiftsToUpdate.length === 0) return;
+  const handleUpdate = async (shiftsToUpdate: Shift[], newStatus: 'confirmed' | 'rejected', notes?: string) => {
+    if (!db) {
+      toast({ variant: 'destructive', title: 'Database not configured' });
+      return;
+    }
     setIsLoading(true);
 
     try {
       const batch = writeBatch(db);
-      const shiftIds = shiftsToUpdate.map(s => s.id);
-      
-      const newProcessed: Record<string, ShiftStatus> = {};
+      const confirmedAt = newStatus === 'confirmed' ? Timestamp.now() : null;
 
-      shiftIds.forEach(shiftId => {
-        const shiftRef = doc(db, 'shifts', shiftId);
-        const updateData: { status: ShiftStatus, confirmedAt?: any } = {
-          status: newStatus,
-        };
-        
-        if (newStatus === 'confirmed') {
-            updateData.confirmedAt = serverTimestamp();
+      shiftsToUpdate.forEach(shift => {
+        const shiftRef = doc(db, 'shifts', shift.id);
+        const updatePayload: { status: 'confirmed' | 'rejected'; confirmedAt?: Timestamp | null; notes?: string } = { status: newStatus };
+        if (confirmedAt) {
+          updatePayload.confirmedAt = confirmedAt;
         }
-
-        batch.update(shiftRef, updateData);
-        newProcessed[shiftId] = newStatus;
+        if (notes) {
+          updatePayload.notes = notes;
+        }
+        batch.update(shiftRef, updatePayload as any);
       });
-      
+
       await batch.commit();
 
-      setAcknowledgedShifts(prev => ({ ...prev, ...newProcessed }));
-      
       toast({
-        title: `Shift(s) Acknowledged`,
-        description: `Your response has been recorded.`,
+        title: `Shifts ${newStatus}`,
+        description: `${shiftsToUpdate.length} shift(s) have been updated.`,
       });
-
-      // Check if all shifts in the dialog have been processed
-      const allShiftsInDialog = shifts.map(s => s.id);
-      const processedIds = new Set([...Object.keys(acknowledgedShifts), ...shiftIds]);
-      if (allShiftsInDialog.every(id => processedIds.has(id))) {
-          setTimeout(() => onClose(), 800);
-      }
-
+      onClose();
     } catch (error: any) {
-      console.error(`Failed to update shifts to ${newStatus}:`, error);
+      console.error('Error updating shifts:', error);
       toast({
         variant: 'destructive',
-        title: 'Error',
-        description: 'Could not update shifts. Please try again.',
+        title: 'Update Failed',
+        description: 'Could not update shifts. Please check your permissions and try again.',
       });
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleAcceptAll = () => {
+    handleUpdate(shifts, 'confirmed');
+  };
+
+  const handleAcceptSingle = (shift: Shift) => {
+    handleUpdate([shift], 'confirmed');
   };
 
   const handleDialogClose = (open: boolean) => {
@@ -92,107 +81,60 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
     }
   };
 
-  const d = (date: { toDate: () => Date }) => {
+  const getCorrectedLocalDate = (date: { toDate: () => Date }) => {
     const d = date.toDate();
     return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
   };
 
-  const getCardClassName = (status?: ShiftStatus) => {
-      if (status === 'confirmed') return 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800';
-      if (status === 'rejected') return 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800';
-      return '';
-  }
-
-  const shiftsToProcess = shifts.filter(s => !acknowledgedShifts[s.id]);
-
   return (
-    <>
     <Dialog open={isOpen} onOpenChange={handleDialogClose}>
       <DialogContent className="max-w-2xl" onInteractOutside={(e) => e.preventDefault()}>
         <DialogHeader>
-          <DialogTitle>You Have New Shifts</DialogTitle>
-          <DialogDescription>
-            Please review and acknowledge your newly assigned shifts below.
-          </DialogDescription>
+          <DialogTitle>You have {shifts.length} new shift(s) awaiting confirmation</DialogTitle>
+          <DialogDescription>Please review and accept your newly assigned shifts.</DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="max-h-[60vh] my-4 -mx-6 px-6">
-          <div className="space-y-4 pr-1">
-            {shifts.map(shift => {
-              const status = acknowledgedShifts[shift.id];
-              return (
-                <Card key={shift.id} className={getCardClassName(status)}>
-                    <CardHeader className="flex flex-row items-start justify-between pb-3">
-                       <div>
-                           <CardTitle className="text-base">{shift.task}</CardTitle>
-                           <CardDescription>{shift.address}</CardDescription>
-                       </div>
-                        <div className="text-sm text-muted-foreground whitespace-nowrap">
-                            {format(d(shift.date), 'EEE, MMM d')}
-                            <span className="ml-2 capitalize rounded-md bg-muted px-2 py-1 text-xs font-medium">
-                                {shift.type === 'all-day' ? 'All Day' : shift.type}
-                            </span>
-                        </div>
-                    </CardHeader>
-                    <CardContent className="flex justify-end items-center pt-0 gap-2">
-                        {status === 'confirmed' && (
-                            <div className="text-sm font-semibold text-green-600 flex items-center gap-2">
-                                <CheckCheck className="h-4 w-4" /> Accepted
-                            </div>
-                        )}
-                        {status === 'rejected' && (
-                            <div className="text-sm font-semibold text-red-600 flex items-center gap-2">
-                                <X className="h-4 w-4" /> Rejected
-                            </div>
-                        )}
-                        {!status && (
-                          <>
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleUpdate([shift], 'rejected')}
-                                disabled={isLoading}
-                                className="h-8"
-                            >
-                                <ThumbsDown className="mr-2 h-4 w-4" /> Reject
-                            </Button>
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleUpdate([shift], 'confirmed')}
-                                disabled={isLoading}
-                                className="bg-primary text-primary-foreground hover:bg-primary/90 h-8"
-                            >
-                                <ThumbsUp className="mr-2 h-4 w-4" /> Accept
-                            </Button>
-                          </>
-                        )}
-                    </CardContent>
-                </Card>
-              )
-            })}
-          </div>
+        <ScrollArea className="max-h-[60vh] my-4 rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Date</TableHead>
+                <TableHead>Task</TableHead>
+                <TableHead>Address</TableHead>
+                <TableHead className="text-right">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {shifts.map(shift => (
+                <TableRow key={shift.id}>
+                  <TableCell className="font-medium">{format(getCorrectedLocalDate(shift.date), 'dd/MM/yy')}</TableCell>
+                  <TableCell>{shift.task}</TableCell>
+                  <TableCell>{shift.address}</TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleAcceptSingle(shift)}
+                      disabled={isLoading}
+                    >
+                      <Check className="mr-2 h-4 w-4" /> Accept
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </ScrollArea>
 
-        <DialogFooter className="flex-col-reverse sm:flex-row sm:justify-between gap-2">
-            <Button variant="ghost" onClick={onClose} disabled={isLoading}>
-                Remind Me Later
-            </Button>
-            <Button 
-                onClick={() => handleUpdate(shiftsToProcess, 'confirmed')} 
-                disabled={isLoading || shiftsToProcess.length === 0}
-                className="w-full sm:w-auto"
-            >
-                {isLoading ? <Spinner /> : 
-                <>
-                    <Check className="mr-2 h-4 w-4" />
-                    Accept All Remaining
-                </>
-                }
-            </Button>
+        <DialogFooter className="flex-col sm:flex-row gap-2">
+          <Button type="button" variant="ghost" onClick={onClose} disabled={isLoading}>
+            <X className="mr-2 h-4 w-4" /> Close
+          </Button>
+          <Button onClick={handleAcceptAll} disabled={isLoading} className="w-full sm:w-auto">
+            {isLoading ? <Spinner /> : <><CheckCheck className="mr-2 h-4 w-4" /> Accept All ({shifts.length})</>}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
-    </>
   );
 }
