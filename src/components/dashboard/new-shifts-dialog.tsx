@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState } from 'react';
@@ -12,6 +13,7 @@ import { Spinner } from '@/components/shared/spinner';
 import type { Shift } from '@/types';
 import { format } from 'date-fns';
 import { Check, CheckCheck, Gift } from 'lucide-react';
+import { Card, CardContent, CardFooter, CardDescription } from '../ui/card';
 
 interface NewShiftsDialogProps {
   shifts: Shift[];
@@ -35,7 +37,6 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
       
       shiftsToUpdate.forEach(shift => {
         const shiftRef = doc(db, 'shifts', shift.id);
-        // Only update the status field to 'confirmed'
         batch.update(shiftRef, { status: 'confirmed' });
       });
 
@@ -80,7 +81,7 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
 
   return (
     <Dialog open={isOpen} onOpenChange={handleDialogClose}>
-      <DialogContent className="max-w-3xl" onInteractOutside={(e) => e.preventDefault()}>
+      <DialogContent className="max-w-2xl" onInteractOutside={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Gift className="text-primary h-6 w-6"/>
@@ -89,36 +90,51 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
           <DialogDescription>Please review and accept your newly assigned shifts below.</DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="max-h-[60vh] my-4 rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[120px]">Date</TableHead>
-                <TableHead>Task</TableHead>
-                <TableHead>Address</TableHead>
-                <TableHead className="text-right w-[120px]">Action</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {shifts.map(shift => (
-                <TableRow key={shift.id}>
-                  <TableCell className="font-medium">{format(getCorrectedLocalDate(shift.date), 'dd/MM/yy')}</TableCell>
-                  <TableCell>{shift.task}</TableCell>
-                  <TableCell>{shift.address}</TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleAcceptSingle(shift)}
-                      disabled={isLoading}
-                    >
-                      <Check className="mr-2 h-4 w-4" /> Accept
-                    </Button>
-                  </TableCell>
+        <ScrollArea className="max-h-[60vh] my-4">
+          {/* Desktop Table View */}
+          <div className="hidden sm:block rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[120px]">Date</TableHead>
+                  <TableHead>Task</TableHead>
+                  <TableHead>Address</TableHead>
+                  <TableHead className="text-right w-[120px]">Action</TableHead>
                 </TableRow>
+              </TableHeader>
+              <TableBody>
+                {shifts.map(shift => (
+                  <TableRow key={shift.id}>
+                    <TableCell className="font-medium">{format(getCorrectedLocalDate(shift.date), 'dd/MM/yy')}</TableCell>
+                    <TableCell>{shift.task}</TableCell>
+                    <TableCell>{shift.address}</TableCell>
+                    <TableCell className="text-right">
+                      <Button variant="outline" size="sm" onClick={() => handleAcceptSingle(shift)} disabled={isLoading}>
+                        <Check className="mr-2 h-4 w-4" /> Accept
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          {/* Mobile Card View */}
+          <div className="space-y-4 sm:hidden">
+              {shifts.map(shift => (
+                <Card key={shift.id} className="shadow-sm">
+                    <CardContent className="p-4 space-y-1">
+                      <p className="font-bold">{shift.task}</p>
+                      <CardDescription>{shift.address}</CardDescription>
+                      <CardDescription>Date: {format(getCorrectedLocalDate(shift.date), 'EEE, dd MMM yyyy')}</CardDescription>
+                    </CardContent>
+                    <CardFooter className="p-2 bg-muted/50">
+                       <Button variant="outline" size="sm" onClick={() => handleAcceptSingle(shift)} disabled={isLoading} className="w-full">
+                        <Check className="mr-2 h-4 w-4" /> Accept
+                      </Button>
+                    </CardFooter>
+                </Card>
               ))}
-            </TableBody>
-          </Table>
+          </div>
         </ScrollArea>
 
         <DialogFooter>

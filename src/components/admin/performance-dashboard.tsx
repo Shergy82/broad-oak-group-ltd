@@ -1,14 +1,15 @@
+
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot, query, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Shift, UserProfile } from '@/types';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { BarChart, Download, Users } from 'lucide-react';
+import { BarChart, Download, Users, Percent, CheckCircle2, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { format, startOfWeek, startOfMonth } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -109,24 +110,27 @@ export function PerformanceDashboard() {
         const totalShifts = userShifts.length;
         
         if (totalShifts === 0) {
-          return null; // Return null for users with no shifts in the selected range
+          return null;
         }
 
         const completed = userShifts.filter(s => s.status === 'completed').length;
         const incomplete = userShifts.filter(s => s.status === 'incomplete').length;
-        const completionRate = totalShifts > 0 ? (completed / totalShifts) * 100 : 0;
-        const incompleteRate = totalShifts > 0 ? (incomplete / totalShifts) * 100 : 0;
-
-        // Calculate average acceptance time
+        
+        const relevantTotal = completed + incomplete;
+        const completionRate = relevantTotal > 0 ? (completed / relevantTotal) * 100 : 0;
+        const incompleteRate = relevantTotal > 0 ? (incomplete / relevantTotal) * 100 : 0;
+        
         const acceptanceTimes: number[] = [];
         userShifts.forEach(shift => {
-            // This assumes shift.createdAt and shift.confirmedAt exist and are Timestamps
-            // We will need to add `confirmedAt` to the shift update logic later.
-            // For now, we mock the calculation.
+          if (shift.createdAt && shift.confirmedAt) {
+            const time = diffHours(shift.confirmedAt, shift.createdAt);
+            if (time !== null) acceptanceTimes.push(time);
+          }
         });
 
-        // Mock acceptance time for now
-        const mockRandomHours = Math.random() * 8 + 0.5;
+        const avgHours = acceptanceTimes.length > 0
+          ? acceptanceTimes.reduce((a, b) => a + b, 0) / acceptanceTimes.length
+          : null;
 
         return {
           userId: user.uid,
@@ -136,20 +140,19 @@ export function PerformanceDashboard() {
           incomplete,
           completionRate,
           incompleteRate,
-          avgAcceptanceTime: formatDuration(mockRandomHours)
+          avgAcceptanceTime: formatDuration(avgHours)
         };
       })
-      .filter((metric): metric is PerformanceMetrics => metric !== null); // Filter out the nulls
+      .filter((metric): metric is PerformanceMetrics => metric !== null); 
 
-    // Sort from best to worst
     return metrics.sort((a, b) => {
         if (a.completionRate !== b.completionRate) {
-            return b.completionRate - a.completionRate; // Higher completion rate is better
+            return b.completionRate - a.completionRate;
         }
         if (a.incompleteRate !== b.incompleteRate) {
-            return a.incompleteRate - b.incompleteRate; // Lower incomplete rate is better
+            return a.incompleteRate - b.incompleteRate;
         }
-        return b.totalShifts - a.totalShifts; // More shifts is a good tie-breaker
+        return b.totalShifts - a.totalShifts;
     });
 
   }, [users, shifts, loading, error, timeRange]);
@@ -200,7 +203,7 @@ export function PerformanceDashboard() {
             <div>
                 <CardTitle>Operative Performance</CardTitle>
                 <CardDescription>
-                  This dashboard provides key performance indicators for each operative, sorted from best to worst.
+                  Key performance indicators for each operative, sorted from best to worst.
                 </CardDescription>
             </div>
             <div className="flex items-center gap-2">
@@ -229,54 +232,88 @@ export function PerformanceDashboard() {
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
-        <div className="border rounded-lg">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Operative</TableHead>
-                <TableHead className="text-center">Total Shifts</TableHead>
-                <TableHead className="text-center">Completion Rate</TableHead>
-                <TableHead className="text-center">Incomplete Rate</TableHead>
-                <TableHead className="text-right">Avg. Acceptance Time</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
-                Array.from({ length: 3 }).map((_, i) => (
-                  <TableRow key={i}>
-                    <TableCell><Skeleton className="h-5 w-24" /></TableCell>
-                    <TableCell className="text-center"><Skeleton className="h-5 w-12 mx-auto" /></TableCell>
-                    <TableCell className="text-center"><Skeleton className="h-5 w-20 mx-auto" /></TableCell>
-                    <TableCell className="text-center"><Skeleton className="h-5 w-20 mx-auto" /></TableCell>
-                    <TableCell className="text-right"><Skeleton className="h-5 w-16 ml-auto" /></TableCell>
-                  </TableRow>
-                ))
-              ) : performanceData.length === 0 && !error ? (
+        
+        {loading ? (
+             <div className="border rounded-lg"><Skeleton className="w-full h-48" /></div>
+        ) : performanceData.length === 0 && !error ? (
+            <div className="flex flex-col items-center justify-center rounded-lg p-12 text-center border border-dashed">
+                <Users className="mx-auto h-12 w-12 text-muted-foreground" />
+                <h3 className="mt-4 text-lg font-semibold">No Operative Data</h3>
+                <p className="mt-2 text-sm text-muted-foreground">
+                    No users with the 'user' role were found or none have been assigned shifts in this period.
+                </p>
+            </div>
+        ) : (
+          <>
+            {/* Desktop View */}
+            <div className="border rounded-lg hidden md:block">
+              <Table>
+                <TableHeader>
                   <TableRow>
-                      <TableCell colSpan={5}>
-                          <div className="flex flex-col items-center justify-center rounded-lg p-12 text-center">
-                              <Users className="mx-auto h-12 w-12 text-muted-foreground" />
-                              <h3 className="mt-4 text-lg font-semibold">No Operative Data</h3>
-                              <p className="mt-2 text-sm text-muted-foreground">
-                                  No users with the 'user' role were found or none have been assigned shifts in this period.
-                              </p>
-                          </div>
-                      </TableCell>
+                    <TableHead>Operative</TableHead>
+                    <TableHead className="text-center">Total Shifts</TableHead>
+                    <TableHead className="text-center">Completion Rate</TableHead>
+                    <TableHead className="text-center">Incomplete Rate</TableHead>
+                    <TableHead className="text-right">Avg. Acceptance Time</TableHead>
                   </TableRow>
-              ) : (
-                performanceData.map((data) => (
-                  <TableRow key={data.userId}>
-                    <TableCell className="font-medium">{data.userName}</TableCell>
-                    <TableCell className="text-center">{data.totalShifts}</TableCell>
-                    <TableCell className="text-center text-green-600 font-medium">{data.completionRate.toFixed(1)}%</TableCell>
-                    <TableCell className="text-center text-amber-600 font-medium">{data.incompleteRate.toFixed(1)}%</TableCell>
-                    <TableCell className="text-right">{data.avgAcceptanceTime}</TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
+                </TableHeader>
+                <TableBody>
+                  {performanceData.map((data) => (
+                      <TableRow key={data.userId}>
+                        <TableCell className="font-medium">{data.userName}</TableCell>
+                        <TableCell className="text-center">{data.totalShifts}</TableCell>
+                        <TableCell className="text-center text-green-600 font-medium">{data.completionRate.toFixed(1)}%</TableCell>
+                        <TableCell className="text-center text-amber-600 font-medium">{data.incompleteRate.toFixed(1)}%</TableCell>
+                        <TableCell className="text-right">{data.avgAcceptanceTime}</TableCell>
+                      </TableRow>
+                    ))}
+                </TableBody>
+              </Table>
+            </div>
+
+            {/* Mobile View */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:hidden">
+              {performanceData.map((data) => (
+                <Card key={data.userId}>
+                  <CardHeader>
+                    <CardTitle className="text-base">{data.userName}</CardTitle>
+                    <CardDescription>Avg. Acceptance: {data.avgAcceptanceTime}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                    <div className="flex items-center gap-2">
+                        <Users className="h-4 w-4 text-muted-foreground" />
+                        <div>
+                            <p className="font-medium">{data.totalShifts}</p>
+                            <p className="text-muted-foreground text-xs">Total Shifts</p>
+                        </div>
+                    </div>
+                     <div className="flex items-center gap-2">
+                        <Percent className="h-4 w-4 text-muted-foreground" />
+                        <div>
+                            <p className="font-medium text-green-600">{data.completionRate.toFixed(1)}%</p>
+                            <p className="text-muted-foreground text-xs">Complete</p>
+                        </div>
+                    </div>
+                     <div className="flex items-center gap-2">
+                        <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+                        <div>
+                            <p className="font-medium">{data.completed}</p>
+                            <p className="text-muted-foreground text-xs">Completed</p>
+                        </div>
+                    </div>
+                     <div className="flex items-center gap-2">
+                        <XCircle className="h-4 w-4 text-muted-foreground" />
+                        <div>
+                            <p className="font-medium">{data.incomplete}</p>
+                            <p className="text-muted-foreground text-xs">Incomplete</p>
+                        </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </>
+        )}
       </CardContent>
     </Card>
   );

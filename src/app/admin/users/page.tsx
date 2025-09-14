@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -6,7 +7,7 @@ import { db, isFirebaseConfigured } from '@/lib/firebase';
 import type { UserProfile } from '@/types';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { useToast } from '@/hooks/use-toast';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -79,6 +80,29 @@ export default function UserManagementPage() {
     return `https://console.firebase.google.com/project/${projectId}/firestore/data/~2Fusers~2F${uid}`;
   }
 
+  const renderManageButton = (user: UserProfile) => {
+     if (isOwner && user.uid !== currentUserProfile?.uid && isFirebaseConfigured) {
+       return (
+         <TooltipProvider>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                <Button variant="outline" size="sm" asChild>
+                    <a href={generateConsoleLink(user.uid)} target="_blank" rel="noopener noreferrer">
+                    Manage
+                    <ExternalLink className="ml-2 h-4 w-4" />
+                    </a>
+                </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                <p>Open user record in Firebase Console</p>
+                </TooltipContent>
+            </Tooltip>
+        </TooltipProvider>
+       )
+     }
+     return null;
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -88,72 +112,78 @@ export default function UserManagementPage() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Date Joined</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Phone Number</TableHead>
-              <TableHead>Role</TableHead>
-              <TableHead>Status</TableHead>
-              {isOwner && <TableHead className="text-right">Actions</TableHead>}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              Array.from({ length: 3 }).map((_, i) => (
-                <TableRow key={i}>
-                  <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                  <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                  <TableCell><Skeleton className="h-4 w-40" /></TableCell>
-                  <TableCell><Skeleton className="h-4 w-28" /></TableCell>
-                  <TableCell><Skeleton className="h-6 w-20" /></TableCell>
-                  <TableCell><Skeleton className="h-6 w-20" /></TableCell>
-                  {isOwner && <TableCell><Skeleton className="h-8 w-24 ml-auto" /></TableCell>}
-                </TableRow>
-              ))
-            ) : (
-              users.map((user) => (
-                <TableRow key={user.uid} className={user.status === 'suspended' ? 'bg-muted/30' : ''}>
-                  <TableCell className="font-medium">{user.name}</TableCell>
-                  <TableCell>{user.createdAt?.toDate().toLocaleDateString() ?? 'N/A'}</TableCell>
-                  <TableCell>{user.email}</TableCell>
-                  <TableCell>{user.phoneNumber}</TableCell>
-                  <TableCell>
-                     <Badge variant={user.role === 'owner' ? 'default' : user.role === 'admin' ? 'secondary' : 'outline'} className="capitalize">
-                        {user.role}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                      {getStatusBadge(user.status)}
-                  </TableCell>
-                  {isOwner && (
-                    <TableCell className="text-right">
-                      {user.uid !== currentUserProfile?.uid && isFirebaseConfigured && (
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button variant="outline" size="sm" asChild>
-                                <a href={generateConsoleLink(user.uid)} target="_blank" rel="noopener noreferrer">
-                                  Manage
-                                  <ExternalLink className="ml-2 h-4 w-4" />
-                                </a>
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>Open user record in Firebase Console</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      )}
-                    </TableCell>
+        {loading ? (
+            <div className="space-y-2">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+            </div>
+        ) : (
+          <>
+            {/* Desktop View */}
+            <div className="hidden md:block border rounded-lg">
+                <Table>
+                <TableHeader>
+                    <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Date Joined</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Phone Number</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead>Status</TableHead>
+                    {isOwner && <TableHead className="text-right">Actions</TableHead>}
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {users.map((user) => (
+                        <TableRow key={user.uid} className={user.status === 'suspended' ? 'bg-muted/30' : ''}>
+                        <TableCell className="font-medium">{user.name}</TableCell>
+                        <TableCell>{user.createdAt?.toDate().toLocaleDateString() ?? 'N/A'}</TableCell>
+                        <TableCell>{user.email}</TableCell>
+                        <TableCell>{user.phoneNumber}</TableCell>
+                        <TableCell>
+                            <Badge variant={user.role === 'owner' ? 'default' : user.role === 'admin' ? 'secondary' : 'outline'} className="capitalize">
+                                {user.role}
+                            </Badge>
+                        </TableCell>
+                        <TableCell>
+                            {getStatusBadge(user.status)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                           {renderManageButton(user)}
+                        </TableCell>
+                        </TableRow>
+                    ))}
+                </TableBody>
+                </Table>
+            </div>
+
+            {/* Mobile View */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:hidden">
+              {users.map((user) => (
+                <Card key={user.uid} className={user.status === 'suspended' ? 'bg-muted/50' : ''}>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                        <CardTitle className="text-lg">{user.name}</CardTitle>
+                        {getStatusBadge(user.status)}
+                    </div>
+                    <CardDescription>{user.email}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="text-sm space-y-2">
+                     <p><strong>Phone:</strong> {user.phoneNumber || 'N/A'}</p>
+                     <p><strong>Joined:</strong> {user.createdAt?.toDate().toLocaleDateString() ?? 'N/A'}</p>
+                      <p className="flex items-center gap-2"><strong>Role:</strong> <Badge variant={user.role === 'owner' ? 'default' : user.role === 'admin' ? 'secondary' : 'outline'} className="capitalize">{user.role}</Badge></p>
+                  </CardContent>
+                  {isOwner && user.uid !== currentUserProfile?.uid && (
+                    <CardFooter className="p-2 bg-muted/20">
+                      {renderManageButton(user)}
+                    </CardFooter>
                   )}
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+                </Card>
+              ))}
+            </div>
+          </>
+        )}
       </CardContent>
     </Card>
   );
