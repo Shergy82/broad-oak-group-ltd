@@ -57,7 +57,6 @@ export function SignUpForm() {
 
     setIsLoading(true);
     setError(null);
-    setSuccess(false);
 
     try {
       // Step 1: Create the user in Firebase Authentication
@@ -67,31 +66,29 @@ export function SignUpForm() {
       const fullName = `${values.firstName} ${values.surname}`;
 
       // Step 2: Update their Auth profile with their full name. 
-      // This is useful but not strictly necessary for the Cloud Function.
       await updateProfile(user, { 
         displayName: fullName,
       });
 
-      // Step 3: Manually create the Firestore user document from the client.
-      // This is now necessary because the onUserCreate function is too unreliable.
+      // Step 3: Determine the user's role.
+      const userRole = values.email.toLowerCase() === 'phil.s@broadoakgroup.com' ? 'owner' : 'user';
+
+      // Step 4: Create the user's document in Firestore.
       const userDocRef = doc(db, 'users', user.uid);
       await setDoc(userDocRef, {
           name: fullName,
           email: user.email,
           phoneNumber: values.phoneNumber,
-          role: 'user', // All new sign-ups are standard users
-          status: 'pending-approval', // All new sign-ups must be approved
+          role: userRole,
+          status: 'active', // Set user to active immediately
           createdAt: serverTimestamp(),
       });
+      
+      toast({
+        title: 'Account Created',
+        description: "You've been successfully signed up!",
+      });
 
-      // Step 4: Sign the user out immediately after registration.
-      // They must be approved by an admin before they can log in.
-      await auth.signOut();
-      
-      // Step 5: Show success message and reset the form.
-      setSuccess(true);
-      form.reset();
-      
     } catch (error: any) {
       let errorMessage = 'An unexpected error occurred. Please try again.';
       if (error.code) {
@@ -103,7 +100,7 @@ export function SignUpForm() {
                   errorMessage = 'The password is too weak. Please choose a stronger password.';
                   break;
               case 'permission-denied':
-                  errorMessage = "You don't have permission to create an account. Please check your Firestore security rules to allow user creation (e.g., allow create: if true;).";
+                  errorMessage = "You don't have permission to create an account. Please check your Firestore security rules to allow user creation (e.g., allow create: if request.auth.uid == userId;).";
                   break;
               default:
                   errorMessage = `Sign-up failed: ${error.message}`;
@@ -119,25 +116,6 @@ export function SignUpForm() {
 
   if (!isFirebaseConfigured || !auth) {
     return <UnconfiguredForm />;
-  }
-
-  if (success) {
-      return (
-        <>
-            <Alert className="border-green-500 text-green-700 [&>svg]:text-green-500">
-                <CheckCircle className="h-4 w-4" />
-                <AlertTitle>Account Created</AlertTitle>
-                <AlertDescription>
-                    Your account has been created and is now awaiting administrator approval. You will be able to log in once your account has been activated.
-                </AlertDescription>
-            </Alert>
-             <p className="mt-6 text-center text-sm text-muted-foreground">
-                <Link href="/login" className="font-semibold text-primary hover:underline">
-                    Back to Log in
-                </Link>
-            </p>
-        </>
-      )
   }
 
   return (

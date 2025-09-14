@@ -101,39 +101,6 @@ export const setNotificationStatus = functions.region("europe-west2").https.onCa
     }
 });
 
-export const onUserCreate = functions.region("europe-west2").auth.user().onCreate(async (user) => {
-  functions.logger.log(`New user account created: ${user.uid}, email: ${user.email}`);
-
-  const userDocRef = db.collection('users').doc(user.uid);
-
-  try {
-    // Check if an owner already exists. This query is more reliable than checking collection emptiness.
-    const ownerQuery = await db.collection('users').where('role', '==', 'owner').limit(1).get();
-    const isFirstUser = ownerQuery.empty;
-
-    const role = isFirstUser ? 'owner' : 'user';
-    const status = isFirstUser ? 'active' : 'pending-approval';
-    
-    await userDocRef.set({
-      name: user.displayName || 'New User',
-      email: user.email,
-      role: role,
-      status: status,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      phoneNumber: user.phoneNumber || '', // The phoneNumber from Auth is often unavailable here, default to empty string.
-    });
-
-    functions.logger.log(`Successfully created Firestore document for user ${user.uid} with role '${role}' and status '${status}'.`);
-
-  } catch (error) {
-    functions.logger.error(`CRITICAL: Failed to create Firestore document for new user ${user.uid}.`, error);
-    // If the database write fails, delete the orphaned auth user to allow them to try signing up again.
-    await admin.auth().deleteUser(user.uid);
-    functions.logger.log(`Cleaned up (deleted) orphaned auth user ${user.uid} after database write failure.`);
-  }
-});
-
-
 export const sendShiftNotification = functions.region("europe-west2").firestore.document("shifts/{shiftId}")
   .onWrite(async (change, context) => {
     const shiftId = context.params.shiftId;
