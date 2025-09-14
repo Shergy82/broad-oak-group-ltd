@@ -30,10 +30,11 @@ service cloud.firestore {
 
     // SHIFTS collection
     match /shifts/{shiftId} {
-        // Any authenticated user can read/write shifts.
-        // More granular logic (e.g., only assigned user can update) is handled in the app's UI.
-        // Notifications are handled by a backend Cloud Function which has admin access.
-        allow read, write: if request.auth != null;
+        // Any authenticated user can read shifts.
+        allow read: if request.auth != null;
+        
+        // Only admins/owners can create, update, or delete shifts.
+        allow write: if isPrivileged();
     }
 
     // PROJECTS collection & files subcollection
@@ -49,10 +50,8 @@ service cloud.firestore {
             // Any authenticated user can view files.
             allow read: if request.auth != null;
 
-            // Any authenticated user can create (upload) a file.
-            // Deletion is handled by a secure Cloud Function.
-            allow create: if request.auth != null;
-            allow update, delete: if isPrivileged();
+            // Only privileged users can create, update, or delete files.
+            allow write: if isPrivileged();
         }
     }
     
@@ -76,11 +75,6 @@ service cloud.firestore {
     match /settings/{settingId} {
         // Only the owner can read or write to the settings collection.
         allow read, write: if isOwner();
-    }
-    
-    // Default deny all other collections/documents
-    match /{document=**} {
-      allow read, write: if false;
     }
   }
 }
