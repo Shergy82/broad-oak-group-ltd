@@ -4,12 +4,13 @@ service cloud.firestore {
   match /databases/{database}/documents {
   
     // --- Users Collection ---
-    // A user can be created by the client-side sign-up form.
-    // Users can read and update their OWN profile.
-    // Role/status changes are restricted to admins/owners via Cloud Functions.
+    // Users can read their own profile.
+    // Any authenticated user can create their own user document.
+    // Users can update their own profile data.
+    // Role changes are restricted and handled by Cloud Functions.
     match /users/{userId} {
-      allow create: if request.auth.uid == userId;
       allow read, update: if request.auth.uid == userId;
+      allow create: if request.auth.uid == userId;
 
       // --- Push Subscriptions Subcollection ---
       // A user can manage their own push notification subscriptions.
@@ -21,14 +22,14 @@ service cloud.firestore {
     // --- Shifts Collection ---
     // Logged-in users can see only their own shifts.
     // Admins and owners can see all shifts.
-    // Users can update specific fields (status, notes) on their own shifts.
+    // Users can update the status of their own shifts.
     // Admins and owners can create, update, and delete any shift.
     match /shifts/{shiftId} {
       allow read: if request.auth.uid != null && (resource.data.userId == request.auth.uid || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner']);
       allow create, delete: if request.auth.uid != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner'];
       allow update: if request.auth.uid != null && (
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner']) ||
-        (resource.data.userId == request.auth.uid && request.resource.data.keys().hasAny(['status', 'notes', 'confirmedAt']))
+          (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner']) ||
+          (resource.data.userId == request.auth.uid && request.resource.data.keys().hasAny(['status', 'notes', 'confirmedAt']))
       );
     }
 
@@ -42,7 +43,7 @@ service cloud.firestore {
       // --- Files Subcollection ---
       // Any authenticated user can read files.
       // Any authenticated user can upload (create) files.
-      // Deletion is restricted to owners/admins or the original uploader, handled by a Cloud Function.
+      // Deletion is restricted and handled by a Cloud Function.
       match /files/{fileId} {
          allow read, create: if request.auth.uid != null;
          allow delete: if request.auth.uid != null && (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner'] || resource.data.uploaderId == request.auth.uid);
@@ -54,7 +55,7 @@ service cloud.firestore {
     // Admins/owners can create, update, and delete announcements.
     match /announcements/{announcementId} {
         allow read: if request.auth.uid != null;
-        allow write, delete: if request.auth.uid != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner'];
+        allow write: if request.auth.uid != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner'];
     }
 
     // --- Settings Collection ---
