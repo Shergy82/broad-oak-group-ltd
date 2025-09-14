@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
-import { writeBatch, doc, Timestamp } from 'firebase/firestore';
+import { writeBatch, doc } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -23,7 +23,7 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
 
-  const handleUpdate = async (shiftsToUpdate: Shift[], newStatus: 'confirmed' | 'rejected', notes?: string) => {
+  const handleUpdate = async (shiftsToUpdate: Shift[]) => {
     if (!db) {
       toast({ variant: 'destructive', title: 'Database not configured' });
       return;
@@ -32,24 +32,17 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
 
     try {
       const batch = writeBatch(db);
-      const confirmedAt = newStatus === 'confirmed' ? Timestamp.now() : null;
-
+      
       shiftsToUpdate.forEach(shift => {
         const shiftRef = doc(db, 'shifts', shift.id);
-        const updatePayload: { status: 'confirmed' | 'rejected'; confirmedAt?: Timestamp | null; notes?: string } = { status: newStatus };
-        if (confirmedAt) {
-          updatePayload.confirmedAt = confirmedAt;
-        }
-        if (notes) {
-          updatePayload.notes = notes;
-        }
-        batch.update(shiftRef, updatePayload as any);
+        // Only update the status field to 'confirmed'
+        batch.update(shiftRef, { status: 'confirmed' });
       });
 
       await batch.commit();
 
       toast({
-        title: `Shifts ${newStatus}`,
+        title: `Shifts Confirmed`,
         description: `${shiftsToUpdate.length} shift(s) have been updated.`,
       });
       onClose();
@@ -66,11 +59,11 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
   };
 
   const handleAcceptAll = () => {
-    handleUpdate(shifts, 'confirmed');
+    handleUpdate(shifts);
   };
 
   const handleAcceptSingle = (shift: Shift) => {
-    handleUpdate([shift], 'confirmed');
+    handleUpdate([shift]);
   };
 
   const handleDialogClose = (open: boolean) => {
