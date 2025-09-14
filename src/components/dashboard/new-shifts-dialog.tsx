@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { db } from '@/lib/firebase';
-import { doc, writeBatch } from 'firebase/firestore';
+import { doc, writeBatch, serverTimestamp } from 'firebase/firestore';
 import type { Shift, ShiftStatus } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
@@ -98,13 +98,17 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
 
       shiftIds.forEach(shiftId => {
         const shiftRef = doc(db, 'shifts', shiftId);
-        const updateData: { status: ShiftStatus, isNew: boolean, notes?: string } = {
+        const updateData: { status: ShiftStatus, isNew: boolean, notes?: string, confirmedAt?: any } = {
           status: newStatus,
           isNew: false, // Mark as not new anymore
         };
         
         if (newStatus === 'rejected' && reason) {
             updateData.notes = reason;
+        }
+
+        if (newStatus === 'confirmed') {
+            updateData.confirmedAt = serverTimestamp();
         }
 
         batch.update(shiftRef, updateData);
@@ -216,7 +220,7 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
                                 variant="outline"
                                 onClick={() => handleUpdate([shift], 'confirmed')}
                                 disabled={isLoading}
-                                className="bg-accent text-accent-foreground hover:bg-accent/90 h-8"
+                                className="bg-primary text-primary-foreground hover:bg-primary/90 h-8"
                             >
                                 <ThumbsUp className="mr-2 h-4 w-4" /> Accept
                             </Button>

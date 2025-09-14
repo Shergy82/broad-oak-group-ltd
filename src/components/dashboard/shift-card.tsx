@@ -77,14 +77,18 @@ export function ShiftCard({ shift, onDismiss }: ShiftCardProps) {
     try {
       const shiftRef = doc(db, 'shifts', shift.id);
       
-      const updateData: { status: ShiftStatus; notes?: any, isNew?: boolean } = {
+      const updateData: { status: ShiftStatus; notes?: any, isNew?: boolean, confirmedAt?: any } = {
         status: newStatus,
-        isNew: false
       };
+
+      if (newStatus === 'confirmed') {
+          updateData.isNew = false;
+          updateData.confirmedAt = serverTimestamp();
+      }
 
       if (notes) {
         updateData.notes = notes;
-      } else if (newStatus === 'confirmed' || newStatus === 'completed') { 
+      } else if (newStatus === 'completed') { 
         updateData.notes = deleteField();
       }
       
@@ -150,15 +154,30 @@ export function ShiftCard({ shift, onDismiss }: ShiftCardProps) {
           )}
         </CardContent>
         <CardFooter className="p-2 bg-muted/30 grid grid-cols-1 gap-2">
+           {shift.status === 'pending-confirmation' && (
+             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                 <Button variant="destructive" onClick={() => setIsNoteDialogOpen(true)} className="w-full" disabled={isLoading}>
+                    {isLoading ? <Spinner /> : <><XCircle className="mr-2 h-4 w-4" /> Reject</>}
+                </Button>
+                <Button onClick={() => handleUpdateStatus('confirmed')} className="w-full" disabled={isLoading}>
+                    {isLoading ? <Spinner /> : <><CheckCircle2 className="mr-2 h-4 w-4" /> Accept</>}
+                </Button>
+             </div>
+           )}
           {shift.status === 'confirmed' && (
-             <Button onClick={() => handleUpdateStatus('on-site')} className="w-full bg-teal-500 text-white hover:bg-teal-600" disabled={isLoading}>
-                {isLoading ? <Spinner /> : <><HardHat className="mr-2 h-4 w-4" /> On Site</>}
-            </Button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                 <Button onClick={() => handleUpdateStatus('on-site')} className="w-full bg-teal-500 text-white hover:bg-teal-600" disabled={isLoading}>
+                    {isLoading ? <Spinner /> : <><HardHat className="mr-2 h-4 w-4" /> On Site</>}
+                </Button>
+                <Button variant="outline" onClick={() => setIsNoteDialogOpen(true)} className="w-full" disabled={isLoading}>
+                    {isLoading ? <Spinner /> : <><AlertTriangle className="mr-2 h-4 w-4" /> Report Issue</>}
+                </Button>
+            </div>
           )}
           {(shift.status === 'on-site' || shift.status === 'rejected') && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                  <Button onClick={() => handleUpdateStatus('completed')} className="w-full bg-green-500 text-white hover:bg-green-600" disabled={isLoading}>
-                    {isLoading ? <Spinner /> : <><CheckCircle2 className="mr-2 h-4 w-4" /> {shift.status === 'rejected' ? 'Re-confirm' : 'Complete'}</>}
+                    {isLoading ? <Spinner /> : <><CheckCircle2 className="mr-2 h-4 w-4" /> {shift.status === 'rejected' ? 'Re-confirm & Complete' : 'Complete'}</>}
                 </Button>
                  <Button variant="destructive" onClick={() => setIsNoteDialogOpen(true)} className="w-full bg-amber-600 hover:bg-amber-700" disabled={isLoading}>
                     {isLoading ? <Spinner /> : <><XCircle className="mr-2 h-4 w-4" /> Incomplete</>}
@@ -199,16 +218,16 @@ export function ShiftCard({ shift, onDismiss }: ShiftCardProps) {
       <Dialog open={isNoteDialogOpen} onOpenChange={setIsNoteDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Mark Shift as Incomplete</DialogTitle>
+            <DialogTitle>Report Issue or Reject Shift</DialogTitle>
             <DialogDescription>
-              Please provide a reason why this shift could not be completed. This note will be visible to admins.
+              Please provide a reason why this shift cannot be completed as planned. This note will be visible to admins.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid w-full gap-1.5">
               <Label htmlFor="note">Note</Label>
               <Textarea 
-                placeholder="e.g., waiting for materials, client not home, etc." 
+                placeholder="e.g., waiting for materials, client not home, incorrect details, etc." 
                 id="note" 
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
@@ -216,10 +235,12 @@ export function ShiftCard({ shift, onDismiss }: ShiftCardProps) {
               />
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsNoteDialogOpen(false)}>Cancel</Button>
+          <DialogFooter className="grid grid-cols-2 gap-2">
+            <Button variant="destructive" onClick={() => handleUpdateStatus('rejected', note.trim())} disabled={isLoading} >
+                {isLoading ? <Spinner /> : 'Reject Shift'}
+            </Button>
             <Button onClick={handleIncompleteSubmit} disabled={isLoading} className="bg-amber-600 hover:bg-amber-700">
-                {isLoading ? <Spinner /> : 'Submit Note'}
+                {isLoading ? <Spinner /> : 'Mark Incomplete'}
             </Button>
           </DialogFooter>
         </DialogContent>
