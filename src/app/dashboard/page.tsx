@@ -44,23 +44,47 @@ export default function DashboardPage() {
     const shiftsQuery = query(collection(db, 'shifts'));
     const usersQuery = query(collection(db, 'users'));
     
+    let announcementsLoaded = false;
+    let shiftsLoaded = false;
+    let usersLoaded = false;
+
+    const checkAllDataLoaded = () => {
+        if (announcementsLoaded && shiftsLoaded && usersLoaded) {
+            setLoadingData(false);
+        }
+    }
+
     const unsubAnnouncements = onSnapshot(announcementsQuery, (snapshot) => {
       setAnnouncements(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement)));
-    }, (error) => console.error("Error fetching announcements:", error));
+      announcementsLoaded = true;
+      checkAllDataLoaded();
+    }, (error) => {
+        console.error("Error fetching announcements:", error);
+        announcementsLoaded = true;
+        checkAllDataLoaded();
+    });
 
     const unsubShifts = onSnapshot(shiftsQuery, (snapshot) => {
         setAllShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
-    }, (error) => console.error("Error fetching shifts:", error));
+        shiftsLoaded = true;
+        checkAllDataLoaded();
+    }, (error) => {
+        console.error("Error fetching shifts:", error);
+        shiftsLoaded = true;
+        checkAllDataLoaded();
+    });
 
     const unsubUsers = onSnapshot(usersQuery, (snapshot) => {
         setAllUsers(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile)));
-    }, (error) => console.error("Error fetching users:", error));
-
-    // A simple timeout to consider data loaded.
-    const timer = setTimeout(() => setLoadingData(false), 2000);
+        usersLoaded = true;
+        checkAllDataLoaded();
+    }, (error) => {
+        console.error("Error fetching users:", error);
+        usersLoaded = true;
+        checkAllDataLoaded();
+    });
 
     return () => {
-      clearTimeout(timer);
       unsubAnnouncements();
       unsubShifts();
       unsubUsers();
