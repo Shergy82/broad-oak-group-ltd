@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect } from 'react';
@@ -7,20 +8,24 @@ import { Header } from '@/components/layout/header';
 import { Spinner } from '@/components/shared/spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Terminal } from 'lucide-react';
+import { useAuth } from '@/hooks/use-auth';
 
 export default function ScheduleLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { userProfile, loading } = useUserProfile();
+  const { user, isLoading: isAuthLoading } = useAuth();
+  const { userProfile, loading: isProfileLoading } = useUserProfile();
   const router = useRouter();
 
+  const loading = isAuthLoading || isProfileLoading;
+
   useEffect(() => {
-    if (!loading && !userProfile) {
+    if (!loading && !user) {
       router.push('/login');
     }
-  }, [userProfile, loading, router]);
+  }, [user, loading, router]);
 
   if (loading) {
     return (
@@ -29,8 +34,16 @@ export default function ScheduleLayout({
       </div>
     );
   }
+  
+  if (!userProfile) {
+    return (
+        <div className="flex min-h-screen w-full flex-col items-center justify-center">
+            <Spinner size="lg" />
+        </div>
+    );
+  }
 
-  if (!userProfile || !['admin', 'owner'].includes(userProfile.role)) {
+  if (!['admin', 'owner'].includes(userProfile.role)) {
     return (
       <div className="flex min-h-screen w-full flex-col">
         <Header />
