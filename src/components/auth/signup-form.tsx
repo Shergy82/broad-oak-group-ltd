@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState } from 'react';
@@ -5,8 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { doc, setDoc, Timestamp, getDocs, collection, query } from 'firebase/firestore';
-import { auth, db, isFirebaseConfigured } from '@/lib/firebase';
+import { auth, isFirebaseConfigured } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -52,41 +52,30 @@ export function SignUpForm() {
   });
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
-    if (!auth || !db) return;
+    if (!auth) return;
 
     setIsLoading(true);
     setError(null);
     setSuccess(false);
 
     try {
-      // Check if any user exists. If not, the first user becomes the owner.
-      const usersQuery = query(collection(db, 'users'));
-      const usersSnapshot = await getDocs(usersQuery);
-      const isFirstUser = usersSnapshot.empty;
-      
       const userCredential = await createUserWithEmailAndPassword(auth, values.email, values.password);
       const user = userCredential.user;
       
       const fullName = `${values.firstName} ${values.surname}`;
 
-      await updateProfile(user, { displayName: fullName });
-
-      const userRole = isFirstUser ? 'owner' : 'user';
-      const userStatus = isFirstUser ? 'active' : 'pending-approval';
-
-      await setDoc(doc(db, 'users', user.uid), {
-        name: fullName,
-        email: values.email,
-        phoneNumber: values.phoneNumber,
-        role: userRole,
-        status: userStatus,
-        createdAt: Timestamp.now(),
+      // Update the user's profile in Firebase Auth. The onUserCreate function will use this.
+      await updateProfile(user, { 
+        displayName: fullName,
       });
-      
+
+      // The Cloud Function 'onUserCreate' will now handle creating the Firestore document.
+      // We no longer need to write to Firestore from the client side here.
+
       setSuccess(true);
       
-      // Sign the user out immediately after registration so they can't access the app
-      // until they are approved (or if they are the first user/owner).
+      // Sign the user out immediately after registration.
+      // They will be able to log in once an admin approves their account.
       await auth.signOut();
       
       form.reset();
