@@ -69,7 +69,7 @@ export function Header() {
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => window.open('https://studio--studio-6303842196-5daf6.us-central1.hosted.app', '_blank')} className="cursor-pointer">
                   <Fingerprint className="mr-2" />
-                  <span>Digital Sign in/out</span>
+                  <span>Digital Sign In/Out</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => router.push('/announcements')} className="cursor-pointer">
                   <Megaphone className="mr-2" />
