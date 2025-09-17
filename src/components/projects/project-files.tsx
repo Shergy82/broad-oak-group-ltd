@@ -154,6 +154,17 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
+  const getFileViewUrl = (file: ProjectFile): string => {
+    const officeExtensions = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
+    const fileExtension = file.name.split('.').pop()?.toLowerCase();
+
+    if (fileExtension && officeExtensions.includes(fileExtension)) {
+        return `https://docs.google.com/gview?url=${encodeURIComponent(file.url)}&embedded=true`;
+    }
+    return file.url;
+  };
+
+
   return (
     <div className="space-y-4">
       <h4 className="text-sm font-semibold">Attached Files</h4>
@@ -182,14 +193,14 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
                 {files.map(file => (
                     <TableRow key={file.id}>
                         <TableCell className="font-medium truncate max-w-[150px]">
-                            <a href={file.url} target="_blank" rel="noopener noreferrer" className="hover:underline" title={file.name}>
+                            <a href={getFileViewUrl(file)} target="_blank" rel="noopener noreferrer" className="hover:underline" title={file.name}>
                               {file.name}
                             </a>
                             <p className="text-xs text-muted-foreground">{formatFileSize(file.size)}</p>
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">{file.uploaderName}</TableCell>
                         <TableCell className="text-right space-x-1">
-                            <a href={file.url} target="_blank" rel="noopener noreferrer" download={file.name}>
+                            <a href={file.url} target="_blank" rel="noopener noreferrer" download>
                                 <Button variant="ghost" size="icon" className="h-8 w-8">
                                     <Download className="h-4 w-4" />
                                 </Button>
@@ -246,3 +257,5 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
     </div>
   );
 }
+
+    

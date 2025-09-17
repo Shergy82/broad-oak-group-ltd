@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -285,6 +286,17 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     };
+    
+    const getFileViewUrl = (file: ProjectFile): string => {
+        const officeExtensions = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
+        const fileExtension = file.name.split('.').pop()?.toLowerCase();
+
+        if (fileExtension && officeExtensions.includes(fileExtension)) {
+            return `https://docs.google.com/gview?url=${encodeURIComponent(file.url)}&embedded=true`;
+        }
+        return file.url;
+    };
+
 
     if (!project) return null;
 
@@ -321,13 +333,13 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                                         {files.map(file => (
                                             <TableRow key={file.id}>
                                                 <TableCell className="font-medium truncate max-w-[180px]">
-                                                  <a href={file.url} target="_blank" rel="noopener noreferrer" className="hover:underline" title={file.name}>
+                                                  <a href={getFileViewUrl(file)} target="_blank" rel="noopener noreferrer" className="hover:underline" title={file.name}>
                                                     {file.name}
                                                   </a>
                                                 </TableCell>
                                                 <TableCell className="text-right text-xs text-muted-foreground">{formatFileSize(file.size)}</TableCell>
                                                 <TableCell className="text-right">
-                                                    <a href={file.url} target="_blank" rel="noopener noreferrer" download={file.name}>
+                                                    <a href={file.url} target="_blank" rel="noopener noreferrer" download>
                                                       <Button variant="ghost" size="icon" className="h-8 w-8">
                                                           <Download className="h-4 w-4" />
                                                       </Button>
@@ -619,3 +631,5 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
     </div>
   );
 }
+
+    
