@@ -83,12 +83,15 @@ export function PerformanceAwards({ allShifts, allUsers }: PerformanceAwardsProp
 
         const metrics = userProfiles.map(user => {
             const userShifts = shifts.filter(s => s.userId === user.uid);
-            const totalShifts = userShifts.filter(s => s.status === 'completed' || s.status === 'incomplete').length;
-            const completed = userShifts.filter(s => s.status === 'completed').length;
-            
-            if (totalShifts === 0) return null;
+            if (userShifts.length === 0) return null;
 
-            const completionRate = (completed / totalShifts) * 100;
+            const completed = userShifts.filter(s => s.status === 'completed').length;
+            // Base the rate on all assigned shifts, except those the user hasn't even confirmed yet.
+            const rateCalculationTotal = userShifts.filter(s => s.status !== 'pending-confirmation').length;
+            
+            if (rateCalculationTotal === 0) return null;
+
+            const completionRate = (completed / rateCalculationTotal) * 100;
 
             return { userId: user.uid, userName: user.name, completionRate };
         }).filter((m): m is PerformanceMetric => m !== null && m.completionRate > 0);
