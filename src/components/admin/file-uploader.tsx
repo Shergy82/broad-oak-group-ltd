@@ -266,6 +266,11 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
                     const namePart = parts.pop()!;
                     let task = parts.join('-').trim();
                     
+                    // Capitalize the first letter of the task
+                    if (task) {
+                        task = task.charAt(0).toUpperCase() + task.slice(1);
+                    }
+                    
                     const nameCandidates = namePart.split(/[/&+,]/).map(name => name.trim()).filter(Boolean);
 
                     for (const nameCandidate of nameCandidates) {
