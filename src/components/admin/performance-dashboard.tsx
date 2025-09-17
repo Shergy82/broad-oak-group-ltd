@@ -71,22 +71,21 @@ export function PerformanceDashboard() {
     let filteredShifts: Shift[];
 
     if (timeRange === 'weekly') {
-        const start = startOfWeek(now, { weekStartsOn: 1 });
-        const end = endOfWeek(now, { weekStartsOn: 1 });
-        filteredShifts = shifts.filter(s => {
-            const shiftDate = s.date.toDate();
-            return shiftDate >= start && shiftDate <= end;
-        });
-    } else if (timeRange === 'monthly') {
-        const start = startOfMonth(now);
-        const end = endOfMonth(now);
-        filteredShifts = shifts.filter(s => {
-            const shiftDate = s.date.toDate();
-            return shiftDate >= start && shiftDate <= end;
-        });
-    } else {
-        filteredShifts = shifts;
+      const start = startOfWeek(now, { weekStartsOn: 1 });
+      const end = endOfWeek(now, { weekStartsOn: 1 });
+      filteredShifts = shifts.filter(s => {
+          const shiftDate = s.date.toDate();
+          return shiftDate >= start && shiftDate <= end;
+      });
+    } else { // monthly and all-time now both start from the beginning of the month
+      const start = startOfMonth(now);
+      const end = endOfMonth(now); // We'll filter up to the end of the current month
+      filteredShifts = shifts.filter(s => {
+          const shiftDate = s.date.toDate();
+          return shiftDate >= start && shiftDate <= end;
+      });
     }
+
 
     const metrics = users
       .map(user => {
@@ -279,3 +278,5 @@ export function PerformanceDashboard() {
     </Card>
   );
 }
+
+    
