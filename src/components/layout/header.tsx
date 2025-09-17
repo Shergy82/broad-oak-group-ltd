@@ -67,7 +67,7 @@ export function Header() {
                   <Calendar className="mr-2" />
                   <span>Dashboard</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => window.open('#', '_blank')} className="cursor-pointer">
+                <DropdownMenuItem onSelect={() => window.open('https://studio--studio-6303842196-5daf6.us-central1.hosted.app', '_blank')} className="cursor-pointer">
                   <Fingerprint className="mr-2" />
                   <span>Digital Sign in/out</span>
                 </DropdownMenuItem>
