@@ -12,8 +12,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Spinner } from '@/components/shared/spinner';
 import type { Shift } from '@/types';
 import { format } from 'date-fns';
-import { Check, CheckCheck, Gift } from 'lucide-react';
-import { Card, CardContent, CardFooter, CardDescription } from '../ui/card';
+import { CheckCheck, Gift } from 'lucide-react';
+import { Card, CardContent, CardDescription } from '../ui/card';
 
 interface NewShiftsDialogProps {
   shifts: Shift[];
@@ -63,10 +63,6 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
     handleUpdate(shifts);
   };
 
-  const handleAcceptSingle = (shift: Shift) => {
-    handleUpdate([shift]);
-  };
-
   const handleDialogClose = (open: boolean) => {
     if (!open) {
       setIsOpen(false);
@@ -99,7 +95,6 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
                   <TableHead className="w-[120px]">Date</TableHead>
                   <TableHead>Task</TableHead>
                   <TableHead>Address</TableHead>
-                  <TableHead className="text-right w-[120px]">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -108,11 +103,6 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
                     <TableCell className="font-medium">{format(getCorrectedLocalDate(shift.date), 'dd/MM/yy')}</TableCell>
                     <TableCell>{shift.task}</TableCell>
                     <TableCell>{shift.address}</TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="outline" size="sm" onClick={() => handleAcceptSingle(shift)} disabled={isLoading}>
-                        <Check className="mr-2 h-4 w-4" /> Accept
-                      </Button>
-                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -127,11 +117,6 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
                       <CardDescription>{shift.address}</CardDescription>
                       <CardDescription>Date: {format(getCorrectedLocalDate(shift.date), 'EEE, dd MMM yyyy')}</CardDescription>
                     </CardContent>
-                    <CardFooter className="p-2 bg-muted/50">
-                       <Button variant="outline" size="sm" onClick={() => handleAcceptSingle(shift)} disabled={isLoading} className="w-full">
-                        <Check className="mr-2 h-4 w-4" /> Accept
-                      </Button>
-                    </CardFooter>
                 </Card>
               ))}
           </div>
