@@ -2,8 +2,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { collection, onSnapshot, query } from 'firebase/firestore';
-import { db, isFirebaseConfigured } from '@/lib/firebase';
+import { collection, onSnapshot, query, doc, updateDoc, writeBatch } from 'firebase/firestore';
+import { db, isFirebaseConfigured, functions, httpsCallable } from '@/lib/firebase';
 import type { UserProfile } from '@/types';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { useToast } from '@/hooks/use-toast';
@@ -120,10 +120,12 @@ export default function UserManagementPage() {
       });
       finalY = (doc as any).lastAutoTable.finalY + 15;
     };
+    
+    const isOperative = (u: UserProfile) => u.role !== 'admin' && u.role !== 'owner';
 
-    const directUsers = users.filter(u => u.employmentType === 'direct');
-    const subbieUsers = users.filter(u => u.employmentType === 'subbie');
-    const unassignedUsers = users.filter(u => !u.employmentType);
+    const directUsers = users.filter(u => u.employmentType === 'direct' && isOperative(u));
+    const subbieUsers = users.filter(u => u.employmentType === 'subbie' && isOperative(u));
+    const unassignedUsers = users.filter(u => !u.employmentType && isOperative(u));
 
     generateTableForType('Direct Employees', directUsers);
     generateTableForType('Subcontractors (Subbies)', subbieUsers);
@@ -287,3 +289,5 @@ export default function UserManagementPage() {
     </Card>
   );
 }
+
+    
