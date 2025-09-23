@@ -24,7 +24,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteUser = exports.setUserEmploymentType = exports.setUserOperativeId = exports.setUserStatus = exports.deleteAllProjects = exports.deleteAllShifts = exports.deleteProjectFile = exports.deleteProjectAndFiles = exports.pendingShiftNotifier = exports.projectReviewNotifier = exports.sendShiftNotification = exports.setNotificationStatus = exports.getNotificationStatus = exports.getVapidPublicKey = void 0;
+exports.deleteUser = exports.setUserOperativeId = exports.setUserStatus = exports.deleteAllProjects = exports.deleteAllShifts = exports.deleteProjectFile = exports.deleteProjectAndFiles = exports.pendingShiftNotifier = exports.projectReviewNotifier = exports.sendShiftNotification = exports.setNotificationStatus = exports.getNotificationStatus = exports.getVapidPublicKey = void 0;
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
 const webPush = __importStar(require("web-push"));
@@ -632,34 +632,6 @@ exports.setUserOperativeId = functions.region("europe-west2").https.onCall(async
     catch (error) {
         functions.logger.error(`Error updating operative ID for user ${uid}:`, error);
         throw new functions.https.HttpsError("internal", `An unexpected error occurred while updating the operative ID.`);
-    }
-});
-exports.setUserEmploymentType = functions.region("europe-west2").https.onCall(async (data, context) => {
-    // 1. Authentication & Authorization
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
-    }
-    const callerUid = context.auth.uid;
-    const callerDoc = await db.collection("users").doc(callerUid).get();
-    const callerProfile = callerDoc.data();
-    if (!callerProfile || !['admin', 'owner'].includes(callerProfile.role)) {
-        throw new functions.https.HttpsError("permission-denied", "You do not have permission to perform this action.");
-    }
-    // 2. Validation
-    const { uid, employmentType } = data;
-    if (typeof uid !== 'string' || !['direct', 'subbie'].includes(employmentType)) {
-        throw new functions.https.HttpsError("invalid-argument", "Invalid arguments. 'uid' must be a string and 'employmentType' must be 'direct' or 'subbie'.");
-    }
-    // 3. Execution
-    try {
-        const userDocRef = db.collection('users').doc(uid);
-        await userDocRef.update({ employmentType: employmentType });
-        functions.logger.log(`Admin ${callerUid} set employment type for user ${uid} to "${employmentType}".`);
-        return { success: true };
-    }
-    catch (error) {
-        functions.logger.error(`Error updating employment type for user ${uid}:`, error);
-        throw new functions.https.HttpsError("internal", `An unexpected error occurred while updating the employment type.`);
     }
 });
 exports.deleteUser = functions.region("europe-west2").https.onCall(async (data, context) => {

@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { collection, onSnapshot, query } from 'firebase/firestore';
+import { collection, onSnapshot, query, doc, updateDoc } from 'firebase/firestore';
 import { db, isFirebaseConfigured, functions, httpsCallable } from '@/lib/firebase';
 import type { UserProfile } from '@/types';
 import { useUserProfile } from '@/hooks/use-user-profile';
@@ -77,13 +77,14 @@ export default function UserManagementPage() {
   }
 
   const generateConsoleLink = (uid: string) => {
+    const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
     if (!projectId) return '#';
     return `https://console.firebase.google.com/project/${projectId}/firestore/data/~2Fusers~2F${uid}`;
   }
 
   const handleTypeChange = async (uid: string, newType: 'direct' | 'subbie') => {
-    if (!functions) {
-        toast({ variant: 'destructive', title: 'Error', description: 'Functions service not available.'});
+    if (!db) {
+        toast({ variant: 'destructive', title: 'Error', description: 'Database service not available.'});
         return;
     }
 
@@ -91,18 +92,18 @@ export default function UserManagementPage() {
     setUsers(prevUsers => prevUsers.map(u => u.uid === uid ? { ...u, employmentType: newType } : u));
 
     try {
-        const setUserEmploymentType = httpsCallable(functions, 'setUserEmploymentType');
-        await setUserEmploymentType({ uid, employmentType: newType });
+        const userDocRef = doc(db, 'users', uid);
+        await updateDoc(userDocRef, { employmentType: newType });
         toast({ title: 'Success', description: 'User employment type updated.' });
     } catch (error: any) {
         console.error("Error updating employment type:", error);
-        toast({ variant: 'destructive', title: 'Update Failed', description: error.message || "An internal error occurred." });
+        toast({ variant: 'destructive', title: 'Update Failed', description: "Could not save to database. Check Firestore rules." });
         setUsers(originalUsers); // Revert UI change on failure
     }
   };
   
   const handleOperativeIdChange = async (uid: string, operativeId: string) => {
-     if (!functions) {
+     if (!db) {
         toast({ variant: 'destructive', title: 'Error', description: 'Functions service not available.'});
         return;
     }
@@ -110,12 +111,12 @@ export default function UserManagementPage() {
     setUsers(prevUsers => prevUsers.map(u => u.uid === uid ? { ...u, operativeId } : u));
     
     try {
-        const setUserOperativeId = httpsCallable(functions, 'setUserOperativeId');
-        await setUserOperativeId({ uid, operativeId });
+        const userDocRef = doc(db, 'users', uid);
+        await updateDoc(userDocRef, { operativeId: operativeId });
         toast({ title: 'Success', description: "Operative ID updated successfully." });
     } catch (error: any) {
         console.error("Error updating operative ID:", error);
-        toast({ variant: 'destructive', title: 'Update Failed', description: error.message || "An internal error occurred." });
+        toast({ variant: 'destructive', title: 'Update Failed', description: "Could not save to database. Check Firestore rules." });
         setUsers(originalUsers); // Revert UI change on failure
     }
   };
@@ -346,5 +347,3 @@ export default function UserManagementPage() {
     </Card>
   );
 }
-
-    
