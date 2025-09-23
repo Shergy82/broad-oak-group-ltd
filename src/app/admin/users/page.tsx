@@ -226,7 +226,7 @@ export default function UserManagementPage() {
                     <TableRow>
                     <TableHead>Name</TableHead>
                     <TableHead>Operative ID</TableHead>
-                    <TableHead>Email</TableHead>
+                    <TableHead>Phone Number</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead>Status</TableHead>
                     {isPrivilegedUser && <TableHead>Type</TableHead>}
@@ -250,7 +250,7 @@ export default function UserManagementPage() {
                               user.operativeId || <Badge variant="outline">N/A</Badge>
                             )}
                           </TableCell>
-                          <TableCell>{user.email}</TableCell>
+                          <TableCell>{user.phoneNumber || 'N/A'}</TableCell>
                           <TableCell>
                               <Badge variant={user.role === 'owner' ? 'default' : user.role === 'admin' ? 'secondary' : 'outline'} className="capitalize">
                                   {user.role}
@@ -310,10 +310,9 @@ export default function UserManagementPage() {
                         <CardTitle className="text-lg">{user.name}</CardTitle>
                         {getStatusBadge(user.status)}
                     </div>
-                    <CardDescription>{user.email}</CardDescription>
+                    <CardDescription>{user.phoneNumber || 'No phone number'}</CardDescription>
                   </CardHeader>
                   <CardContent className="text-sm space-y-3">
-                     <p><strong>Phone:</strong> {user.phoneNumber || 'N/A'}</p>
                      <p className="flex items-center gap-2"><strong>Role:</strong> <Badge variant={user.role === 'owner' ? 'default' : user.role === 'admin' ? 'secondary' : 'outline'} className="capitalize">{user.role}</Badge></p>
                      
                      {isPrivilegedUser && (
