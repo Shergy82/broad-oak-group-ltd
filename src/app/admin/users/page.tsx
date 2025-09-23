@@ -229,7 +229,7 @@ export default function UserManagementPage() {
                         <TableRow key={user.uid} className={user.status === 'suspended' ? 'bg-muted/30' : ''}>
                           <TableCell className="font-medium">{user.name}</TableCell>
                           <TableCell>
-                            {isOwner && user.role !== 'owner' ? (
+                            {isOwner ? (
                               <Input
                                 defaultValue={user.operativeId || ''}
                                 onBlur={(e) => handleOperativeIdChange(user.uid, e.target.value)}
@@ -307,7 +307,7 @@ export default function UserManagementPage() {
                      <p><strong>Phone:</strong> {user.phoneNumber || 'N/A'}</p>
                      <p className="flex items-center gap-2"><strong>Role:</strong> <Badge variant={user.role === 'owner' ? 'default' : user.role === 'admin' ? 'secondary' : 'outline'} className="capitalize">{user.role}</Badge></p>
                      
-                     {isOwner && user.role !== 'owner' && (
+                     {isOwner && (
                         <>
                           <div className="flex items-center gap-2 pt-2">
                             <strong className="shrink-0">ID:</strong>
@@ -318,21 +318,23 @@ export default function UserManagementPage() {
                                 placeholder="Set ID"
                               />
                           </div>
-                          <div className="flex items-center gap-2 pt-2">
-                            <strong className="shrink-0">Type:</strong>
-                            <Select
-                              value={user.employmentType || ''}
-                              onValueChange={(value: 'direct' | 'subbie') => handleTypeChange(user.uid, value)}
-                            >
-                              <SelectTrigger className="w-full">
-                                <SelectValue placeholder="Set Type" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="direct">Direct</SelectItem>
-                                <SelectItem value="subbie">Subbie</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
+                          { user.role !== 'owner' && (
+                            <div className="flex items-center gap-2 pt-2">
+                              <strong className="shrink-0">Type:</strong>
+                              <Select
+                                value={user.employmentType || ''}
+                                onValueChange={(value: 'direct' | 'subbie') => handleTypeChange(user.uid, value)}
+                              >
+                                <SelectTrigger className="w-full">
+                                  <SelectValue placeholder="Set Type" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="direct">Direct</SelectItem>
+                                  <SelectItem value="subbie">Subbie</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                           )}
                         </>
                      )}
                   </CardContent>
@@ -355,3 +357,5 @@ export default function UserManagementPage() {
     </Card>
   );
 }
+
+    
