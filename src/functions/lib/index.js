@@ -24,7 +24,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteUser = exports.setUserEmploymentType = exports.setUserOperativeId = exports.setUserStatus = exports.deleteAllProjects = exports.deleteAllShifts = exports.deleteProjectFile = exports.deleteProjectAndFiles = exports.pendingShiftNotifier = exports.projectReviewNotifier = exports.sendShiftNotification = exports.setNotificationStatus = exports.getNotificationStatus = exports.getVapidPublicKey = void 0;
+exports.deleteUser = exports.setUserStatus = exports.deleteAllProjects = exports.deleteAllShifts = exports.deleteProjectFile = exports.deleteProjectAndFiles = exports.pendingShiftNotifier = exports.projectReviewNotifier = exports.sendShiftNotification = exports.setNotificationStatus = exports.getNotificationStatus = exports.getVapidPublicKey = void 0;
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
 const webPush = __importStar(require("web-push"));
@@ -604,54 +604,6 @@ exports.setUserStatus = functions.region("europe-west2").https.onCall(async (dat
     catch (error) {
         functions.logger.error(`Error updating status for user ${uid}:`, error);
         throw new functions.https.HttpsError("internal", `An unexpected error occurred while updating user status: ${error.message}`);
-    }
-});
-exports.setUserOperativeId = functions.region("europe-west2").https.onCall(async (data, context) => {
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
-    }
-    const callerUid = context.auth.uid;
-    const callerDoc = await db.collection("users").doc(callerUid).get();
-    const callerProfile = callerDoc.data();
-    if (!callerProfile || !['admin', 'owner'].includes(callerProfile.role)) {
-        throw new functions.https.HttpsError("permission-denied", "Only admins or the owner can perform this action.");
-    }
-    const { uid, operativeId } = data;
-    if (typeof uid !== 'string' || typeof operativeId !== 'string') {
-        throw new functions.https.HttpsError("invalid-argument", "The function requires 'uid' (string) and 'operativeId' (string) arguments.");
-    }
-    try {
-        const userRef = db.collection('users').doc(uid);
-        await userRef.update({ operativeId });
-        return { success: true };
-    }
-    catch (error) {
-        functions.logger.error(`Error setting operative ID for user ${uid}:`, error);
-        throw new functions.https.HttpsError("internal", `An error occurred: ${error.message}`);
-    }
-});
-exports.setUserEmploymentType = functions.region("europe-west2").https.onCall(async (data, context) => {
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
-    }
-    const callerUid = context.auth.uid;
-    const callerDoc = await db.collection("users").doc(callerUid).get();
-    const callerProfile = callerDoc.data();
-    if (!callerProfile || !['admin', 'owner'].includes(callerProfile.role)) {
-        throw new functions.https.HttpsError("permission-denied", "Only admins or the owner can perform this action.");
-    }
-    const { uid, employmentType } = data;
-    if (typeof uid !== 'string' || !['direct', 'subbie'].includes(employmentType)) {
-        throw new functions.https.HttpsError("invalid-argument", "The function requires 'uid' (string) and a valid 'employmentType' ('direct' or 'subbie').");
-    }
-    try {
-        const userRef = db.collection('users').doc(uid);
-        await userRef.update({ employmentType });
-        return { success: true };
-    }
-    catch (error) {
-        functions.logger.error(`Error setting employment type for user ${uid}:`, error);
-        throw new functions.https.HttpsError("internal", `An error occurred: ${error.message}`);
     }
 });
 exports.deleteUser = functions.region("europe-west2").https.onCall(async (data, context) => {

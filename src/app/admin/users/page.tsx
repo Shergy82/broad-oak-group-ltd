@@ -86,14 +86,14 @@ export default function UserManagementPage() {
   }
 
   const handleOperativeIdChange = async (uid: string, operativeId: string) => {
-    if (!functions) {
-        toast({ variant: 'destructive', title: 'Error', description: 'Functions service not available.' });
+    if (!db) {
+        toast({ variant: 'destructive', title: 'Error', description: 'Database service not available.' });
         return;
     }
     toast({ title: 'Updating...', description: `Setting operative ID for user...` });
     try {
-        const setUserOperativeIdFn = httpsCallable(functions, 'setUserOperativeId');
-        await setUserOperativeIdFn({ uid, operativeId });
+        const userRef = doc(db, 'users', uid);
+        await updateDoc(userRef, { operativeId });
         toast({ title: 'Success', description: "Operative ID updated." });
     } catch (error: any) {
         console.error("Error updating operative ID:", error);
@@ -102,14 +102,14 @@ export default function UserManagementPage() {
   };
 
   const handleEmploymentTypeChange = async (uid: string, employmentType: 'direct' | 'subbie') => {
-    if (!functions) {
-      toast({ variant: 'destructive', title: 'Error', description: 'Functions service not available.' });
+    if (!db) {
+      toast({ variant: 'destructive', title: 'Error', description: 'Database service not available.' });
       return;
     }
     toast({ title: 'Updating...', description: `Setting employment type for user...` });
     try {
-      const setUserEmploymentTypeFn = httpsCallable(functions, 'setUserEmploymentType');
-      await setUserEmploymentTypeFn({ uid, employmentType });
+      const userRef = doc(db, 'users', uid);
+      await updateDoc(userRef, { employmentType });
       toast({ title: 'Success', description: "Employment type updated." });
     } catch (error: any) {
       console.error("Error updating employment type:", error);

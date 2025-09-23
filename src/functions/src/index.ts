@@ -695,61 +695,6 @@ export const setUserStatus = functions.region("europe-west2").https.onCall(async
     }
 });
 
-export const setUserOperativeId = functions.region("europe-west2").https.onCall(async (data, context) => {
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
-    }
-    const callerUid = context.auth.uid;
-    const callerDoc = await db.collection("users").doc(callerUid).get();
-    const callerProfile = callerDoc.data();
-
-    if (!callerProfile || !['admin', 'owner'].includes(callerProfile.role)) {
-        throw new functions.https.HttpsError("permission-denied", "Only admins or the owner can perform this action.");
-    }
-
-    const { uid, operativeId } = data;
-    if (typeof uid !== 'string' || typeof operativeId !== 'string') {
-        throw new functions.https.HttpsError("invalid-argument", "The function requires 'uid' (string) and 'operativeId' (string) arguments.");
-    }
-
-    try {
-        const userRef = db.collection('users').doc(uid);
-        await userRef.update({ operativeId });
-        return { success: true };
-    } catch (error: any) {
-        functions.logger.error(`Error setting operative ID for user ${uid}:`, error);
-        throw new functions.https.HttpsError("internal", `An error occurred: ${error.message}`);
-    }
-});
-
-export const setUserEmploymentType = functions.region("europe-west2").https.onCall(async (data, context) => {
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
-    }
-    const callerUid = context.auth.uid;
-    const callerDoc = await db.collection("users").doc(callerUid).get();
-    const callerProfile = callerDoc.data();
-
-    if (!callerProfile || !['admin', 'owner'].includes(callerProfile.role)) {
-        throw new functions.https.HttpsError("permission-denied", "Only admins or the owner can perform this action.");
-    }
-
-    const { uid, employmentType } = data;
-    if (typeof uid !== 'string' || !['direct', 'subbie'].includes(employmentType)) {
-        throw new functions.https.HttpsError("invalid-argument", "The function requires 'uid' (string) and a valid 'employmentType' ('direct' or 'subbie').");
-    }
-
-    try {
-        const userRef = db.collection('users').doc(uid);
-        await userRef.update({ employmentType });
-        return { success: true };
-    } catch (error: any) {
-        functions.logger.error(`Error setting employment type for user ${uid}:`, error);
-        throw new functions.https.HttpsError("internal", `An error occurred: ${error.message}`);
-    }
-});
-
-
 export const deleteUser = functions.region("europe-west2").https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");

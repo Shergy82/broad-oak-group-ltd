@@ -2,86 +2,60 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Helper function to check if a user is an admin or owner
-    function isAdminOrOwner(userId) {
-      return get(/databases/$(database)/documents/users/$(userId)).data.role in ['admin', 'owner'];
-    }
-
-    // USERS COLLECTION
-    match /users/{userId} {
-      // READ: Any authenticated user can read any user profile (for names, etc.)
-      allow read: if request.auth != null;
-
-      // CREATE: A user can create their own user document upon signup.
-      allow create: if request.auth.uid == userId;
-
-      // UPDATE: 
-      // 1. A user can update their own document.
-      // 2. An admin or owner can update any user's document.
-      allow update: if request.auth.uid == userId || isAdminOrOwner(request.auth.uid);
-
-      // DELETE: Only an owner can delete a user document (deletion is handled by a Cloud Function).
-      allow delete: if false; // Deletion is handled by a callable function
-
-      // SUBSCRIPTIONS SUBCOLLECTION
-      match /pushSubscriptions/{subscriptionId} {
-        // A user can manage their own push notification subscriptions.
-        allow read, write, delete: if request.auth.uid == userId;
-      }
-    }
-
-    // SHIFTS COLLECTION
-    match /shifts/{shiftId} {
-      // READ: Any authenticated user can read shifts. (App filters by user)
-      allow read: if request.auth != null;
-
-      // CREATE: Admins and owners can create shifts.
-      allow create: if isAdminOrOwner(request.auth.uid);
-
-      // UPDATE: 
-      // 1. The assigned user can update the status of their own shift.
-      // 2. Admins and owners can update any field.
-      allow update: if (request.auth.uid == resource.data.userId) || isAdminOrOwner(request.auth.uid);
-      
-      // DELETE: Admins and owners can delete shifts.
-      allow delete: if isAdminOrOwner(request.auth.uid);
-    }
-
-    // PROJECTS COLLECTION
-    match /projects/{projectId} {
-      // READ: Any authenticated user can read project details.
-      allow read: if request.auth != null;
-      
-      // CREATE, UPDATE, DELETE: Only admins and owners can manage projects.
-      allow create, update, delete: if isAdminOrOwner(request.auth.uid);
-
-      // FILES SUBCOLLECTION
-      match /files/{fileId} {
-        // READ: Any authenticated user can read file details.
-        allow read: if request.auth != null;
-
-        // CREATE: Any authenticated user can upload files.
-        allow create: if request.auth != null;
-
-        // DELETE: Only the uploader, an admin, or the owner can delete files.
-        allow delete: if request.auth.uid == resource.data.uploaderId || isAdminOrOwner(request.auth.uid);
-      }
-    }
-
-    // ANNOUNCEMENTS COLLECTION
-    match /announcements/{announcementId} {
-      // READ: Any authenticated user can read announcements.
-      allow read: if request.auth != null;
-
-      // CREATE, UPDATE, DELETE: Only admins and owners can manage announcements.
-      allow create, update, delete: if isAdminOrOwner(request.auth.uid);
+  
+    function isOwner(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data.role == 'owner';
     }
     
-    // SETTINGS COLLECTION
-    match /settings/{settingId} {
-        // Only the owner can read or write to the global settings.
-        allow read, write: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'owner';
+    function isAdmin(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data.role == 'admin';
+    }
+
+    match /users/{userId} {
+      allow read;
+      allow create: if request.auth.uid == userId;
+      // Allow 'admin' or 'owner' to update any user document
+      allow update: if request.auth.uid == userId || isAdmin(request.auth.uid) || isOwner(request.auth.uid);
+      allow delete: if isOwner(request.auth.uid);
+    }
+    
+    match /users/{userId}/pushSubscriptions/{subscriptionId} {
+        allow read, write: if request.auth.uid == userId;
+    }
+    
+    match /settings/notifications {
+        allow read: if isOwner(request.auth.uid);
+        allow write: if isOwner(request.auth.uid);
+    }
+
+    match /shifts/{shiftId} {
+      allow read: if request.auth != null;
+      allow create: if isAdmin(request.auth.uid) || isOwner(request.auth.uid);
+      allow update: if request.auth != null;
+      allow delete: if isAdmin(request.auth.uid) || isOwner(request.auth.uid);
+    }
+
+    match /announcements/{announcementId} {
+      allow read: if request.auth != null;
+      allow create, update, delete: if isAdmin(request.auth.uid) || isOwner(request.auth.uid);
+    }
+    
+    match /announcements/{announcementId}/acknowledgedBy/{userId} {
+        allow read: if isAdmin(request.auth.uid) || isOwner(request.auth.uid);
+        allow write: if request.auth.uid == userId;
+    }
+    
+    match /projects/{projectId} {
+        allow read: if request.auth != null;
+        allow create, update: if isAdmin(request.auth.uid) || isOwner(request.auth.uid);
+        allow delete: if isOwner(request.auth.uid);
+    }
+    
+    match /projects/{projectId}/files/{fileId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null;
+        // Deletion is handled by a Cloud Function for security
+        allow delete: if false; 
     }
   }
 }
