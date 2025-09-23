@@ -1,73 +1,85 @@
-
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // Helper function to check the role of the currently signed-in user.
+    function isSignedInUserRole(role) {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
     
-    // Default deny all
-    match /{document=**} {
-      allow read, write: if false;
+    // Helper function to check if the signed-in user's role is one of the provided roles.
+    function isSignedInUserInRoles(roles) {
+      let userRole = get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+      return userRole in roles;
     }
 
-    function isOwnerOrAdmin() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner'];
-    }
-
-    // USERS
-    // All authenticated users can read their own profile.
-    // Admins/Owners can read any user profile.
-    // Users can update their own profile, Admins/Owners can update any.
     match /users/{userId} {
-      allow read: if request.auth.uid == userId || isOwnerOrAdmin();
-      allow update: if request.auth.uid == userId || isOwnerOrAdmin();
+      // READ: Users can read their own profile. Admins/Owners can read any profile.
+      allow read: if request.auth.uid == userId || isSignedInUserInRoles(['admin', 'owner']);
+      
+      // CREATE: A user can create their own user document upon signup.
       allow create: if request.auth.uid == userId;
 
-      // Push Subscriptions: Users can only manage their own.
-      match /pushSubscriptions/{subscriptionId} {
-        allow read, write, delete: if request.auth.uid == userId;
+      // UPDATE: Admins/Owners can update any user document. This is the key fix.
+      allow update: if isSignedInUserInRoles(['admin', 'owner']);
+      
+      // DELETE: Only the owner can delete a user.
+      allow delete: if isSignedInUserRole('owner');
+      
+      // LIST: Admins/Owners can list all users.
+      allow list: if isSignedInUserInRoles(['admin', 'owner']);
+    }
+
+    // Push Subscriptions: Users can only manage their own subscriptions.
+    match /users/{userId}/pushSubscriptions/{subscriptionId} {
+      allow read, write, delete: if request.auth.uid == userId;
+    }
+
+    // Shifts:
+    // Any authenticated user can read shifts (for admin views and personal dashboards).
+    // Admins/Owners can create/update/delete any shift.
+    // A regular user can only update their own shifts.
+    match /shifts/{shiftId} {
+      allow read: if request.auth.uid != null;
+      allow create: if isSignedInUserInRoles(['admin', 'owner']);
+      allow update: if isSignedInUserInRoles(['admin', 'owner']) || request.auth.uid == resource.data.userId;
+      allow delete: if isSignedInUserInRoles(['admin', 'owner']);
+    }
+    
+    // Projects & Files:
+    // All authenticated users can read projects and their files.
+    // Admins/Owners can create, update, and delete projects.
+    // All authenticated users can create (upload) files.
+    // Users can delete files they uploaded; Admins/Owners can delete any file.
+    match /projects/{projectId} {
+      allow read: if request.auth.uid != null;
+      allow write: if isSignedInUserInRoles(['admin', 'owner']); // Covers create, update, delete
+      
+      match /files/{fileId} {
+        allow read: if request.auth.uid != null;
+        allow create: if request.auth.uid != null;
+        allow delete: if request.auth.uid == resource.data.uploaderId || isSignedInUserInRoles(['admin', 'owner']);
       }
     }
     
-    // SHIFTS
-    // Users can only read shifts assigned to them.
-    // Admins/Owners can read all shifts.
-    // Users can update their own shifts (e.g., status).
-    // Admins/Owners can create, update, and delete any shift.
-    match /shifts/{shiftId} {
-        allow read: if resource.data.userId == request.auth.uid || isOwnerOrAdmin();
-        allow create, update, delete: if isOwnerOrAdmin();
-        allow update: if request.auth.uid == resource.data.userId && request.resource.data.keys().hasOnly(['status', 'notes']);
-    }
-    
-    // PROJECTS & FILES
-    // All authenticated users can read all projects and their files.
-    // Admins/Owners can create, update, delete projects.
-    // Any authenticated user can upload files.
-    // Only the uploader, an Admin, or the Owner can delete a file.
-    match /projects/{projectId} {
-        allow read: if request.auth != null;
-        allow create, update, delete: if isOwnerOrAdmin();
-
-        match /files/{fileId} {
-            allow read, create: if request.auth != null;
-            allow delete: if isOwnerOrAdmin() || resource.data.uploaderId == request.auth.uid;
-        }
-    }
-
-    // ANNOUNCEMENTS
-    // All authenticated users can read announcements.
-    // Admins/Owners can create, update, delete announcements.
+    // Announcements & Acknowledgements:
+    // All users can read announcements.
+    // Admins/Owners can create/update/delete announcements.
+    // Any user can create their own acknowledgement.
     match /announcements/{announcementId} {
-        allow read: if request.auth != null;
-        allow create, update, delete: if isOwnerOrAdmin();
+      allow read: if request.auth.uid != null;
+      allow write: if isSignedInUserInRoles(['admin', 'owner']);
+      
+      match /acknowledgedBy/{userId} {
+      	allow read, write: if request.auth.uid == userId;
+      }
     }
-    
-    // SETTINGS
-    // Only the owner can read or write to the global settings document.
+
+    // Settings (e.g., global notification toggle):
+    // Only the owner can read or write to the settings collection.
     match /settings/{docId} {
-      allow read, write: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'owner';
+      allow read, write: if isSignedInUserRole('owner');
     }
   }
 }
-
-    
