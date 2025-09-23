@@ -80,16 +80,17 @@ export function SignUpForm() {
           email: user.email,
           phoneNumber: values.phoneNumber,
           role: userRole,
-          status: 'active', // Set user to active immediately
+          status: 'pending-approval', // New users start as pending
           createdAt: serverTimestamp(),
           operativeId: '', // Add empty operativeId field
-          employmentType: '', // Add empty employmentType field
       });
-      
+
+      setSuccess(true);
       toast({
-        title: 'Account Created',
-        description: "You've been successfully signed up!",
+        title: 'Account Pending Approval',
+        description: "Your registration is complete. You will be able to log in once an administrator approves your account.",
       });
+      form.reset();
 
     } catch (error: any) {
       let errorMessage = 'An unexpected error occurred. Please try again.';
@@ -118,6 +119,19 @@ export function SignUpForm() {
 
   if (!isFirebaseConfigured || !auth) {
     return <UnconfiguredForm />;
+  }
+
+  if (success) {
+    return (
+        <Alert className="border-green-500 text-green-700 [&>svg]:text-green-500">
+            <CheckCircle className="h-4 w-4" />
+            <AlertTitle>Registration Complete</AlertTitle>
+            <AlertDescription>
+                <p>Your account is now pending approval from an administrator. You will receive a notification once your account is active.</p>
+                <p className="mt-4">You can now return to the <Link href="/login" className="font-semibold underline">login page</Link>.</p>
+            </AlertDescription>
+        </Alert>
+    )
   }
 
   return (
