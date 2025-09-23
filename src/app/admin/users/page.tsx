@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { collection, onSnapshot, query, doc, updateDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { db, functions, httpsCallable } from '@/lib/firebase';
 import type { UserProfile } from '@/types';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { useToast } from '@/hooks/use-toast';
@@ -86,34 +86,34 @@ export default function UserManagementPage() {
   }
 
   const handleOperativeIdChange = async (uid: string, operativeId: string) => {
-    if (!db) {
-      toast({ variant: 'destructive', title: 'Error', description: 'Database service not available.' });
-      return;
+    if (!functions) {
+        toast({ variant: 'destructive', title: 'Error', description: 'Functions service not available.' });
+        return;
     }
     toast({ title: 'Updating...', description: `Setting operative ID for user...` });
     try {
-      const userRef = doc(db, 'users', uid);
-      await updateDoc(userRef, { operativeId: operativeId });
-      toast({ title: 'Success', description: "Operative ID updated." });
+        const setUserOperativeIdFn = httpsCallable(functions, 'setUserOperativeId');
+        await setUserOperativeIdFn({ uid, operativeId });
+        toast({ title: 'Success', description: "Operative ID updated." });
     } catch (error: any) {
-      console.error("Error updating operative ID:", error);
-      toast({ variant: 'destructive', title: "Update Failed", description: error.message || "Could not save to database. Check Firestore rules." });
+        console.error("Error updating operative ID:", error);
+        toast({ variant: 'destructive', title: "Update Failed", description: error.message || "An unexpected error occurred." });
     }
   };
 
   const handleEmploymentTypeChange = async (uid: string, employmentType: 'direct' | 'subbie') => {
-    if (!db) {
-      toast({ variant: 'destructive', title: 'Error', description: 'Database service not available.' });
+    if (!functions) {
+      toast({ variant: 'destructive', title: 'Error', description: 'Functions service not available.' });
       return;
     }
     toast({ title: 'Updating...', description: `Setting employment type for user...` });
     try {
-      const userRef = doc(db, 'users', uid);
-      await updateDoc(userRef, { employmentType: employmentType });
+      const setUserEmploymentTypeFn = httpsCallable(functions, 'setUserEmploymentType');
+      await setUserEmploymentTypeFn({ uid, employmentType });
       toast({ title: 'Success', description: "Employment type updated." });
     } catch (error: any) {
       console.error("Error updating employment type:", error);
-      toast({ variant: 'destructive', title: 'Update Failed', description: error.message || "Could not save to database. Check Firestore rules." });
+      toast({ variant: 'destructive', title: 'Update Failed', description: error.message || "An unexpected error occurred." });
     }
   };
   

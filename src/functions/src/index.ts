@@ -696,7 +696,6 @@ export const setUserStatus = functions.region("europe-west2").https.onCall(async
 });
 
 export const setUserOperativeId = functions.region("europe-west2").https.onCall(async (data, context) => {
-    // 1. Authentication & Authorization
     if (!context.auth) {
         throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
     }
@@ -705,29 +704,25 @@ export const setUserOperativeId = functions.region("europe-west2").https.onCall(
     const callerProfile = callerDoc.data();
 
     if (!callerProfile || !['admin', 'owner'].includes(callerProfile.role)) {
-        throw new functions.https.HttpsError("permission-denied", "You do not have permission to perform this action.");
+        throw new functions.https.HttpsError("permission-denied", "Only admins or the owner can perform this action.");
     }
-    
-    // 2. Validation
+
     const { uid, operativeId } = data;
     if (typeof uid !== 'string' || typeof operativeId !== 'string') {
-        throw new functions.https.HttpsError("invalid-argument", "Invalid arguments. 'uid' and 'operativeId' must be strings.");
+        throw new functions.https.HttpsError("invalid-argument", "The function requires 'uid' (string) and 'operativeId' (string) arguments.");
     }
-    
-    // 3. Execution
+
     try {
-        const userDocRef = db.collection('users').doc(uid);
-        await userDocRef.update({ operativeId: operativeId });
-        functions.logger.log(`Admin/Owner ${callerUid} set operative ID for user ${uid} to "${operativeId}".`);
+        const userRef = db.collection('users').doc(uid);
+        await userRef.update({ operativeId });
         return { success: true };
     } catch (error: any) {
-        functions.logger.error(`Error updating operative ID for user ${uid}:`, error);
-        throw new functions.https.HttpsError("internal", `An unexpected error occurred while updating the operative ID.`);
+        functions.logger.error(`Error setting operative ID for user ${uid}:`, error);
+        throw new functions.https.HttpsError("internal", `An error occurred: ${error.message}`);
     }
 });
 
 export const setUserEmploymentType = functions.region("europe-west2").https.onCall(async (data, context) => {
-    // 1. Authentication & Authorization
     if (!context.auth) {
         throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
     }
@@ -736,26 +731,24 @@ export const setUserEmploymentType = functions.region("europe-west2").https.onCa
     const callerProfile = callerDoc.data();
 
     if (!callerProfile || !['admin', 'owner'].includes(callerProfile.role)) {
-        throw new functions.https.HttpsError("permission-denied", "You do not have permission to perform this action.");
+        throw new functions.https.HttpsError("permission-denied", "Only admins or the owner can perform this action.");
     }
-    
-    // 2. Validation
+
     const { uid, employmentType } = data;
     if (typeof uid !== 'string' || !['direct', 'subbie'].includes(employmentType)) {
-        throw new functions.https.HttpsError("invalid-argument", "Invalid arguments. 'uid' must be a string and 'employmentType' must be 'direct' or 'subbie'.");
+        throw new functions.https.HttpsError("invalid-argument", "The function requires 'uid' (string) and a valid 'employmentType' ('direct' or 'subbie').");
     }
-    
-    // 3. Execution
+
     try {
-        const userDocRef = db.collection('users').doc(uid);
-        await userDocRef.update({ employmentType: employmentType });
-        functions.logger.log(`Admin/Owner ${callerUid} set employment type for user ${uid} to "${employmentType}".`);
+        const userRef = db.collection('users').doc(uid);
+        await userRef.update({ employmentType });
         return { success: true };
     } catch (error: any) {
-        functions.logger.error(`Error updating employment type for user ${uid}:`, error);
-        throw new functions.https.HttpsError("internal", `An unexpected error occurred while updating the employment type.`);
+        functions.logger.error(`Error setting employment type for user ${uid}:`, error);
+        throw new functions.https.HttpsError("internal", `An error occurred: ${error.message}`);
     }
 });
+
 
 export const deleteUser = functions.region("europe-west2").https.onCall(async (data, context) => {
   if (!context.auth) {
