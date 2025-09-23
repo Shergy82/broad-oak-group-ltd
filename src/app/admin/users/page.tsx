@@ -2,8 +2,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { collection, onSnapshot, query, doc, updateDoc, writeBatch } from 'firebase/firestore';
-import { db, isFirebaseConfigured, functions, httpsCallable } from '@/lib/firebase';
+import { collection, onSnapshot, query } from 'firebase/firestore';
+import { db, isFirebaseConfigured } from '@/lib/firebase';
 import type { UserProfile } from '@/types';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { useToast } from '@/hooks/use-toast';
@@ -24,6 +24,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { format } from 'date-fns';
 
+const LOCAL_STORAGE_KEY = 'userEmploymentTypes';
 
 export default function UserManagementPage() {
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -47,7 +48,18 @@ export default function UserManagementPage() {
       querySnapshot.forEach((doc) => {
         fetchedUsers.push({ uid: doc.id, ...doc.data() } as UserProfile);
       });
-      setUsers(fetchedUsers.sort((a, b) => a.name.localeCompare(b.name)));
+
+      // Load saved types from localStorage
+      const savedTypesRaw = localStorage.getItem(LOCAL_STORAGE_KEY);
+      const savedTypes = savedTypesRaw ? JSON.parse(savedTypesRaw) : {};
+
+      // Merge saved types into the user profiles
+      const usersWithTypes = fetchedUsers.map(user => ({
+        ...user,
+        employmentType: savedTypes[user.uid] || user.employmentType,
+      }));
+
+      setUsers(usersWithTypes.sort((a, b) => a.name.localeCompare(b.name)));
       setLoading(false);
     }, (error) => {
       console.error("Error fetching users: ", error);
@@ -82,9 +94,16 @@ export default function UserManagementPage() {
   }
 
   const handleTypeChange = (uid: string, newType: 'direct' | 'subbie') => {
-    // Client-side update
+    // 1. Update client-side state
     setUsers(prevUsers => prevUsers.map(u => u.uid === uid ? { ...u, employmentType: newType } : u));
-    toast({ title: 'Success', description: 'User employment type updated for this session.' });
+    
+    // 2. Save to localStorage for persistence
+    const savedTypesRaw = localStorage.getItem(LOCAL_STORAGE_KEY);
+    const savedTypes = savedTypesRaw ? JSON.parse(savedTypesRaw) : {};
+    savedTypes[uid] = newType;
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(savedTypes));
+
+    toast({ title: 'Success', description: 'User employment type updated and saved in your browser.' });
   };
 
   const handleDownloadPdf = async () => {
@@ -121,7 +140,7 @@ export default function UserManagementPage() {
       finalY = (doc as any).lastAutoTable.finalY + 15;
     };
     
-    const isOperative = (u: UserProfile) => u.role !== 'admin' && u.role !== 'owner';
+    const isOperative = (u: UserProfile) => !['admin', 'owner'].includes(u.role);
 
     const directUsers = users.filter(u => u.employmentType === 'direct' && isOperative(u));
     const subbieUsers = users.filter(u => u.employmentType === 'subbie' && isOperative(u));
@@ -289,5 +308,3 @@ export default function UserManagementPage() {
     </Card>
   );
 }
-
-    
