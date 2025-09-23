@@ -14,8 +14,6 @@ import type { Announcement, Shift } from '@/types';
 import { UnreadAnnouncements } from '@/components/announcements/unread-announcements';
 import { NewShiftsDialog } from '@/components/dashboard/new-shifts-dialog';
 
-const LOCAL_STORAGE_KEY_ID = 'userOperativeIds';
-
 export default function DashboardPage() {
   const { user, isLoading: isAuthLoading } = useAuth();
   const { userProfile, loading: isProfileLoading } = useUserProfile();
@@ -26,23 +24,12 @@ export default function DashboardPage() {
   const [loadingData, setLoadingData] = useState(true);
   const [showAnnouncements, setShowAnnouncements] = useState(true);
   const [showNewShifts, setShowNewShifts] = useState(true);
-  const [operativeId, setOperativeId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isAuthLoading && !user) {
       router.push('/login');
     }
   }, [user, isAuthLoading, router]);
-
-  useEffect(() => {
-    if (user) {
-      const savedIdsRaw = localStorage.getItem(LOCAL_STORAGE_KEY_ID);
-      const savedIds = savedIdsRaw ? JSON.parse(savedIdsRaw) : {};
-      if (savedIds[user.uid]) {
-        setOperativeId(savedIds[user.uid]);
-      }
-    }
-  }, [user]);
 
   useEffect(() => {
     if (!user || !db) {
@@ -142,7 +129,7 @@ export default function DashboardPage() {
     <div className="flex min-h-screen w-full flex-col">
       <Header />
       <main className="flex flex-1 flex-col gap-6 p-4 md:p-8">
-        <Dashboard userShifts={allShifts} loading={loadingData} operativeId={operativeId} />
+        <Dashboard userShifts={allShifts} loading={loadingData} />
       </main>
     </div>
   );

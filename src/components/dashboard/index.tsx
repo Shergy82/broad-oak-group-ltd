@@ -16,17 +16,26 @@ import { useToast } from '@/hooks/use-toast';
 import { getCorrectedLocalDate } from '@/lib/utils';
 import { Badge } from '../ui/badge';
 
+const LOCAL_STORAGE_KEY_ID = 'userOperativeIds';
 
-export default function Dashboard({ userShifts, loading, operativeId }: { userShifts: Shift[], loading: boolean, operativeId: string | null }) {
+
+export default function Dashboard({ userShifts, loading }: { userShifts: Shift[], loading: boolean }) {
   const { user } = useAuth();
   const { toast } = useToast();
   const [dismissedShiftIds, setDismissedShiftIds] = useState<string[]>([]);
+  const [operativeId, setOperativeId] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) {
         const storedDismissedIds = localStorage.getItem(`dismissedShifts_${user.uid}`);
         if (storedDismissedIds) {
             setDismissedShiftIds(JSON.parse(storedDismissedIds));
+        }
+        
+        const savedIdsRaw = localStorage.getItem(LOCAL_STORAGE_KEY_ID);
+        const savedIds = savedIdsRaw ? JSON.parse(savedIdsRaw) : {};
+        if (savedIds[user.uid]) {
+            setOperativeId(savedIds[user.uid]);
         }
     }
   }, [user]);
