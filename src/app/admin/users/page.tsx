@@ -2,8 +2,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { collection, onSnapshot, query } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { collection, onSnapshot, query, doc, getDoc, updateDoc } from 'firebase/firestore';
+import { db, functions, httpsCallable } from '@/lib/firebase';
 import type { UserProfile } from '@/types';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { useToast } from '@/hooks/use-toast';
@@ -25,30 +25,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { format } from 'date-fns';
 import { Input } from '@/components/ui/input';
 
-const getLocalStorageItem = <T>(key: string, defaultValue: T): T => {
-    if (typeof window === 'undefined') return defaultValue;
-    const stored = localStorage.getItem(key);
-    return stored ? JSON.parse(stored) : defaultValue;
-};
-
-const setLocalStorageItem = <T>(key: string, value: T) => {
-    if (typeof window === 'undefined') return;
-    localStorage.setItem(key, JSON.stringify(value));
-};
 
 export default function UserManagementPage() {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const { userProfile: currentUserProfile } = useUserProfile();
   const { toast } = useToast();
-  const [localUserData, setLocalUserData] = useState<{ [key: string]: { employmentType?: 'direct' | 'subbie', operativeId?: string } }>({});
-
+  
   const isOwner = currentUserProfile?.role === 'owner';
   const isPrivilegedUser = isOwner || currentUserProfile?.role === 'admin';
-
-  useEffect(() => {
-    setLocalUserData(getLocalStorageItem('user_management_data', {}));
-  }, []);
 
   useEffect(() => {
     if (!currentUserProfile || !db) {
@@ -100,17 +85,47 @@ export default function UserManagementPage() {
     return `https://console.firebase.google.com/project/${projectId}/auth/users`;
   }
 
-  const handleLocalDataChange = (uid: string, key: 'employmentType' | 'operativeId', value: string) => {
-    const updatedData = {
-        ...localUserData,
-        [uid]: {
-            ...localUserData[uid],
-            [key]: value
-        }
-    };
-    setLocalUserData(updatedData);
-    setLocalStorageItem('user_management_data', updatedData);
-    toast({ title: 'Saved', description: 'Your changes have been saved to this browser.' });
+  const handleOperativeIdChange = async (uid: string, operativeId: string) => {
+    if (!functions) {
+        toast({ variant: 'destructive', title: 'Error', description: 'Functions service not available.' });
+        return;
+    }
+
+    // Optimistically update the UI
+    const originalUsers = users;
+    setUsers(prevUsers => prevUsers.map(u => u.uid === uid ? { ...u, operativeId } : u));
+
+    try {
+        const setUserOperativeIdFn = httpsCallable(functions, 'setUserOperativeId');
+        await setUserOperativeIdFn({ uid, operativeId });
+        toast({ title: 'Success', description: "Operative ID updated." });
+    } catch (error: any) {
+        console.error("Error updating operative ID:", error);
+        toast({ variant: 'destructive', title: "Update Failed", description: error.message || "An internal error occurred." });
+        // Revert UI change on failure
+        setUsers(originalUsers);
+    }
+  };
+
+  const handleEmploymentTypeChange = async (uid: string, employmentType: 'direct' | 'subbie') => {
+    if (!functions) {
+      toast({ variant: 'destructive', title: 'Error', description: 'Functions service not available.' });
+      return;
+    }
+
+    // Optimistic UI update
+    const originalUsers = users;
+    setUsers(prevUsers => prevUsers.map(u => u.uid === uid ? { ...u, employmentType } : u));
+    
+    try {
+      const setUserEmploymentTypeFn = httpsCallable(functions, 'setUserEmploymentType');
+      await setUserEmploymentTypeFn({ uid, employmentType });
+      toast({ title: 'Success', description: "Employment type updated." });
+    } catch (error: any) {
+      console.error("Error updating employment type:", error);
+      toast({ variant: 'destructive', title: 'Update Failed', description: error.message || "An internal error occurred." });
+      setUsers(originalUsers);
+    }
   };
   
   const handleDownloadPdf = async () => {
@@ -138,7 +153,7 @@ export default function UserManagementPage() {
       autoTable(doc, {
         head: [['ID', 'Name', 'Email', 'Phone Number']],
         body: userList.map(u => [
-            localUserData[u.uid]?.operativeId || 'N/A', 
+            u.operativeId || 'N/A', 
             u.name, 
             u.email, 
             u.phoneNumber
@@ -154,9 +169,9 @@ export default function UserManagementPage() {
     
     const isOperative = (u: UserProfile) => !['admin', 'owner'].includes(u.role);
 
-    const directUsers = users.filter(u => localUserData[u.uid]?.employmentType === 'direct' && isOperative(u));
-    const subbieUsers = users.filter(u => localUserData[u.uid]?.employmentType === 'subbie' && isOperative(u));
-    const unassignedUsers = users.filter(u => !localUserData[u.uid]?.employmentType && isOperative(u));
+    const directUsers = users.filter(u => u.employmentType === 'direct' && isOperative(u));
+    const subbieUsers = users.filter(u => u.employmentType === 'subbie' && isOperative(u));
+    const unassignedUsers = users.filter(u => !u.employmentType && isOperative(u));
 
     generateTableForType('Direct Employees', directUsers);
     generateTableForType('Subcontractors (Subbies)', subbieUsers);
@@ -172,7 +187,7 @@ export default function UserManagementPage() {
             <div>
                 <CardTitle>User Management</CardTitle>
                 <CardDescription>
-                    View and manage all users. Changes are saved to your browser.
+                    View and manage all users.
                 </CardDescription>
             </div>
             <Button variant="outline" onClick={handleDownloadPdf} disabled={loading || users.length === 0}>
@@ -219,14 +234,14 @@ export default function UserManagementPage() {
                           <TableCell>
                             {isPrivilegedUser ? (
                               <Input
-                                defaultValue={localUserData[user.uid]?.operativeId || ''}
-                                onBlur={(e) => handleLocalDataChange(user.uid, 'operativeId', e.target.value)}
+                                defaultValue={user.operativeId || ''}
+                                onBlur={(e) => handleOperativeIdChange(user.uid, e.target.value)}
                                 className="h-8 w-24"
                                 placeholder="Set ID"
-                                disabled={!isOwner && user.role === 'owner'}
+                                disabled={!isOwner && !isPrivilegedUser}
                               />
                             ) : (
-                              localUserData[user.uid]?.operativeId || <Badge variant="outline">N/A</Badge>
+                              user.operativeId || <Badge variant="outline">N/A</Badge>
                             )}
                           </TableCell>
                           <TableCell>{user.email}</TableCell>
@@ -241,8 +256,9 @@ export default function UserManagementPage() {
                           {isPrivilegedUser && (
                               <TableCell>
                                   <Select
-                                      value={localUserData[user.uid]?.employmentType || ''}
-                                      onValueChange={(value: 'direct' | 'subbie') => handleLocalDataChange(user.uid, 'employmentType', value)}
+                                      value={user.employmentType || ''}
+                                      onValueChange={(value: 'direct' | 'subbie') => handleEmploymentTypeChange(user.uid, value)}
+                                      disabled={!isPrivilegedUser}
                                   >
                                       <SelectTrigger className="w-[120px]">
                                           <SelectValue placeholder="Set Type" />
@@ -299,18 +315,19 @@ export default function UserManagementPage() {
                           <div className="flex items-center gap-2 pt-2">
                             <strong className="shrink-0">ID:</strong>
                             <Input
-                                defaultValue={localUserData[user.uid]?.operativeId || ''}
-                                onBlur={(e) => handleLocalDataChange(user.uid, 'operativeId', e.target.value)}
+                                defaultValue={user.operativeId || ''}
+                                onBlur={(e) => handleOperativeIdChange(user.uid, e.target.value)}
                                 className="h-8"
                                 placeholder="Set ID"
-                                disabled={!isOwner && user.role === 'owner'}
+                                disabled={!isPrivilegedUser}
                               />
                           </div>
                           <div className="flex items-center gap-2 pt-2">
                             <strong className="shrink-0">Type:</strong>
                             <Select
-                              value={localUserData[user.uid]?.employmentType || ''}
-                              onValueChange={(value: 'direct' | 'subbie') => handleLocalDataChange(user.uid, 'employmentType', value)}
+                              value={user.employmentType || ''}
+                              onValueChange={(value: 'direct' | 'subbie') => handleEmploymentTypeChange(user.uid, value)}
+                              disabled={!isPrivilegedUser}
                             >
                               <SelectTrigger className="w-full">
                                 <SelectValue placeholder="Set Type" />

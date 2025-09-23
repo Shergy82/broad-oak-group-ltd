@@ -16,31 +16,18 @@ import { getCorrectedLocalDate } from '@/lib/utils';
 import { Badge } from '../ui/badge';
 import { Download, History, Clock, Sunrise, Sunset } from 'lucide-react';
 
-const getLocalStorageItem = <T>(key: string, defaultValue: T): T => {
-    if (typeof window === 'undefined') return defaultValue;
-    const stored = localStorage.getItem(key);
-    return stored ? JSON.parse(stored) : defaultValue;
-};
-
 export default function Dashboard({ userShifts, loading }: { userShifts: Shift[], loading: boolean }) {
   const { user } = useAuth();
+  const { userProfile } = useUserProfile();
   const { toast } = useToast();
   const [dismissedShiftIds, setDismissedShiftIds] = useState<string[]>([]);
-  const [operativeId, setOperativeId] = useState<string | null>(null);
-
+  
   useEffect(() => {
     if (user) {
         const storedDismissedIds = localStorage.getItem(`dismissedShifts_${user.uid}`);
         if (storedDismissedIds) {
             setDismissedShiftIds(JSON.parse(storedDismissedIds));
         }
-        
-        const localUserData = getLocalStorageItem<{ [key: string]: { operativeId?: string } }>('user_management_data', {});
-        const userData = localUserData[user.uid];
-        if (userData && userData.operativeId) {
-            setOperativeId(userData.operativeId);
-        }
-
     }
   }, [user]);
 
@@ -265,7 +252,7 @@ export default function Dashboard({ userShifts, loading }: { userShifts: Shift[]
               <h2 className="text-xl md:text-2xl font-semibold tracking-tight">
                 Hi, {user.displayName.split(' ')[0]}
               </h2>
-              {operativeId && <Badge variant="secondary">ID: {operativeId}</Badge>}
+              {userProfile?.operativeId && <Badge variant="secondary">ID: {userProfile.operativeId}</Badge>}
             </div>
             <Button variant="outline" size="sm" onClick={handleDownloadPdf} disabled={loading}>
               <Download className="mr-2 h-4 w-4" />
