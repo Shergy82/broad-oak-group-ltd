@@ -90,10 +90,6 @@ export default function DashboardPage() {
     return allShifts.filter(shift => shift.status === 'pending-confirmation');
   }, [allShifts, user, loadingData]);
   
-  const activeShifts = useMemo(() => {
-    return allShifts.filter(shift => shift.status !== 'completed' && shift.status !== 'incomplete');
-  }, [allShifts]);
-
   const isLoading = isAuthLoading || isProfileLoading || loadingData;
 
   if (isLoading || !user) {
