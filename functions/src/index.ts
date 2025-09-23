@@ -705,7 +705,7 @@ export const deleteUser = functions.region("europe-west2").https.onCall(async (d
   const callerProfile = callerDoc.data() as { role: string } | undefined;
 
   if (!callerProfile || callerProfile.role !== 'owner') {
-    throw new functions.https.HttpsError("permission-denied", "Only the account owner can delete users.");
+    throw new functions.https.h.HttpsError("permission-denied", "Only the account owner can delete users.");
   }
 
   const { uid } = data;

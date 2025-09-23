@@ -2,80 +2,86 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Default deny all
-    match /{document=**} {
-      allow read, write: if false;
+
+    // Helper function to check if a user is an admin or owner
+    function isAdminOrOwner(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data.role in ['admin', 'owner'];
     }
 
-    // USERS
+    // USERS COLLECTION
     match /users/{userId} {
-      // ANY authenticated user can read ANY user's profile.
-      // This is generally safe if profiles don't contain sensitive data.
+      // READ: Any authenticated user can read any user profile (for names, etc.)
       allow read: if request.auth != null;
-      
-      // A user can ONLY create THEIR OWN user document upon sign-up.
+
+      // CREATE: A user can create their own user document upon signup.
       allow create: if request.auth.uid == userId;
 
-      // A user can update their own profile.
-      // Additionally, a user with the role 'admin' or 'owner' can update ANY user's profile.
-      allow update: if request.auth.uid == userId || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner'];
-      
-      // Only the owner can delete a user document.
-      allow delete: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'owner';
+      // UPDATE: 
+      // 1. A user can update their own document.
+      // 2. An admin or owner can update any user's document.
+      allow update: if request.auth.uid == userId || isAdminOrOwner(request.auth.uid);
 
-      // Allow reading and creating push subscriptions for the user who owns them.
+      // DELETE: Only an owner can delete a user document (deletion is handled by a Cloud Function).
+      allow delete: if false; // Deletion is handled by a callable function
+
+      // SUBSCRIPTIONS SUBCOLLECTION
       match /pushSubscriptions/{subscriptionId} {
+        // A user can manage their own push notification subscriptions.
         allow read, write, delete: if request.auth.uid == userId;
       }
     }
 
-    // SHIFTS
+    // SHIFTS COLLECTION
     match /shifts/{shiftId} {
-      // An authenticated user can read any shift.
+      // READ: Any authenticated user can read shifts. (App filters by user)
+      allow read: if request.auth != null;
+
+      // CREATE: Admins and owners can create shifts.
+      allow create: if isAdminOrOwner(request.auth.uid);
+
+      // UPDATE: 
+      // 1. The assigned user can update the status of their own shift.
+      // 2. Admins and owners can update any field.
+      allow update: if (request.auth.uid == resource.data.userId) || isAdminOrOwner(request.auth.uid);
+      
+      // DELETE: Admins and owners can delete shifts.
+      allow delete: if isAdminOrOwner(request.auth.uid);
+    }
+
+    // PROJECTS COLLECTION
+    match /projects/{projectId} {
+      // READ: Any authenticated user can read project details.
       allow read: if request.auth != null;
       
-      // An admin or owner can create, update, or delete any shift.
-      allow write: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner'];
+      // CREATE, UPDATE, DELETE: Only admins and owners can manage projects.
+      allow create, update, delete: if isAdminOrOwner(request.auth.uid);
 
-      // A regular user can only update a shift if it is assigned to them.
-      // They cannot create or delete shifts directly.
-      allow update: if request.auth.uid == resource.data.userId;
-    }
-
-    // PROJECTS and their FILES subcollection
-    match /projects/{projectId} {
-      // Any authenticated user can read project details.
-      allow read: if request.auth != null;
-
-      // Only admins or the owner can create, update, or delete project documents.
-      allow write: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner'];
-
+      // FILES SUBCOLLECTION
       match /files/{fileId} {
-        // Any authenticated user can read file details.
+        // READ: Any authenticated user can read file details.
         allow read: if request.auth != null;
-        
-        // Any authenticated user can create (upload) a file.
+
+        // CREATE: Any authenticated user can upload files.
         allow create: if request.auth != null;
 
-        // A user can delete a file if they uploaded it, OR if they are an admin/owner.
-        allow delete: if request.auth.uid == resource.data.uploaderId || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner'];
+        // DELETE: Only the uploader, an admin, or the owner can delete files.
+        allow delete: if request.auth.uid == resource.data.uploaderId || isAdminOrOwner(request.auth.uid);
       }
     }
-    
-    // ANNOUNCEMENTS
+
+    // ANNOUNCEMENTS COLLECTION
     match /announcements/{announcementId} {
-        // Any authenticated user can read announcements.
-        allow read: if request.auth != null;
+      // READ: Any authenticated user can read announcements.
+      allow read: if request.auth != null;
 
-        // Only admins or the owner can create, update, or delete announcements.
-        allow write: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'owner'];
+      // CREATE, UPDATE, DELETE: Only admins and owners can manage announcements.
+      allow create, update, delete: if isAdminOrOwner(request.auth.uid);
     }
-
-    // SETTINGS
+    
+    // SETTINGS COLLECTION
     match /settings/{settingId} {
-      // Only the owner can read or write to the global settings document.
-      allow read, write: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'owner';
+        // Only the owner can read or write to the global settings.
+        allow read, write: if get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'owner';
     }
   }
 }
