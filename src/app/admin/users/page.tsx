@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { collection, onSnapshot, query, doc, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db, isFirebaseConfigured, functions, httpsCallable } from '@/lib/firebase';
 import type { UserProfile } from '@/types';
 import { useUserProfile } from '@/hooks/use-user-profile';
@@ -24,6 +24,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { format } from 'date-fns';
 import { Input } from '@/components/ui/input';
+import { Spinner } from '../shared/spinner';
 
 export default function UserManagementPage() {
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -31,6 +32,7 @@ export default function UserManagementPage() {
   const { userProfile: currentUserProfile } = useUserProfile();
   const { toast } = useToast();
   const isOwner = currentUserProfile?.role === 'owner';
+  const isPrivilegedUser = isOwner || currentUserProfile?.role === 'admin';
 
   useEffect(() => {
     if (!currentUserProfile || !db) {
@@ -83,41 +85,41 @@ export default function UserManagementPage() {
   }
 
   const handleTypeChange = async (uid: string, newType: 'direct' | 'subbie') => {
-    if (!db) {
-        toast({ variant: 'destructive', title: 'Error', description: 'Database service not available.'});
-        return;
+    if (!functions) {
+      toast({ variant: 'destructive', title: 'Error', description: 'Functions service not available.' });
+      return;
     }
 
     const originalUsers = [...users];
     setUsers(prevUsers => prevUsers.map(u => u.uid === uid ? { ...u, employmentType: newType } : u));
 
     try {
-        const userDocRef = doc(db, 'users', uid);
-        await updateDoc(userDocRef, { employmentType: newType });
-        toast({ title: 'Success', description: 'User employment type updated.' });
+      const setUserEmploymentType = httpsCallable(functions, 'setUserEmploymentType');
+      await setUserEmploymentType({ uid, employmentType: newType });
+      toast({ title: 'Success', description: 'User employment type updated.' });
     } catch (error: any) {
-        console.error("Error updating employment type:", error);
-        toast({ variant: 'destructive', title: 'Update Failed', description: "Could not save to database. Check Firestore rules." });
-        setUsers(originalUsers); // Revert UI change on failure
+      console.error("Error updating employment type:", error);
+      toast({ variant: 'destructive', title: 'Update Failed', description: error.message || 'Could not save to database.' });
+      setUsers(originalUsers); // Revert UI change on failure
     }
   };
   
   const handleOperativeIdChange = async (uid: string, operativeId: string) => {
-     if (!db) {
-        toast({ variant: 'destructive', title: 'Error', description: 'Functions service not available.'});
-        return;
+    if (!functions) {
+      toast({ variant: 'destructive', title: 'Error', description: 'Functions service not available.' });
+      return;
     }
     const originalUsers = [...users];
     setUsers(prevUsers => prevUsers.map(u => u.uid === uid ? { ...u, operativeId } : u));
     
     try {
-        const userDocRef = doc(db, 'users', uid);
-        await updateDoc(userDocRef, { operativeId: operativeId });
-        toast({ title: 'Success', description: "Operative ID updated successfully." });
+      const setUserOperativeId = httpsCallable(functions, 'setUserOperativeId');
+      await setUserOperativeId({ uid, operativeId });
+      toast({ title: 'Success', description: "Operative ID updated successfully." });
     } catch (error: any) {
-        console.error("Error updating operative ID:", error);
-        toast({ variant: 'destructive', title: 'Update Failed', description: "Could not save to database. Check Firestore rules." });
-        setUsers(originalUsers); // Revert UI change on failure
+      console.error("Error updating operative ID:", error);
+      toast({ variant: 'destructive', title: 'Update Failed', description: error.message || "Could not save to database." });
+      setUsers(originalUsers); // Revert UI change on failure
     }
   };
 
@@ -178,7 +180,7 @@ export default function UserManagementPage() {
             <div>
                 <CardTitle>User Management</CardTitle>
                 <CardDescription>
-                    View and manage all users. {isOwner ? "As the owner, you can set employment types, IDs and manage users via the Firebase Console." : "Only the account owner can manage users."}
+                    View and manage all users. {isPrivilegedUser ? "Set employment types, IDs and manage users via the Firebase Console." : "Only Admins or the Owner can manage users."}
                 </CardDescription>
             </div>
             <Button variant="outline" onClick={handleDownloadPdf} disabled={loading || users.length === 0}>
@@ -214,7 +216,7 @@ export default function UserManagementPage() {
                     <TableHead>Email</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead>Status</TableHead>
-                    {isOwner && <TableHead>Type</TableHead>}
+                    {isPrivilegedUser && <TableHead>Type</TableHead>}
                     {isOwner && <TableHead className="text-right">Actions</TableHead>}
                     </TableRow>
                 </TableHeader>
@@ -223,7 +225,7 @@ export default function UserManagementPage() {
                         <TableRow key={user.uid} className={user.status === 'suspended' ? 'bg-muted/30' : ''}>
                           <TableCell className="font-medium">{user.name}</TableCell>
                           <TableCell>
-                            {isOwner ? (
+                            {isPrivilegedUser ? (
                               <Input
                                 defaultValue={user.operativeId || ''}
                                 onBlur={(e) => handleOperativeIdChange(user.uid, e.target.value)}
@@ -243,7 +245,7 @@ export default function UserManagementPage() {
                           <TableCell>
                               {getStatusBadge(user.status)}
                           </TableCell>
-                          {isOwner && (
+                          {isPrivilegedUser && (
                               <TableCell>
                                   <Select
                                       value={user.employmentType || ''}
@@ -299,7 +301,7 @@ export default function UserManagementPage() {
                      <p><strong>Phone:</strong> {user.phoneNumber || 'N/A'}</p>
                      <p className="flex items-center gap-2"><strong>Role:</strong> <Badge variant={user.role === 'owner' ? 'default' : user.role === 'admin' ? 'secondary' : 'outline'} className="capitalize">{user.role}</Badge></p>
                      
-                     {isOwner && (
+                     {isPrivilegedUser && (
                         <>
                           <div className="flex items-center gap-2 pt-2">
                             <strong className="shrink-0">ID:</strong>
