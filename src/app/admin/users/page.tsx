@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { collection, onSnapshot, query, doc, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, doc, getDoc } from 'firebase/firestore';
 import { db, isFirebaseConfigured, functions, httpsCallable } from '@/lib/firebase';
 import type { UserProfile } from '@/types';
 import { useUserProfile } from '@/hooks/use-user-profile';
@@ -129,7 +129,8 @@ export default function UserManagementPage() {
         description: error.message || "Could not update the operative ID.",
       });
       // Revert UI change on failure
-      const userDoc = await doc(db, 'users', uid).get();
+      const userDocRef = doc(db, 'users', uid);
+      const userDoc = await getDoc(userDocRef);
       if (userDoc.exists()) {
         const originalId = userDoc.data().operativeId;
         setUsers(prevUsers => prevUsers.map(u => u.uid === uid ? { ...u, operativeId: originalId } : u));
