@@ -14,6 +14,9 @@ import { functions, httpsCallable } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { Spinner } from '../shared/spinner';
 import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
+import { VapidKeyGenerator } from './vapid-key-generator';
+import { TestNotificationSender } from './test-notification-sender';
+import { NotificationToggle } from './notification-toggle';
 
 
 export default function AdminPageContent() {
@@ -72,6 +75,14 @@ export default function AdminPageContent() {
   return (
     <div className="space-y-8">
       
+      {isOwner && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <VapidKeyGenerator />
+          <TestNotificationSender />
+          <NotificationToggle />
+        </div>
+      )}
+
       {isPrivilegedUser && (
         <Card>
           <CardHeader>
