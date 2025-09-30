@@ -9,12 +9,12 @@ import { getFunctions, httpsCallable, type Functions } from "firebase/functions"
 
 // Your Firebase project configuration.
 const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyCmch6jop04hdM0GhAq4RmYv9CuH_TRH3w",
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "broad-oak-build-live.firebaseapp.com",
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "broad-oak-build-live",
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "broad-oak-build-live.appspot.com",
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "510466083182",
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "1:510466083182:web:6261a80a83ee1fc31bd97f",
+  apiKey: "AIzaSyAdYOSzCJAN8iKphycmgoUwUwjCZyJ9T-U",
+  authDomain: "group-build-29768421-feed1.firebaseapp.com",
+  projectId: "group-build-29768421-feed1",
+  storageBucket: "group-build-29768421-feed1.firebasestorage.app",
+  messagingSenderId: "380758139603",
+  appId: "1:380758139603:web:8ff0eab0c5a109436eaa26"
 };
 
 // A flag to check if Firebase is configured
