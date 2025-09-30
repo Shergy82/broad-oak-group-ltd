@@ -1,8 +1,8 @@
-import {configureGenkit} from 'genkit';
+import {genkit} from 'genkit';
 import {googleAI} from '@genkit-ai/googleai';
 
-configureGenkit({
-  plugins: [googleAI()],
-  logLevel: 'debug',
-  defaultModel: 'googleai/gemini-2.0-flash',
+export const ai = genkit({
+  plugins: [googleAI({
+    apiVersion: "v1beta",
+  })],
 });
