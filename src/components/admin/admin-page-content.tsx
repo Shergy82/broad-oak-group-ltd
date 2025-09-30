@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -14,17 +13,12 @@ import { functions, httpsCallable } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { Spinner } from '../shared/spinner';
 import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
-import { VapidKeyGenerator } from './vapid-key-generator';
-import { TestNotificationSender } from './test-notification-sender';
-import { NotificationToggle } from './notification-toggle';
-
 
 export default function AdminPageContent() {
   const { userProfile } = useUserProfile();
   const [failedShifts, setFailedShifts] = useState<FailedShift[]>([]);
   const [importAttempted, setImportAttempted] = useState(false);
   const isPrivilegedUser = userProfile && ['admin', 'owner'].includes(userProfile.role);
-  const isOwner = userProfile && userProfile.role === 'owner';
 
   const handleImportComplete = (report: FailedShift[]) => {
     const sortedReport = report.sort((a, b) => {
@@ -74,15 +68,6 @@ export default function AdminPageContent() {
 
   return (
     <div className="space-y-8">
-      
-      {isOwner && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <VapidKeyGenerator />
-          <TestNotificationSender />
-          <NotificationToggle />
-        </div>
-      )}
-
       {isPrivilegedUser && (
         <Card>
           <CardHeader>
