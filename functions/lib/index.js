@@ -142,7 +142,6 @@ exports.sendShiftNotification = functions.region("europe-west2").firestore.docum
             changedFields.push('B Number');
         if (beforeData.type !== afterData.type)
             changedFields.push('time');
-        // This is the corrected line
         if (beforeData.date instanceof admin.firestore.Timestamp && afterData.date instanceof admin.firestore.Timestamp && !beforeData.date.isEqual(afterData.date)) {
             changedFields.push('date');
         }
