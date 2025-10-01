@@ -186,11 +186,13 @@ exports.sendShiftNotification = functions.region("europe-west2").firestore.docum
 // Scheduled function to remind project creators to review old projects.
 exports.projectReviewNotifier = functions.region("europe-west2").pubsub.schedule("every 24 hours")
     .onRun(async (context) => {
+    // Similar checks for notification settings and VAPID keys as above...
     // [Implementation logic to query old projects and notify creators]
 });
 // Scheduled function to remind users of shifts pending their confirmation.
 exports.pendingShiftNotifier = functions.region("europe-west2").pubsub.schedule("every 1 hours")
     .onRun(async (context) => {
+    // Similar checks for notification settings and VAPID keys as above...
     // [Implementation logic to query pending shifts and notify users]
 });
 // Admin callable functions for user and project management.
@@ -226,6 +228,9 @@ exports.deleteProjectFile = functions.region("europe-west2").https.onCall(async 
     if (!fileDoc.exists)
         throw new functions.https.HttpsError("not-found", "File not found.");
     const fileData = fileDoc.data();
+    if (!fileData) {
+        throw new functions.https.HttpsError("not-found", "File data is missing.");
+    }
     const userDoc = await db.collection("users").doc(context.auth.uid).get();
     const userRole = (_a = userDoc.data()) === null || _a === void 0 ? void 0 : _a.role;
     if (context.auth.uid !== fileData.uploaderId && !['admin', 'owner'].includes(userRole)) {
@@ -258,11 +263,12 @@ exports.deleteAllProjects = functions.region("europe-west2").https.onCall(async 
     const userDoc = await db.collection("users").doc(context.auth.uid).get();
     if (((_a = userDoc.data()) === null || _a === void 0 ? void 0 : _a.role) !== 'owner')
         throw new functions.https.HttpsError("permission-denied", "Owner access required.");
+    const bucket = admin.storage().bucket();
     const projectsSnapshot = await db.collection('projects').get();
     if (projectsSnapshot.empty)
         return { success: true, message: "No projects to delete." };
     for (const projectDoc of projectsSnapshot.docs) {
-        await admin.storage().bucket().deleteFiles({ prefix: `project_files/${projectDoc.id}/` });
+        await bucket.deleteFiles({ prefix: `project_files/${projectDoc.id}/` });
         const filesSnapshot = await projectDoc.ref.collection('files').get();
         const batch = db.batch();
         filesSnapshot.forEach(doc => batch.delete(doc.ref));
@@ -309,11 +315,9 @@ exports.deleteUser = functions.region("europe-west2").https.onCall(async (data, 
         const subscriptionsSnapshot = await subscriptionsRef.get();
         const batch = db.batch();
         subscriptionsSnapshot.docs.forEach(doc => batch.delete(doc.ref));
-        await batch.commit(); 
-        
+        await batch.commit();
         await db.collection("users").doc(uid).delete();
         await admin.auth().deleteUser(uid);
-        
         return { success: true };
     }
     catch (error) {
@@ -325,5 +329,3 @@ exports.deleteUser = functions.region("europe-west2").https.onCall(async (data, 
     }
 });
 //# sourceMappingURL=index.js.map
-
-    

@@ -216,6 +216,7 @@ export const deleteProjectFile = functions.region("europe-west2").https.onCall(a
     if (!fileData) {
         throw new functions.https.HttpsError("not-found", "File data is missing.");
     }
+
     const userDoc = await db.collection("users").doc(context.auth.uid).get();
     const userRole = userDoc.data()?.role;
 
@@ -250,7 +251,7 @@ export const deleteAllProjects = functions.region("europe-west2").https.onCall(a
     if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
     const userDoc = await db.collection("users").doc(context.auth.uid).get();
     if (userDoc.data()?.role !== 'owner') throw new functions.https.HttpsError("permission-denied", "Owner access required.");
-
+    
     const bucket = admin.storage().bucket();
     const projectsSnapshot = await db.collection('projects').get();
     if (projectsSnapshot.empty) return { success: true, message: "No projects to delete." };
