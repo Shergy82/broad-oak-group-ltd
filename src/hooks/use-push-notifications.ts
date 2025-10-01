@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
 import { collection, doc, setDoc, deleteDoc } from 'firebase/firestore';
 
+// Function to convert VAPID public key
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -39,6 +40,7 @@ export function usePushNotifications() {
     }
   }, []);
 
+  // Step 1: Fetch VAPID key once supported.
   useEffect(() => {
     async function fetchVapidKey() {
       if (!isSupported || !isFirebaseConfigured || !functions) {
@@ -52,19 +54,28 @@ export function usePushNotifications() {
         setVapidKey(result.data.publicKey);
       } catch (error: any) {
         console.error('Could not get VAPID public key from server:', error);
+        let description = 'Could not connect to the push notification service. Please try again later.';
+        
+        if (error.code === 'not-found') {
+          description = 'The backend notification service has not been deployed yet. The account owner can find setup instructions in the Admin panel.';
+        }
+        
+        // We don't show a toast here anymore to avoid the intermittent error message.
+        // The button will just not render if the key isn't found.
       } finally {
           setIsKeyLoading(false);
       }
     }
     fetchVapidKey();
-  }, [isSupported]);
+  }, [isSupported, toast]);
   
+  // Step 2: Check for subscription only AFTER user and VAPID key are available.
   useEffect(() => {
     const checkSubscription = async () => {
       if (!isSupported || !user || !vapidKey) return;
       
+      const swRegistration = await navigator.serviceWorker.ready;
       try {
-        const swRegistration = await navigator.serviceWorker.ready;
         const subscription = await swRegistration.pushManager.getSubscription();
         setIsSubscribed(!!subscription);
       } catch (e) {
@@ -105,8 +116,7 @@ export function usePushNotifications() {
       }
       if (!db) throw new Error("Firestore is not initialized");
 
-      const subscriptionId = btoa(subscriptionJson.endpoint);
-      await setDoc(doc(db, `users/${user.uid}/pushSubscriptions`, subscriptionId), subscriptionJson);
+      await setDoc(doc(db, `users/${user.uid}/pushSubscriptions`, btoa(subscriptionJson.endpoint)), subscriptionJson);
 
       setIsSubscribed(true);
       toast({
@@ -136,11 +146,11 @@ export function usePushNotifications() {
       const subscription = await swRegistration.pushManager.getSubscription();
 
       if (subscription) {
+        await subscription.unsubscribe();
         if (!db) throw new Error("Firestore is not initialized");
         
-        const subscriptionId = btoa(subscription.endpoint);
-        await deleteDoc(doc(db, `users/${user.uid}/pushSubscriptions`, subscriptionId));
-        await subscription.unsubscribe();
+        const endpointB64 = btoa(subscription.endpoint);
+        await deleteDoc(doc(db, `users/${user.uid}/pushSubscriptions`, endpointB64));
       }
       setIsSubscribed(false);
       setPermission('prompt');
