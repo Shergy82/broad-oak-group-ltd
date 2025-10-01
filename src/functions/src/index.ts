@@ -121,7 +121,11 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
         if ((beforeData.address || "").trim() !== (afterData.address || "").trim()) changedFields.push('location');
         if ((beforeData.bNumber || "").trim() !== (afterData.bNumber || "").trim()) changedFields.push('B Number');
         if (beforeData.type !== afterData.type) changedFields.push('time');
-        if (beforeData.date && afterData.date && !beforeData.date.isEqual(afterData.date)) changedFields.push('date');
+        
+        // This is the corrected line
+        if (beforeData.date instanceof admin.firestore.Timestamp && afterData.date instanceof admin.firestore.Timestamp && !beforeData.date.isEqual(afterData.date)) {
+            changedFields.push('date');
+        }
 
         if (changedFields.length > 0) {
             userId = afterData.userId;
