@@ -1,43 +1,8 @@
-"use strict";
+
 'use server';
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteUser = exports.setUserStatus = exports.deleteAllProjects = exports.deleteAllShifts = exports.deleteProjectFile = exports.deleteProjectAndFiles = exports.pendingShiftNotifier = exports.projectReviewNotifier = exports.sendShiftNotification = exports.setNotificationStatus = exports.getNotificationStatus = exports.getVapidPublicKey = void 0;
-const functions = __importStar(require("firebase-functions"));
-const admin = __importStar(require("firebase-admin"));
-const webPush = __importStar(require("web-push"));
+import * as functions from "firebase-functions";
+import admin from "firebase-admin";
+import * as webPush from "web-push";
 admin.initializeApp();
 const db = admin.firestore();
 // Define a converter for the PushSubscription type.
@@ -62,17 +27,15 @@ const pushSubscriptionConverter = {
     }
 };
 // This is the v1 SDK syntax for onCall functions
-exports.getVapidPublicKey = functions.region("europe-west2").https.onCall((data, context) => {
-    var _a;
-    const publicKey = (_a = functions.config().webpush) === null || _a === void 0 ? void 0 : _a.public_key;
+export const getVapidPublicKey = functions.region("europe-west2").https.onCall((data, context) => {
+    const publicKey = functions.config().webpush?.public_key;
     if (!publicKey) {
         functions.logger.error("CRITICAL: VAPID public key (webpush.public_key) not set in function configuration.");
         throw new functions.https.HttpsError('not-found', 'VAPID public key is not configured on the server.');
     }
     return { publicKey };
 });
-exports.getNotificationStatus = functions.region("europe-west2").https.onCall(async (data, context) => {
-    var _a;
+export const getNotificationStatus = functions.region("europe-west2").https.onCall(async (data, context) => {
     // 1. Authentication check
     if (!context.auth) {
         throw new functions.https.HttpsError("unauthenticated", "You must be logged in to perform this action.");
@@ -88,7 +51,7 @@ exports.getNotificationStatus = functions.region("europe-west2").https.onCall(as
     try {
         const settingsRef = db.collection('settings').doc('notifications');
         const docSnap = await settingsRef.get();
-        if (docSnap.exists && ((_a = docSnap.data()) === null || _a === void 0 ? void 0 : _a.enabled) === false) {
+        if (docSnap.exists && docSnap.data()?.enabled === false) {
             return { enabled: false };
         }
         return { enabled: true }; // Default to enabled
@@ -98,7 +61,7 @@ exports.getNotificationStatus = functions.region("europe-west2").https.onCall(as
         throw new functions.https.HttpsError("internal", "An unexpected error occurred while reading the settings.");
     }
 });
-exports.setNotificationStatus = functions.region("europe-west2").https.onCall(async (data, context) => {
+export const setNotificationStatus = functions.region("europe-west2").https.onCall(async (data, context) => {
     // 1. Authentication check
     if (!context.auth) {
         throw new functions.https.HttpsError("unauthenticated", "You must be logged in to perform this action.");
@@ -127,21 +90,20 @@ exports.setNotificationStatus = functions.region("europe-west2").https.onCall(as
         throw new functions.https.HttpsError("internal", "An unexpected error occurred while updating the settings.");
     }
 });
-exports.sendShiftNotification = functions.region("europe-west2").firestore.document("shifts/{shiftId}")
+export const sendShiftNotification = functions.region("europe-west2").firestore.document("shifts/{shiftId}")
     .onWrite(async (change, context) => {
-    var _a, _b, _c;
     const shiftId = context.params.shiftId;
     functions.logger.log(`Function triggered for shiftId: ${shiftId}`);
     // --- Master Notification Toggle Check ---
     const settingsRef = db.collection('settings').doc('notifications');
     const settingsDoc = await settingsRef.get();
-    if (settingsDoc.exists && ((_a = settingsDoc.data()) === null || _a === void 0 ? void 0 : _a.enabled) === false) {
+    if (settingsDoc.exists && settingsDoc.data()?.enabled === false) {
         functions.logger.log('Global notifications are disabled by the owner. Aborting.');
         return;
     }
     const config = functions.config();
-    const publicKey = (_b = config.webpush) === null || _b === void 0 ? void 0 : _b.public_key;
-    const privateKey = (_c = config.webpush) === null || _c === void 0 ? void 0 : _c.private_key;
+    const publicKey = config.webpush?.public_key;
+    const privateKey = config.webpush?.private_key;
     if (!publicKey || !privateKey) {
         functions.logger.error("CRITICAL: VAPID keys are not configured. Run the Firebase CLI command from the 'VAPID Key Generator' in the admin panel.");
         return;
@@ -153,19 +115,19 @@ exports.sendShiftNotification = functions.region("europe-west2").firestore.docum
     let payload = null;
     if (change.after.exists && !change.before.exists) {
         // A new shift is created
-        userId = shiftDataAfter === null || shiftDataAfter === void 0 ? void 0 : shiftDataAfter.userId;
+        userId = shiftDataAfter?.userId;
         payload = {
             title: "New Shift Assigned",
-            body: `You have a new shift: ${shiftDataAfter === null || shiftDataAfter === void 0 ? void 0 : shiftDataAfter.task} at ${shiftDataAfter === null || shiftDataAfter === void 0 ? void 0 : shiftDataAfter.address}.`,
+            body: `You have a new shift: ${shiftDataAfter?.task} at ${shiftDataAfter?.address}.`,
             data: { url: `/dashboard` },
         };
     }
     else if (!change.after.exists && change.before.exists) {
         // A shift is deleted
-        userId = shiftDataBefore === null || shiftDataBefore === void 0 ? void 0 : shiftDataBefore.userId;
+        userId = shiftDataBefore?.userId;
         payload = {
             title: "Shift Cancelled",
-            body: `Your shift for ${shiftDataBefore === null || shiftDataBefore === void 0 ? void 0 : shiftDataBefore.task} at ${shiftDataBefore === null || shiftDataBefore === void 0 ? void 0 : shiftDataBefore.address} has been cancelled.`,
+            body: `Your shift for ${shiftDataBefore?.task} at ${shiftDataBefore?.address} has been cancelled.`,
             data: { url: `/dashboard` },
         };
     }
@@ -249,22 +211,21 @@ exports.sendShiftNotification = functions.region("europe-west2").firestore.docum
     await Promise.all(sendPromises);
     functions.logger.log(`Finished sending notifications for shift ${shiftId}.`);
 });
-exports.projectReviewNotifier = functions
+export const projectReviewNotifier = functions
     .region("europe-west2")
     .pubsub.schedule("every 24 hours")
     .onRun(async (context) => {
-    var _a, _b, _c;
     functions.logger.log("Running daily project review notifier.");
     // --- Master Notification Toggle Check ---
     const settingsRef = db.collection('settings').doc('notifications');
     const settingsDoc = await settingsRef.get();
-    if (settingsDoc.exists && ((_a = settingsDoc.data()) === null || _a === void 0 ? void 0 : _a.enabled) === false) {
+    if (settingsDoc.exists && settingsDoc.data()?.enabled === false) {
         functions.logger.log('Global notifications are disabled by the owner. Aborting project review notifier.');
         return;
     }
     const config = functions.config();
-    const publicKey = (_b = config.webpush) === null || _b === void 0 ? void 0 : _b.public_key;
-    const privateKey = (_c = config.webpush) === null || _c === void 0 ? void 0 : _c.private_key;
+    const publicKey = config.webpush?.public_key;
+    const privateKey = config.webpush?.private_key;
     if (!publicKey || !privateKey) {
         functions.logger.error("CRITICAL: VAPID keys are not configured. Cannot send project review notifications.");
         return;
@@ -329,21 +290,20 @@ exports.projectReviewNotifier = functions
         functions.logger.error("Error running project review notifier:", error);
     }
 });
-exports.pendingShiftNotifier = functions
+export const pendingShiftNotifier = functions
     .region("europe-west2")
     .pubsub.schedule("every 1 hours")
     .onRun(async (context) => {
-    var _a, _b, _c;
     functions.logger.log("Running hourly pending shift notifier.");
     const settingsRef = db.collection('settings').doc('notifications');
     const settingsDoc = await settingsRef.get();
-    if (settingsDoc.exists && ((_a = settingsDoc.data()) === null || _a === void 0 ? void 0 : _a.enabled) === false) {
+    if (settingsDoc.exists && settingsDoc.data()?.enabled === false) {
         functions.logger.log('Global notifications are disabled by the owner. Aborting pending shift notifier.');
         return;
     }
     const config = functions.config();
-    const publicKey = (_b = config.webpush) === null || _b === void 0 ? void 0 : _b.public_key;
-    const privateKey = (_c = config.webpush) === null || _c === void 0 ? void 0 : _c.private_key;
+    const publicKey = config.webpush?.public_key;
+    const privateKey = config.webpush?.private_key;
     if (!publicKey || !privateKey) {
         functions.logger.error("CRITICAL: VAPID keys are not configured. Cannot send pending shift reminders.");
         return;
@@ -402,7 +362,7 @@ exports.pendingShiftNotifier = functions
         functions.logger.error("Error running pendingShiftNotifier:", error);
     }
 });
-exports.deleteProjectAndFiles = functions.region("europe-west2").https.onCall(async (data, context) => {
+export const deleteProjectAndFiles = functions.region("europe-west2").https.onCall(async (data, context) => {
     functions.logger.log("Received request to delete project:", data.projectId);
     // 1. Authentication check
     if (!context.auth) {
@@ -445,7 +405,7 @@ exports.deleteProjectAndFiles = functions.region("europe-west2").https.onCall(as
         throw new functions.https.HttpsError("internal", "An unexpected error occurred while deleting the project. Please check the function logs.");
     }
 });
-exports.deleteProjectFile = functions.region("europe-west2").https.onCall(async (data, context) => {
+export const deleteProjectFile = functions.region("europe-west2").https.onCall(async (data, context) => {
     functions.logger.log("Received request to delete file:", data);
     // 1. Auth check
     if (!context.auth) {
@@ -497,7 +457,7 @@ exports.deleteProjectFile = functions.region("europe-west2").https.onCall(async 
         throw new functions.https.HttpsError("internal", "An unexpected error occurred while deleting the file. Please check the function logs.");
     }
 });
-exports.deleteAllShifts = functions.region("europe-west2").https.onCall(async (data, context) => {
+export const deleteAllShifts = functions.region("europe-west2").https.onCall(async (data, context) => {
     // 1. Authentication check
     if (!context.auth) {
         throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
@@ -533,7 +493,7 @@ exports.deleteAllShifts = functions.region("europe-west2").https.onCall(async (d
         throw new functions.https.HttpsError("internal", "An unexpected error occurred while deleting shifts.");
     }
 });
-exports.deleteAllProjects = functions.region("europe-west2").https.onCall(async (data, context) => {
+export const deleteAllProjects = functions.region("europe-west2").https.onCall(async (data, context) => {
     // 1. Authentication check
     if (!context.auth) {
         throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
@@ -584,7 +544,7 @@ exports.deleteAllProjects = functions.region("europe-west2").https.onCall(async 
         throw new functions.https.HttpsError("internal", "An error occurred while deleting all projects. Please check the function logs.");
     }
 });
-exports.setUserStatus = functions.region("europe-west2").https.onCall(async (data, context) => {
+export const setUserStatus = functions.region("europe-west2").https.onCall(async (data, context) => {
     // 1. Authentication & Authorization
     if (!context.auth) {
         throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
@@ -617,7 +577,7 @@ exports.setUserStatus = functions.region("europe-west2").https.onCall(async (dat
         throw new functions.https.HttpsError("internal", `An unexpected error occurred while updating user status: ${error.message}`);
     }
 });
-exports.deleteUser = functions.region("europe-west2").https.onCall(async (data, context) => {
+export const deleteUser = functions.region("europe-west2").https.onCall(async (data, context) => {
     if (!context.auth) {
         throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
     }

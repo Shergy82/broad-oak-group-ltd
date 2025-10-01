@@ -1,7 +1,7 @@
 
 'use server';
 import * as functions from "firebase-functions";
-import * as admin from "firebase-admin";
+import admin from "firebase-admin";
 import * as webPush from "web-push";
 
 admin.initializeApp();
