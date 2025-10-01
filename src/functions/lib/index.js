@@ -114,7 +114,7 @@ exports.sendShiftNotification = functions.region("europe-west2").firestore.docum
     let userId = null;
     let payload = null;
     // Case 1: New shift created
-    if (afterData && !beforeData) {
+    if (!change.before.exists && change.after.exists && afterData) {
         userId = afterData.userId;
         payload = {
             title: "New Shift Assigned",
@@ -123,7 +123,7 @@ exports.sendShiftNotification = functions.region("europe-west2").firestore.docum
         };
     }
     // Case 2: Shift deleted
-    else if (!afterData && beforeData) {
+    else if (change.before.exists && !change.after.exists && beforeData) {
         userId = beforeData.userId;
         payload = {
             title: "Shift Cancelled",
@@ -132,7 +132,7 @@ exports.sendShiftNotification = functions.region("europe-west2").firestore.docum
         };
     }
     // Case 3: Shift updated
-    else if (beforeData && afterData) {
+    else if (change.before.exists && change.after.exists && beforeData && afterData) {
         const changedFields = [];
         if ((beforeData.task || "").trim() !== (afterData.task || "").trim())
             changedFields.push('task');
@@ -142,8 +142,9 @@ exports.sendShiftNotification = functions.region("europe-west2").firestore.docum
             changedFields.push('B Number');
         if (beforeData.type !== afterData.type)
             changedFields.push('time');
-        if (beforeData.date && afterData.date && !beforeData.date.isEqual(afterData.date))
+        if (beforeData.date instanceof admin.firestore.Timestamp && afterData.date instanceof admin.firestore.Timestamp && !beforeData.date.isEqual(afterData.date)) {
             changedFields.push('date');
+        }
         if (changedFields.length > 0) {
             userId = afterData.userId;
             const changes = changedFields.join(' & ');

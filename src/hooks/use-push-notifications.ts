@@ -57,7 +57,7 @@ export function usePushNotifications() {
       }
     }
     fetchVapidKey();
-  }, [isSupported, toast]);
+  }, [isSupported]);
   
   useEffect(() => {
     const checkSubscription = async () => {
