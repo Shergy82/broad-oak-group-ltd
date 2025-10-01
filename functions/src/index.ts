@@ -1,3 +1,4 @@
+
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import * as webPush from "web-push";
@@ -96,7 +97,7 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
     let payload: object | null = null;
 
     // Case 1: New shift created
-    if (afterData && !beforeData) {
+    if (change.after.exists && !change.before.exists && afterData) {
         userId = afterData.userId;
         payload = {
             title: "New Shift Assigned",
@@ -105,7 +106,7 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
         };
     } 
     // Case 2: Shift deleted
-    else if (!afterData && beforeData) {
+    else if (!change.after.exists && change.before.exists && beforeData) {
         userId = beforeData.userId;
         payload = {
             title: "Shift Cancelled",
@@ -114,7 +115,7 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
         };
     } 
     // Case 3: Shift updated
-    else if (beforeData && afterData) {
+    else if (change.before.exists && change.after.exists && beforeData && afterData) {
         const changedFields: string[] = [];
         if ((beforeData.task || "").trim() !== (afterData.task || "").trim()) changedFields.push('task');
         if ((beforeData.address || "").trim() !== (afterData.address || "").trim()) changedFields.push('location');
@@ -211,7 +212,11 @@ export const deleteProjectFile = functions.region("europe-west2").https.onCall(a
     const fileDoc = await fileRef.get();
     if (!fileDoc.exists) throw new functions.https.HttpsError("not-found", "File not found.");
 
-    const fileData = fileDoc.data()!;
+    const fileData = fileDoc.data();
+    if (!fileData) {
+        throw new functions.https.HttpsError("not-found", "File data is missing.");
+    }
+
     const userDoc = await db.collection("users").doc(context.auth.uid).get();
     const userRole = userDoc.data()?.role;
 
@@ -246,7 +251,8 @@ export const deleteAllProjects = functions.region("europe-west2").https.onCall(a
     if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
     const userDoc = await db.collection("users").doc(context.auth.uid).get();
     if (userDoc.data()?.role !== 'owner') throw new functions.https.HttpsError("permission-denied", "Owner access required.");
-
+    
+    const bucket = admin.storage().bucket();
     const projectsSnapshot = await db.collection('projects').get();
     if (projectsSnapshot.empty) return { success: true, message: "No projects to delete." };
 
@@ -315,3 +321,5 @@ export const deleteUser = functions.region("europe-west2").https.onCall(async (d
     throw new functions.https.HttpsError("internal", `An unexpected error occurred: ${error.message}`);
   }
 });
+
+    

@@ -1,3 +1,4 @@
+
 "use strict";
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -113,7 +114,7 @@ exports.sendShiftNotification = functions.region("europe-west2").firestore.docum
     let userId = null;
     let payload = null;
     // Case 1: New shift created
-    if (afterData && !beforeData) {
+    if (change.after.exists && !change.before.exists && afterData) {
         userId = afterData.userId;
         payload = {
             title: "New Shift Assigned",
@@ -122,7 +123,7 @@ exports.sendShiftNotification = functions.region("europe-west2").firestore.docum
         };
     }
     // Case 2: Shift deleted
-    else if (!afterData && beforeData) {
+    else if (!change.after.exists && change.before.exists && beforeData) {
         userId = beforeData.userId;
         payload = {
             title: "Shift Cancelled",
@@ -131,7 +132,7 @@ exports.sendShiftNotification = functions.region("europe-west2").firestore.docum
         };
     }
     // Case 3: Shift updated
-    else if (beforeData && afterData) {
+    else if (change.before.exists && change.after.exists && beforeData && afterData) {
         const changedFields = [];
         if ((beforeData.task || "").trim() !== (afterData.task || "").trim())
             changedFields.push('task');
@@ -227,6 +228,9 @@ exports.deleteProjectFile = functions.region("europe-west2").https.onCall(async 
     if (!fileDoc.exists)
         throw new functions.https.HttpsError("not-found", "File not found.");
     const fileData = fileDoc.data();
+    if (!fileData) {
+        throw new functions.https.HttpsError("not-found", "File data is missing.");
+    }
     const userDoc = await db.collection("users").doc(context.auth.uid).get();
     const userRole = (_a = userDoc.data()) === null || _a === void 0 ? void 0 : _a.role;
     if (context.auth.uid !== fileData.uploaderId && !['admin', 'owner'].includes(userRole)) {
@@ -259,6 +263,7 @@ exports.deleteAllProjects = functions.region("europe-west2").https.onCall(async 
     const userDoc = await db.collection("users").doc(context.auth.uid).get();
     if (((_a = userDoc.data()) === null || _a === void 0 ? void 0 : _a.role) !== 'owner')
         throw new functions.https.HttpsError("permission-denied", "Owner access required.");
+    const bucket = admin.storage().bucket();
     const projectsSnapshot = await db.collection('projects').get();
     if (projectsSnapshot.empty)
         return { success: true, message: "No projects to delete." };
@@ -324,3 +329,5 @@ exports.deleteUser = functions.region("europe-west2").https.onCall(async (data, 
     }
 });
 //# sourceMappingURL=index.js.map
+
+    
