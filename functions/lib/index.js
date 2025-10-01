@@ -1,5 +1,5 @@
-
 "use strict";
+'use server';
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -16,13 +16,23 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
-    __setModuleDefault(result, mod);
-    return result;
-};
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.deleteUser = exports.setUserStatus = exports.deleteAllProjects = exports.deleteAllShifts = exports.deleteProjectFile = exports.deleteProjectAndFiles = exports.pendingShiftNotifier = exports.projectReviewNotifier = exports.sendShiftNotification = exports.setNotificationStatus = exports.getNotificationStatus = exports.getVapidPublicKey = void 0;
 const functions = __importStar(require("firebase-functions"));
@@ -62,6 +72,7 @@ exports.getVapidPublicKey = functions.region("europe-west2").https.onCall((data,
     return { publicKey };
 });
 exports.getNotificationStatus = functions.region("europe-west2").https.onCall(async (data, context) => {
+    var _a;
     // 1. Authentication check
     if (!context.auth) {
         throw new functions.https.HttpsError("unauthenticated", "You must be logged in to perform this action.");
@@ -77,7 +88,7 @@ exports.getNotificationStatus = functions.region("europe-west2").https.onCall(as
     try {
         const settingsRef = db.collection('settings').doc('notifications');
         const docSnap = await settingsRef.get();
-        if (docSnap.exists() && docSnap.data()?.enabled === false) {
+        if (docSnap.exists && ((_a = docSnap.data()) === null || _a === void 0 ? void 0 : _a.enabled) === false) {
             return { enabled: false };
         }
         return { enabled: true }; // Default to enabled
@@ -118,19 +129,19 @@ exports.setNotificationStatus = functions.region("europe-west2").https.onCall(as
 });
 exports.sendShiftNotification = functions.region("europe-west2").firestore.document("shifts/{shiftId}")
     .onWrite(async (change, context) => {
-    var _a, _b, _c, _d, _e;
+    var _a, _b, _c;
     const shiftId = context.params.shiftId;
     functions.logger.log(`Function triggered for shiftId: ${shiftId}`);
     // --- Master Notification Toggle Check ---
     const settingsRef = db.collection('settings').doc('notifications');
     const settingsDoc = await settingsRef.get();
-    if (settingsDoc.exists() && settingsDoc.data()?.enabled === false) {
+    if (settingsDoc.exists && ((_a = settingsDoc.data()) === null || _a === void 0 ? void 0 : _a.enabled) === false) {
         functions.logger.log('Global notifications are disabled by the owner. Aborting.');
         return;
     }
     const config = functions.config();
-    const publicKey = (_a = config.webpush) === null || _a === void 0 ? void 0 : _a.public_key;
-    const privateKey = (_b = config.webpush) === null || _b === void 0 ? void 0 : _b.private_key;
+    const publicKey = (_b = config.webpush) === null || _b === void 0 ? void 0 : _b.public_key;
+    const privateKey = (_c = config.webpush) === null || _c === void 0 ? void 0 : _c.private_key;
     if (!publicKey || !privateKey) {
         functions.logger.error("CRITICAL: VAPID keys are not configured. Run the Firebase CLI command from the 'VAPID Key Generator' in the admin panel.");
         return;
@@ -140,7 +151,7 @@ exports.sendShiftNotification = functions.region("europe-west2").firestore.docum
     const shiftDataAfter = change.after.data();
     let userId = null;
     let payload = null;
-    if (change.after.exists() && !change.before.exists()) {
+    if (change.after.exists && !change.before.exists) {
         // A new shift is created
         userId = shiftDataAfter === null || shiftDataAfter === void 0 ? void 0 : shiftDataAfter.userId;
         payload = {
@@ -149,7 +160,7 @@ exports.sendShiftNotification = functions.region("europe-west2").firestore.docum
             data: { url: `/dashboard` },
         };
     }
-    else if (!change.after.exists() && change.before.exists()) {
+    else if (!change.after.exists && change.before.exists) {
         // A shift is deleted
         userId = shiftDataBefore === null || shiftDataBefore === void 0 ? void 0 : shiftDataBefore.userId;
         payload = {
@@ -158,7 +169,7 @@ exports.sendShiftNotification = functions.region("europe-west2").firestore.docum
             data: { url: `/dashboard` },
         };
     }
-    else if (change.after.exists() && change.before.exists()) {
+    else if (change.after.exists && change.before.exists) {
         // A shift is updated. This is the definitive check for meaningful changes.
         const before = shiftDataBefore;
         const after = shiftDataAfter;
@@ -169,10 +180,10 @@ exports.sendShiftNotification = functions.region("europe-west2").firestore.docum
         // --- Robust comparison logic ---
         const changedFields = [];
         // 1. Compare string values, tolerant of whitespace and null/undefined differences.
-        if (((_c = before.task) !== null && _c !== void 0 ? _c : "").trim() !== ((_d = after.task) !== null && _d !== void 0 ? _d : "").trim()) {
+        if ((before.task || "").trim() !== (after.task || "").trim()) {
             changedFields.push('task');
         }
-        if (((_e = before.address) !== null && _e !== void 0 ? _e : "").trim() !== (after.address || "").trim()) {
+        if ((before.address || "").trim() !== (after.address || "").trim()) {
             changedFields.push('location');
         }
         if ((before.bNumber || "").trim() !== (after.bNumber || "").trim()) {
@@ -242,18 +253,18 @@ exports.projectReviewNotifier = functions
     .region("europe-west2")
     .pubsub.schedule("every 24 hours")
     .onRun(async (context) => {
-    var _a, _b;
+    var _a, _b, _c;
     functions.logger.log("Running daily project review notifier.");
     // --- Master Notification Toggle Check ---
     const settingsRef = db.collection('settings').doc('notifications');
     const settingsDoc = await settingsRef.get();
-    if (settingsDoc.exists() && settingsDoc.data()?.enabled === false) {
+    if (settingsDoc.exists && ((_a = settingsDoc.data()) === null || _a === void 0 ? void 0 : _a.enabled) === false) {
         functions.logger.log('Global notifications are disabled by the owner. Aborting project review notifier.');
         return;
     }
     const config = functions.config();
-    const publicKey = (_a = config.webpush) === null || _a === void 0 ? void 0 : _a.public_key;
-    const privateKey = (_b = config.webpush) === null || _b === void 0 ? void 0 : _b.private_key;
+    const publicKey = (_b = config.webpush) === null || _b === void 0 ? void 0 : _b.public_key;
+    const privateKey = (_c = config.webpush) === null || _c === void 0 ? void 0 : _c.private_key;
     if (!publicKey || !privateKey) {
         functions.logger.error("CRITICAL: VAPID keys are not configured. Cannot send project review notifications.");
         return;
@@ -322,17 +333,17 @@ exports.pendingShiftNotifier = functions
     .region("europe-west2")
     .pubsub.schedule("every 1 hours")
     .onRun(async (context) => {
-    var _a, _b;
+    var _a, _b, _c;
     functions.logger.log("Running hourly pending shift notifier.");
     const settingsRef = db.collection('settings').doc('notifications');
     const settingsDoc = await settingsRef.get();
-    if (settingsDoc.exists() && settingsDoc.data()?.enabled === false) {
+    if (settingsDoc.exists && ((_a = settingsDoc.data()) === null || _a === void 0 ? void 0 : _a.enabled) === false) {
         functions.logger.log('Global notifications are disabled by the owner. Aborting pending shift notifier.');
         return;
     }
     const config = functions.config();
-    const publicKey = (_a = config.webpush) === null || _a === void 0 ? void 0 : _a.public_key;
-    const privateKey = (_b = config.webpush) === null || _b === void 0 ? void 0 : _b.private_key;
+    const publicKey = (_b = config.webpush) === null || _b === void 0 ? void 0 : _b.public_key;
+    const privateKey = (_c = config.webpush) === null || _c === void 0 ? void 0 : _c.private_key;
     if (!publicKey || !privateKey) {
         functions.logger.error("CRITICAL: VAPID keys are not configured. Cannot send pending shift reminders.");
         return;
