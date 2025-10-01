@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -220,7 +219,10 @@ export default function UserManagementPage() {
           toast({ variant: "destructive", title: "Permission Denied" });
           return;
       }
-       if (!functions) throw new Error("Firebase Functions not available");
+       if (!functions) {
+            toast({ variant: 'destructive', title: 'Error', description: 'Could not delete user because Functions are not available.' });
+            return;
+       }
       try {
         const deleteUserFn = httpsCallable(functions, 'deleteUser');
         await deleteUserFn({ uid });

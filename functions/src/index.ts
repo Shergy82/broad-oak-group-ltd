@@ -97,7 +97,7 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
     let payload: object | null = null;
 
     // Case 1: New shift created
-    if (afterData && !beforeData) {
+    if (change.after.exists && !change.before.exists && afterData) {
         userId = afterData.userId;
         payload = {
             title: "New Shift Assigned",
@@ -106,7 +106,7 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
         };
     } 
     // Case 2: Shift deleted
-    else if (!afterData && beforeData) {
+    else if (!change.after.exists && change.before.exists && beforeData) {
         userId = beforeData.userId;
         payload = {
             title: "Shift Cancelled",
@@ -115,13 +115,17 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
         };
     } 
     // Case 3: Shift updated
-    else if (beforeData && afterData) {
+    else if (change.before.exists && change.after.exists && beforeData && afterData) {
         const changedFields: string[] = [];
         if ((beforeData.task || "").trim() !== (afterData.task || "").trim()) changedFields.push('task');
         if ((beforeData.address || "").trim() !== (afterData.address || "").trim()) changedFields.push('location');
         if ((beforeData.bNumber || "").trim() !== (afterData.bNumber || "").trim()) changedFields.push('B Number');
         if (beforeData.type !== afterData.type) changedFields.push('time');
-        if (beforeData.date && afterData.date && !beforeData.date.isEqual(afterData.date)) changedFields.push('date');
+        
+        // This is the corrected line
+        if (beforeData.date instanceof admin.firestore.Timestamp && afterData.date instanceof admin.firestore.Timestamp && !beforeData.date.isEqual(afterData.date)) {
+            changedFields.push('date');
+        }
 
         if (changedFields.length > 0) {
             userId = afterData.userId;
