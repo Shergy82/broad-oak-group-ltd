@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -96,6 +97,10 @@ export default function UserManagementPage() {
     if (!isPrivilegedUser) {
         toast({ variant: "destructive", title: "Permission Denied", description: "You cannot change the Operative ID." });
         return;
+    }
+    if (!db) {
+      toast({ variant: 'destructive', title: 'Database not configured' });
+      return;
     }
     const userDocRef = doc(db, 'users', uid);
     try {

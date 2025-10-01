@@ -97,7 +97,7 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
     let payload: object | null = null;
 
     // Case 1: New shift created
-    if (change.after.exists && !change.before.exists && afterData) {
+    if (!change.before.exists && change.after.exists && afterData) {
         userId = afterData.userId;
         payload = {
             title: "New Shift Assigned",
@@ -106,7 +106,7 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
         };
     } 
     // Case 2: Shift deleted
-    else if (!change.after.exists && change.before.exists && beforeData) {
+    else if (change.before.exists && !change.after.exists && beforeData) {
         userId = beforeData.userId;
         payload = {
             title: "Shift Cancelled",
