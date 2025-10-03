@@ -95,6 +95,13 @@ const findUser = (name: string, userMap: UserMapEntry[]): UserMapEntry | null =>
     if (bestMatch && minDistance < 3) {
             return bestMatch;
     }
+    
+    // Also try to find the name within the original name, e.g. "Rory" in "Rory Skinner"
+     for (const user of userMap) {
+        if (normalizeText(user.originalName).includes(normalizedName)) {
+            return user;
+        }
+    }
 
     return null;
 }
@@ -246,12 +253,12 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
                 let manager = (jsonData[blockStart + 1]?.[0] || '').toString().trim();
                 let address = '';
                 let bNumber = '';
-
-                // Find address/bNumber within the block
+                
+                // Find address/bNumber within the block by looking for the multi-line cell
                 for (let r = blockStart; r < blockEnd; r++) {
-                    const cellA = (jsonData[r]?.[0] || '').toString();
-                    if (cellA.match(/^[A-Z]{1,2}\d{4,}/)) { // Heuristic for B-Number
-                        const parts = cellA.split('\n');
+                    const cellValue = jsonData[r]?.[0];
+                    if (cellValue && typeof cellValue === 'string' && cellValue.includes('\n')) {
+                        const parts = cellValue.split('\n');
                         bNumber = parts[0].trim();
                         address = parts.slice(1).join(', ').trim();
                         break;
@@ -280,19 +287,27 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
 
                         const cellContent = (jsonData[r]?.[c] || '').toString().trim();
                         if (!cellContent) {
-                            lastTask = null; // Reset task if there's a blank row
                             continue;
                         };
                         
                         // Attempt to find a user in the cell
                         const nameCandidates = cellContent.split(/&|,|\n/).map(name => name.trim()).filter(Boolean);
-                        const foundUsers = nameCandidates.map(name => findUser(name, userMap)).filter(Boolean);
+                        const foundUsers = nameCandidates.map(name => findUser(name, userMap)).filter((u): u is UserMapEntry => u !== null);
 
                         if (foundUsers.length > 0) {
                             // This cell contains user(s). The task should be in the cell above.
-                            const taskCellContent = (jsonData[r-1]?.[c] || '').toString().trim();
-                            const task = taskCellContent || lastTask;
-
+                            let task = (jsonData[r-1]?.[c] || '').toString().trim();
+                            
+                            // If cell above is empty, maybe the task is combined with the user's name
+                            if (!task) {
+                                // Find user's name in the cell content and extract the task part
+                                const userNameInCell = foundUsers[0]?.originalName.split(' ')[0]; // Use first name for matching
+                                const regex = new RegExp(`\\s*${userNameInCell}\\s*`, 'i');
+                                if (userNameInCell && cellContent.match(regex)) {
+                                    task = cellContent.replace(regex, '').trim();
+                                }
+                            }
+                            
                             if (task) {
                                 for (const user of foundUsers) {
                                      let type: 'am' | 'pm' | 'all-day' = 'all-day';
@@ -304,7 +319,7 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
                                      }
                                      shiftsFromExcel.push({ 
                                          task: processedTask, 
-                                         userId: user!.uid, 
+                                         userId: user.uid, 
                                          type, 
                                          date: shiftDate, 
                                          address: address, 
@@ -320,9 +335,6 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
                                     reason: `Operative found, but no task was found in the cell above.` 
                                 });
                             }
-                        } else {
-                            // This cell does not contain a user, so it might be a task.
-                            lastTask = cellContent;
                         }
                     }
                 }
