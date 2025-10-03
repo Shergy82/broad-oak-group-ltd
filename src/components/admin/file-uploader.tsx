@@ -219,33 +219,36 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
 
         for (const sheetName of workbook.SheetNames) {
             const worksheet = workbook.Sheets[sheetName];
+            // Use sheet_to_json with header:1 to get an array of arrays
             const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, blankrows: false, defval: null });
 
             let dateRowIndex = -1;
             let dateRow: (Date | null)[] = [];
 
-            // Find the date row (e.g., Row 3 in the image)
+            // 1. Find the date row (e.g., Row 3 in the image)
             for (let i = 0; i < Math.min(jsonData.length, 10); i++) {
                 const row = jsonData[i] || [];
                 const validDateCount = row.slice(4).filter(cell => cell && parseDate(cell) !== null).length;
-                if (validDateCount > 2) { // A row with more than 2 valid dates after col D is the one
+                // A row with more than 2 valid dates after column D is likely the date row
+                if (validDateCount > 2) { 
                     dateRowIndex = i;
                     dateRow = row.map(parseDate);
                     dateRow.forEach(d => d && allDatesFound.push(d));
                     break;
                 }
             }
-            if (dateRowIndex === -1) continue;
+            if (dateRowIndex === -1) continue; // No date row found in this sheet
             
-            // Find project blocks by looking for "JOB MANAGER"
+            // 2. Find project blocks by looking for "JOB MANAGER"
             const projectBlockStarts: number[] = [];
             jsonData.forEach((row, i) => {
                 const cellA = (row[0] || '').toString().toUpperCase();
-                if (cellA === 'JOB MANAGER') {
+                if (cellA.includes('JOB MANAGER')) {
                     projectBlockStarts.push(i);
                 }
             });
 
+            // 3. Process each project block
             for (let i = 0; i < projectBlockStarts.length; i++) {
                 const blockStart = projectBlockStarts[i];
                 const blockEnd = i + 1 < projectBlockStarts.length ? projectBlockStarts[i+1] : jsonData.length;
@@ -254,62 +257,46 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
                 let address = '';
                 let bNumber = '';
                 
-                // Find address/bNumber within the block by looking for the multi-line cell
+                // Find address/bNumber within the block
                 for (let r = blockStart; r < blockEnd; r++) {
                     const cellValue = jsonData[r]?.[0];
                     if (cellValue && typeof cellValue === 'string' && cellValue.includes('\n')) {
                         const parts = cellValue.split('\n');
-                        bNumber = parts[0].trim();
-                        address = parts.slice(1).join(', ').trim();
+                        // Heuristic: B-Number is usually short and at the start
+                        if (parts[0].trim().length < 15) {
+                            bNumber = parts[0].trim();
+                            address = parts.slice(1).join(', ').trim();
+                        } else {
+                            address = cellValue.replace(/\n/g, ', ').trim();
+                        }
                         break;
                     }
                 }
                 
-                if (!address) continue;
+                if (!address) continue; // Skip block if no address is found
 
-                // Iterate through date columns for this block
+                // 4. Iterate through date columns for this block
                 for (let c = 4; c < dateRow.length; c++) { // Start after column D
                     const shiftDate = dateRow[c];
                     if (!shiftDate) continue;
 
-                    let lastTask: string | null = null;
-                    
-                    // Iterate through rows in the block
+                    // 5. Iterate through rows in the block to find shifts
                     for (let r = blockStart; r < blockEnd; r++) {
-                        const cellRef = XLSX.utils.encode_cell({c, r});
-                        const cellStyle = worksheet[cellRef]?.s;
-                        const cellColor = cellStyle?.fgColor?.rgb;
-
-                        // Deep purple in hex is approx 800080. XLSX may give it as FF800080 (with alpha) or just 800080.
-                        if (cellColor && (cellColor === 'FF800080' || cellColor === '800080')) {
-                            continue; // Skip deep purple cells
-                        }
-
-                        const cellContent = (jsonData[r]?.[c] || '').toString().trim();
-                        if (!cellContent) {
-                            continue;
-                        };
+                        const cellContentRaw = jsonData[r]?.[c];
+                        if (!cellContentRaw || typeof cellContentRaw !== 'string') continue;
                         
-                        // Attempt to find a user in the cell
-                        const nameCandidates = cellContent.split(/&|,|\n/).map(name => name.trim()).filter(Boolean);
-                        const foundUsers = nameCandidates.map(name => findUser(name, userMap)).filter((u): u is UserMapEntry => u !== null);
+                        const cellContent = cellContentRaw.replace(/\s+/g, ' ').trim();
 
-                        if (foundUsers.length > 0) {
-                            // This cell contains user(s). The task should be in the cell above.
-                            let task = (jsonData[r-1]?.[c] || '').toString().trim();
+                        // Check for the "Task - User" pattern
+                        if (cellContent.includes('-')) {
+                            const parts = cellContent.split('-');
+                            const potentialUser = parts.pop()?.trim(); // Get the last part as user
+                            const task = parts.join('-').trim(); // Join the rest as task
                             
-                            // If cell above is empty, maybe the task is combined with the user's name
-                            if (!task) {
-                                // Find user's name in the cell content and extract the task part
-                                const userNameInCell = foundUsers[0]?.originalName.split(' ')[0]; // Use first name for matching
-                                const regex = new RegExp(`\\s*${userNameInCell}\\s*`, 'i');
-                                if (userNameInCell && cellContent.match(regex)) {
-                                    task = cellContent.replace(regex, '').trim();
-                                }
-                            }
-                            
-                            if (task) {
-                                for (const user of foundUsers) {
+                            if (potentialUser && task) {
+                                const user = findUser(potentialUser, userMap);
+                                
+                                if (user) {
                                      let type: 'am' | 'pm' | 'all-day' = 'all-day';
                                      let processedTask = task.toUpperCase();
                                      const amPmMatch = task.match(/\b(AM|PM)\b/i);
@@ -325,15 +312,15 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
                                          address: address, 
                                          bNumber: bNumber 
                                      });
+                                } else if (shiftDate >= today) {
+                                    // If we couldn't find a user but the date is in the future, log it as a failure
+                                    failedShifts.push({
+                                        date: shiftDate,
+                                        projectAddress: address,
+                                        cellContent: cellContentRaw,
+                                        reason: `Could not find a user matching "${potentialUser}". Check for typos.`
+                                    });
                                 }
-                            } else if (shiftDate >= today) {
-                                // Failed to find a task for this user.
-                                failedShifts.push({ 
-                                    date: shiftDate, 
-                                    projectAddress: address, 
-                                    cellContent: cellContent, 
-                                    reason: `Operative found, but no task was found in the cell above.` 
-                                });
                             }
                         }
                     }
