@@ -109,9 +109,7 @@ const findUser = (name: string, userMap: UserMapEntry[]): UserMapEntry | null =>
 
 const parseDate = (dateValue: any): Date | null => {
     if (!dateValue) return null;
-    if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
-        return new Date(Date.UTC(dateValue.getFullYear(), dateValue.getMonth(), dateValue.getDate()));
-    }
+    // Handle Excel's numeric date format
     if (typeof dateValue === 'number' && dateValue > 1) {
         const excelEpoch = new Date(1899, 11, 30);
         const d = new Date(excelEpoch.getTime() + dateValue * 24 * 60 * 60 * 1000);
@@ -119,6 +117,7 @@ const parseDate = (dateValue: any): Date | null => {
              return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
         }
     }
+    // Handle string dates (e.g., "03-Oct")
     if (typeof dateValue === 'string') {
         const dateMatch = dateValue.match(/(\d{1,2})[ -]+([A-Za-z]+)/);
         if (dateMatch) {
@@ -130,6 +129,7 @@ const parseDate = (dateValue: any): Date | null => {
                  return new Date(Date.UTC(year, monthIndex, day));
             }
         }
+        // Handle dd/mm/yy or dd-mm-yy
         const parts = dateValue.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4}|\d{2})$/);
         if (parts) {
             let year = parseInt(parts[3], 10);
@@ -140,6 +140,10 @@ const parseDate = (dateValue: any): Date | null => {
                 return new Date(Date.UTC(year, month, day));
             }
         }
+    }
+     // Handle native JS Date objects
+    if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
+        return new Date(Date.UTC(dateValue.getFullYear(), dateValue.getMonth(), dateValue.getDate()));
     }
     return null;
 };
@@ -208,19 +212,34 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
             const worksheet = workbook.Sheets[sheetName];
             const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, blankrows: false, defval: null });
 
+            // Robustly find the date row
             let dateRowIndex = -1;
             let dateRow: (Date | null)[] = [];
+            const dayAbbreviations = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
             for (let i = 0; i < Math.min(jsonData.length, 10); i++) {
                 const row = jsonData[i] || [];
-                const validDateCount = row.slice(4).filter(cell => cell && parseDate(cell) !== null).length;
-                if (validDateCount > 2) { 
+                let potentialDateCount = 0;
+                for (const cell of row) {
+                    if (cell) {
+                        const cellStr = String(cell).toLowerCase();
+                        if (dayAbbreviations.some(day => cellStr.includes(day)) || parseDate(cell) !== null) {
+                            potentialDateCount++;
+                        }
+                    }
+                }
+                if (potentialDateCount > 2) { // If at least 3 cells look like dates/days
                     dateRowIndex = i;
-                    dateRow = row.map(parseDate);
+                    dateRow = row.map(cell => parseDate(cell)); // Attempt to parse every cell in that row
                     dateRow.forEach(d => d && allDatesFound.push(d));
                     break;
                 }
             }
-            if (dateRowIndex === -1) continue;
+
+            if (dateRowIndex === -1) {
+                console.log(`No valid date row found in sheet: ${sheetName}. Skipping.`);
+                continue;
+            };
             
             const projectBlockStarts: number[] = [];
             jsonData.forEach((row, i) => {
@@ -253,11 +272,12 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
 
                     for (let r = blockStart; r < blockEnd; r++) {
                         const cell = worksheet[XLSX.utils.encode_cell({c, r})];
-                        const cellContentRaw = cell?.v;
+                        const cellContentRaw = cell?.w || cell?.v; // .w is formatted text
                         if (!cellContentRaw || typeof cellContentRaw !== 'string') continue;
                         
                         const bgColor = cell?.s?.fgColor?.rgb;
-                        if (bgColor === 'FF800080' || bgColor === '800080') { // Deep Purple
+                        // Skip deep purple informational cells
+                        if (bgColor === 'FF800080' || bgColor === '800080') { 
                             continue;
                         }
 
@@ -268,7 +288,7 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
                             const potentialUserNames = parts.pop()!;
                             const task = parts.join('-').trim();
                             
-                            const usersInCell = potentialUserNames.split(/&|,/g).map(name => name.trim()).filter(Boolean);
+                            const usersInCell = potentialUserNames.split(/&|,|\+/g).map(name => name.trim()).filter(Boolean);
 
                             if (task && usersInCell.length > 0) {
                                 let usersFound = 0;
@@ -321,9 +341,15 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
             return;
         }
 
-        if (allDatesFound.length === 0) {
-            throw new Error("No valid shifts found. Check for a valid date row in the Excel sheet (e.g., in Row 3).");
+        if (shiftsFromExcel.length === 0 && failedShifts.length === 0) {
+            toast({
+                title: 'No Shifts Found',
+                description: "The file was processed, but no valid shifts could be parsed. Please check the file format.",
+            });
+             setIsUploading(false);
+            return;
         }
+
 
         const minDate = new Date(Math.min(...allDatesFound.map(d => d.getTime())));
         const maxDate = new Date(Math.max(...allDatesFound.map(d => d.getTime())));
@@ -471,3 +497,5 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
     </div>
   );
 }
+
+    
