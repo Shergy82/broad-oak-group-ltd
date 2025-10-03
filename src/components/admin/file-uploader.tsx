@@ -10,8 +10,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/shared/spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Upload } from 'lucide-react';
+import { Upload, FileWarning, CheckCircle, TestTube2 } from 'lucide-react';
 import type { Shift, UserProfile, ShiftStatus } from '@/types';
+import { Checkbox } from '../ui/checkbox';
+import { Label } from '../ui/label';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
+import { format } from 'date-fns';
 
 type ParsedShift = Omit<Shift, 'id' | 'status' | 'date' | 'createdAt'> & { date: Date };
 type UserMapEntry = { uid: string; normalizedName: string; originalName: string; };
@@ -23,8 +28,13 @@ export interface FailedShift {
     reason: string;
 }
 
+interface DryRunResult {
+    found: ParsedShift[];
+    failed: FailedShift[];
+}
+
 interface FileUploaderProps {
-    onImportComplete: (failedShifts: FailedShift[]) => void;
+    onImportComplete: (failedShifts: FailedShift[], dryRunResult?: DryRunResult) => void;
     onFileSelect: () => void;
 }
 
@@ -34,12 +44,8 @@ const levenshtein = (a: string, b: string): number => {
     if (a.length === 0) return b.length;
     if (b.length === 0) return a.length;
     const matrix = [];
-    for (let i = 0; i <= b.length; i++) {
-        matrix[i] = [i];
-    }
-    for (let j = 0; j <= a.length; j++) {
-        matrix[0][j] = j;
-    }
+    for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+    for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
     for (let i = 1; i <= b.length; i++) {
         for (let j = 1; j <= a.length; j++) {
             if (b.charAt(i - 1) === a.charAt(j - 1)) {
@@ -62,28 +68,30 @@ const findUser = (name: string, userMap: UserMapEntry[]): UserMapEntry | null =>
     const normalizedName = normalizeText(name);
     if (!normalizedName) return null;
 
-    // 1. Exact match on normalized name
-    const exactMatch = userMap.find(u => u.normalizedName === normalizedName);
-    if (exactMatch) return exactMatch;
-    
-    // 2. Fuzzy match for nicknames and typos
     let bestMatch: UserMapEntry | null = null;
     let minDistance = Infinity;
 
     for (const user of userMap) {
-        const distance = levenshtein(normalizedName, user.normalizedName);
-        const nameParts = user.originalName.split(' ');
-        const firstNameNormalized = nameParts.length > 0 ? normalizeText(nameParts[0]) : '';
+        // Direct match is best
+        if (user.normalizedName === normalizedName) return user;
         
-        // Prioritize matches where the input is a substring of the full name or first name
-        if (user.normalizedName.includes(normalizedName) || (firstNameNormalized && firstNameNormalized.includes(normalizedName))) {
-            if (distance < minDistance) {
+        // Full name contains the search term (e.g., "rory" in "roryskinner")
+        if (user.normalizedName.includes(normalizedName)) {
+            const distance = levenshtein(normalizedName, user.normalizedName);
+             if (distance < minDistance) {
                 minDistance = distance;
                 bestMatch = user;
             }
         }
-        
-        // General fuzzy match with a threshold
+
+        // Check first name match
+        const firstNameNormalized = normalizeText(user.originalName.split(' ')[0]);
+        if (firstNameNormalized === normalizedName) {
+            return user;
+        }
+
+        // Levenshtein distance for typo tolerance
+        const distance = levenshtein(normalizedName, user.normalizedName);
         const threshold = Math.max(1, Math.floor(normalizedName.length / 4));
         if (distance <= threshold && distance < minDistance) {
             minDistance = distance;
@@ -91,16 +99,9 @@ const findUser = (name: string, userMap: UserMapEntry[]): UserMapEntry | null =>
         }
     }
     
-    // Be more confident with shorter distances
-    if (bestMatch && minDistance < 3) {
-            return bestMatch;
-    }
-    
-    // Also try to find the name within the original name, e.g. "Rory" in "Rory Skinner"
-     for (const user of userMap) {
-        if (normalizeText(user.originalName).includes(normalizedName)) {
-            return user;
-        }
+    // Only return a fuzzy match if it's reasonably close
+    if (bestMatch && minDistance <= 2) {
+        return bestMatch;
     }
 
     return null;
@@ -108,44 +109,32 @@ const findUser = (name: string, userMap: UserMapEntry[]): UserMapEntry | null =>
 
 const parseDate = (dateValue: any): Date | null => {
     if (!dateValue) return null;
-    // XLSX can parse dates as Date objects if cellDates is true
-    if (dateValue instanceof Date) {
-        const d = dateValue;
-        // Check for invalid date
-        if (!isNaN(d.getTime())) {
-            // Standardize to UTC midnight to avoid timezone issues
-            return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-        }
+    if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
+        return new Date(Date.UTC(dateValue.getFullYear(), dateValue.getMonth(), dateValue.getDate()));
     }
-    // Or as numbers (Excel's date serial number)
     if (typeof dateValue === 'number' && dateValue > 1) {
-        // Excel's epoch starts on 1899-12-30 for compatibility with Lotus 1-2-3
         const excelEpoch = new Date(1899, 11, 30);
         const d = new Date(excelEpoch.getTime() + dateValue * 24 * 60 * 60 * 1000);
-        if (isNaN(d.getTime())) return null;
-        return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+        if (!isNaN(d.getTime())) {
+             return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+        }
     }
-    // Or as strings
     if (typeof dateValue === 'string') {
-        // Try parsing '26-Sep' format
         const dateMatch = dateValue.match(/(\d{1,2})[ -]+([A-Za-z]+)/);
         if (dateMatch) {
             const day = parseInt(dateMatch[1], 10);
             const monthStr = dateMatch[2];
             const monthIndex = new Date(Date.parse(monthStr +" 1, 2012")).getMonth();
             if (!isNaN(day) && monthIndex !== -1) {
-                 const year = new Date().getFullYear(); // Assume current year
+                 const year = new Date().getFullYear();
                  return new Date(Date.UTC(year, monthIndex, day));
             }
         }
-        // Try parsing 'dd/mm/yyyy' or 'dd-mm-yy'
         const parts = dateValue.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4}|\d{2})$/);
         if (parts) {
             let year = parseInt(parts[3], 10);
-            if (year < 100) {
-                year += 2000;
-            }
-            const month = parseInt(parts[2], 10) - 1; // Month is 0-indexed
+            if (year < 100) year += 2000;
+            const month = parseInt(parts[2], 10) - 1;
             const day = parseInt(parts[1], 10);
             if (year > 1900 && month >= 0 && month < 12 && day > 0 && day <= 31) {
                 return new Date(Date.UTC(year, month, day));
@@ -160,6 +149,7 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isDryRun, setIsDryRun] = useState(true);
   const { toast } = useToast();
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -199,16 +189,13 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
         const workbook = XLSX.read(data, { type: 'array', cellDates: true, cellStyles: true });
         
         const usersSnapshot = await getDocs(collection(db, 'users'));
-        const userMap: UserMapEntry[] = [];
-        usersSnapshot.forEach(doc => {
+        const userMap: UserMapEntry[] = usersSnapshot.docs.map(doc => {
             const user = doc.data() as UserProfile;
-            if (user.name) {
-              userMap.push({
+            return {
                 uid: doc.id,
                 normalizedName: normalizeText(user.name),
                 originalName: user.name,
-              });
-            }
+            };
         });
         
         const shiftsFromExcel: ParsedShift[] = [];
@@ -219,17 +206,13 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
 
         for (const sheetName of workbook.SheetNames) {
             const worksheet = workbook.Sheets[sheetName];
-            // Use sheet_to_json with header:1 to get an array of arrays
             const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, blankrows: false, defval: null });
 
             let dateRowIndex = -1;
             let dateRow: (Date | null)[] = [];
-
-            // 1. Find the date row (e.g., Row 3 in the image)
             for (let i = 0; i < Math.min(jsonData.length, 10); i++) {
                 const row = jsonData[i] || [];
                 const validDateCount = row.slice(4).filter(cell => cell && parseDate(cell) !== null).length;
-                // A row with more than 2 valid dates after column D is likely the date row
                 if (validDateCount > 2) { 
                     dateRowIndex = i;
                     dateRow = row.map(parseDate);
@@ -237,88 +220,92 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
                     break;
                 }
             }
-            if (dateRowIndex === -1) continue; // No date row found in this sheet
+            if (dateRowIndex === -1) continue;
             
-            // 2. Find project blocks by looking for "JOB MANAGER"
             const projectBlockStarts: number[] = [];
             jsonData.forEach((row, i) => {
                 const cellA = (row[0] || '').toString().toUpperCase();
-                if (cellA.includes('JOB MANAGER')) {
-                    projectBlockStarts.push(i);
-                }
+                if (cellA.includes('JOB MANAGER')) projectBlockStarts.push(i);
             });
 
-            // 3. Process each project block
             for (let i = 0; i < projectBlockStarts.length; i++) {
                 const blockStart = projectBlockStarts[i];
                 const blockEnd = i + 1 < projectBlockStarts.length ? projectBlockStarts[i+1] : jsonData.length;
-
-                let manager = (jsonData[blockStart + 1]?.[0] || '').toString().trim();
+                
+                const manager = (jsonData[blockStart + 1]?.[0] || '').toString().trim();
                 let address = '';
                 let bNumber = '';
                 
-                // Find address/bNumber within the block
                 for (let r = blockStart; r < blockEnd; r++) {
                     const cellValue = jsonData[r]?.[0];
                     if (cellValue && typeof cellValue === 'string' && cellValue.includes('\n')) {
                         const parts = cellValue.split('\n');
-                        // Heuristic: B-Number is usually short and at the start
-                        if (parts[0].trim().length < 15) {
-                            bNumber = parts[0].trim();
-                            address = parts.slice(1).join(', ').trim();
-                        } else {
-                            address = cellValue.replace(/\n/g, ', ').trim();
-                        }
+                        bNumber = parts[0].trim().length < 15 ? parts[0].trim() : '';
+                        address = (bNumber ? parts.slice(1) : parts).join(', ').trim();
                         break;
                     }
                 }
-                
-                if (!address) continue; // Skip block if no address is found
+                if (!address) continue;
 
-                // 4. Iterate through date columns for this block
-                for (let c = 4; c < dateRow.length; c++) { // Start after column D
+                for (let c = 4; c < dateRow.length; c++) {
                     const shiftDate = dateRow[c];
                     if (!shiftDate) continue;
 
-                    // 5. Iterate through rows in the block to find shifts
                     for (let r = blockStart; r < blockEnd; r++) {
-                        const cellContentRaw = jsonData[r]?.[c];
+                        const cell = worksheet[XLSX.utils.encode_cell({c, r})];
+                        const cellContentRaw = cell?.v;
                         if (!cellContentRaw || typeof cellContentRaw !== 'string') continue;
                         
-                        const cellContent = cellContentRaw.replace(/\s+/g, ' ').trim();
+                        const bgColor = cell?.s?.fgColor?.rgb;
+                        if (bgColor === 'FF800080' || bgColor === '800080') { // Deep Purple
+                            continue;
+                        }
 
-                        // Check for the "Task - User" pattern
-                        if (cellContent.includes('-')) {
-                            const parts = cellContent.split('-');
-                            const potentialUser = parts.pop()?.trim(); // Get the last part as user
-                            const task = parts.join('-').trim(); // Join the rest as task
+                        const cellContent = cellContentRaw.replace(/\s+/g, ' ').trim();
+                        const parts = cellContent.split('-').map(p => p.trim());
+                        
+                        if (parts.length > 1) {
+                            const potentialUserNames = parts.pop()!;
+                            const task = parts.join('-').trim();
                             
-                            if (potentialUser && task) {
-                                const user = findUser(potentialUser, userMap);
-                                
-                                if (user) {
-                                     let type: 'am' | 'pm' | 'all-day' = 'all-day';
-                                     let processedTask = task.toUpperCase();
-                                     const amPmMatch = task.match(/\b(AM|PM)\b/i);
-                                     if (amPmMatch) {
-                                         type = amPmMatch[0].toLowerCase() as 'am' | 'pm';
-                                         processedTask = task.replace(new RegExp(`\\s*\\b${amPmMatch[0]}\\b`, 'i'), '').trim();
-                                     }
-                                     shiftsFromExcel.push({ 
-                                         task: processedTask, 
-                                         userId: user.uid, 
-                                         type, 
-                                         date: shiftDate, 
-                                         address: address, 
-                                         bNumber: bNumber 
-                                     });
-                                } else if (shiftDate >= today) {
-                                    // If we couldn't find a user but the date is in the future, log it as a failure
-                                    failedShifts.push({
+                            const usersInCell = potentialUserNames.split(/&|,/g).map(name => name.trim()).filter(Boolean);
+
+                            if (task && usersInCell.length > 0) {
+                                let usersFound = 0;
+                                for (const userName of usersInCell) {
+                                    const user = findUser(userName, userMap);
+                                    if (user) {
+                                        usersFound++;
+                                        let type: 'am' | 'pm' | 'all-day' = 'all-day';
+                                        let processedTask = task.toUpperCase();
+                                        const amPmMatch = task.match(/\b(AM|PM)\b/i);
+                                        if (amPmMatch) {
+                                            type = amPmMatch[0].toLowerCase() as 'am' | 'pm';
+                                            processedTask = task.replace(new RegExp(`\\s*\\b${amPmMatch[0]}\\b`, 'i'), '').trim();
+                                        }
+                                        shiftsFromExcel.push({ 
+                                            task: processedTask, 
+                                            userId: user.uid, 
+                                            type, 
+                                            date: shiftDate, 
+                                            address: address, 
+                                            bNumber: bNumber 
+                                        });
+                                    } else if (shiftDate >= today) {
+                                        failedShifts.push({
+                                            date: shiftDate,
+                                            projectAddress: address,
+                                            cellContent: cellContentRaw,
+                                            reason: `Could not find a user matching "${userName}". Check for typos.`
+                                        });
+                                    }
+                                }
+                                if (usersInCell.length > 0 && usersFound === 0 && shiftDate >= today) {
+                                     failedShifts.push({
                                         date: shiftDate,
                                         projectAddress: address,
                                         cellContent: cellContentRaw,
-                                        reason: `Could not find a user matching "${potentialUser}". Check for typos.`
+                                        reason: `No users found matching "${potentialUserNames}".`
                                     });
                                 }
                             }
@@ -328,6 +315,12 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
             }
         }
         
+        if (isDryRun) {
+            onImportComplete(failedShifts, { found: shiftsFromExcel, failed: failedShifts });
+            setIsUploading(false);
+            return;
+        }
+
         if (allDatesFound.length === 0) {
             throw new Error("No valid shifts found. Check for a valid date row in the Excel sheet (e.g., in Row 3).");
         }
@@ -360,12 +353,9 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
 
         const protectedStatuses: ShiftStatus[] = ['completed', 'incomplete'];
 
-        // Add or update shifts from Excel
         for (const [key, excelShift] of excelShiftsMap.entries()) {
             const existingShift = existingShiftsMap.get(key);
-
             if (existingShift) {
-                // If shift exists, check for updates (e.g., bNumber, type)
                 if (
                     existingShift.bNumber !== (excelShift.bNumber || '') || 
                     existingShift.type !== excelShift.type
@@ -378,10 +368,8 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
                         shiftsUpdated++;
                      }
                 }
-                // Remove from map so it's not considered for deletion
                 existingShiftsMap.delete(key);
             } else {
-                // If shift does not exist, create it.
                 const newShiftData = {
                     ...excelShift,
                     date: Timestamp.fromDate(excelShift.date),
@@ -393,7 +381,6 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
             }
         }
 
-        // Delete shifts that are in DB but not in Excel (for the given date range)
         for (const [key, shiftToDelete] of existingShiftsMap.entries()) {
              if (!protectedStatuses.includes(shiftToDelete.status)) {
                 batch.delete(doc(db, 'shifts', shiftToDelete.id));
@@ -471,12 +458,16 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
           onChange={handleFileChange}
           className="flex-grow file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20 cursor-pointer"
         />
-        <Button onClick={handleImport} disabled={!file || isUploading} className="w-full sm:w-40">
-          {isUploading ? <Spinner /> : <><Upload className="mr-2 h-4 w-4" /> Import Shifts</>}
+        <div className="flex items-center space-x-2">
+            <Checkbox id="dry-run" checked={isDryRun} onCheckedChange={(checked) => setIsDryRun(!!checked)} />
+            <Label htmlFor="dry-run" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                Dry Run
+            </Label>
+        </div>
+        <Button onClick={handleImport} disabled={!file || isUploading} className="w-full sm:w-auto">
+          {isUploading ? <Spinner /> : isDryRun ? <><TestTube2 className="mr-2 h-4 w-4" /> Run Test</> : <><Upload className="mr-2 h-4 w-4" /> Import Shifts</>}
         </Button>
       </div>
     </div>
   );
 }
-
-    

@@ -8,35 +8,41 @@ import { ShiftScheduleOverview } from '@/components/admin/shift-schedule-overvie
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { Download, FileWarning, CheckCircle } from 'lucide-react';
+import { Download, FileWarning, CheckCircle, TestTube2, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { Spinner } from '../shared/spinner';
 import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
 
+interface DryRunResult {
+    found: any[];
+    failed: FailedShift[];
+}
 
 export default function AdminPageContent() {
   const { userProfile } = useUserProfile();
-  const [failedShifts, setFailedShifts] = useState<FailedShift[]>([]);
+  const [importReport, setImportReport] = useState<{ failed: FailedShift[], dryRun?: DryRunResult } | null>(null);
   const [importAttempted, setImportAttempted] = useState(false);
   const isPrivilegedUser = userProfile && ['admin', 'owner'].includes(userProfile.role);
 
-  const handleImportComplete = (report: FailedShift[]) => {
-    const sortedReport = report.sort((a, b) => {
+  const handleImportComplete = (failedShifts: FailedShift[], dryRunResult?: DryRunResult) => {
+    const sortedFailed = failedShifts.sort((a, b) => {
         if (!a.date) return 1;
         if (!b.date) return -1;
         return a.date.getTime() - b.date.getTime();
     });
-    setFailedShifts(sortedReport);
+    setImportReport({ failed: sortedFailed, dryRun: dryRunResult });
     setImportAttempted(true);
   };
   
   const handleFileSelection = () => {
     setImportAttempted(false);
-    setFailedShifts([]);
+    setImportReport(null);
   };
 
   const handleDownloadPdf = async () => {
+    if (!importReport?.failed || importReport.failed.length === 0) return;
+    
     const { default: jsPDF } = await import('jspdf');
     const { default: autoTable } = await import('jspdf-autotable');
 
@@ -50,7 +56,7 @@ export default function AdminPageContent() {
     doc.text(`Generated on: ${format(generationDate, 'PPP p')}`, 14, 28);
     
     const head = [['Date', 'Project Address', 'Original Cell Content', 'Reason for Failure']];
-    const body = failedShifts.map(shift => [
+    const body = importReport.failed.map(shift => [
         shift.date ? format(shift.date, 'dd/MM/yyyy') : 'N/A',
         shift.projectAddress,
         shift.cellContent,
@@ -67,6 +73,90 @@ export default function AdminPageContent() {
     doc.save(`failed_shifts_report_${format(generationDate, 'yyyy-MM-dd')}.pdf`);
   };
 
+  const renderDryRunReport = () => {
+    if (!importReport?.dryRun) return null;
+
+    const { found, failed } = importReport.dryRun;
+
+    return (
+        <Card className="mt-6 border-blue-500">
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-blue-600">
+                    <TestTube2 />
+                    Dry Run Results
+                </CardTitle>
+                <CardDescription>
+                    This is a preview of the import. No changes have been made to the database.
+                </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+                <div>
+                    <h3 className="font-semibold flex items-center gap-2 mb-2">
+                        <CheckCircle className="text-green-600" /> 
+                        {found.length} Shifts Found Successfully
+                    </h3>
+                    {found.length > 0 ? (
+                        <div className="max-h-60 overflow-y-auto border rounded-lg">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Date</TableHead>
+                                    <TableHead>Operative</TableHead>
+                                    <TableHead>Task</TableHead>
+                                    <TableHead>Address</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {found.map((shift, index) => (
+                                    <TableRow key={index}>
+                                        <TableCell>{format(shift.date, 'dd/MM/yy')}</TableCell>
+                                        <TableCell>{userProfile?.uid === shift.userId ? userProfile.name : shift.userId}</TableCell>
+                                        <TableCell>{shift.task}</TableCell>
+                                        <TableCell>{shift.address}</TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                        </div>
+                    ) : <p className="text-sm text-muted-foreground">No shifts could be parsed from the file.</p>}
+                </div>
+
+                <div>
+                    <h3 className="font-semibold flex items-center gap-2 mb-2">
+                        <AlertCircle className="text-destructive" /> 
+                        {failed.length} Rows Failed to Parse
+                    </h3>
+                     {failed.length > 0 ? (
+                        <div className="max-h-60 overflow-y-auto border rounded-lg">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Date</TableHead>
+                                    <TableHead>Cell Content</TableHead>
+                                    <TableHead>Reason</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {failed.map((shift, index) => (
+                                    <TableRow key={index}>
+                                        <TableCell>{shift.date ? format(shift.date, 'dd/MM/yy') : 'N/A'}</TableCell>
+                                        <TableCell className="font-mono text-xs">{shift.cellContent}</TableCell>
+                                        <TableCell>{shift.reason}</TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                        </div>
+                    ) : <p className="text-sm text-muted-foreground">No errors found during parsing.</p>}
+                </div>
+            </CardContent>
+             <CardFooter>
+                <p className="text-xs text-muted-foreground">If these results look correct, uncheck "Dry Run" and import the file again to apply the changes.</p>
+            </CardFooter>
+        </Card>
+    );
+  }
+
   return (
     <div className="space-y-8">
       
@@ -75,7 +165,7 @@ export default function AdminPageContent() {
           <CardHeader>
             <CardTitle>Import Weekly Shifts from Excel</CardTitle>
             <CardDescription>
-                This tool reconciles shifts from an Excel file. New shifts are added, existing ones updated, and shifts not in the file are removed.
+                This tool reconciles shifts from an Excel file. New shifts are added, existing ones updated, and shifts not in the file are removed. Use "Dry Run" to test before importing.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -84,56 +174,62 @@ export default function AdminPageContent() {
         </Card>
       )}
 
-      {importAttempted && failedShifts.length > 0 && (
-          <Card>
-              <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                      <FileWarning className="text-destructive" />
-                      Failed Import Report
-                  </CardTitle>
-                  <CardDescription>
-                      The following {failedShifts.length} shift(s) could not be imported. Please correct them in the source file and re-upload.
-                  </CardDescription>
-              </CardHeader>
-              <CardContent>
-                  <Table>
-                      <TableHeader>
-                          <TableRow>
-                              <TableHead>Date</TableHead>
-                              <TableHead>Project Address</TableHead>
-                              <TableHead>Original Cell Content</TableHead>
-                              <TableHead>Reason for Failure</TableHead>
-                          </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                          {failedShifts.map((shift, index) => (
-                              <TableRow key={index}>
-                                  <TableCell>{shift.date ? format(shift.date, 'dd/MM/yyyy') : 'N/A'}</TableCell>
-                                  <TableCell>{shift.projectAddress}</TableCell>
-                                  <TableCell className="font-mono text-xs">{shift.cellContent}</TableCell>
-                                  <TableCell>{shift.reason}</TableCell>
-                              </TableRow>
-                          ))}
-                      </TableBody>
-                  </Table>
-              </CardContent>
-              <CardFooter className="flex justify-end">
-                <Button onClick={handleDownloadPdf}>
-                    <Download className="mr-2 h-4 w-4" />
-                    Download PDF Report
-                </Button>
-              </CardFooter>
-          </Card>
-      )}
+      {importAttempted && importReport?.dryRun && renderDryRunReport()}
 
-      {importAttempted && failedShifts.length === 0 && (
-          <Alert className="border-green-500 text-green-700">
-              <CheckCircle className="h-4 w-4 text-green-500" />
-              <AlertTitle>Import Successful</AlertTitle>
-              <AlertDescription>
-                  The file was processed successfully, and no errors were found. All shifts were reconciled.
-              </AlertDescription>
-          </Alert>
+      {importAttempted && !importReport?.dryRun && (
+          <>
+            {importReport.failed.length > 0 && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <FileWarning className="text-destructive" />
+                            Failed Import Report
+                        </CardTitle>
+                        <CardDescription>
+                            The following {importReport.failed.length} shift(s) could not be imported. Please correct them in the source file and re-upload.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Date</TableHead>
+                                    <TableHead>Project Address</TableHead>
+                                    <TableHead>Original Cell Content</TableHead>
+                                    <TableHead>Reason for Failure</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {importReport.failed.map((shift, index) => (
+                                    <TableRow key={index}>
+                                        <TableCell>{shift.date ? format(shift.date, 'dd/MM/yyyy') : 'N/A'}</TableCell>
+                                        <TableCell>{shift.projectAddress}</TableCell>
+                                        <TableCell className="font-mono text-xs">{shift.cellContent}</TableCell>
+                                        <TableCell>{shift.reason}</TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </CardContent>
+                    <CardFooter className="flex justify-end">
+                      <Button onClick={handleDownloadPdf}>
+                          <Download className="mr-2 h-4 w-4" />
+                          Download PDF Report
+                      </Button>
+                    </CardFooter>
+                </Card>
+            )}
+
+            {importReport.failed.length === 0 && (
+                <Alert className="border-green-500 text-green-700">
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                    <AlertTitle>Import Successful</AlertTitle>
+                    <AlertDescription>
+                        The file was processed successfully, and no errors were found. All shifts were reconciled.
+                    </AlertDescription>
+                </Alert>
+            )}
+        </>
       )}
       
       {isPrivilegedUser && userProfile && (
@@ -143,5 +239,3 @@ export default function AdminPageContent() {
     </div>
   );
 }
-
-    
