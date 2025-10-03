@@ -102,17 +102,23 @@ const parseDate = (dateValue: any): Date | null => {
         const d = dateValue;
         return !isNaN(d.getTime()) ? new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())) : null;
     }
-    // This is the primary fix for Excel dates.
-    // It correctly handles the serial number format from Excel.
     if (typeof dateValue === 'number' && dateValue > 1) {
-        // Excel's epoch starts on 1900-01-01, but incorrectly treats 1900 as a leap year.
-        // The number of days between 1900-01-01 and 1970-01-01 is 25569 (25567 for real days + 2 for excel quirks).
         const excelEpoch = new Date(1899, 11, 30);
         const d = new Date(excelEpoch.getTime() + dateValue * 24 * 60 * 60 * 1000);
         if (isNaN(d.getTime())) return null;
         return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
     }
     if (typeof dateValue === 'string') {
+        const dateMatch = dateValue.match(/(\d{1,2})[a-z]{2}\s+([A-Za-z]+)/);
+        if (dateMatch) {
+            const day = parseInt(dateMatch[1], 10);
+            const monthStr = dateMatch[2];
+            const monthIndex = new Date(Date.parse(monthStr +" 1, 2012")).getMonth();
+            if (day && monthIndex !== -1) {
+                 const year = new Date().getFullYear(); // Assume current year
+                 return new Date(Date.UTC(year, monthIndex, day));
+            }
+        }
         const parts = dateValue.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/);
         if (parts) {
             const day = parseInt(parts[1], 10);
@@ -124,21 +130,6 @@ const parseDate = (dateValue: any): Date | null => {
         }
     }
     return null;
-};
-
-const isLikelyAddress = (str: string): boolean => {
-    if (!str || typeof str !== 'string' || str.length < 5) return false;
-    const lowerCaseStr = str.toLowerCase();
-    const excludedKeywords = ['week commencing', 'project address', 'job address', 'information:', 'house:'];
-    if (excludedKeywords.some(keyword => lowerCaseStr.startsWith(keyword))) {
-        return false;
-    }
-    if (lowerCaseStr.includes('completion date')) {
-        return false;
-    }
-    if (!/\d/.test(str) || !/[a-zA-Z]/.test(str)) return false;
-    if (str.trim().split(/\s+/).length < 2) return false;
-    return true;
 };
 
 
@@ -162,8 +153,7 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
   const getShiftKey = (shift: { userId: string; date: Date | Timestamp; type: 'am' | 'pm' | 'all-day'; task: string; address: string }): string => {
     const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
     const normalizedDate = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-    // Using a more robust key to uniquely identify a shift based on its core properties
-    return `${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${shift.type}-${shift.address.trim().toLowerCase()}`;
+    return `${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${shift.address.trim().toLowerCase()}-${shift.task.trim().toLowerCase()}`;
   };
 
 
@@ -204,98 +194,103 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
-        // --- Process Each Sheet ---
         for (const sheetName of workbook.SheetNames) {
             const worksheet = workbook.Sheets[sheetName];
-            const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, blankrows: false, defval: '' });
-            
-            // --- Sheet-Specific Date Row Identification ---
-            let dateRow: any[] = [];
+            const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, blankrows: false, defval: null });
+
             let dateRowIndex = -1;
             let sheetDates: (Date | null)[] = [];
 
             for (let i = 0; i < jsonData.length; i++) {
                 const row = jsonData[i] || [];
-                if (row.length > 2) {
-                    const potentialDates = row.slice(2).map(parseDate);
-                    const validDateCount = potentialDates.filter(d => d !== null).length;
-                    if (validDateCount >= 3) { // Requires at least 3 valid dates
-                        dateRow = row;
-                        dateRowIndex = i;
-                        sheetDates = row.map(parseDate);
+                const validDateCount = row.filter(cell => cell && parseDate(cell) !== null).length;
+                if (validDateCount > 2) {
+                    dateRowIndex = i;
+                    sheetDates = row.map(parseDate);
+                    sheetDates.forEach(d => d && allDatesFound.push(d));
+                    break;
+                }
+            }
+            if (dateRowIndex === -1) continue;
+
+            const projectBlocks: { start: number, end: number, manager: string }[] = [];
+            jsonData.forEach((row, i) => {
+                const cellA = (row[0] || '').toString();
+                if (cellA.toLowerCase().startsWith('job manager:')) {
+                    const managerName = (jsonData[i+1]?.[0] || '').toString().trim();
+                    if (projectBlocks.length > 0) {
+                        projectBlocks[projectBlocks.length - 1].end = i - 1;
+                    }
+                    projectBlocks.push({ start: i, end: jsonData.length -1, manager: managerName });
+                }
+            });
+             if (projectBlocks.length > 0) {
+                projectBlocks[projectBlocks.length - 1].end = jsonData.length - 1;
+            }
+
+
+            for (const block of projectBlocks) {
+                let projectAddress = '';
+                let bNumber = '';
+
+                // Find address within the block
+                for (let i = block.start; i <= block.end; i++) {
+                    const cellA = (jsonData[i]?.[0] || '').toString();
+                    if (cellA && cellA.includes('\n')) {
+                        const addressParts = cellA.split('\n');
+                        projectAddress = addressParts.slice(1).join(', ').trim();
+                        bNumber = (addressParts[0] || '').trim();
                         break;
                     }
                 }
-            }
-            if (dateRowIndex === -1) {
-                console.log(`Skipping sheet "${sheetName}" because no valid date row was found.`);
-                continue; // Skip this sheet if no date row is found
-            }
-            
-            sheetDates.forEach(d => { if (d) allDatesFound.push(d); });
-        
-            let currentProjectAddress = '';
-            let currentBNumber = '';
-            
-            for (let r = dateRowIndex + 1; r < jsonData.length; r++) {
-                const rowData = jsonData[r] || [];
-                if (!rowData.some(cell => cell.toString().trim() !== '')) continue;
                 
-                const addressCandidate = (rowData[0] || '').toString().trim();
-                if (isLikelyAddress(addressCandidate)) {
-                    currentProjectAddress = addressCandidate;
-                    currentBNumber = (rowData[1] || '').toString().trim();
-                }
+                if (!projectAddress) continue;
 
-                if (!currentProjectAddress) continue;
-
-                for (let c = 2; c < rowData.length; c++) {
+                for (let c = 1; c < sheetDates.length; c++) {
                     const shiftDate = sheetDates[c];
-                    if (!shiftDate) continue; // Skip if there's no date for this column
-                    
-                    const cellValue = (rowData[c] || '').toString().replace(/\r?\n|\r/g, " ").trim().replace(/[\u2012\u2013\u2014\u2015]/g, '-');
-                    
-                    if (!cellValue || cellValue.toLowerCase().includes('holiday') || cellValue.toLowerCase().includes('on hold') || cellValue.includes('(') || cellValue.includes(')')) {
-                        continue;
-                    }
+                    if (!shiftDate) continue;
 
-                    // Strict check for "Task - Name" format
-                    const parts = cellValue.split('-').map(p => p.trim());
-                    if (parts.length < 2) continue;
+                    for (let r = block.start; r <= block.end; r++) {
+                        const cellValue = jsonData[r]?.[c]?.toString().trim();
+                        if (!cellValue) continue;
 
-                    const namePart = parts.pop()!;
-                    let task = parts.join('-').trim();
-                    
-                    // Convert the entire task to uppercase
-                    if (task) {
-                        task = task.toUpperCase();
-                    }
-                    
-                    const nameCandidates = namePart.split(/[/&+,]/).map(name => name.trim()).filter(Boolean);
-
-                    for (const nameCandidate of nameCandidates) {
-                        if (!nameCandidate) continue;
-
-                        const foundUser = findUser(nameCandidate, userMap);
+                        const nameCandidates = cellValue.split(/&|,|\n/).map(name => name.trim()).filter(Boolean);
                         
-                        if (foundUser) {
-                            let type: 'am' | 'pm' | 'all-day' = 'all-day';
-                            let processedTask = task;
-                            const amPmMatch = task.match(/\b(AM|PM)\b/i);
-                            if (amPmMatch) {
-                                type = amPmMatch[0].toLowerCase() as 'am' | 'pm';
-                                processedTask = task.replace(new RegExp(`\\s*\\b${amPmMatch[0]}\\b`, 'i'), '').trim();
+                        let task = '';
+                        for (let lookUpRow = r - 1; lookUpRow >= block.start; lookUpRow--) {
+                            const taskCandidate = jsonData[lookUpRow]?.[c]?.toString().trim();
+                            if (taskCandidate) {
+                                task = taskCandidate.toUpperCase();
+                                break;
                             }
-                            shiftsFromExcel.push({ task: processedTask, userId: foundUser.uid, type, date: shiftDate, address: currentProjectAddress, bNumber: currentBNumber });
-                        } else {
-                             if (shiftDate >= today) {
-                                failedShifts.push({
-                                    date: shiftDate,
-                                    projectAddress: currentProjectAddress,
-                                    cellContent: cellValue,
-                                    reason: `Unrecognized Operative: "${nameCandidate}".`
-                                });
-                             }
+                        }
+
+                        if (!task) {
+                            for (let lookUpCol = c - 1; lookUpCol >= 1; lookUpCol--) {
+                                const taskCandidate = jsonData[r]?.[lookUpCol]?.toString().trim();
+                                if(taskCandidate) {
+                                    task = taskCandidate.toUpperCase();
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (!task) continue;
+
+                        for (const name of nameCandidates) {
+                            const foundUser = findUser(name, userMap);
+                            if (foundUser) {
+                                let type: 'am' | 'pm' | 'all-day' = 'all-day';
+                                let processedTask = task;
+                                const amPmMatch = task.match(/\b(AM|PM)\b/i);
+                                if (amPmMatch) {
+                                    type = amPmMatch[0].toLowerCase() as 'am' | 'pm';
+                                    processedTask = task.replace(new RegExp(`\\s*\\b${amPmMatch[0]}\\b`, 'i'), '').trim();
+                                }
+                                shiftsFromExcel.push({ task: processedTask, userId: foundUser.uid, type, date: shiftDate, address: projectAddress, bNumber: bNumber });
+                            } else if (shiftDate >= today) {
+                                failedShifts.push({ date: shiftDate, projectAddress, cellContent: cellValue, reason: `Unrecognized Operative: "${name}"` });
+                            }
                         }
                     }
                 }
@@ -303,13 +298,12 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
         }
         
         if (allDatesFound.length === 0) {
-            throw new Error("No valid shifts found in any sheet. Please ensure at least one sheet has a valid date row and shift data.");
+            throw new Error("No valid shifts found. Check for a valid date row in the Excel sheet.");
         }
 
         const minDate = new Date(Math.min(...allDatesFound.map(d => d.getTime())));
         const maxDate = new Date(Math.max(...allDatesFound.map(d => d.getTime())));
 
-        // --- RECONCILIATION LOGIC ---
         const shiftsQuery = query(
             collection(db, 'shifts'),
             where('date', '>=', Timestamp.fromDate(minDate)),
@@ -335,26 +329,22 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
 
         const protectedStatuses: ShiftStatus[] = ['completed', 'incomplete'];
 
-        // Process Excel shifts: Add new or update existing
         for (const [key, excelShift] of excelShiftsMap.entries()) {
             const existingShift = existingShiftsMap.get(key);
 
             if (existingShift) {
-                // It exists, check if it needs an update
                 if (existingShift.task !== excelShift.task || existingShift.bNumber !== (excelShift.bNumber || '')) {
                      if (!protectedStatuses.includes(existingShift.status)) {
                         batch.update(doc(db, 'shifts', existingShift.id), { task: excelShift.task, bNumber: excelShift.bNumber || '' });
                         shiftsUpdated++;
                      }
                 }
-                // Remove from map so we know it's been handled
                 existingShiftsMap.delete(key);
             } else {
-                // It's a new shift, add it
                 const newShiftData = {
                     ...excelShift,
                     date: Timestamp.fromDate(excelShift.date),
-                    status: 'pending-confirmation', // Create as pending
+                    status: 'pending-confirmation',
                     createdAt: serverTimestamp(),
                 };
                 batch.set(doc(collection(db, 'shifts')), newShiftData);
@@ -362,7 +352,6 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
             }
         }
 
-        // Process remaining shifts in existingShiftsMap: these need to be deleted
         for (const [key, shiftToDelete] of existingShiftsMap.entries()) {
              if (!protectedStatuses.includes(shiftToDelete.status)) {
                 batch.delete(doc(db, 'shifts', shiftToDelete.id));
@@ -400,7 +389,7 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
                 duration: 10000,
             });
         } else {
-            onImportComplete([]); // Explicitly send empty array on success
+            onImportComplete([]);
         }
 
         setFile(null);
@@ -447,3 +436,5 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
     </div>
   );
 }
+
+    
