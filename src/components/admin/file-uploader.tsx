@@ -10,10 +10,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/shared/spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Upload, FileWarning, TestTube2 } from 'lucide-react';
+import { Upload, FileWarning, TestTube2, CheckCircle, AlertCircle } from 'lucide-react';
 import type { Shift, UserProfile, ShiftStatus } from '@/types';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
+import { format } from 'date-fns';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../ui/card';
 
 type ParsedShift = Omit<Shift, 'id' | 'status' | 'date' | 'createdAt'> & { date: Date };
 type UserMapEntry = { uid: string; normalizedName: string; originalName: string; };
@@ -118,9 +121,9 @@ const parseDate = (dateValue: any): Date | null => {
              return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
         }
     }
-    // Handle string dates (e.g., "03-Oct")
+    // Handle string dates (e.g., "03-Oct" or "03/10/2025")
     if (typeof dateValue === 'string') {
-        const dateMatch = dateValue.match(/(\d{1,2})[ -]+([A-Za-z]+)/);
+        const dateMatch = dateValue.match(/(\d{1,2})[ -/]+([A-Za-z0-9]+)/);
         if (dateMatch) {
             const day = parseInt(dateMatch[1], 10);
             const monthStr = dateMatch[2];
@@ -214,20 +217,25 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
         let dateRowIndex = -1;
         let dateRow: (Date | null)[] = [];
         const monthAbbrs = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const dayAbbrs = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
         for (let i = 0; i < Math.min(jsonData.length, 10); i++) {
             const row = jsonData[i] || [];
             let dateCellCount = 0;
-            // A row is likely the date row if it has multiple date-like cells
             row.forEach(cell => {
                 if (cell instanceof Date) {
                     dateCellCount++;
-                } else if (typeof cell === 'string' && monthAbbrs.some(abbr => cell.includes(abbr))) {
-                    dateCellCount++;
+                } else if (typeof cell === 'string') {
+                    const lowerCell = cell.toLowerCase();
+                    if (monthAbbrs.some(abbr => lowerCell.includes(abbr.toLowerCase())) || dayAbbrs.some(day => lowerCell.startsWith(day))) {
+                        dateCellCount++;
+                    } else if (lowerCell.match(/\d{1,2}[-/]\d{1,2}[-/]\d{2,4}/)) {
+                        dateCellCount++;
+                    }
                 }
             });
 
-            if (dateCellCount > 2) { // Heuristic: if more than 2 cells look like dates, it's our row.
+            if (dateCellCount > 2) { 
                 dateRowIndex = i;
                 dateRow = row.map(cell => parseDate(cell));
                 dateRow.forEach(d => d && allDatesFound.push(d));
@@ -236,7 +244,7 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
         }
         
         if (dateRowIndex === -1) {
-            throw new Error("Could not automatically find the date row in the spreadsheet. Please ensure dates are in a recognizable format (e.g., '03-Oct') in one of the first 10 rows.");
+            throw new Error("Could not find the date row. Please ensure dates are in a recognizable format (e.g., '03-Oct' or 'dd/mm/yyyy') in one of the first 10 rows.");
         }
 
 
@@ -252,32 +260,32 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
         for (let i = 0; i < projectBlockStarts.length; i++) {
             const blockStartRow = projectBlockStarts[i];
             const blockEndRow = i + 1 < projectBlockStarts.length ? projectBlockStarts[i+1] : jsonData.length;
-            const projectBlock = jsonData.slice(blockStartRow, blockEndRow);
-
+            
             let address = '';
             let bNumber = '';
 
-            for (const row of projectBlock) {
-                const cellValue = row[0];
+            for (let r = blockStartRow; r < blockEndRow; r++) {
+                 const cellValue = jsonData[r][0];
                 if (cellValue && typeof cellValue === 'string' && cellValue.includes('\n')) {
                     const parts = cellValue.split('\n');
-                    bNumber = parts[0].trim().length < 15 ? parts[0].trim() : '';
+                    bNumber = parts[0].trim().length < 15 && parts[0].trim().startsWith('E') ? parts[0].trim() : '';
                     address = (bNumber ? parts.slice(1) : parts).join(', ').trim();
                     break;
                 }
             }
+
             if (!address) {
-                 failedShifts.push({ date: null, projectAddress: `Block starting at row ${blockStartRow + 1}`, cellContent: '', reason: 'Could not find a valid Address/B-Number cell in Column A for this project block.' });
+                 failedShifts.push({ date: null, projectAddress: `Block starting at row ${blockStartRow + 1}`, cellContent: '', reason: 'Could not find a valid Address cell in Column A for this project block.' });
                  continue; // Skip this block if no address is found
             }
 
             // --- Step 3: Parse shifts for the current project block ---
-            for (let c = 1; c < dateRow.length; c++) { // Start from column B
-                const shiftDate = dateRow[c];
-                if (!shiftDate) continue;
+            for (let r = blockStartRow; r < blockEndRow; r++) {
+                for (let c = 1; c < dateRow.length; c++) { 
+                    const shiftDate = dateRow[c];
+                    if (!shiftDate) continue;
 
-                for (let r = 0; r < projectBlock.length; r++) {
-                    const cellRef = XLSX.utils.encode_cell({ r: blockStartRow + r, c: c });
+                    const cellRef = XLSX.utils.encode_cell({ r: r, c: c });
                     const cell = worksheet[cellRef];
                     const cellContentRaw = cell?.w || cell?.v;
                     
@@ -318,7 +326,7 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
                                 }
                             }
                         } else {
-                             failedShifts.push({ date: shiftDate, projectAddress: address, cellContent: cellContentRaw, reason: 'Cell did not match "Task - User" format.' });
+                             failedShifts.push({ date: shiftDate, projectAddress: address, cellContent: cellContentRaw, reason: 'Cell did not match the expected "Task - User" format.' });
                         }
                     }
                 }
@@ -489,5 +497,7 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
     </div>
   );
 }
+
+    
 
     
