@@ -14,9 +14,6 @@ import { Upload, FileWarning, CheckCircle, TestTube2 } from 'lucide-react';
 import type { Shift, UserProfile, ShiftStatus } from '@/types';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
-import { format } from 'date-fns';
 
 type ParsedShift = Omit<Shift, 'id' | 'status' | 'date' | 'createdAt'> & { date: Date };
 type UserMapEntry = { uid: string; normalizedName: string; originalName: string; };
@@ -212,51 +209,25 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
             const worksheet = workbook.Sheets[sheetName];
             const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, blankrows: false, defval: null });
 
-            // Robustly find the date row
-            let dateRowIndex = -1;
-            let dateRow: (Date | null)[] = [];
-            const dayAbbreviations = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-
-            for (let i = 0; i < Math.min(jsonData.length, 10); i++) {
-                const row = jsonData[i] || [];
-                let potentialDateCount = 0;
-                for (const cell of row) {
-                    if (cell) {
-                        const cellStr = String(cell).toLowerCase();
-                        if (dayAbbreviations.some(day => cellStr.includes(day)) || parseDate(cell) !== null) {
-                            potentialDateCount++;
-                        }
-                    }
-                }
-                if (potentialDateCount > 2) { // If at least 3 cells look like dates/days
-                    dateRowIndex = i;
-                    dateRow = row.map(cell => parseDate(cell)); // Attempt to parse every cell in that row
-                    dateRow.forEach(d => d && allDatesFound.push(d));
-                    break;
-                }
-            }
-
-            if (dateRowIndex === -1) {
-                console.log(`No valid date row found in sheet: ${sheetName}. Skipping.`);
-                continue;
-            };
-            
             const projectBlockStarts: number[] = [];
             jsonData.forEach((row, i) => {
                 const cellA = (row[0] || '').toString().toUpperCase();
-                if (cellA.includes('JOB MANAGER')) projectBlockStarts.push(i);
+                if (cellA.includes('JOB MANAGER')) {
+                    projectBlockStarts.push(i);
+                }
             });
 
             for (let i = 0; i < projectBlockStarts.length; i++) {
                 const blockStart = projectBlockStarts[i];
                 const blockEnd = i + 1 < projectBlockStarts.length ? projectBlockStarts[i+1] : jsonData.length;
-                
-                const manager = (jsonData[blockStart + 1]?.[0] || '').toString().trim();
+                const projectBlock = jsonData.slice(blockStart, blockEnd);
+
+                let manager = (projectBlock[1]?.[0] || '').toString().trim();
                 let address = '';
                 let bNumber = '';
                 
-                for (let r = blockStart; r < blockEnd; r++) {
-                    const cellValue = jsonData[r]?.[0];
+                for (const row of projectBlock) {
+                    const cellValue = row[0];
                     if (cellValue && typeof cellValue === 'string' && cellValue.includes('\n')) {
                         const parts = cellValue.split('\n');
                         bNumber = parts[0].trim().length < 15 ? parts[0].trim() : '';
@@ -264,69 +235,75 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
                         break;
                     }
                 }
-                if (!address) continue;
+                if (!address) continue; // Skip block if no address found
 
+                // Find date row within the project block
+                let dateRowIndex = -1;
+                let dateRow: (Date | null)[] = [];
+                for(let r=0; r<projectBlock.length; r++) {
+                    const row = projectBlock[r] || [];
+                    let dateCellCount = 0;
+                    row.slice(4).forEach(cell => {
+                        if (parseDate(cell)) dateCellCount++;
+                    });
+                    if (dateCellCount > 2) { // Heuristic: if more than 2 cells in the latter part of a row are dates
+                        dateRowIndex = r;
+                        dateRow = row.map(cell => parseDate(cell));
+                        dateRow.forEach(d => d && allDatesFound.push(d));
+                        break;
+                    }
+                }
+
+                if (dateRowIndex === -1) continue; // Skip block if no date row found
+
+                // Process shifts for the discovered project and dates
                 for (let c = 4; c < dateRow.length; c++) {
                     const shiftDate = dateRow[c];
                     if (!shiftDate) continue;
 
-                    for (let r = blockStart; r < blockEnd; r++) {
-                        const cell = worksheet[XLSX.utils.encode_cell({c, r})];
-                        const cellContentRaw = cell?.w || cell?.v; // .w is formatted text
-                        if (!cellContentRaw || typeof cellContentRaw !== 'string') continue;
+                    let lastTask: string | null = null;
+                    for (let r = dateRowIndex + 1; r < projectBlock.length; r++) {
+                        const cell = worksheet[XLSX.utils.encode_cell({c: c, r: blockStart + r})];
+                        const cellContentRaw = cell?.w || cell?.v;
                         
-                        const bgColor = cell?.s?.fgColor?.rgb;
-                        // Skip deep purple informational cells
-                        if (bgColor === 'FF800080' || bgColor === '800080') { 
+                        if (!cellContentRaw || typeof cellContentRaw !== 'string') {
+                            if (cell?.v !== null) lastTask = null; // Reset task if we hit an empty or non-string cell
                             continue;
                         }
 
+                        const bgColor = cell?.s?.fgColor?.rgb;
+                        if (bgColor === 'FF800080' || bgColor === '800080') { 
+                            continue; // Skip deep purple informational cells
+                        }
+
                         const cellContent = cellContentRaw.replace(/\s+/g, ' ').trim();
-                        const parts = cellContent.split('-').map(p => p.trim());
                         
+                        const parts = cellContent.split('-').map(p => p.trim());
                         if (parts.length > 1) {
                             const potentialUserNames = parts.pop()!;
                             const task = parts.join('-').trim();
-                            
-                            const usersInCell = potentialUserNames.split(/&|,|\+/g).map(name => name.trim()).filter(Boolean);
 
+                            const usersInCell = potentialUserNames.split(/&|,|\+/g).map(name => name.trim()).filter(Boolean);
                             if (task && usersInCell.length > 0) {
-                                let usersFound = 0;
                                 for (const userName of usersInCell) {
                                     const user = findUser(userName, userMap);
                                     if (user) {
-                                        usersFound++;
-                                        let type: 'am' | 'pm' | 'all-day' = 'all-day';
-                                        let processedTask = task.toUpperCase();
-                                        const amPmMatch = task.match(/\b(AM|PM)\b/i);
-                                        if (amPmMatch) {
-                                            type = amPmMatch[0].toLowerCase() as 'am' | 'pm';
-                                            processedTask = task.replace(new RegExp(`\\s*\\b${amPmMatch[0]}\\b`, 'i'), '').trim();
-                                        }
                                         shiftsFromExcel.push({ 
-                                            task: processedTask, 
+                                            task: task, 
                                             userId: user.uid, 
-                                            type, 
+                                            type: 'all-day', // Defaulting to all-day as per new understanding
                                             date: shiftDate, 
                                             address: address, 
                                             bNumber: bNumber 
                                         });
-                                    } else if (shiftDate >= today) {
+                                    } else {
                                         failedShifts.push({
                                             date: shiftDate,
                                             projectAddress: address,
                                             cellContent: cellContentRaw,
-                                            reason: `Could not find a user matching "${userName}". Check for typos.`
+                                            reason: `Could not find a user matching "${userName}".`
                                         });
                                     }
-                                }
-                                if (usersInCell.length > 0 && usersFound === 0 && shiftDate >= today) {
-                                     failedShifts.push({
-                                        date: shiftDate,
-                                        projectAddress: address,
-                                        cellContent: cellContentRaw,
-                                        reason: `No users found matching "${potentialUserNames}".`
-                                    });
                                 }
                             }
                         }
