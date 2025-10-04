@@ -274,9 +274,9 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
                     if (cellAValue && typeof cellAValue === 'string') {
                          const lowerCellValue = cellAValue.toLowerCase();
                          if (addressKeywords.some(keyword => lowerCellValue.includes(keyword))) {
-                            address = cellAValue;
                             const parts = cellAValue.split('\n');
                             const firstLine = parts[0].trim();
+                            
                             // Check if the first line is likely a B-Number (e.g., starts with E or other letters followed by numbers)
                             if (firstLine.length < 15 && firstLine.match(/^[a-zA-Z]?\d+/)) {
                                 bNumber = firstLine;
@@ -563,7 +563,3 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
     </div>
   );
 }
-
-    
-
-    
