@@ -211,40 +211,6 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
         const shiftsFromExcel: ParsedShift[] = [];
         const failedShifts: FailedShift[] = [];
         
-        // --- Step 1: Find the global Date Row ---
-        let dateRowIndex = -1;
-        let dateRow: (Date | null)[] = [];
-        const dayAbbrs = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
-        const monthAbbrs = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
-
-        for (let i = 0; i < Math.min(jsonData.length, 10); i++) {
-            const row = jsonData[i] || [];
-            let dateCellCount = 0;
-            row.forEach(cell => {
-                if (cell instanceof Date) {
-                    dateCellCount++;
-                } else if (typeof cell === 'string') {
-                    const lowerCell = cell.toLowerCase();
-                    if (dayAbbrs.some(day => lowerCell.startsWith(day)) || monthAbbrs.some(abbr => lowerCell.includes(abbr))) {
-                        dateCellCount++;
-                    }
-                }
-            });
-
-            if (dateCellCount > 2) { 
-                dateRowIndex = i;
-                dateRow = row.map(cell => parseDate(cell));
-                break;
-            }
-        }
-        
-        if (dateRowIndex === -1) {
-            throw new Error("Could not find the date row. Please ensure dates are in a recognizable format (e.g., '03-Oct' or 'Mon 26-Sep') in one of the first 10 rows of the file.");
-        }
-        const allDatesFound = dateRow.filter((d): d is Date => d !== null);
-
-
-        // --- Step 2: Find project blocks and parse shifts ---
         const projectBlockStartRows: number[] = [];
         jsonData.forEach((row, i) => {
             const cellA = (row[0] || '').toString().trim().toUpperCase();
@@ -261,40 +227,52 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
             const blockStartRowIndex = projectBlockStartRows[i];
             const blockEndRowIndex = i + 1 < projectBlockStartRows.length ? projectBlockStartRows[i+1] : jsonData.length;
             
+            // --- Logic for finding details WITHIN the current block ---
             let manager = jsonData[blockStartRowIndex + 1]?.[0] || 'Unknown Manager';
             let address = '';
             let bNumber = '';
+            let dateRow: (Date | null)[] = [];
+            let dateRowIndex = -1;
 
-            // --- CRITICAL FIX: Robust Address Finding ---
+            // Find address, bNumber, and date row for the current block
             const addressKeywords = ['road', 'street', 'avenue', 'lane', 'drive', 'court', 'close', 'crescent'];
-            for (let r = blockStartRowIndex + 2; r < blockEndRowIndex; r++) {
-                const cellValue = jsonData[r]?.[0];
-                if (cellValue && typeof cellValue === 'string') {
-                    const lowerCellValue = cellValue.toLowerCase();
+            const dayAbbrs = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+            const monthAbbrs = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+            for (let r = blockStartRowIndex; r < blockEndRowIndex; r++) {
+                const row = jsonData[r] || [];
+                const cellAValue = row[0];
+
+                // Find Address
+                if (cellAValue && typeof cellAValue === 'string') {
+                    const lowerCellValue = cellAValue.toLowerCase();
                     if (addressKeywords.some(keyword => lowerCellValue.includes(keyword))) {
-                        const parts = cellValue.split('\n');
+                        const parts = cellAValue.split('\n');
                         const firstLine = parts[0].trim();
-                        // Check if the first line is likely a B-Number
                         if (firstLine.length < 15 && firstLine.match(/^[a-zA-Z]\d+/)) {
                             bNumber = firstLine;
                             address = parts.slice(1).join(', ').trim();
                         } else {
                             address = parts.join(', ').trim();
                         }
-                        break; 
                     }
                 }
-            }
-            // Fallback if no keyword is found, use the old multi-line logic
-            if (!address) {
-                for (let r = blockStartRowIndex + 2; r < blockEndRowIndex; r++) {
-                    const cellValue = jsonData[r]?.[0];
-                    if (cellValue && typeof cellValue === 'string' && cellValue.includes('\n')) {
-                        const parts = cellValue.split('\n');
-                        bNumber = parts[0].trim().length < 15 && parts[0].trim().startsWith('E') ? parts[0].trim() : '';
-                        address = (bNumber ? parts.slice(1) : parts).join(', ').trim();
-                        break;
+                
+                // Find Date Row for this block
+                let dateCellCount = 0;
+                row.forEach(cell => {
+                    if (cell instanceof Date) dateCellCount++;
+                    else if (typeof cell === 'string') {
+                        const lowerCell = cell.toLowerCase();
+                        if (dayAbbrs.some(day => lowerCell.startsWith(day)) || monthAbbrs.some(abbr => lowerCell.includes(abbr))) {
+                            dateCellCount++;
+                        }
                     }
+                });
+
+                if (dateCellCount > 2) {
+                    dateRowIndex = r;
+                    dateRow = row.map(cell => parseDate(cell));
                 }
             }
 
@@ -303,8 +281,12 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
                  failedShifts.push({ date: null, projectAddress: `Block at row ${blockStartRowIndex + 1}`, cellContent: '', reason: 'Could not find a valid Address cell in Column A for this project block.' });
                  continue; // Skip this block if no address is found
             }
+             if (dateRowIndex === -1) {
+                failedShifts.push({ date: null, projectAddress: address, cellContent: '', reason: 'Could not find a valid Date Row within this project block.' });
+                continue; // Skip block if no date row found
+            }
 
-            // --- Step 3: Parse shifts for the current project block ---
+            // --- Parse shifts for the current project block using its own date row ---
             for (let r = blockStartRowIndex; r < blockEndRowIndex; r++) {
                 for (let c = 1; c < dateRow.length; c++) { 
                     const shiftDate = dateRow[c];
@@ -350,9 +332,6 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
                                     });
                                 }
                             }
-                        } else {
-                             // This case is less likely with the new logic but kept as a fallback
-                             failedShifts.push({ date: shiftDate, projectAddress: address, cellContent: cellContentRaw, reason: 'Cell did not match the expected "Task - User" format.' });
                         }
                     }
                 }
@@ -385,7 +364,7 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
             return;
         }
 
-
+        const allDatesFound = shiftsFromExcel.map(s => s.date).filter((d): d is Date => d !== null);
         const minDate = new Date(Math.min(...allDatesFound.map(d => d.getTime())));
         const maxDate = new Date(Math.max(...allDatesFound.map(d => d.getTime())));
 
@@ -523,5 +502,3 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
     </div>
   );
 }
-
-    
