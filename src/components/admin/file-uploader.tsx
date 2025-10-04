@@ -222,7 +222,7 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
         const data = e.target?.result;
         if (!data) throw new Error("Could not read file data.");
         
-        const workbook = XLSX.read(data, { type: 'array', cellDates: true, cellStyles: true });
+        const workbook = XLSX.read(data, { type: 'array' });
 
         const usersSnapshot = await getDocs(collection(db, 'users'));
         const userMap: UserMapEntry[] = usersSnapshot.docs.map(doc => {
@@ -328,19 +328,10 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
                         const shiftDate = dateRow[c];
                         if (!shiftDate) continue;
 
-                        const cellRef = XLSX.utils.encode_cell({ r: r, c: c });
-                        const cell = worksheet[cellRef];
-                        
-                        const bgColor = cell?.s?.fgColor?.rgb;
-                        if (bgColor === 'FF800080' || bgColor === '800080') { 
-                            continue; // Skip purple cells
-                        }
-                        
-                        let cellContentRaw = cell?.w || cell?.v;
-                        
-                        if (!cellContentRaw || typeof cellContentRaw !== 'string') continue;
+                        let cellContent = jsonData[r][c];
+                        if (!cellContent || typeof cellContent !== 'string') continue;
 
-                        const cellContent = cellContentRaw.replace(/\s+/g, ' ').trim();
+                        cellContent = cellContent.replace(/\s+/g, ' ').trim();
                         
                         const parts = cellContent.split('-').map(p => p.trim());
                         if (parts.length > 1) {
@@ -366,7 +357,7 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
                                         allFailedShifts.push({
                                             date: shiftDate,
                                             projectAddress: address,
-                                            cellContent: cellContentRaw,
+                                            cellContent: cellContent,
                                             reason: `Could not find a user matching "${userName}".`,
                                             sheetName
                                         });
@@ -572,5 +563,7 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
     </div>
   );
 }
+
+    
 
     
