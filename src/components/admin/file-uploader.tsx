@@ -257,79 +257,90 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
 
             for (let i = 0; i < projectBlockStartRows.length; i++) {
                 const blockStartRowIndex = projectBlockStartRows[i];
+                const dataStartRow = blockStartRowIndex + 1;
                 const blockEndRowIndex = i + 1 < projectBlockStartRows.length ? projectBlockStartRows[i+1] : jsonData.length;
                 
-                let manager = jsonData[blockStartRowIndex + 1]?.[0] || 'Unknown Manager';
+                let manager = jsonData[dataStartRow]?.[0] || 'Unknown Manager';
                 let address = '';
                 let bNumber = '';
                 let dateRow: (Date | null)[] = [];
                 let dateRowIndex = -1;
 
+                // 1. Find Address for this block
                 const addressKeywords = ['road', 'street', 'avenue', 'lane', 'drive', 'court', 'close', 'crescent', 'place'];
-                for (let r = blockStartRowIndex; r < blockEndRowIndex; r++) {
+                 for (let r = dataStartRow; r < blockEndRowIndex; r++) {
                     const row = jsonData[r] || [];
                     const cellAValue = row[0];
-
-                    if (!address && cellAValue && typeof cellAValue === 'string') {
-                        const lowerCellValue = cellAValue.toLowerCase();
-                        if (addressKeywords.some(keyword => lowerCellValue.includes(keyword))) {
+                    if (cellAValue && typeof cellAValue === 'string') {
+                         const lowerCellValue = cellAValue.toLowerCase();
+                         if (addressKeywords.some(keyword => lowerCellValue.includes(keyword))) {
+                            address = cellAValue;
                             const parts = cellAValue.split('\n');
                             const firstLine = parts[0].trim();
+                            // Check if the first line is likely a B-Number (e.g., starts with E or other letters followed by numbers)
                             if (firstLine.length < 15 && firstLine.match(/^[a-zA-Z]?\d+/)) {
                                 bNumber = firstLine;
                                 address = parts.slice(1).join(', ').trim();
                             } else {
                                 address = parts.join(', ').trim();
                             }
-                        }
-                    }
-                    
-                    if (dateRowIndex === -1) {
-                        const dayAbbrs = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
-                        const monthAbbrs = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
-                        let dateCellCount = 0;
-                        row.forEach(cell => {
-                            if (cell instanceof Date) dateCellCount++;
-                            else if (typeof cell === 'string') {
-                                const lowerCell = cell.toLowerCase();
-                                if (dayAbbrs.some(day => lowerCell.startsWith(day)) || monthAbbrs.some(abbr => lowerCell.includes(abbr))) {
-                                    dateCellCount++;
-                                }
-                            }
-                        });
-
-                        if (dateCellCount > 2) {
-                            dateRowIndex = r;
-                            dateRow = row.map(cell => parseDate(cell));
+                            break; // Stop after finding the first valid address in the block
                         }
                     }
                 }
 
                 if (!address) {
                      allFailedShifts.push({ date: null, projectAddress: `Block at row ${blockStartRowIndex + 1}`, cellContent: '', reason: 'Could not find a valid Address cell in Column A for this project block.', sheetName });
-                     continue;
-                }
-                if (dateRowIndex === -1) {
-                    allFailedShifts.push({ date: null, projectAddress: address, cellContent: '', reason: 'Could not find a valid Date Row within this project block.', sheetName });
-                    continue;
+                     continue; // Skip to next project block
                 }
 
-                for (let r = blockStartRowIndex; r < blockEndRowIndex; r++) {
+                // 2. Find Date Row for this block
+                for (let r = dataStartRow; r < blockEndRowIndex; r++) {
+                    const row = jsonData[r] || [];
+                    const dayAbbrs = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+                    const monthAbbrs = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+                    let dateCellCount = 0;
+                    row.forEach(cell => {
+                        if (cell instanceof Date) dateCellCount++;
+                        else if (typeof cell === 'string') {
+                            const lowerCell = cell.toLowerCase();
+                            if (dayAbbrs.some(day => lowerCell.startsWith(day)) || monthAbbrs.some(abbr => lowerCell.includes(abbr))) {
+                                dateCellCount++;
+                            }
+                        }
+                    });
+
+                    if (dateCellCount > 2) { // Heuristic: if more than 2 cells look like dates, it's probably the date row
+                        dateRowIndex = r;
+                        dateRow = row.map(cell => parseDate(cell));
+                        break; // Stop after finding the first valid date row
+                    }
+                }
+                
+                if (dateRowIndex === -1) {
+                    allFailedShifts.push({ date: null, projectAddress: address, cellContent: '', reason: 'Could not find a valid Date Row within this project block.', sheetName });
+                    continue; // Skip to next project block
+                }
+                
+                // 3. Parse Shifts for this block
+                for (let r = dataStartRow; r < blockEndRowIndex; r++) {
                     for (let c = 1; c < dateRow.length; c++) { 
                         const shiftDate = dateRow[c];
                         if (!shiftDate) continue;
 
                         const cellRef = XLSX.utils.encode_cell({ r: r, c: c });
                         const cell = worksheet[cellRef];
+                        
+                        const bgColor = cell?.s?.fgColor?.rgb;
+                        if (bgColor === 'FF800080' || bgColor === '800080') { 
+                            continue; // Skip purple cells
+                        }
+                        
                         let cellContentRaw = cell?.w || cell?.v;
                         
                         if (!cellContentRaw || typeof cellContentRaw !== 'string') continue;
 
                         const cellContent = cellContentRaw.replace(/\s+/g, ' ').trim();
-                        const bgColor = cell?.s?.fgColor?.rgb;
-                        if (bgColor === 'FF800080' || bgColor === '800080') { 
-                            continue;
-                        }
                         
                         const parts = cellContent.split('-').map(p => p.trim());
                         if (parts.length > 1) {
@@ -561,3 +572,5 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
     </div>
   );
 }
+
+    
