@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -10,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/shared/spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Upload, FileWarning, TestTube2 } from 'lucide-react';
+import { Upload, FileWarning, TestTube2, CheckCircle, AlertCircle } from 'lucide-react';
 import type { Shift, UserProfile, ShiftStatus } from '@/types';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
@@ -121,28 +120,27 @@ const parseDate = (dateValue: any): Date | null => {
     // Handle string dates (e.g., "03-Oct" or "03/10/2025")
     if (typeof dateValue === 'string') {
         const lowerCell = dateValue.toLowerCase();
-        const monthAbbrs = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
-        if (monthAbbrs.some(abbr => lowerCell.includes(abbr))) {
-            const dateMatch = dateValue.match(/(\d{1,2})[ -/]+([A-Za-z]+)/);
-            if (dateMatch) {
-                const day = parseInt(dateMatch[1], 10);
-                const monthStr = dateMatch[2];
-                const monthIndex = new Date(Date.parse(monthStr +" 1, 2012")).getMonth();
-                if (!isNaN(day) && monthIndex !== -1) {
-                     const year = new Date().getFullYear();
-                     return new Date(Date.UTC(year, monthIndex, day));
-                }
+        // Match "dd-Mon" format like "26-Sep"
+        const dateMatch = lowerCell.match(/(\d{1,2})[ -/]+([a-z]{3})/);
+         if (dateMatch) {
+            const day = parseInt(dateMatch[1], 10);
+            const monthStr = dateMatch[2];
+            const monthIndex = new Date(Date.parse(monthStr +" 1, 2012")).getMonth();
+            if (!isNaN(day) && monthIndex !== -1) {
+                 const year = new Date().getFullYear();
+                 return new Date(Date.UTC(year, monthIndex, day));
             }
         }
-        // Handle dd/mm/yy or dd-mm-yy
-        const parts = dateValue.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4}|\d{2})$/);
-        if (parts) {
-            let year = parseInt(parts[3], 10);
-            if (year < 100) year += 2000;
-            const month = parseInt(parts[2], 10) - 1;
-            const day = parseInt(parts[1], 10);
-            if (year > 1900 && month >= 0 && month < 12 && day > 0 && day <= 31) {
-                return new Date(Date.UTC(year, month, day));
+
+        // Match day name format like "Mon 26-Sep"
+        const dayNameMatch = lowerCell.match(/(mon|tue|wed|thu|fri|sat|sun)\s+(\d{1,2})[ -/]+([a-z]{3})/);
+        if (dayNameMatch) {
+            const day = parseInt(dayNameMatch[2], 10);
+            const monthStr = dayNameMatch[3];
+            const monthIndex = new Date(Date.parse(monthStr +" 1, 2012")).getMonth();
+             if (!isNaN(day) && monthIndex !== -1) {
+                 const year = new Date().getFullYear();
+                 return new Date(Date.UTC(year, monthIndex, day));
             }
         }
     }
@@ -217,6 +215,7 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
         let dateRowIndex = -1;
         let dateRow: (Date | null)[] = [];
         const dayAbbrs = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+        const monthAbbrs = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 
         for (let i = 0; i < Math.min(jsonData.length, 10); i++) {
             const row = jsonData[i] || [];
@@ -226,7 +225,7 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
                     dateCellCount++;
                 } else if (typeof cell === 'string') {
                     const lowerCell = cell.toLowerCase();
-                    if (dayAbbrs.some(day => lowerCell.startsWith(day)) || lowerCell.match(/\d{1,2}[-/][a-z]{3}/)) {
+                    if (dayAbbrs.some(day => lowerCell.startsWith(day)) || monthAbbrs.some(abbr => lowerCell.includes(abbr))) {
                         dateCellCount++;
                     }
                 }
@@ -262,24 +261,46 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
             const blockStartRowIndex = projectBlockStartRows[i];
             const blockEndRowIndex = i + 1 < projectBlockStartRows.length ? projectBlockStartRows[i+1] : jsonData.length;
             
-            // --- Extract Project Details ---
             let manager = jsonData[blockStartRowIndex + 1]?.[0] || 'Unknown Manager';
             let address = '';
             let bNumber = '';
 
-            // Find address cell (first multi-line cell in column A after manager)
+            // --- CRITICAL FIX: Robust Address Finding ---
+            const addressKeywords = ['road', 'street', 'avenue', 'lane', 'drive', 'court', 'close', 'crescent'];
             for (let r = blockStartRowIndex + 2; r < blockEndRowIndex; r++) {
-                 const cellValue = jsonData[r]?.[0];
-                if (cellValue && typeof cellValue === 'string' && cellValue.includes('\n')) {
-                    const parts = cellValue.split('\n');
-                    bNumber = parts[0].trim().length < 15 && parts[0].trim().startsWith('E') ? parts[0].trim() : '';
-                    address = (bNumber ? parts.slice(1) : parts).join(', ').trim();
-                    break;
+                const cellValue = jsonData[r]?.[0];
+                if (cellValue && typeof cellValue === 'string') {
+                    const lowerCellValue = cellValue.toLowerCase();
+                    if (addressKeywords.some(keyword => lowerCellValue.includes(keyword))) {
+                        const parts = cellValue.split('\n');
+                        const firstLine = parts[0].trim();
+                        // Check if the first line is likely a B-Number
+                        if (firstLine.length < 15 && firstLine.match(/^[a-zA-Z]\d+/)) {
+                            bNumber = firstLine;
+                            address = parts.slice(1).join(', ').trim();
+                        } else {
+                            address = parts.join(', ').trim();
+                        }
+                        break; 
+                    }
+                }
+            }
+            // Fallback if no keyword is found, use the old multi-line logic
+            if (!address) {
+                for (let r = blockStartRowIndex + 2; r < blockEndRowIndex; r++) {
+                    const cellValue = jsonData[r]?.[0];
+                    if (cellValue && typeof cellValue === 'string' && cellValue.includes('\n')) {
+                        const parts = cellValue.split('\n');
+                        bNumber = parts[0].trim().length < 15 && parts[0].trim().startsWith('E') ? parts[0].trim() : '';
+                        address = (bNumber ? parts.slice(1) : parts).join(', ').trim();
+                        break;
+                    }
                 }
             }
 
+
             if (!address) {
-                 failedShifts.push({ date: null, projectAddress: `Block starting at row ${blockStartRowIndex + 1}`, cellContent: '', reason: 'Could not find a valid Address cell in Column A for this project block.' });
+                 failedShifts.push({ date: null, projectAddress: `Block at row ${blockStartRowIndex + 1}`, cellContent: '', reason: 'Could not find a valid Address cell in Column A for this project block.' });
                  continue; // Skip this block if no address is found
             }
 
@@ -291,7 +312,7 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
 
                     const cellRef = XLSX.utils.encode_cell({ r: r, c: c });
                     const cell = worksheet[cellRef];
-                    const cellContentRaw = cell?.w || cell?.v;
+                    let cellContentRaw = cell?.w || cell?.v;
                     
                     if (!cellContentRaw || typeof cellContentRaw !== 'string') continue;
 
@@ -330,6 +351,7 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
                                 }
                             }
                         } else {
+                             // This case is less likely with the new logic but kept as a fallback
                              failedShifts.push({ date: shiftDate, projectAddress: address, cellContent: cellContentRaw, reason: 'Cell did not match the expected "Task - User" format.' });
                         }
                     }
