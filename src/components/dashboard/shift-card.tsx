@@ -137,6 +137,7 @@ export function ShiftCard({ shift, onDismiss }: ShiftCardProps) {
           <p className="font-semibold text-sm">{shift.task}</p>
           <p className="text-xs text-muted-foreground">{shift.address}</p>
           {shift.bNumber && <p className="text-xs text-muted-foreground">B-Number: {shift.bNumber}</p>}
+          {shift.manager && <p className="text-xs text-muted-foreground">Manager: {shift.manager}</p>}
           {(shift.status === 'incomplete' || shift.status === 'rejected') && shift.notes && (
             <div className="mt-3 p-3 bg-destructive/10 border-l-4 border-destructive rounded-r-md">
                 <p className="text-sm font-semibold text-destructive">Note:</p>
