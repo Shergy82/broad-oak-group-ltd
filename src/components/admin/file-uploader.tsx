@@ -299,12 +299,12 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
                 const blockStartRow = projectBlockStartRows[i];
                 const blockEndRow = i + 1 < projectBlockStartRows.length ? projectBlockStartRows[i+1] : jsonData.length;
                 
-                const manager = String(jsonData[blockStartRow + 1]?.[0] || 'Unknown Manager').trim();
+                const manager = String(jsonData[blockStartRow + 2]?.[0] || 'Unknown Manager').trim();
                 
                 let address = '';
                 let addressStartRow = -1;
                 for (let r = blockStartRow; r < blockEndRow; r++) {
-                    if (String(jsonData[r]?.[0]).trim().toUpperCase() === 'ADDRESS') {
+                    if (String(jsonData[r]?.[0]).trim().toUpperCase() === 'SITE ADDRESS') {
                         addressStartRow = r + 1;
                         break;
                     }
@@ -355,42 +355,42 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
                     const rowData = jsonData[r];
                     if (!rowData || rowData[0] === null) continue; // Skip empty rows
 
-                    const taskDescription = String(rowData[0] || '').trim();
-                    if (!taskDescription) continue;
-
                     for (let c = 5; c < Math.min(rowData.length, dateRow.length); c++) { 
                         const shiftDate = dateRow[c];
                         if (!shiftDate) continue;
 
                         const cellContentRaw = String(rowData[c] || '').trim();
                         if (!cellContentRaw) continue;
+                        
+                        const cellContentCleaned = cellContentRaw.replace(/ *\([^)]*\) */g, "").trim();
+                        const parts = cellContentCleaned.split('-').map(p => p.trim());
 
-                        const cellContentCleaned = cellContentRaw.replace(/\(.*\)/g, '').trim();
-                        const usersInCell = cellContentCleaned.split(/&|,|\/|\+/g).map(name => name.trim()).filter(Boolean);
+                        if (parts.length < 2) continue;
+                        
+                        const taskDescription = parts[0];
+                        const userName = parts.slice(1).join('-').trim();
 
-                        if (usersInCell.length > 0) {
-                            for (const userName of usersInCell) {
-                                const user = findUser(userName, userMap);
-                                if (user) {
-                                    allParsedShifts.push({ 
-                                        task: taskDescription, 
-                                        userId: user.uid, 
-                                        userName: user.originalName,
-                                        type: 'all-day',
-                                        date: shiftDate, 
-                                        address, 
-                                        bNumber: '', // B-Number logic can be added here if needed
-                                        manager,
-                                    });
-                                } else {
-                                    allFailedShifts.push({
-                                        date: shiftDate,
-                                        projectAddress: address,
-                                        cellContent: cellContentRaw,
-                                        reason: `Could not find user matching "${userName}".`,
-                                        sheetName
-                                    });
-                                }
+                        if (taskDescription && userName) {
+                            const user = findUser(userName, userMap);
+                            if (user) {
+                                allParsedShifts.push({ 
+                                    task: taskDescription, 
+                                    userId: user.uid, 
+                                    userName: user.originalName,
+                                    type: 'all-day',
+                                    date: shiftDate, 
+                                    address, 
+                                    bNumber: '',
+                                    manager,
+                                });
+                            } else {
+                                allFailedShifts.push({
+                                    date: shiftDate,
+                                    projectAddress: address,
+                                    cellContent: cellContentRaw,
+                                    reason: `Could not find user matching "${userName}".`,
+                                    sheetName
+                                });
                             }
                         }
                     }
@@ -399,7 +399,7 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
         }
         
         const allDatesFound = allParsedShifts.map(s => s.date).filter((d): d is Date => d !== null);
-        if (allDatesFound.length === 0) {
+        if (allDatesFound.length === 0 && allFailedShifts.length > 0) {
             onImportComplete(allFailedShifts, { toCreate: [], toUpdate: [], toDelete: [], failed: allFailedShifts });
             setIsProcessing(false);
             return;
