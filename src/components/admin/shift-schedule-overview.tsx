@@ -893,7 +893,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                     <CardDescription>A list of all upcoming shifts for the team, which updates in real-time.</CardDescription>
                 </div>
                 <div className="flex items-center gap-2 shrink-0 flex-wrap justify-start sm:justify-end">
-                     <Button variant="outline" onClick={() => router.push('/schedule/site-view')}>
+                     <Button variant="outline" onClick={() => router.push('/site-schedule')}>
                         <Building className="mr-2 h-4 w-4" />
                         Site View
                     </Button>
