@@ -8,7 +8,7 @@ import { ShiftCard } from '@/components/dashboard/shift-card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { isToday, isSameWeek, addDays, format, subDays } from 'date-fns';
+import { isToday, isSameWeek, addDays, format, subDays, startOfWeek } from 'date-fns';
 import type { Shift, ShiftStatus } from '@/types';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
@@ -47,6 +47,7 @@ export default function Dashboard({ userShifts, loading }: { userShifts: Shift[]
     todayPmShifts,
     todayAllDayShifts,
     thisWeekShifts, 
+    lastWeekShifts,
     nextWeekShifts,
     historicalShifts,
   } = useMemo(() => {
@@ -85,6 +86,9 @@ export default function Dashboard({ userShifts, loading }: { userShifts: Shift[]
 
     const activeThisWeekShifts = activeShifts.filter(s => isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 }));
     
+    const startOfLastWeek = startOfWeek(subDays(today, 7), { weekStartsOn: 1 });
+    const activeLastWeekShifts = activeShifts.filter(s => isSameWeek(getCorrectedLocalDate(s.date), startOfLastWeek, { weekStartsOn: 1 }));
+
     const activeNextWeekShifts = activeShifts.filter(s => {
         const shiftDate = getCorrectedLocalDate(s.date);
         const startOfNextWeek = addDays(today, 7);
@@ -96,6 +100,7 @@ export default function Dashboard({ userShifts, loading }: { userShifts: Shift[]
       todayPmShifts: todayPm,
       todayAllDayShifts: todayAllDay,
       thisWeekShifts: groupShiftsByDay(activeThisWeekShifts),
+      lastWeekShifts: groupShiftsByDay(activeLastWeekShifts),
       nextWeekShifts: groupShiftsByDay(activeNextWeekShifts),
       historicalShifts: historical,
     };
@@ -167,7 +172,7 @@ export default function Dashboard({ userShifts, loading }: { userShifts: Shift[]
     doc.save(`shift_schedule_${userName.replace(/\s/g, '_')}.pdf`);
   };
 
-  const renderWeekView = (groupedShifts: { [key: string]: Shift[] }) => {
+  const renderWeekView = (groupedShifts: { [key: string]: Shift[] }, weekName: string) => {
     const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
     const weekends = ['Saturday', 'Sunday'];
     const allDays = [...weekdays, ...weekends];
@@ -188,7 +193,7 @@ export default function Dashboard({ userShifts, loading }: { userShifts: Shift[]
     }
 
     if (!hasShiftsThisWeek) {
-        return <p className="text-muted-foreground mt-4 text-center">No active shifts scheduled for this week.</p>;
+        return <p className="text-muted-foreground mt-4 text-center">No active shifts scheduled for {weekName}.</p>;
     }
 
     return (
@@ -265,6 +270,7 @@ export default function Dashboard({ userShifts, loading }: { userShifts: Shift[]
         <TabsList>
           <TabsTrigger value="today">Today</TabsTrigger>
           <TabsTrigger value="this-week">This Week</TabsTrigger>
+          <TabsTrigger value="last-week">Last Week</TabsTrigger>
           <TabsTrigger value="next-week">Next Week</TabsTrigger>
         </TabsList>
         <TabsContent value="today">
@@ -304,10 +310,13 @@ export default function Dashboard({ userShifts, loading }: { userShifts: Shift[]
           )}
         </TabsContent>
         <TabsContent value="this-week">
-          {renderWeekView(thisWeekShifts)}
+          {renderWeekView(thisWeekShifts, "this week")}
+        </TabsContent>
+        <TabsContent value="last-week">
+          {renderWeekView(lastWeekShifts, "last week")}
         </TabsContent>
         <TabsContent value="next-week">
-          {renderWeekView(nextWeekShifts)}
+          {renderWeekView(nextWeekShifts, "next week")}
         </TabsContent>
       </Tabs>
       
