@@ -15,6 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 import { getCorrectedLocalDate } from '@/lib/utils';
 import { Badge } from '../ui/badge';
 import { Download, History, Clock, Sunrise, Sunset } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 export default function Dashboard({ userShifts, loading }: { userShifts: Shift[], loading: boolean }) {
   const { user } = useAuth();
@@ -172,7 +173,7 @@ export default function Dashboard({ userShifts, loading }: { userShifts: Shift[]
     doc.save(`shift_schedule_${userName.replace(/\s/g, '_')}.pdf`);
   };
 
-  const renderWeekView = (groupedShifts: { [key: string]: Shift[] }, weekName: string) => {
+  const renderWeekView = (groupedShifts: { [key: string]: Shift[] }, weekName: string, isHistorical: boolean = false) => {
     const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
     const weekends = ['Saturday', 'Sunday'];
     const allDays = [...weekdays, ...weekends];
@@ -212,7 +213,7 @@ export default function Dashboard({ userShifts, loading }: { userShifts: Shift[]
                 const allDayShifts = shiftsForDay.filter(s => s.type === 'all-day');
 
                 return (
-                    <Card key={day}>
+                    <Card key={day} className={cn(isHistorical && "bg-muted/30 border-muted-foreground/20")}>
                         <CardHeader>
                             <CardTitle>{day}</CardTitle>
                         </CardHeader>
@@ -270,8 +271,8 @@ export default function Dashboard({ userShifts, loading }: { userShifts: Shift[]
         <TabsList>
           <TabsTrigger value="today">Today</TabsTrigger>
           <TabsTrigger value="this-week">This Week</TabsTrigger>
-          <TabsTrigger value="last-week">Last Week</TabsTrigger>
           <TabsTrigger value="next-week">Next Week</TabsTrigger>
+          <TabsTrigger value="last-week">Last Week</TabsTrigger>
         </TabsList>
         <TabsContent value="today">
           {loading ? (
@@ -312,11 +313,11 @@ export default function Dashboard({ userShifts, loading }: { userShifts: Shift[]
         <TabsContent value="this-week">
           {renderWeekView(thisWeekShifts, "this week")}
         </TabsContent>
-        <TabsContent value="last-week">
-          {renderWeekView(lastWeekShifts, "last week")}
-        </TabsContent>
         <TabsContent value="next-week">
           {renderWeekView(nextWeekShifts, "next week")}
+        </TabsContent>
+        <TabsContent value="last-week">
+          {renderWeekView(lastWeekShifts, "last week", true)}
         </TabsContent>
       </Tabs>
       
@@ -344,3 +345,5 @@ export default function Dashboard({ userShifts, loading }: { userShifts: Shift[]
     </div>
   );
 }
+
+    
