@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -116,7 +117,7 @@ export default function AdminPageContent() {
                     Dry Run Results
                 </CardTitle>
                 <CardDescription>
-                    This is a preview of the changes to be made. No shifts have been created, updated, or deleted. Review the changes below and then click "Confirm &amp; Publish" to apply them.
+                    This is a preview of the changes to be made. No shifts have been created, updated, or deleted. Review the changes below and then click "Confirm & Publish" to apply them.
                 </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -150,7 +151,7 @@ export default function AdminPageContent() {
                             <TableHeader><TableRow><TableHead>Operative</TableHead><TableHead>Date</TableHead><TableHead>Task</TableHead><TableHead>Changes</TableHead></TableRow></TableHeader>
                             <TableBody>
                                 {sortedUpdate.map(({old, new: newShift}, index) => (
-                                    <TableRow key={index}><TableCell>{userNameMap.get(newShift.userId) || newShift.userId}</TableCell><TableCell>{format(newShift.date, 'dd/MM/yy')}</TableCell><TableCell>{newShift.task}</TableCell><TableCell className="text-xs">Manager: {old.manager} -&gt; {newShift.manager}</TableCell></TableRow>
+                                    <TableRow key={index}><TableCell>{userNameMap.get(newShift.userId) || newShift.userId}</TableCell><TableCell>{format(newShift.date, 'dd/MM/yy')}</TableCell><TableCell>{newShift.task}</TableCell><TableCell className="text-xs">Manager: {old.manager} -> {newShift.manager}</TableCell></TableRow>
                                 ))}
                             </TableBody>
                         </Table>
@@ -199,7 +200,7 @@ export default function AdminPageContent() {
              <CardFooter className="flex justify-end gap-2">
                 <Button variant="outline" onClick={handleFileSelection} disabled={isConfirming}>Cancel</Button>
                 <Button onClick={handleConfirmAndPublish} disabled={isConfirming}>
-                    {isConfirming ? <Spinner /> : 'Confirm &amp; Publish'}
+                    {isConfirming ? <Spinner /> : 'Confirm & Publish'}
                 </Button>
             </CardFooter>
         </Card>
