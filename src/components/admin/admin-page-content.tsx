@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useMemo } from 'react';
@@ -116,14 +115,14 @@ export default function AdminPageContent() {
                     Dry Run Results
                 </CardTitle>
                 <CardDescription>
-                    This is a preview of the import. No changes have been saved yet. Review the shifts below and click "Confirm and Publish" to apply them.
+                    This is a preview of the import. No changes have been saved yet. Review the new shifts that will be created below and click "Confirm and Publish" to apply them.
                 </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
                 <div>
                     <h3 className="font-semibold flex items-center gap-2 mb-2">
                         <CheckCircle className="text-green-600" /> 
-                        {found.length} Shifts Found Successfully
+                        {found.length} New Shifts to be Created
                     </h3>
                     {found.length > 0 ? (
                         <div className="max-h-60 overflow-y-auto border rounded-lg">
@@ -148,7 +147,7 @@ export default function AdminPageContent() {
                             </TableBody>
                         </Table>
                         </div>
-                    ) : <p className="text-sm text-muted-foreground">No shifts could be parsed from the file.</p>}
+                    ) : <p className="text-sm text-muted-foreground">No new shifts will be created.</p>}
                 </div>
 
                 <div>
@@ -192,7 +191,7 @@ export default function AdminPageContent() {
                     onFileSelect={() => {}}
                     shiftsToPublish={dryRunResult.found}
                 >
-                    <Button disabled={isPublishing}>
+                    <Button disabled={isPublishing || found.length === 0}>
                         {isPublishing ? <Spinner /> : <><Upload className="mr-2 h-4 w-4" />Confirm and Publish</>}
                     </Button>
                 </FileUploader>
