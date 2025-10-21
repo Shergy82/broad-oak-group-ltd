@@ -105,7 +105,7 @@ const parseDate = (dateValue: any): Date | null => {
         const excelEpoch = new Date(1899, 11, 30);
         const d = new Date(excelEpoch.getTime() + dateValue * 86400000);
         if (!isNaN(d.getTime())) {
-             return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+             return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
         }
     }
     if (typeof dateValue === 'string') {
@@ -275,6 +275,7 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
 
             const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, blankrows: false, defval: null });
             
+            // 1. Find all job blocks by locating "JOB MANAGER"
             const jobBlockStartRows: number[] = [];
             jsonData.forEach((row, i) => {
                 if (String(row[0]).trim().toLowerCase() === 'job manager') {
@@ -284,15 +285,30 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
             
             if (jobBlockStartRows.length === 0) continue;
 
+            // 2. Process each job block
             for (let i = 0; i < jobBlockStartRows.length; i++) {
                 const headerRowIndex = jobBlockStartRows[i];
-                const nextBlockStartRowIndex = i + 1 < jobBlockStartRows.length ? jobBlockStartRows[i+1] : jsonData.length;
+                const headerRow = jsonData[headerRowIndex];
+
+                // 3. Extract dates from the header row (starting at column F, index 5)
+                const dates: { date: Date | null, colIndex: number }[] = [];
+                for (let c = 5; c < headerRow.length; c++) {
+                    const date = parseDate(headerRow[c]);
+                    if (date) {
+                        dates.push({ date, colIndex: c });
+                    } else {
+                        // Stop reading dates at the first empty cell
+                        break; 
+                    }
+                }
                 
+                // 4. Extract Manager
                 const manager = String(jsonData[headerRowIndex + 1]?.[0] || 'Unknown Manager').trim();
                 
+                // 5. Extract Address
                 let address = '';
                 let addressStartRowIndex = -1;
-                for (let r = headerRowIndex; r < nextBlockStartRowIndex; r++) {
+                for (let r = headerRowIndex + 1; r < jsonData.length; r++) {
                     if (String(jsonData[r]?.[0]).trim().toLowerCase() === 'address') {
                         addressStartRowIndex = r + 1;
                         break;
@@ -301,8 +317,9 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
 
                 if (addressStartRowIndex > -1) {
                     let addressLines = [];
-                    for (let r = addressStartRowIndex; r < nextBlockStartRowIndex; r++) {
+                    for (let r = addressStartRowIndex; r < jsonData.length; r++) {
                         const line = String(jsonData[r]?.[0] || '').trim();
+                         // Stop if the line is empty OR if other cells in that row have data (indicating start of shift grid)
                         const rowHasOtherData = jsonData[r].slice(1).some((cell: any) => cell !== null && String(cell).trim() !== '');
                         if (!line || rowHasOtherData) break;
                         addressLines.push(line);
@@ -314,46 +331,54 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
                      allFailedShifts.push({ date: null, projectAddress: `Block at row ${headerRowIndex + 1}`, cellContent: '', reason: 'Could not find Address.', sheetName });
                      continue;
                 }
-
-                const dateRow = jsonData[headerRowIndex];
-                const dates: (Date | null)[] = dateRow.map((cell: any, c: number) => c >= 5 ? parseDate(cell) : null);
                 
-                // The shift rows start 2 rows below the header and go until the next block starts.
-                const shiftDataStartRow = headerRowIndex + 2;
-                for (let r = shiftDataStartRow; r < nextBlockStartRowIndex; r++) {
+                // 6. Define data grid boundaries
+                const gridStartRow = headerRowIndex + 1; // Grid starts on the row below the header
+                const nextBlockStartRowIndex = i + 1 < jobBlockStartRows.length ? jobBlockStartRows[i+1] : jsonData.length;
+                
+                // 7. Scan the entire grid for this job
+                for (let r = gridStartRow; r < nextBlockStartRowIndex; r++) {
                     const rowData = jsonData[r];
                     if (!rowData || rowData.every((cell: any) => cell === null || String(cell).trim() === '')) continue;
                     
-                    for (let c = 5; c <= 11; c++) { 
-                        const shiftDate = dates[c];
-                        if (!shiftDate) continue;
-
-                        const cellContentRaw = String(rowData[c] || '').trim();
+                    // Iterate through the columns that have dates
+                    for (const { date, colIndex } of dates) {
+                        const cellContentRaw = String(rowData[colIndex] || '').trim();
                         if (!cellContentRaw) continue;
                         
                         const cellContentCleaned = cellContentRaw.replace(/ *\([^)]*\) */g, "").trim();
+                        
+                        const parts = cellContentCleaned.split('-').map(p => p.trim());
+                        if (parts.length < 2) {
+                             allFailedShifts.push({
+                                date: date,
+                                projectAddress: address,
+                                cellContent: cellContentRaw,
+                                reason: `Could not parse shift. Expected 'Task - User' format.`,
+                                sheetName
+                            });
+                            continue;
+                        };
 
-                        const parts = cellContentCleaned.split('-');
-                        if (parts.length < 2) continue;
-
-                        const taskPart = parts[0].trim();
-                        const userPart = parts.slice(1).join('-').trim();
+                        const taskPart = parts[0];
+                        const userPart = parts.slice(1).join('-');
 
                         const user = findUser(userPart, userMap);
+
                         if (user) {
                             allParsedShifts.push({ 
                                 task: taskPart, 
                                 userId: user.uid, 
                                 userName: user.originalName,
-                                type: 'all-day', // Assuming all-day for now
-                                date: shiftDate, 
+                                type: 'all-day',
+                                date: date!, 
                                 address, 
-                                bNumber: '', // Can be extracted if available
+                                bNumber: '',
                                 manager,
                             });
                         } else {
                             allFailedShifts.push({
-                                date: shiftDate,
+                                date: date,
                                 projectAddress: address,
                                 cellContent: cellContentRaw,
                                 reason: `Could not find user matching "${userPart}".`,
@@ -366,7 +391,14 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
         }
         
         const allDatesFound = allParsedShifts.map(s => s.date).filter((d): d is Date => d !== null);
-        if (allDatesFound.length === 0 && allParsedShifts.length > 0) {
+        if (allParsedShifts.length === 0 && allFailedShifts.length === 0) {
+             onImportComplete(allFailedShifts, { toCreate: [], toUpdate: [], toDelete: [], failed: allFailedShifts });
+             setIsProcessing(false);
+             setError("No shifts were found in the selected sheets. Please check the file format and ensure 'JOB MANAGER' blocks are present.");
+             return;
+        }
+        
+        if(allDatesFound.length === 0 && allParsedShifts.length > 0) {
              onImportComplete(allFailedShifts, { toCreate: [], toUpdate: [], toDelete: [], failed: allFailedShifts });
              setIsProcessing(false);
              setError("Shifts were found, but no valid dates could be parsed from the date row.");
@@ -383,8 +415,8 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
         );
         const existingShiftsSnapshot = await getDocs(shiftsQuery);
 
-        if (allParsedShifts.length === 0 && !existingShiftsSnapshot.empty && allFailedShifts.length === 0) {
-            setError("Parsing resulted in zero shifts from the file, but shifts exist in the database for this date range. Aborting to prevent accidental deletion. Please check the file format.");
+        if (allParsedShifts.length === 0 && !existingShiftsSnapshot.empty && allFailedShifts.length > 0) {
+            setError("Parsing resulted in zero valid shifts from the file, but shifts exist in the database for this date range. Aborting to prevent accidental deletion. Check the failed shifts report.");
             onImportComplete(allFailedShifts, { toCreate: [], toUpdate: [], toDelete: [], failed: allFailedShifts });
             setIsProcessing(false);
             return;
