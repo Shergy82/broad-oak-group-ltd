@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -40,7 +39,7 @@ const DayCard = ({ day, shifts, userNameMap }: { day: string, shifts: Shift[], u
                 {sortedShifts.map(shift => (
                     <div key={shift.id} className="p-3 rounded-md bg-muted/50 border">
                         <p className="font-semibold">{shift.task}</p>
-                        <p className="text-sm text-muted-foreground">{shift.userName || 'Unknown User'}</p>
+                        <p className="text-sm text-muted-foreground">{userNameMap.get(shift.userId) || shift.userName || 'Unknown User'}</p>
                         <p className="text-xs text-muted-foreground capitalize">{shift.type === 'all-day' ? 'All Day' : shift.type.toUpperCase()}</p>
                     </div>
                 ))}
@@ -117,26 +116,20 @@ export default function SiteSchedulePage() {
             setLoading(false);
         });
         
-        let unsubUsers = () => {};
-        // Only privileged users fetch the full user list for the PDF download feature.
-        // Standard users do not need it as the `userName` is on the shift.
-        if (isPrivilegedUser) {
-            const usersQuery = query(collection(db, 'users'));
-            unsubUsers = onSnapshot(usersQuery, (snapshot) => {
-                const fetchedUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
-                setUsers(fetchedUsers);
-            }, (err) => {
-                console.error("Error fetching users:", err);
-                // Non-critical for display, but note it for admins.
-                toast({ variant: 'destructive', title: 'Could not fetch all user data for PDF downloads.'})
-            });
-        }
+        const usersQuery = query(collection(db, 'users'));
+        const unsubUsers = onSnapshot(usersQuery, (snapshot) => {
+            const fetchedUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
+            setUsers(fetchedUsers);
+        }, (err) => {
+            console.error("Error fetching users:", err);
+            toast({ variant: 'destructive', title: 'Could not fetch all user data.'})
+        });
         
         return () => {
           unsubShifts();
           unsubUsers();
         };
-    }, [isPrivilegedUser, toast]);
+    }, [toast]);
 
     const naturalSort = (a: string, b: string) => {
         const aParts = a.match(/(\\d+)|(\\D+)/g) || [];
