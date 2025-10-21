@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { FileUploader, FailedShift } from '@/components/admin/file-uploader';
 import { ShiftScheduleOverview } from '@/components/admin/shift-schedule-overview';
@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Download, FileWarning, CheckCircle, TestTube2, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
+import { useAllUsers } from '@/hooks/use-all-users';
 
 interface DryRunResult {
     found: any[];
@@ -19,9 +20,15 @@ interface DryRunResult {
 
 export default function AdminPageContent() {
   const { userProfile } = useUserProfile();
+  const { users: allUsers, loading: usersLoading } = useAllUsers();
   const [importReport, setImportReport] = useState<{ failed: FailedShift[], dryRun?: DryRunResult } | null>(null);
   const [importAttempted, setImportAttempted] = useState(false);
   const isPrivilegedUser = userProfile && ['admin', 'owner'].includes(userProfile.role);
+
+  const userNameMap = useMemo(() => {
+    if (usersLoading || !allUsers) return new Map();
+    return new Map(allUsers.map(u => [u.uid, u.name]));
+  }, [allUsers, usersLoading]);
 
   const handleImportComplete = (failedShifts: FailedShift[], dryRunResult?: DryRunResult) => {
     const sortedFailed = failedShifts.sort((a, b) => {
@@ -109,7 +116,7 @@ export default function AdminPageContent() {
                                 {found.map((shift, index) => (
                                     <TableRow key={index}>
                                         <TableCell>{format(shift.date, 'dd/MM/yy')}</TableCell>
-                                        <TableCell>{userProfile?.uid === shift.userId ? userProfile.name : shift.userId}</TableCell>
+                                        <TableCell>{userNameMap.get(shift.userId) || shift.userId}</TableCell>
                                         <TableCell>{shift.task}</TableCell>
                                         <TableCell>{shift.address}</TableCell>
                                     </TableRow>
