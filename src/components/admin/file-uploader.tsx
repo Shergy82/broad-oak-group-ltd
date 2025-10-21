@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/shared/spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Upload, FileWarning, TestTube2, Sheet, XCircle } from 'lucide-react';
+import { Upload, FileWarning, TestTube2, Sheet } from 'lucide-react';
 import type { Shift, UserProfile, ShiftStatus } from '@/types';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
@@ -351,6 +351,9 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
                 for (let r = dateRowIndex + 1; r < blockEndRow; r++) {
                     const rowData = jsonData[r];
                     if (!rowData || rowData[0] === null) continue; 
+                    
+                    const taskDescription = String(rowData[0] || '').trim();
+                    if (!taskDescription) continue;
 
                     for (let c = 5; c < Math.min(rowData.length, dateRow.length); c++) { 
                         const shiftDate = dateRow[c];
@@ -361,13 +364,9 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
                         
                         const cellContentCleaned = cellContentRaw.replace(/ *\([^)]*\) */g, "").trim();
                         
-                        const separatorIndex = cellContentCleaned.indexOf('-');
-                        if (separatorIndex === -1) continue;
-                        
-                        const taskDescription = cellContentCleaned.substring(0, separatorIndex).trim();
-                        const userName = cellContentCleaned.substring(separatorIndex + 1).trim();
+                        const userName = cellContentCleaned; // The whole cell is the user name in this format
 
-                        if (taskDescription && userName) {
+                        if (userName) {
                             const user = findUser(userName, userMap);
                             if (user) {
                                 allParsedShifts.push({ 
@@ -537,6 +536,4 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
     </div>
   );
 }
-    
-
     

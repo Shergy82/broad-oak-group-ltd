@@ -816,4 +816,3 @@ export const syncUserNamesToShifts = functions.region("europe-west2").https.onCa
         throw new functions.https.HttpsError("internal", "An unexpected error occurred during the sync process.");
     }
 });
-
