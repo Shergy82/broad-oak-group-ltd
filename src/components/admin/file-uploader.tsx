@@ -1,7 +1,6 @@
-
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
 import { collection, writeBatch, doc, getDocs, query, where, Timestamp, serverTimestamp, deleteDoc } from 'firebase/firestore';
@@ -10,11 +9,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/shared/spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Upload, FileWarning, TestTube2, Sheet } from 'lucide-react';
+import { Upload, FileWarning, TestTube2, Sheet, CheckCircle, Trash2, AlertCircle, XCircle } from 'lucide-react';
 import type { Shift, UserProfile, ShiftStatus } from '@/types';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '../ui/label';
 import { useAllUsers } from '@/hooks/use-all-users';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '../ui/table';
+import { format } from 'date-fns';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from '../ui/card';
 
 export type ParsedShift = Omit<Shift, 'id' | 'status' | 'date' | 'createdAt'> & { date: Date };
 type UserMapEntry = { uid: string; normalizedName: string; originalName: string; };
@@ -75,10 +77,8 @@ const findUser = (name: string, userMap: UserMapEntry[]): UserMapEntry | null =>
 
     for (const user of userMap) {
         const userNormalized = user.normalizedName;
-        // Exact match on full name
         if (userNormalized === normalizedName) return user;
         
-        // Exact match on first name
         const firstNameNormalized = userNormalized.split(' ')[0];
         if (firstNameNormalized === normalizedName) {
             return user;
@@ -86,14 +86,12 @@ const findUser = (name: string, userMap: UserMapEntry[]): UserMapEntry | null =>
 
         const distance = levenshtein(normalizedName, userNormalized);
 
-        // Prioritize very close matches
         if (distance <= 2 && distance < minDistance) {
             minDistance = distance;
             bestMatch = user;
         }
     }
     
-    // Return best match if it's reasonably close (e.g., distance <= 3)
     if (bestMatch && minDistance <= 3) {
         return bestMatch;
     }
@@ -103,11 +101,9 @@ const findUser = (name: string, userMap: UserMapEntry[]): UserMapEntry | null =>
 
 const parseDate = (dateValue: any): Date | null => {
     if (!dateValue) return null;
-    // Check if it's a JS Date object
     if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
         return new Date(Date.UTC(dateValue.getFullYear(), dateValue.getMonth(), dateValue.getDate()));
     }
-    // Check if it's an Excel serial number
     if (typeof dateValue === 'number' && dateValue > 1) { 
         const excelEpoch = new Date(1899, 11, 30);
         const d = new Date(excelEpoch.getTime() + dateValue * 86400000);
@@ -115,7 +111,6 @@ const parseDate = (dateValue: any): Date | null => {
              return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
         }
     }
-    // Check if it's a string that can be parsed
     if (typeof dateValue === 'string') {
         const d = new Date(dateValue);
         if (!isNaN(d.getTime())) {
@@ -125,7 +120,6 @@ const parseDate = (dateValue: any): Date | null => {
     return null;
 };
 
-// Generates a unique key for a shift to prevent duplicates
 const getShiftKey = (shift: { userId: string; date: Date | Timestamp; task: string; address: string }): string => {
     let datePart: string;
 
@@ -168,7 +162,7 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
             setSheetNames(workbook.SheetNames);
             const initialEnabled: { [key: string]: boolean } = {};
             workbook.SheetNames.forEach(name => {
-                initialEnabled[name] = true; // Enable all sheets by default
+                initialEnabled[name] = true;
             });
             setEnabledSheets(initialEnabled);
         };
@@ -286,7 +280,7 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
             
             const jobBlockStartRows: number[] = [];
             jsonData.forEach((row, i) => {
-                if (String(row[0]).trim().toUpperCase() === 'JOB MANAGER') {
+                if (String(row[0]).trim().toLowerCase() === 'job manager') {
                     jobBlockStartRows.push(i);
                 }
             });
@@ -294,17 +288,16 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
             if (jobBlockStartRows.length === 0) continue;
 
             for (let i = 0; i < jobBlockStartRows.length; i++) {
-                const blockStartRowIndex = jobBlockStartRows[i];
+                const headerRowIndex = jobBlockStartRows[i];
                 const nextBlockStartRowIndex = i + 1 < jobBlockStartRows.length ? jobBlockStartRows[i+1] : jsonData.length;
                 
-                // Manager is in the cell directly below JOB MANAGER
-                const manager = String(jsonData[blockStartRowIndex + 1]?.[0] || 'Unknown Manager').trim();
+                const manager = String(jsonData[headerRowIndex + 1]?.[0] || 'Unknown Manager').trim();
                 
                 let address = '';
                 let addressStartRowIndex = -1;
-                 for (let r = blockStartRowIndex; r < nextBlockStartRowIndex; r++) {
-                    if (String(jsonData[r]?.[0]).trim().toUpperCase() === 'ADDRESS') {
-                        addressStartRowIndex = r + 1; // Address starts in the row below "ADDRESS"
+                for (let r = headerRowIndex; r < nextBlockStartRowIndex; r++) {
+                    if (String(jsonData[r]?.[0]).trim().toLowerCase() === 'address') {
+                        addressStartRowIndex = r + 1;
                         break;
                     }
                 }
@@ -313,27 +306,30 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
                     let addressLines = [];
                     for (let r = addressStartRowIndex; r < nextBlockStartRowIndex; r++) {
                         const line = String(jsonData[r]?.[0] || '').trim();
-                        if (!line) break; // Stop at the first empty line
+                        // This check is key - the address block ends before the schedule grid begins.
+                        // The schedule grid rows have entries in columns past B (index 1).
+                        // Let's assume an address row ONLY has content in the first column.
+                        const rowHasOtherData = jsonData[r].slice(1).some((cell: any) => cell !== null && String(cell).trim() !== '');
+                        if (!line || rowHasOtherData) break;
                         addressLines.push(line);
                     }
                     address = addressLines.join(', ');
                 }
 
                 if (!address) {
-                     allFailedShifts.push({ date: null, projectAddress: `Block at row ${blockStartRowIndex + 1}`, cellContent: '', reason: 'Could not find Address.', sheetName });
+                     allFailedShifts.push({ date: null, projectAddress: `Block at row ${headerRowIndex + 1}`, cellContent: '', reason: 'Could not find Address.', sheetName });
                      continue;
                 }
 
-                // Date row is the SAME row as "JOB MANAGER"
-                const dateRow = jsonData[blockStartRowIndex];
+                const dateRow = jsonData[headerRowIndex];
                 const dates: (Date | null)[] = dateRow.map((cell: any, c: number) => c >= 5 ? parseDate(cell) : null);
                 
-                // Shift rows start from the row BELOW the date/manager row
-                for (let r = blockStartRowIndex + 1; r < nextBlockStartRowIndex; r++) {
+                // Shift rows start from BELOW the header row and go until the next block starts
+                for (let r = headerRowIndex + 1; r < nextBlockStartRowIndex; r++) {
                     const rowData = jsonData[r];
                     if (!rowData || rowData.every((cell: any) => cell === null)) continue;
                     
-                    for (let c = 5; c < Math.min(rowData.length, dates.length); c++) { 
+                    for (let c = 5; c < Math.min(rowData.length, dates.length + 5); c++) { 
                         const shiftDate = dates[c];
                         if (!shiftDate) continue;
 
@@ -354,7 +350,7 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
                                 task: taskPart, 
                                 userId: user.uid, 
                                 userName: user.originalName,
-                                type: 'all-day',
+                                type: 'all-day', // Assuming all-day, can be refined
                                 date: shiftDate, 
                                 address, 
                                 bNumber: '', // Can be extracted if available
@@ -516,3 +512,227 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
     </div>
   );
 }
+
+const userNameMap = useMemo(() => {
+    if (usersLoading || !allUsers) return new Map();
+    return new Map(allUsers.map(u => [u.uid, u.name]));
+  }, [allUsers, usersLoading]);
+
+  const handleImportComplete = (failedShifts: FailedShift[], dryRunData?: ReconciliationResult) => {
+    const sortedFailed = failedShifts.sort((a, b) => {
+        if (!a.date) return 1;
+        if (!b.date) return -1;
+        return a.date.getTime() - b.date.getTime();
+    });
+
+    if (dryRunData) {
+        setDryRunResult(dryRunData);
+        setImportReport(null);
+    } else {
+        setImportReport({ failed: sortedFailed });
+        setDryRunResult(null);
+    }
+    setImportAttempted(true);
+    setIsPublishing(false);
+  };
+  
+  const handleFileSelection = () => {
+    setImportAttempted(false);
+    setImportReport(null);
+    setDryRunResult(null);
+  };
+  
+  const handleDownloadPdf = async () => {
+    if (!importReport?.failed || importReport.failed.length === 0) return;
+    
+    const { default: jsPDF } = await import('jspdf');
+    const { default: autoTable } = await import('jspdf-autotable');
+
+    const doc = new jsPDF();
+    const generationDate = new Date();
+
+    doc.setFontSize(18);
+    doc.text(`Failed Shift Import Report`, 14, 22);
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+    doc.text(`Generated on: ${format(generationDate, 'PPP p')}`, 14, 28);
+    
+    const head = [['Sheet', 'Date', 'Project Address', 'Original Cell Content', 'Reason for Failure']];
+    const body = importReport.failed.map(shift => [
+        shift.sheetName,
+        shift.date ? format(shift.date, 'dd/MM/yyyy') : 'N/A',
+        shift.projectAddress,
+        shift.cellContent,
+        shift.reason
+    ]);
+
+    autoTable(doc, {
+        head,
+        body,
+        startY: 35,
+        headStyles: { fillColor: [220, 38, 38] }, // Red color for header
+    });
+    
+    doc.save(`failed_shifts_report_${format(generationDate, 'yyyy-MM-dd')}.pdf`);
+  };
+
+  const renderDryRunReport = () => {
+    if (!dryRunResult) return null;
+
+    const { toCreate = [], toUpdate = [], toDelete = [], failed = [] } = dryRunResult;
+
+    const sortShifts = (shifts: ParsedShift[]) => [...shifts].sort((a, b) => {
+      const nameA = userNameMap.get(a.userId) || '';
+      const nameB = userNameMap.get(b.userId) || '';
+      if (nameA.localeCompare(nameB) !== 0) return nameA.localeCompare(nameB);
+      if(!a.date || !b.date) return 0;
+      return a.date.getTime() - b.date.getTime();
+    });
+
+    return (
+        <Card className="mt-6 border-blue-500">
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-blue-600">
+                    <TestTube2 />
+                    Dry Run Results
+                </CardTitle>
+                <CardDescription>
+                    This is a preview of the import. No changes have been saved yet. Review the summary below and click "Confirm and Publish" to apply them.
+                </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+                <div>
+                    <h3 className="font-semibold flex items-center gap-2 mb-2">
+                        <CheckCircle className="text-green-600" /> 
+                        {toCreate.length} New Shifts to be Created
+                    </h3>
+                    {toCreate.length > 0 && (
+                        <div className="max-h-60 overflow-y-auto border rounded-lg">
+                        <Table>
+                            <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Operative</TableHead><TableHead>Task</TableHead><TableHead>Address</TableHead></TableRow></TableHeader>
+                            <TableBody>
+                                {sortShifts(toCreate).map((shift, index) => (
+                                    <TableRow key={index}><TableCell>{shift.date ? format(shift.date, 'dd/MM/yy') : 'N/A'}</TableCell><TableCell>{userNameMap.get(shift.userId) || shift.userId}</TableCell><TableCell>{shift.task}</TableCell><TableCell>{shift.address}</TableCell></TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                        </div>
+                    )}
+                </div>
+                 <div>
+                    <h3 className="font-semibold flex items-center gap-2 mb-2">
+                        <Trash2 className="text-destructive" /> 
+                        {toDelete.length} Shifts to be Deleted
+                    </h3>
+                    {toDelete.length > 0 && <p className="text-sm text-muted-foreground">Shifts no longer in the schedule will be removed.</p>}
+                </div>
+                <div>
+                    <h3 className="font-semibold flex items-center gap-2 mb-2">
+                        <AlertCircle className="text-amber-500" /> 
+                        {failed.length} Rows Failed to Parse
+                    </h3>
+                     {failed.length > 0 && (
+                        <div className="max-h-60 overflow-y-auto border rounded-lg">
+                        <Table>
+                           <TableHeader><TableRow><TableHead>Sheet</TableHead><TableHead>Date</TableHead><TableHead>Cell Content</TableHead><TableHead>Reason</TableHead></TableRow></TableHeader>
+                            <TableBody>
+                                {failed.map((shift, index) => (
+                                    <TableRow key={index}><TableCell>{shift.sheetName}</TableCell><TableCell>{shift.date ? format(shift.date, 'dd/MM/yy') : 'N/A'}</TableCell><TableCell className="font-mono text-xs">{shift.cellContent}</TableCell><TableCell>{shift.reason}</TableCell></TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                        </div>
+                    )}
+                </div>
+            </CardContent>
+             <CardFooter className="flex justify-end gap-2">
+                <Button variant="outline" onClick={handleFileSelection} disabled={isPublishing}>
+                    <XCircle className="mr-2 h-4 w-4" />
+                    Cancel
+                </Button>
+                <FileUploader 
+                    onImportComplete={handleImportComplete}
+                    onFileSelect={() => {}}
+                    shiftsToPublish={dryRunResult}
+                >
+                    <Button disabled={isPublishing || (toCreate.length === 0 && toUpdate.length === 0 && toDelete.length === 0)}>
+                        {isPublishing ? <Spinner /> : <><Upload className="mr-2 h-4 w-4" />Confirm and Publish</>}
+                    </Button>
+                </FileUploader>
+            </CardFooter>
+        </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      
+      {isPrivilegedUser && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Import Weekly Shifts from Excel</CardTitle>
+            <CardDescription>
+                Upload an Excel workbook. The tool will read shifts from all selected sheets, reconcile them against existing data, and show you a preview of what will be created, updated, or deleted.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <FileUploader onImportComplete={handleImportComplete} onFileSelect={handleFileSelection} />
+          </CardContent>
+        </Card>
+      )}
+
+      {importAttempted && dryRunResult && renderDryRunReport()}
+
+      {importAttempted && !dryRunResult && (
+          <>
+            {(importReport?.failed.length ?? 0) > 0 && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <FileWarning className="text-destructive" />
+                            Failed Import Report
+                        </CardTitle>
+                        <CardDescription>
+                            The following {importReport!.failed.length} shift(s) could not be imported. Please correct them in the source file and re-upload. All other shifts were processed successfully.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <Table>
+                            <TableHeader><TableRow><TableHead>Sheet</TableHead><TableHead>Date</TableHead><TableHead>Project Address</TableHead><TableHead>Original Cell Content</TableHead><TableHead>Reason for Failure</TableHead></TableRow></TableHeader>
+                            <TableBody>
+                                {importReport!.failed.map((shift, index) => (
+                                    <TableRow key={index}><TableCell>{shift.sheetName}</TableCell><TableCell>{shift.date ? format(shift.date, 'dd/MM/yyyy') : 'N/A'}</TableCell><TableCell>{shift.projectAddress}</TableCell><TableCell className="font-mono text-xs">{shift.cellContent}</TableCell><TableCell>{shift.reason}</TableCell></TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </CardContent>
+                    <CardFooter className="flex justify-end">
+                      <Button onClick={handleDownloadPdf}>
+                          <Download className="mr-2 h-4 w-4" />
+                          Download PDF Report
+                      </Button>
+                    </CardFooter>
+                </Card>
+            )}
+
+            {importReport && importReport.failed.length === 0 && (
+                <Alert className="border-green-500 text-green-700">
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                    <AlertTitle>Import Successful</AlertTitle>
+                    <AlertDescription>
+                        The file was processed successfully, and all shifts were reconciled.
+                    </AlertDescription>
+                </Alert>
+            )}
+        </>
+      )}
+      
+      {isPrivilegedUser && userProfile && (
+         <ShiftScheduleOverview userProfile={userProfile} />
+      )}
+
+    </div>
+  );
+}
+
+    
