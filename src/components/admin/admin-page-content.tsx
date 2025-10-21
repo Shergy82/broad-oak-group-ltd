@@ -84,6 +84,15 @@ export default function AdminPageContent() {
 
     const { found, failed } = importReport.dryRun;
 
+    const sortedFound = [...found].sort((a, b) => {
+      const nameA = userNameMap.get(a.userId) || '';
+      const nameB = userNameMap.get(b.userId) || '';
+      if (nameA.localeCompare(nameB) !== 0) {
+        return nameA.localeCompare(nameB);
+      }
+      return a.date.getTime() - b.date.getTime();
+    });
+
     return (
         <Card className="mt-6 border-blue-500">
             <CardHeader>
@@ -113,7 +122,7 @@ export default function AdminPageContent() {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {found.map((shift, index) => (
+                                {sortedFound.map((shift, index) => (
                                     <TableRow key={index}>
                                         <TableCell>{format(shift.date, 'dd/MM/yy')}</TableCell>
                                         <TableCell>{userNameMap.get(shift.userId) || shift.userId}</TableCell>
