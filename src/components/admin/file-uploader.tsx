@@ -1,7 +1,6 @@
-
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
 import { collection, writeBatch, doc, getDocs, query, where, Timestamp, serverTimestamp } from 'firebase/firestore';
@@ -10,14 +9,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/shared/spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Upload, FileWarning, TestTube2, Sheet } from 'lucide-react';
+import { Upload, FileWarning, TestTube2, Sheet, ChevronDown } from 'lucide-react';
 import type { Shift, UserProfile, ShiftStatus } from '@/types';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
-import { Switch } from '@/components/ui/switch';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 
-type ParsedShift = Omit<Shift, 'id' | 'status' | 'date' | 'createdAt' | 'userName'> & { date: Date, userName?: string };
 
+type ParsedShift = Omit<Shift, 'id' | 'status' | 'date' | 'createdAt'> & { date: Date };
 type UserMapEntry = { uid: string; normalizedName: string; originalName: string; };
 
 export interface FailedShift {
@@ -157,6 +156,8 @@ const parseDate = (dateValue: any): Date | null => {
     return null;
 };
 
+const LOCAL_STORAGE_KEY = 'shiftImport_selectedSheets';
+
 
 export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderProps) {
   const [file, setFile] = useState<File | null>(null);
@@ -164,7 +165,7 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
   const [error, setError] = useState<string | null>(null);
   const [isDryRun, setIsDryRun] = useState(true);
   const [sheetNames, setSheetNames] = useState<string[]>([]);
-  const [enabledSheets, setEnabledSheets] = useState<{ [key: string]: boolean }>({});
+  const [selectedSheets, setSelectedSheets] = useState<string[]>([]);
   const { toast } = useToast();
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -175,26 +176,46 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
         setError(null);
         onFileSelect();
         
-        // Read sheet names
         const reader = new FileReader();
         reader.onload = (e) => {
             const data = e.target?.result;
             if (!data) return;
             const workbook = XLSX.read(data, { type: 'array', bookSheets: true });
-            setSheetNames(workbook.SheetNames);
-            const initialEnabled: { [key: string]: boolean } = {};
-            workbook.SheetNames.forEach(name => {
-                initialEnabled[name] = true;
-            });
-            setEnabledSheets(initialEnabled);
+            const allSheets = workbook.SheetNames;
+            setSheetNames(allSheets);
+            
+            // Restore previous selection from localStorage
+            try {
+                const storedSelection = localStorage.getItem(LOCAL_STORAGE_KEY);
+                if (storedSelection) {
+                    const parsed = JSON.parse(storedSelection);
+                    // Filter to ensure only sheets present in the new file are selected
+                    const validStored = parsed.filter((s: string) => allSheets.includes(s));
+                    setSelectedSheets(validStored.length > 0 ? validStored : [allSheets[0]]);
+                } else {
+                    // Default to selecting the first sheet if no preference is stored
+                    setSelectedSheets(allSheets.length > 0 ? [allSheets[0]] : []);
+                }
+            } catch {
+                setSelectedSheets(allSheets.length > 0 ? [allSheets[0]] : []);
+            }
         };
         reader.readAsArrayBuffer(selectedFile);
        }
     }
   };
 
-  const toggleSheet = (sheetName: string, isEnabled: boolean) => {
-      setEnabledSheets(prev => ({ ...prev, [sheetName]: isEnabled }));
+  const toggleSheet = (sheetName: string) => {
+      const newSelection = selectedSheets.includes(sheetName)
+        ? selectedSheets.filter(s => s !== sheetName)
+        : [...selectedSheets, sheetName];
+      setSelectedSheets(newSelection);
+      // Save preference to localStorage
+      try {
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(newSelection));
+      } catch (e) {
+          console.warn("Could not save sheet selection to localStorage", e);
+      }
   }
 
   const getShiftKey = (shift: { userId: string; date: Date | Timestamp; task: string; address: string }): string => {
@@ -209,8 +230,8 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
       setError('Please select a file first.');
       return;
     }
-    const sheetsToProcess = sheetNames.filter(name => enabledSheets[name]);
-    if (sheetsToProcess.length === 0) {
+    
+    if (selectedSheets.length === 0) {
         setError('No sheets selected. Please enable at least one sheet to import.');
         return;
     }
@@ -240,7 +261,7 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
         let allShiftsFromExcel: ParsedShift[] = [];
         let allFailedShifts: FailedShift[] = [];
         
-        for (const sheetName of sheetsToProcess) {
+        for (const sheetName of selectedSheets) {
             const worksheet = workbook.Sheets[sheetName];
             if (!worksheet) continue;
 
@@ -493,7 +514,7 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
         const fileInput = document.getElementById('shift-file-input') as HTMLInputElement;
         if (fileInput) fileInput.value = "";
         setSheetNames([]);
-        setEnabledSheets({});
+        setSelectedSheets([]);
 
 
       } catch (err: any) {
@@ -532,23 +553,35 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
         />
 
         {sheetNames.length > 0 && (
-            <div className="space-y-3 rounded-lg border p-4">
-                <h3 className="text-sm font-medium">Select Sheets to Import</h3>
-                <div className="space-y-2">
-                    {sheetNames.map(name => (
-                        <div key={name} className="flex items-center justify-between rounded-md border p-3">
-                            <Label htmlFor={`sheet-${name}`} className="flex items-center gap-2 text-sm font-normal">
-                                <Sheet className="h-4 w-4 text-muted-foreground" />
+            <div className="space-y-2">
+                 <Label htmlFor="sheet-select">Select Sheets to Import</Label>
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button id="sheet-select" variant="outline" className="w-full justify-between">
+                            <span>
+                                {selectedSheets.length === 0 
+                                    ? 'Select sheets...' 
+                                    : `${selectedSheets.length} sheet(s) selected`}
+                            </span>
+                            <ChevronDown className="h-4 w-4 opacity-50" />
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent className="w-full">
+                        <DropdownMenuLabel>Available Sheets</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        {sheetNames.map(name => (
+                             <DropdownMenuCheckboxItem
+                                key={name}
+                                checked={selectedSheets.includes(name)}
+                                onCheckedChange={() => toggleSheet(name)}
+                                onSelect={(e) => e.preventDefault()} // prevent menu from closing on item click
+                             >
+                                <Sheet className="mr-2 h-4 w-4 text-muted-foreground" />
                                 {name}
-                            </Label>
-                            <Switch
-                                id={`sheet-${name}`}
-                                checked={!!enabledSheets[name]}
-                                onCheckedChange={(checked) => toggleSheet(name, checked)}
-                            />
-                        </div>
-                    ))}
-                </div>
+                            </DropdownMenuCheckboxItem>
+                        ))}
+                    </DropdownMenuContent>
+                </DropdownMenu>
             </div>
         )}
 
@@ -559,7 +592,7 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
                     Dry Run
                 </Label>
             </div>
-            <Button onClick={handleImport} disabled={!file || isUploading} className="w-full sm:w-auto">
+            <Button onClick={handleImport} disabled={!file || isUploading || selectedSheets.length === 0} className="w-full sm:w-auto">
               {isUploading ? <Spinner /> : isDryRun ? <><TestTube2 className="mr-2 h-4 w-4" /> Run Test</> : <><Upload className="mr-2 h-4 w-4" /> Import Shifts</>}
             </Button>
         </div>
