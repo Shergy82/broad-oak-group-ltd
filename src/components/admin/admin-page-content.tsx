@@ -105,6 +105,7 @@ export default function AdminPageContent() {
       const nameA = userNameMap.get(a.userId) || '';
       const nameB = userNameMap.get(b.userId) || '';
       if (nameA.localeCompare(nameB) !== 0) return nameA.localeCompare(nameB);
+      if(!a.date || !b.date) return 0;
       return a.date.getTime() - b.date.getTime();
     });
 
@@ -131,7 +132,7 @@ export default function AdminPageContent() {
                             <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Operative</TableHead><TableHead>Task</TableHead><TableHead>Address</TableHead></TableRow></TableHeader>
                             <TableBody>
                                 {sortShifts(toCreate).map((shift, index) => (
-                                    <TableRow key={index}><TableCell>{format(shift.date, 'dd/MM/yy')}</TableCell><TableCell>{userNameMap.get(shift.userId) || shift.userId}</TableCell><TableCell>{shift.task}</TableCell><TableCell>{shift.address}</TableCell></TableRow>
+                                    <TableRow key={index}><TableCell>{shift.date ? format(shift.date, 'dd/MM/yy') : 'N/A'}</TableCell><TableCell>{userNameMap.get(shift.userId) || shift.userId}</TableCell><TableCell>{shift.task}</TableCell><TableCell>{shift.address}</TableCell></TableRow>
                                 ))}
                             </TableBody>
                         </Table>

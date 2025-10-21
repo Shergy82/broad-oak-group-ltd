@@ -12,9 +12,8 @@ import { Spinner } from '@/components/shared/spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Upload, FileWarning, TestTube2, Sheet } from 'lucide-react';
 import type { Shift, UserProfile, ShiftStatus } from '@/types';
-import { Checkbox } from '../ui/checkbox';
-import { Label } from '../ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Label } from '../ui/label';
 import { useAllUsers } from '@/hooks/use-all-users';
 
 export type ParsedShift = Omit<Shift, 'id' | 'status' | 'date' | 'createdAt'> & { date: Date };
@@ -41,7 +40,6 @@ interface FileUploaderProps {
     shiftsToPublish?: ReconciliationResult | null;
     children?: React.ReactNode;
 }
-
 
 // --- Helper Functions ---
 const levenshtein = (a: string, b: string): number => {
@@ -123,7 +121,6 @@ const parseDate = (dateValue: any): Date | null => {
     }
     return null;
 };
-
 
 const getShiftKey = (shift: { userId: string; date: Date | Timestamp; task: string; address: string }): string => {
     let datePart: string;
@@ -363,31 +360,33 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
                         if (!cellContentRaw) continue;
                         
                         const cellContentCleaned = cellContentRaw.replace(/ *\([^)]*\) */g, "").trim();
-                        
-                        const userName = cellContentCleaned; // The whole cell is the user name in this format
 
-                        if (userName) {
-                            const user = findUser(userName, userMap);
-                            if (user) {
-                                allParsedShifts.push({ 
-                                    task: taskDescription, 
-                                    userId: user.uid, 
-                                    userName: user.originalName,
-                                    type: 'all-day',
-                                    date: shiftDate, 
-                                    address, 
-                                    bNumber: '',
-                                    manager,
-                                });
-                            } else {
-                                allFailedShifts.push({
-                                    date: shiftDate,
-                                    projectAddress: address,
-                                    cellContent: cellContentRaw,
-                                    reason: `Could not find user matching "${userName}".`,
-                                    sheetName
-                                });
-                            }
+                        const parts = cellContentCleaned.split('-').map(p => p.trim());
+                        if (parts.length < 2) continue;
+
+                        const taskPart = parts[0];
+                        const userPart = parts.slice(1).join('-').trim();
+
+                        const user = findUser(userPart, userMap);
+                        if (user) {
+                            allParsedShifts.push({ 
+                                task: taskPart, 
+                                userId: user.uid, 
+                                userName: user.originalName,
+                                type: 'all-day',
+                                date: shiftDate, 
+                                address, 
+                                bNumber: '',
+                                manager,
+                            });
+                        } else {
+                            allFailedShifts.push({
+                                date: shiftDate,
+                                projectAddress: address,
+                                cellContent: cellContentRaw,
+                                reason: `Could not find user matching "${userPart}".`,
+                                sheetName
+                            });
                         }
                     }
                 }
@@ -512,7 +511,7 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
                             </Label>
                             <Switch
                                 id={`sheet-${name}`}
-                                checked={enabledSheets[name]}
+                                checked={!!enabledSheets[name]}
                                 onCheckedChange={(checked) => toggleSheet(name, checked)}
                             />
                         </div>
@@ -522,8 +521,8 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
         )}
 
         <div className="flex flex-col sm:flex-row gap-4 items-center">
-            <div className="flex items-center space-x-2">
-                <Checkbox id="dry-run" checked={isDryRun} onCheckedChange={(checked) => setIsDryRun(!!checked)} />
+             <div className="flex items-center space-x-2">
+                <Switch id="dry-run" checked={isDryRun} onCheckedChange={setIsDryRun} />
                 <Label htmlFor="dry-run" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
                     Dry Run (Preview changes before publishing)
                 </Label>
@@ -536,4 +535,3 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
     </div>
   );
 }
-    
