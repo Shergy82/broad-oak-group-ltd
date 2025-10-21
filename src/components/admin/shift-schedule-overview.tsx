@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot, query, doc, deleteDoc, writeBatch, where, getDocs } from 'firebase/firestore';
 import { db, functions, httpsCallable } from '@/lib/firebase';
 import type { Shift, UserProfile, Project } from '@/types';
-import { addDays, format, isSameWeek, isToday, startOfWeek, endOfWeek } from 'date-fns';
+import { addDays, format, isSameWeek, isToday, startOfWeek, endOfWeek, subWeeks } from 'date-fns';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -107,6 +107,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
   const [selectedShift, setSelectedShift] = useState<Shift | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string>('all');
+  const [selectedArchiveWeek, setSelectedArchiveWeek] = useState<string>('0');
   const [activeTab, setActiveTab] = useState('today');
   const { toast } = useToast();
   const router = useRouter();
@@ -170,36 +171,65 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
   };
   
   const filteredShifts = useMemo(() => {
-    if (selectedUserId === 'all') {
+    if (selectedUserId === 'all' || activeTab !== 'archive') {
       return shifts;
     }
     return shifts.filter(shift => shift.userId === selectedUserId);
-  }, [shifts, selectedUserId]);
+  }, [shifts, selectedUserId, activeTab]);
 
-  const { todayShifts, thisWeekShifts, nextWeekShifts } = useMemo(() => {
+  const { todayShifts, thisWeekShifts, nextWeekShifts, archiveShifts } = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const todayShifts = filteredShifts.filter(s => isToday(getCorrectedLocalDate(s.date)));
+    const baseShifts = activeTab === 'archive' ? shifts : filteredShifts;
+
+    const todayShifts = baseShifts.filter(s => isToday(getCorrectedLocalDate(s.date)));
     
-    const thisWeekShifts = filteredShifts.filter(s => 
+    const thisWeekShifts = baseShifts.filter(s => 
         isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 })
     );
 
-    const nextWeekShifts = filteredShifts.filter(s => {
+    const nextWeekShifts = baseShifts.filter(s => {
         const shiftDate = getCorrectedLocalDate(s.date);
         const startOfNextWeek = addDays(startOfWeek(today, { weekStartsOn: 1 }), 7);
         return isSameWeek(shiftDate, startOfNextWeek, { weekStartsOn: 1 });
     });
+    
+    // Archive logic
+    const sixWeeksAgo = startOfWeek(subWeeks(today, 5), { weekStartsOn: 1 });
+    const historicalShifts = shifts.filter(s => {
+        const shiftDate = getCorrectedLocalDate(s.date);
+        return shiftDate >= sixWeeksAgo && shiftDate < startOfWeek(today, {weekStartsOn: 1}) && ['completed', 'incomplete'].includes(s.status);
+    });
+    
+    const selectedArchiveDate = startOfWeek(subWeeks(today, parseInt(selectedArchiveWeek)), {weekStartsOn: 1});
 
-    return { todayShifts, thisWeekShifts, nextWeekShifts };
-  }, [filteredShifts]);
+    const archiveShifts = historicalShifts.filter(s => 
+        isSameWeek(getCorrectedLocalDate(s.date), selectedArchiveDate, { weekStartsOn: 1 }) &&
+        (selectedUserId === 'all' || s.userId === selectedUserId)
+    );
+
+    return { todayShifts, thisWeekShifts, nextWeekShifts, archiveShifts };
+  }, [filteredShifts, shifts, selectedUserId, selectedArchiveWeek, activeTab]);
 
   const userNameMap = useMemo(() => {
     const map = new Map<string, string>();
     users.forEach(user => map.set(user.uid, user.name));
     return map;
   }, [users]);
+
+  const archiveWeekOptions = useMemo(() => {
+    const options = [];
+    const today = new Date();
+    for (let i = 0; i < 6; i++) {
+      const weekStart = startOfWeek(subWeeks(today, i), { weekStartsOn: 1 });
+      options.push({
+        value: i.toString(),
+        label: `w/c ${format(weekStart, 'dd/MM/yy')}`
+      });
+    }
+    return options;
+  }, []);
 
   const handleAddShift = () => {
     setSelectedShift(null);
@@ -682,7 +712,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                             <TableHeader>
                                 <TableRow>
                                     <TableHead className="w-[180px]">Date</TableHead>
-                                    { selectedUserId === 'all' && <TableHead className="w-[180px]">Operative</TableHead> }
+                                    { (selectedUserId === 'all' || activeTab === 'archive') && <TableHead className="w-[180px]">Operative</TableHead> }
                                     <TableHead>Task &amp; Address</TableHead>
                                     <TableHead>Manager</TableHead>
                                     <TableHead className="text-right w-[110px]">Type</TableHead>
@@ -694,7 +724,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                                 {shiftsToRender.map(shift => (
                                     <TableRow key={shift.id}>
                                         <TableCell className="font-medium">{format(getCorrectedLocalDate(shift.date), 'eeee, MMM d')}</TableCell>
-                                        { selectedUserId === 'all' && <TableCell>{userNameMap.get(shift.userId) || 'Unknown'}</TableCell> }
+                                        { (selectedUserId === 'all' || activeTab === 'archive') && <TableCell>{userNameMap.get(shift.userId) || 'Unknown'}</TableCell> }
                                         <TableCell>
                                             <Tooltip>
                                                 <TooltipTrigger asChild>
@@ -772,7 +802,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                             </div>
                         </CardHeader>
                         <CardContent className="text-sm text-muted-foreground space-y-1">
-                            { selectedUserId === 'all' && <div><strong>Operative:</strong> {userNameMap.get(shift.userId) || 'Unknown'}</div> }
+                            { (selectedUserId === 'all' || activeTab === 'archive') && <div><strong>Operative:</strong> {userNameMap.get(shift.userId) || 'Unknown'}</div> }
                             <div><strong>Date:</strong> {format(getCorrectedLocalDate(shift.date), 'eeee, MMM d')}</div>
                              {shift.manager && <div><strong>Manager:</strong> {shift.manager}</div>}
                         </CardContent>
@@ -872,6 +902,39 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
         </>
     );
   };
+
+  const renderArchiveView = () => {
+    if (loading) {
+      return (
+        <div className="border rounded-lg overflow-hidden mt-4">
+            <Skeleton className="h-48 w-full" />
+        </div>
+      );
+    }
+
+    const sortedShifts = [...archiveShifts].sort((a, b) => {
+        const dateA = getCorrectedLocalDate(a.date).getTime();
+        const dateB = getCorrectedLocalDate(b.date).getTime();
+        if (dateA !== dateB) return dateB - dateA; // Most recent first in archive
+        
+        const nameA = userNameMap.get(a.userId) || '';
+        const nameB = userNameMap.get(b.userId) || '';
+        if (nameA !== nameB) return nameA.localeCompare(nameB);
+
+        const typeOrder = { 'am': 1, 'pm': 2, 'all-day': 3 };
+        return typeOrder[a.type] - typeOrder[b.type];
+    });
+
+    if (sortedShifts.length === 0) {
+      return (
+        <div className="h-24 text-center flex items-center justify-center text-muted-foreground mt-4 border border-dashed rounded-lg">
+          No archived shifts found for this user and week.
+        </div>
+      );
+    }
+
+    return renderShiftList(sortedShifts);
+  }
   
   if (error) {
       return (
@@ -959,19 +1022,21 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                         </SelectContent>
                     </Select>
                 </div>
-                 <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm" disabled={loading} className="w-full sm:w-auto">
-                            <Download className="mr-2 h-4 w-4" />
-                            Download PDF
-                        </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent>
-                        <DropdownMenuItem onClick={() => handleDownloadPdf('this')}>This Week</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleDownloadPdf('next')}>Next Week</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleDownloadPdf('both')}>Both Weeks</DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                 {activeTab !== 'archive' && (
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm" disabled={loading} className="w-full sm:w-auto">
+                                <Download className="mr-2 h-4 w-4" />
+                                Download PDF
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent>
+                            <DropdownMenuItem onClick={() => handleDownloadPdf('this')}>This Week</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleDownloadPdf('next')}>Next Week</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleDownloadPdf('both')}>Both Weeks</DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                 )}
             </div>
         </CardHeader>
         <CardContent>
@@ -980,6 +1045,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                 <TabsTrigger value="today">Today</TabsTrigger>
                 <TabsTrigger value="this-week">This Week</TabsTrigger>
                 <TabsTrigger value="next-week">Next Week</TabsTrigger>
+                <TabsTrigger value="archive">Archive</TabsTrigger>
             </TabsList>
             <TabsContent value="today" className="mt-0">
                 {renderWeekSchedule(todayShifts)}
@@ -989,6 +1055,22 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
             </TabsContent>
             <TabsContent value="next-week" className="mt-0">
                 {renderWeekSchedule(nextWeekShifts)}
+            </TabsContent>
+            <TabsContent value="archive" className="mt-4">
+                <div className="flex flex-col sm:flex-row gap-4 items-center bg-muted/50 p-4 rounded-lg">
+                    <p className="text-sm font-medium text-muted-foreground">View completed and incomplete shifts from the last 6 weeks.</p>
+                     <Select value={selectedArchiveWeek} onValueChange={setSelectedArchiveWeek}>
+                        <SelectTrigger className="w-full sm:w-[250px]">
+                            <SelectValue placeholder="Select a week" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {archiveWeekOptions.map(option => (
+                                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+                {renderArchiveView()}
             </TabsContent>
             </Tabs>
         </CardContent>
