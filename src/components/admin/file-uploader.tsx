@@ -7,12 +7,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/shared/spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Upload, FileWarning, Sheet, Check, CircleX } from 'lucide-react';
+import { Upload, FileWarning, Sheet } from 'lucide-react';
 import { Label } from '../ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useAllUsers } from '@/hooks/use-all-users';
 import { db } from '@/lib/firebase';
-import { writeBatch, collection, Timestamp, serverTimestamp } from 'firebase/firestore';
+import { writeBatch, collection, doc, Timestamp, serverTimestamp }from 'firebase/firestore';
 import type { UserProfile } from '@/types';
 
 
@@ -121,123 +121,106 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
                 const sheet = workbook.Sheets[sheetName];
                 const json: (string | number)[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
                 
-                let currentManager = '';
-                let currentAddress = '';
-                let dateRow: (string | number)[] = [];
-                let dateRowIndex = -1;
-
-                let inJobBlock = false;
-                let addressLines: string[] = [];
-
-                for (let i = 0; i < json.length; i++) {
-                    const row = json[i];
-                    const firstCell = row[0] ? String(row[0]).trim() : '';
-
-                    // Step 1: Find Job Start
-                    if (firstCell === 'START OF NEW JOB') {
-                        inJobBlock = true;
-                        currentManager = '';
-                        currentAddress = '';
-                        dateRow = [];
-                        dateRowIndex = -1;
-                        addressLines = [];
-                        
-                        // Step 2 & 3: Get Manager Name
-                        // Header is at i+1, Name is at i+2, in cell B (index 1)
-                        if (json[i + 2] && json[i + 2][1]) {
-                           currentManager = String(json[i + 2][1]).trim();
-                        }
-                        continue;
+                // Find date rows first
+                const dateRows = new Map<number, (string|number)[]>();
+                json.forEach((row, rowIndex) => {
+                    // A date row has dates starting from column F (index 5)
+                    if (row[5] && /^\d{1,2}-[A-Za-z]{3}$/.test(String(row[5]))) {
+                        dateRows.set(rowIndex, row);
                     }
+                });
 
-                    if (!inJobBlock) continue;
-                    
-                    // Step 4: Get Site Address
-                    if (firstCell === 'ADDRESS') {
-                       // Address starts in the row below this header
-                       let j = i + 1;
-                       while(j < json.length && json[j] && (json[j][5] === null || json[j][5] === undefined) ) {
-                           const addressCell = json[j][0] ? String(json[j][0]).trim() : '';
-                           if(addressCell) {
-                               addressLines.push(addressCell);
-                           }
-                           j++;
-                       }
-                       currentAddress = addressLines.join(', ');
-                    }
+                if (dateRows.size === 0) {
+                    continue; // No dates found in this sheet
+                }
 
-                    // Step 5: Find Date Row
-                    if (row.some(cell => cell && /^\d{1,2}-[A-Za-z]{3}$/.test(String(cell)))) {
-                        dateRow = row;
-                        dateRowIndex = i;
-                    }
+                // Simplified parsing logic
+                json.forEach((row, rowIndex) => {
+                    row.forEach((cell, colIndex) => {
+                        if (colIndex < 5 || !cell) return; // Only look in shift grid area
 
-                    // Step 6 & 7: Parse Shift Grid
-                    if (dateRow.length > 0 && i > dateRowIndex) {
-                        if (firstCell === 'END OF THIS JOB') {
-                            inJobBlock = false; // End of current job
-                            continue;
-                        }
-
-                        // This is a shift row
-                        for (let j = 5; j < row.length; j++) { // Dates start at column F (index 5)
-                            const shiftCell = row[j] ? String(row[j]).trim() : null;
-                            const dateValue = dateRow[j];
-                            
-                            if (!shiftCell || !dateValue) continue;
-
-                            const [taskText, userText] = shiftCell.split('-').map(s => s.trim());
-
+                        const cellText = String(cell);
+                        if (cellText.includes(' - ')) { // Potential shift
+                            const [taskText, userText] = cellText.split(' - ').map(s => s.trim());
                             if (!taskText || !userText) {
-                                failedShifts.push({ userText: userText || 'N/A', taskText: taskText || 'N/A', date: String(dateValue), row: i + 1, reason: 'Invalid format. Expected "Task - User".' });
-                                continue;
+                                return; // Not a valid shift format
+                            }
+                            
+                            // Find the date for this column by looking up
+                            let dateValue: string | number | null = null;
+                            let dateRowIndex = -1;
+
+                            // Find the closest date row *above* the current row
+                            let closestRowAbove = -1;
+                            for (const d_rowIndex of dateRows.keys()) {
+                                if (d_rowIndex < rowIndex && d_rowIndex > closestRowAbove) {
+                                    closestRowAbove = d_rowIndex;
+                                }
+                            }
+
+                            if (closestRowAbove !== -1) {
+                                const dateRow = dateRows.get(closestRowAbove);
+                                if (dateRow && dateRow[colIndex]) {
+                                    dateValue = dateRow[colIndex];
+                                    dateRowIndex = closestRowAbove;
+                                }
+                            }
+
+                            if (!dateValue) {
+                                failedShifts.push({ userText, taskText, date: 'Unknown', row: rowIndex + 1, reason: `Could not find a date for this shift.` });
+                                return;
                             }
 
                             const user = findUserByName(userText, allUsers);
                             if (!user) {
-                                failedShifts.push({ userText, taskText, date: String(dateValue), row: i + 1, reason: `User '${userText}' not found in the database.` });
-                                continue;
+                                failedShifts.push({ userText, taskText, date: String(dateValue), row: rowIndex + 1, reason: `User '${userText}' not found.` });
+                                return;
                             }
+                            
+                            try {
+                                const jsDate = XLSX.SSF.parse_date_code(Number(dateValue));
+                                const correctedDate = new Date(Date.UTC(jsDate.y, jsDate.m - 1, jsDate.d));
 
-                            // Convert Excel date serial number to JS Date
-                            const jsDate = XLSX.SSF.parse_date_code(Number(dateValue));
-                            const shiftDate = new Date(jsDate.y, jsDate.m - 1, jsDate.d);
-                             // Correct for timezone offset by creating a UTC date from the local date parts
-                            const correctedDate = new Date(Date.UTC(shiftDate.getFullYear(), shiftDate.getMonth(), shiftDate.getDate()));
-
-
-                            parsedShifts.push({
-                                userId: user.uid,
-                                userName: user.name,
-                                date: Timestamp.fromDate(correctedDate),
-                                type: 'all-day',
-                                status: 'pending-confirmation',
-                                address: currentAddress,
-                                task: taskText,
-                                manager: currentManager,
-                                createdAt: serverTimestamp(),
-                            });
+                                parsedShifts.push({
+                                    userId: user.uid,
+                                    userName: user.name,
+                                    date: Timestamp.fromDate(correctedDate),
+                                    type: 'all-day', // Simplified for now
+                                    status: 'pending-confirmation',
+                                    address: 'Address Not Parsed', // Simplified
+                                    task: taskText,
+                                    manager: 'Manager Not Parsed', // Simplified
+                                    createdAt: serverTimestamp(),
+                                });
+                            } catch (dateError) {
+                                failedShifts.push({ userText, taskText, date: String(dateValue), row: rowIndex + 1, reason: `Invalid date format.` });
+                            }
                         }
-                    }
-                }
+                    });
+                });
             }
 
             if (!isDryRun) {
                 if(parsedShifts.length > 0) {
                     const batch = writeBatch(db);
                     parsedShifts.forEach(shift => {
-                        const newShiftRef = collection(db, 'shifts');
-                        batch.set(doc(newShiftRef), shift);
+                        const newShiftRef = doc(collection(db, 'shifts'));
+                        batch.set(newShiftRef, shift);
                     });
                     await batch.commit();
                     toast({ title: "Import Successful", description: `${parsedShifts.length} shifts have been added.` });
-                } else {
+                } else if (failedShifts.length === 0) {
                     toast({ title: "No new shifts to import", variant: "default" });
                 }
             }
             
             onImportComplete(failedShifts, isDryRun ? { add: parsedShifts, update: [], delete: [] } : undefined);
             
+            // For now, let's just show a success toast if we got here without crashing
+             if(isDryRun){
+                toast({ title: `Dry Run Complete`, description: `Found ${parsedShifts.length} valid shifts and ${failedShifts.length} errors.` });
+            }
+
         } catch (err: any) {
             setError(`Failed to process file. Error: ${err.message}`);
             toast({ variant: "destructive", title: "Processing Error", description: err.message });
@@ -300,19 +283,7 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
             {isProcessing || usersLoading ? <Spinner /> : <><Upload className="mr-2 h-4 w-4" /> {isDryRun ? "Run Reconciliation" : "Import Shifts"} </>}
           </Button>
         </div>
-        <Alert>
-            <Check className="h-4 w-4" />
-            <AlertTitle>{isDryRun ? "Dry Run Mode" : "Live Import Mode"}</AlertTitle>
-            <AlertDescription>
-                {isDryRun 
-                    ? "Dry Run is active. No changes will be saved to the database. The system will only show what would be added."
-                    : "Live Import is active. Changes will be saved to the database immediately."
-                }
-            </AlertDescription>
-        </Alert>
       </div>
     </div>
   );
 }
-
-    
