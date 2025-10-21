@@ -155,7 +155,7 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
         reader.onload = (e) => {
             const data = e.target?.result;
             if (!data) return;
-            const workbook = XLSX.read(data, { type: 'array', bookSheets: true });
+            const workbook = XLSX.read(data, { type: 'array' });
             setSheetNames(workbook.SheetNames);
             const initialEnabled: { [key: string]: boolean } = {};
             workbook.SheetNames.forEach(name => {
