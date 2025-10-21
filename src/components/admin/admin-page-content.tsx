@@ -8,7 +8,7 @@ import { ShiftScheduleOverview } from '@/components/admin/shift-schedule-overvie
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { Download, FileWarning, CheckCircle, TestTube2, AlertCircle, Upload } from 'lucide-react';
+import { Download, FileWarning, CheckCircle, TestTube2, AlertCircle, Upload, XCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
 import { useAllUsers } from '@/hooks/use-all-users';
@@ -182,7 +182,11 @@ export default function AdminPageContent() {
                     ) : <p className="text-sm text-muted-foreground">No errors found during parsing.</p>}
                 </div>
             </CardContent>
-             <CardFooter>
+             <CardFooter className="flex justify-end gap-2">
+                <Button variant="outline" onClick={handleFileSelection} disabled={isPublishing}>
+                    <XCircle className="mr-2 h-4 w-4" />
+                    Cancel
+                </Button>
                 <FileUploader 
                     onImportComplete={handleImportComplete}
                     onFileSelect={() => {}}
