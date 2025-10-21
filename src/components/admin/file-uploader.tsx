@@ -564,10 +564,10 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <Button id="sheet-select" variant="outline" className="w-full justify-between">
-                            <span>
+                            <span className="truncate">
                                 {selectedSheets.length === 0 
                                     ? 'Select sheets...' 
-                                    : `${selectedSheets.length} sheet(s) selected`}
+                                    : selectedSheets.join(', ')}
                             </span>
                             <ChevronDown className="h-4 w-4 opacity-50" />
                         </Button>
