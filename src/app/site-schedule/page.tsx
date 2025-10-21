@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -110,6 +111,7 @@ export default function SiteSchedulePage() {
             const fetchedShifts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift));
             setAllShifts(fetchedShifts);
             setLoading(false);
+            setError(null);
         }, (err) => {
             console.error("Error fetching shifts:", err);
             setError("Could not fetch shift data.");
@@ -120,6 +122,7 @@ export default function SiteSchedulePage() {
         const unsubUsers = onSnapshot(usersQuery, (snapshot) => {
             const fetchedUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
             setUsers(fetchedUsers);
+            setError(null);
         }, (err) => {
             console.error("Error fetching users:", err);
             setError("Could not fetch all user data.");
