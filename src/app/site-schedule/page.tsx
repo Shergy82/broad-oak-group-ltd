@@ -20,6 +20,7 @@ import { Header } from '@/components/layout/header';
 import { useAuth } from '@/hooks/use-auth';
 import { useRouter } from 'next/navigation';
 import { Spinner } from '@/components/shared/spinner';
+import { useUserProfile } from '@/hooks/use-user-profile';
 
 
 const DayCard = ({ day, shifts, userNameMap }: { day: string, shifts: Shift[], userNameMap: Map<string, string> }) => {
@@ -85,6 +86,7 @@ const WeekScheduleView = ({ shifts, userNameMap, weekName }: { shifts: { [key: s
 
 export default function SiteSchedulePage() {
     const { user, isLoading: isAuthLoading } = useAuth();
+    const { userProfile, loading: isProfileLoading } = useUserProfile();
     const router = useRouter();
     const [allShifts, setAllShifts] = useState<Shift[]>([]);
     const [users, setUsers] = useState<UserProfile[]>([]);
@@ -151,14 +153,22 @@ export default function SiteSchedulePage() {
 
     const availableAddresses = useMemo(() => {
         if (loading) return [];
-        const uniqueAddresses = Array.from(new Set(allShifts.map(shift => shift.address)));
+        
+        const isPrivileged = userProfile && ['admin', 'owner'].includes(userProfile.role);
+        
+        let relevantShifts = allShifts;
+        if (!isPrivileged && user) {
+            relevantShifts = allShifts.filter(shift => shift.userId === user.uid);
+        }
+
+        const uniqueAddresses = Array.from(new Set(relevantShifts.map(shift => shift.address)));
         
         const filtered = uniqueAddresses.filter(address => 
             address.toLowerCase().includes(addressSearchTerm.toLowerCase())
         );
 
         return filtered.sort(naturalSort);
-    }, [allShifts, loading, addressSearchTerm]);
+    }, [allShifts, loading, addressSearchTerm, user, userProfile]);
 
 
     const userNameMap = useMemo(() => new Map(users.map(u => [u.uid, u.name])), [users]);
@@ -268,7 +278,7 @@ export default function SiteSchedulePage() {
         doc.save(`schedule_${selectedAddress.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
     };
 
-    if (isAuthLoading || !user) {
+    if (isAuthLoading || isProfileLoading || !user) {
         return (
           <div className="flex min-h-screen w-full flex-col items-center justify-center">
             <Spinner size="lg" />
@@ -367,3 +377,5 @@ export default function SiteSchedulePage() {
         </div>
     );
 }
+
+    
