@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { collection, onSnapshot, query } from 'firebase/firestore';
+import { collection, onSnapshot, query, getDocs, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Shift, UserProfile } from '@/types';
-import { isSameWeek, format, startOfToday, addDays, subDays, startOfWeek } from 'date-fns';
+import { isSameWeek, format, startOfToday, addDays, subDays, startOfWeek, isSameDay } from 'date-fns';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -95,6 +95,8 @@ export default function SiteSchedulePage() {
     const [addressSearchTerm, setAddressSearchTerm] = useState('');
     const { toast } = useToast();
     
+    const isPrivilegedUser = userProfile && ['admin', 'owner'].includes(userProfile.role);
+
     useEffect(() => {
       if (!isAuthLoading && !user) {
         router.push('/login');
@@ -113,25 +115,26 @@ export default function SiteSchedulePage() {
             setError("Could not fetch shift data.");
             setLoading(false);
         });
-
-        // For privileged users, fetch all users for the PDF download functionality.
-        if (userProfile && ['admin', 'owner'].includes(userProfile.role)) {
+        
+        // Admins/Owners need the full user list for the PDF download feature.
+        // Standard users do not.
+        let unsubUsers = () => {};
+        if (isPrivilegedUser) {
             const usersQuery = query(collection(db, 'users'));
-            const unsubUsers = onSnapshot(usersQuery, (snapshot) => {
+            unsubUsers = onSnapshot(usersQuery, (snapshot) => {
                 const fetchedUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
                 setUsers(fetchedUsers);
             }, (err) => {
                 console.error("Error fetching users:", err);
                 setError("Could not fetch user data.");
             });
-            return () => {
-                unsubShifts();
-                unsubUsers();
-            };
         }
         
-        return () => unsubShifts();
-    }, [userProfile]);
+        return () => {
+          unsubShifts();
+          unsubUsers();
+        };
+    }, [isPrivilegedUser]);
 
     const naturalSort = (a: string, b: string) => {
         const aParts = a.match(/(\d+)|(\D+)/g) || [];
@@ -157,10 +160,9 @@ export default function SiteSchedulePage() {
     const availableAddresses = useMemo(() => {
         if (loading) return [];
         
-        const isPrivileged = userProfile && ['admin', 'owner'].includes(userProfile.role);
-        
         let relevantShifts = allShifts;
-        if (!isPrivileged && user) {
+        // For standard users, only show addresses for projects they are assigned to.
+        if (!isPrivilegedUser && user) {
             relevantShifts = allShifts.filter(shift => shift.userId === user.uid);
         }
 
@@ -171,7 +173,7 @@ export default function SiteSchedulePage() {
         );
 
         return filtered.sort(naturalSort);
-    }, [allShifts, loading, addressSearchTerm, user, userProfile]);
+    }, [allShifts, loading, addressSearchTerm, user, isPrivilegedUser]);
 
     const userNameMap = useMemo(() => new Map(users.map(u => [u.uid, u.name])), [users]);
 

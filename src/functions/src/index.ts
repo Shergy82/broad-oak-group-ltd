@@ -652,12 +652,6 @@ export const deleteAllProjects = functions.region("europe-west2").https.onCall(a
     }
 });
 
-
-// --- LOCATION OF setUserStatus CLOUD FUNCTION ---
-// This is the backend function that gets called from the user management page.
-// It receives a user ID (uid) and a boolean `disabled` flag.
-// It then uses the Firebase Admin SDK to update the user's authentication status (enabling/disabling their account)
-// and also updates the 'status' field in their Firestore document.
 export const setUserStatus = functions.region("europe-west2").https.onCall(async (data, context) => {
     // 1. Authentication & Authorization
     if (!context.auth) {
@@ -685,10 +679,8 @@ export const setUserStatus = functions.region("europe-west2").https.onCall(async
     
     // 3. Execution
     try {
-        // This command enables or disables the user in Firebase Authentication
         await admin.auth().updateUser(uid, { disabled });
         
-        // This command updates the status field in the user's Firestore document
         const userDocRef = db.collection('users').doc(uid);
         await userDocRef.update({ status: newStatus });
         
@@ -701,11 +693,6 @@ export const setUserStatus = functions.region("europe-west2").https.onCall(async
     }
 });
 
-
-// --- LOCATION OF deleteUser CLOUD FUNCTION ---
-// This is the backend function for permanently deleting a user.
-// It deletes the user's push notification subscriptions, their Firestore document,
-// and finally their Firebase Authentication account.
 export const deleteUser = functions.region("europe-west2").https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
@@ -765,4 +752,65 @@ export const deleteUser = functions.region("europe-west2").https.onCall(async (d
     // For other errors, re-throw a clear error message.
     throw new functions.https.HttpsError("internal", `An unexpected error occurred while deleting the user: ${error.message}`);
   }
+});
+
+// One-time utility function to backfill userName on existing shifts.
+export const syncUserNamesToShifts = functions.region("europe-west2").https.onCall(async (data, context) => {
+    if (!context.auth) {
+        throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
+    }
+    const callerDoc = await db.collection("users").doc(context.auth.uid).get();
+    if (callerDoc.data()?.role !== 'owner') {
+        throw new functions.https.HttpsError("permission-denied", "Only the account owner can run this utility.");
+    }
+
+    functions.logger.log("Starting utility to sync user names to shifts.");
+
+    try {
+        const usersSnapshot = await db.collection('users').get();
+        const userMap = new Map<string, string>();
+        usersSnapshot.forEach(doc => {
+            userMap.set(doc.id, doc.data().name);
+        });
+
+        const shiftsSnapshot = await db.collection('shifts').get();
+        if (shiftsSnapshot.empty) {
+            return { success: true, message: "No shifts found to process." };
+        }
+
+        const batchSize = 400; // Firestore batch limit is 500 operations
+        let batch = db.batch();
+        let writeCount = 0;
+        let totalUpdated = 0;
+
+        for (const shiftDoc of shiftsSnapshot.docs) {
+            const shiftData = shiftDoc.data();
+            // Only update if userName is missing or incorrect
+            if (shiftData.userId && userMap.has(shiftData.userId) && shiftData.userName !== userMap.get(shiftData.userId)) {
+                batch.update(shiftDoc.ref, { userName: userMap.get(shiftData.userId) });
+                writeCount++;
+                totalUpdated++;
+            }
+
+            if (writeCount >= batchSize) {
+                await batch.commit();
+                functions.logger.log(`Committed a batch of ${writeCount} updates.`);
+                batch = db.batch();
+                writeCount = 0;
+            }
+        }
+
+        // Commit any remaining writes
+        if (writeCount > 0) {
+            await batch.commit();
+            functions.logger.log(`Committed the final batch of ${writeCount} updates.`);
+        }
+
+        functions.logger.log(`Sync complete. Total shifts updated: ${totalUpdated}.`);
+        return { success: true, message: `Sync complete. ${totalUpdated} shifts were updated with the correct user name.` };
+
+    } catch (error: any) {
+        functions.logger.error("Error syncing user names to shifts:", error);
+        throw new functions.https.HttpsError("internal", "An unexpected error occurred during the sync process.");
+    }
 });

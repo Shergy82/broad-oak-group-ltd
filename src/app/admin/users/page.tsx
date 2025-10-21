@@ -20,16 +20,18 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Download, Users, Trash2 } from 'lucide-react';
+import { Download, Users, Trash2, RefreshCcw } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { format } from 'date-fns';
 import { Input } from '@/components/ui/input';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { Spinner } from '@/components/shared/spinner';
 
 
 export default function UserManagementPage() {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
   const { userProfile: currentUserProfile } = useUserProfile();
   const { toast } = useToast();
   
@@ -185,9 +187,6 @@ export default function UserManagementPage() {
     doc.save(`user_directory_${format(generationDate, 'yyyy-MM-dd')}.pdf`);
   };
 
-  // --- LOCATION OF SUSPEND/ACTIVATE LOGIC ---
-  // This function is called when the "Suspend" or "Activate" button is clicked.
-  // It determines the new status and then calls the `setUserStatus` Cloud Function.
   const handleUserStatusChange = async (uid: string, currentStatus: 'active' | 'suspended' | 'pending-approval' = 'pending-approval') => {
       if (!isOwner) {
           toast({ variant: "destructive", title: "Permission Denied", description: "Only the owner can change user status." });
@@ -198,7 +197,6 @@ export default function UserManagementPage() {
           return;
       }
 
-      // Determine the new status based on the current one
       let newStatus: 'active' | 'suspended';
       let disabled: boolean;
 
@@ -214,9 +212,7 @@ export default function UserManagementPage() {
 
       try {
           if (!functions) throw new Error("Firebase Functions not available");
-          // Here we get a reference to the 'setUserStatus' Cloud Function
           const setUserStatusFn = httpsCallable(functions, 'setUserStatus');
-          // And here we call it, passing the user's ID and the new status
           await setUserStatusFn({ uid, disabled, newStatus });
           toast({ title: "Success", description: `User status changed to ${newStatus}.` });
       } catch (error: any) {
@@ -225,9 +221,6 @@ export default function UserManagementPage() {
       }
   };
 
-  // --- LOCATION OF DELETE USER LOGIC ---
-  // This function is called when the user confirms deletion in the dialog.
-  // It calls the `deleteUser` Cloud Function.
   const handleDeleteUser = async (uid: string) => {
       if (!isOwner) {
           toast({ variant: "destructive", title: "Permission Denied" });
@@ -238,14 +231,34 @@ export default function UserManagementPage() {
             return;
        }
       try {
-        // Get a reference to the 'deleteUser' Cloud Function
         const deleteUserFn = httpsCallable(functions, 'deleteUser');
-        // Call the function, passing the ID of the user to be deleted
         await deleteUserFn({ uid });
         toast({ title: 'User Deleted', description: 'The user has been permanently deleted.' });
       } catch (error: any) {
         toast({ variant: 'destructive', title: 'Error', description: error.message || 'Failed to delete user.' });
       }
+  };
+
+  const handleSyncUserNames = async () => {
+    if (!isOwner) {
+        toast({ variant: 'destructive', title: 'Permission Denied' });
+        return;
+    }
+    if (!functions) {
+        toast({ variant: 'destructive', title: 'Functions not available' });
+        return;
+    }
+    setIsSyncing(true);
+    toast({ title: 'Syncing User Names...', description: 'This may take a moment. Please do not navigate away.' });
+    try {
+        const syncUserNamesToShiftsFn = httpsCallable(functions, 'syncUserNamesToShifts');
+        const result = await syncUserNamesToShiftsFn();
+        toast({ title: 'Sync Complete', description: (result.data as any).message });
+    } catch (error: any) {
+        toast({ variant: 'destructive', title: 'Sync Failed', description: error.message || 'An unknown error occurred.' });
+    } finally {
+        setIsSyncing(false);
+    }
   };
   
   return (
@@ -258,10 +271,34 @@ export default function UserManagementPage() {
                     View and manage all users.
                 </CardDescription>
             </div>
-            <Button variant="outline" onClick={handleDownloadPdf} disabled={loading || users.length === 0}>
-                <Download className="mr-2 h-4 w-4" />
-                Download Directory PDF
-            </Button>
+            <div className="flex gap-2">
+                {isOwner && (
+                    <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                            <Button variant="secondary" disabled={isSyncing}>
+                                {isSyncing ? <Spinner /> : <RefreshCcw className="mr-2 h-4 w-4" />}
+                                Sync Names
+                            </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Sync User Names to Shifts?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                This will update all existing shifts with the correct user name. Run this utility if you see "Unknown User" on schedules. This is a one-time operation to fix historical data.
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={handleSyncUserNames}>Run Sync</AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
+                )}
+                <Button variant="outline" onClick={handleDownloadPdf} disabled={loading || users.length === 0}>
+                    <Download className="mr-2 h-4 w-4" />
+                    Directory
+                </Button>
+            </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -281,8 +318,6 @@ export default function UserManagementPage() {
             </div>
         ) : (
           <>
-            {/* --- LOCATION OF ACTION BUTTONS (Desktop View) --- */}
-            {/* This is where the "Suspend" and "Delete" buttons are rendered in the table for each user. */}
             <div className="hidden md:block border rounded-lg">
                 <Table>
                 <TableHeader>
@@ -342,11 +377,9 @@ export default function UserManagementPage() {
                           <TableCell className="text-right">
                               {isOwner && user.uid !== currentUserProfile?.uid && (
                                 <div className="flex gap-2 justify-end">
-                                  {/* The Suspend/Activate button, which calls handleUserStatusChange */}
                                   <Button variant="outline" size="sm" onClick={() => handleUserStatusChange(user.uid, user.status)}>
                                       {user.status === 'suspended' || user.status === 'pending-approval' ? 'Activate' : 'Suspend'}
                                   </Button>
-                                  {/* The Delete button, wrapped in a confirmation dialog */}
                                   <AlertDialog>
                                     <AlertDialogTrigger asChild>
                                       <Button variant="destructive" size="sm"><Trash2 className="h-4 w-4" /></Button>
@@ -358,7 +391,6 @@ export default function UserManagementPage() {
                                       </AlertDialogHeader>
                                       <AlertDialogFooter>
                                         <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                        {/* The final confirmation action, which calls handleDeleteUser */}
                                         <AlertDialogAction onClick={() => handleDeleteUser(user.uid)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
                                       </AlertDialogFooter>
                                     </AlertDialogContent>
@@ -372,8 +404,6 @@ export default function UserManagementPage() {
                 </Table>
             </div>
 
-            {/* --- LOCATION OF ACTION BUTTONS (Mobile View) --- */}
-            {/* This is the same logic, just structured for smaller screens inside a card. */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:hidden">
               {users.map((user) => (
                 <Card key={user.uid} className={user.status === 'suspended' ? 'bg-muted/50' : ''}>
