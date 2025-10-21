@@ -1,3 +1,4 @@
+
 'use server';
 import * as functions from "firebase-functions";
 import admin from "firebase-admin";
@@ -779,9 +780,10 @@ export const syncUserNamesToShifts = functions.region("europe-west2").https.onCa
         }
 
         const batchSize = 400; // Firestore batch limit is 500 operations
-        let batch = db.batch();
         let writeCount = 0;
         let totalUpdated = 0;
+        
+        let batch = db.batch();
 
         for (const shiftDoc of shiftsSnapshot.docs) {
             const shiftData = shiftDoc.data();
@@ -814,4 +816,4 @@ export const syncUserNamesToShifts = functions.region("europe-west2").https.onCa
         throw new functions.https.HttpsError("internal", "An unexpected error occurred during the sync process.");
     }
 });
-    
+

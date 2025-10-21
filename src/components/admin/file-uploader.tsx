@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState } from 'react';
@@ -108,8 +109,6 @@ const parseDate = (dateValue: any): Date | null => {
         return new Date(Date.UTC(dateValue.getFullYear(), dateValue.getMonth(), dateValue.getDate()));
     }
     if (typeof dateValue === 'number' && dateValue > 1) { // Excel serial date
-        // Excel's epoch starts on 1900-01-01, but incorrectly thinks 1900 is a leap year.
-        // The convention is to treat dates as if the epoch was 1899-12-30.
         const excelEpoch = new Date(1899, 11, 30);
         const d = new Date(excelEpoch.getTime() + dateValue * 86400000);
         if (!isNaN(d.getTime())) {
@@ -117,7 +116,6 @@ const parseDate = (dateValue: any): Date | null => {
         }
     }
     if (typeof dateValue === 'string') {
-        // Try parsing formats like "dd/mm/yyyy" or "dd-Mon-yyyy"
         const d = new Date(dateValue);
         if (!isNaN(d.getTime())) {
              return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
@@ -132,9 +130,8 @@ const getShiftKey = (shift: { userId: string; date: Date | Timestamp; task: stri
 
     if (shift.date instanceof Timestamp) {
         const d = shift.date.toDate();
-        // Use UTC date parts to ensure consistency regardless of server/client timezone
         datePart = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())).toISOString().slice(0, 10);
-    } else { // It's a JS Date object
+    } else { 
         datePart = new Date(Date.UTC(shift.date.getFullYear(), shift.date.getMonth(), shift.date.getDate())).toISOString().slice(0, 10);
     }
 
@@ -314,7 +311,7 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
                     let addressLines = [];
                     for (let r = addressStartRow; r < blockEndRow; r++) {
                         const line = String(jsonData[r]?.[0] || '').trim();
-                        if (!line || String(jsonData[r+1]?.[0]).trim().toUpperCase() === 'JOB MANAGER' || r === blockEndRow -1) {
+                         if (!line || (jsonData[r+1] && String(jsonData[r+1]?.[0]).trim().toUpperCase() === 'JOB MANAGER') || r + 1 === blockEndRow) {
                             if (line) addressLines.push(line);
                             break;
                         }
@@ -334,12 +331,12 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
                     const row = jsonData[r];
                     if (!row) continue;
                     let dateCount = 0;
-                    for (let c = 5; c < row.length; c++) { // Start from column F (index 5)
+                    for (let c = 5; c < row.length; c++) { 
                         if (row[c] !== null && parseDate(row[c])) {
                             dateCount++;
                         }
                     }
-                    if (dateCount > 2) { // Heuristic for date row
+                    if (dateCount > 2) { 
                         dateRowIndex = r;
                         dateRow = row.map((cell, c) => c >= 5 ? parseDate(cell) : null);
                         break;
@@ -353,7 +350,7 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
                 
                 for (let r = dateRowIndex + 1; r < blockEndRow; r++) {
                     const rowData = jsonData[r];
-                    if (!rowData || rowData[0] === null) continue; // Skip empty rows
+                    if (!rowData || rowData[0] === null) continue; 
 
                     for (let c = 5; c < Math.min(rowData.length, dateRow.length); c++) { 
                         const shiftDate = dateRow[c];
@@ -363,12 +360,12 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
                         if (!cellContentRaw) continue;
                         
                         const cellContentCleaned = cellContentRaw.replace(/ *\([^)]*\) */g, "").trim();
-                        const parts = cellContentCleaned.split('-').map(p => p.trim());
-
-                        if (parts.length < 2) continue;
                         
-                        const taskDescription = parts[0];
-                        const userName = parts.slice(1).join('-').trim();
+                        const separatorIndex = cellContentCleaned.indexOf('-');
+                        if (separatorIndex === -1) continue;
+                        
+                        const taskDescription = cellContentCleaned.substring(0, separatorIndex).trim();
+                        const userName = cellContentCleaned.substring(separatorIndex + 1).trim();
 
                         if (taskDescription && userName) {
                             const user = findUser(userName, userMap);
@@ -424,7 +421,7 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
         const parsedShiftsMap = new Map<string, ParsedShift>();
         allParsedShifts.forEach(shift => {
              const key = getShiftKey(shift);
-             if (!parsedShiftsMap.has(key)) { // Avoid duplicates from the file itself
+             if (!parsedShiftsMap.has(key)) { 
                 parsedShiftsMap.set(key, shift);
              }
         });
@@ -443,7 +440,6 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
         existingShiftsMap.forEach((dbShift, key) => {
             const excelShift = parsedShiftsMap.get(key);
             if (excelShift) {
-                // This shift exists in both. Check for updates.
                 const updateData: Partial<Shift> = {};
                 if (dbShift.manager !== excelShift.manager) updateData.manager = excelShift.manager;
                 if (dbShift.bNumber !== excelShift.bNumber) updateData.bNumber = excelShift.bNumber;
@@ -452,7 +448,6 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
                     toUpdate.push({ id: dbShift.id, data: updateData });
                 }
             } else {
-                // This shift is in the DB but not in the Excel file. Mark for deletion.
                 if(!protectedStatuses.includes(dbShift.status)){
                    toDelete.push(dbShift.id);
                 }
