@@ -1,7 +1,6 @@
-
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { FileUploader, FailedShift } from '@/components/admin/file-uploader';
 import { ShiftScheduleOverview } from '@/components/admin/shift-schedule-overview';
@@ -11,6 +10,8 @@ import { Button } from '@/components/ui/button';
 import { Download, FileWarning, CheckCircle, TestTube2, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
+import { useAllUsers } from '@/hooks/use-all-users';
+import type { UserProfile } from '@/types';
 
 interface DryRunResult {
     found: any[];
@@ -22,6 +23,19 @@ export default function AdminPageContent() {
   const [importReport, setImportReport] = useState<{ failed: FailedShift[], dryRun?: DryRunResult } | null>(null);
   const [importAttempted, setImportAttempted] = useState(false);
   const isPrivilegedUser = userProfile && ['admin', 'owner'].includes(userProfile.role);
+  
+  const { users: allUsers } = useAllUsers();
+  const [userNameMap, setUserNameMap] = useState<Map<string, string>>(new Map());
+
+  useEffect(() => {
+    if (allUsers.length > 0) {
+      const newMap = new Map<string, string>();
+      allUsers.forEach(user => {
+        newMap.set(user.uid, user.name);
+      });
+      setUserNameMap(newMap);
+    }
+  }, [allUsers]);
 
   const handleImportComplete = (failedShifts: FailedShift[], dryRunResult?: DryRunResult) => {
     const sortedFailed = failedShifts.sort((a, b) => {
@@ -109,7 +123,7 @@ export default function AdminPageContent() {
                                 {found.map((shift, index) => (
                                     <TableRow key={index}>
                                         <TableCell>{format(shift.date, 'dd/MM/yy')}</TableCell>
-                                        <TableCell>{userProfile?.uid === shift.userId ? userProfile.name : shift.userId}</TableCell>
+                                        <TableCell>{userNameMap.get(shift.userId) || shift.userId}</TableCell>
                                         <TableCell>{shift.task}</TableCell>
                                         <TableCell>{shift.address}</TableCell>
                                     </TableRow>
