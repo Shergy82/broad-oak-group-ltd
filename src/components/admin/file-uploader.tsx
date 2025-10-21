@@ -23,8 +23,7 @@ export type ParsedShift = {
   date: Date;
   address: string;
   type: 'am' | 'pm' | 'all-day';
-  bNumber?: string;
-  manager?: string;
+  manager: string;
 };
 
 export interface FailedShift {
@@ -33,6 +32,7 @@ export interface FailedShift {
   cellContent: string;
   reason: string;
   sheetName: string;
+  rowNumber: number;
 }
 
 export interface ReconciliationResult {
@@ -50,38 +50,57 @@ interface FileUploaderProps {
 }
 
 // --- Cell Parsing Utilities ---
-// These functions help find specific cells and blocks based on the user's defined structure.
-
-const findCellByText = (sheet: XLSX.WorkSheet, text: string): XLSX.CellObject | null => {
-    for (const cellAddress in sheet) {
-        if (cellAddress[0] === '!') continue;
-        const cell = sheet[cellAddress];
-        if (cell && cell.t === 's' && cell.v && typeof cell.v === 'string' && cell.v.trim().toUpperCase() === text.toUpperCase()) {
-            return cell;
-        }
-    }
-    return null;
+const getCellValue = (sheet: XLSX.WorkSheet, row: number, col: number): string => {
+    const cellAddress = XLSX.utils.encode_cell({ r: row, c: col });
+    const cell = sheet[cellAddress];
+    // Use .w for formatted text, fallback to .v for raw value
+    return cell ? String(cell.w || cell.v || '').trim() : '';
 };
-
 
 const findRowsWithText = (sheet: XLSX.WorkSheet, text: string): number[] => {
     const rows: number[] = [];
-    for (const cellAddress in sheet) {
-        if (cellAddress[0] === '!') continue;
-        const cell = sheet[cellAddress];
-        if (cell && cell.t === 's' && cell.v && typeof cell.v === 'string' && cell.v.trim().toUpperCase() === text.toUpperCase()) {
-            const decoded = XLSX.utils.decode_cell(cellAddress);
-            if (!rows.includes(decoded.r)) {
-                rows.push(decoded.r);
-            }
+    const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
+    for (let R = range.s.r; R <= range.e.r; ++R) {
+        const cellValue = getCellValue(sheet, R, 0); // Only check Column A
+        if (cellValue.toUpperCase() === text.toUpperCase()) {
+            rows.push(R);
         }
     }
     return rows.sort((a, b) => a - b);
 }
 
-const getCellValue = (sheet: XLSX.WorkSheet, row: number, col: number): string => {
-    const cell = sheet[XLSX.utils.encode_cell({ r: row, c: col })];
-    return cell ? String(cell.w || cell.v || '').trim() : '';
+const parseDate = (dateStr: string): Date | null => {
+    if (!dateStr || typeof dateStr !== 'string') return null;
+
+    // Handles formats like 'Mon 22-Jul', '22-Jul', etc.
+    const date = parse(dateStr, 'E dd-MMM', new Date());
+    if (isValid(date)) return date;
+    
+    const date2 = parse(dateStr, 'dd-MMM', new Date());
+    if (isValid(date2)) return date2;
+
+    // Handle Excel's date serial number format
+    const excelDateNumber = Number(dateStr);
+    if (!isNaN(excelDateNumber) && excelDateNumber > 1) {
+        // Excel's epoch starts on 1900-01-01, but it incorrectly treats 1900 as a leap year.
+        // It's safer to use the 'date-fns' addDays function with a known epoch.
+        const excelEpoch = new Date(1899, 11, 30);
+        return addDays(excelEpoch, excelDateNumber);
+    }
+      
+    return null;
+}
+
+const isDateRow = (sheet: XLSX.WorkSheet, row: number): boolean => {
+    // A row is considered a date row if at least one cell from column F onwards is a valid date.
+    for (let C = 5; C < 50; C++) { // Check from col F onwards
+        const cellValue = getCellValue(sheet, row, C);
+        if (cellValue && parseDate(cellValue)) {
+            return true;
+        }
+        if (C > 7 && !cellValue) break; // Optimization: stop if we see a blank after a couple of dates
+    }
+    return false;
 };
 
 
@@ -128,27 +147,6 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
   const toggleSheet = (sheetName: string, isEnabled: boolean) => {
     setEnabledSheets(prev => ({ ...prev, [sheetName]: isEnabled }));
   }
-  
-  const parseDate = (dateStr: string): Date | null => {
-      if (!dateStr || typeof dateStr !== 'string') return null;
-
-      // Handles formats like 'Mon 22-Jul', '22-Jul', etc.
-      // The 'parse' function from date-fns is robust enough for this.
-      const date = parse(dateStr, 'E dd-MMM', new Date());
-      if (isValid(date)) return date;
-
-      const date2 = parse(dateStr, 'dd-MMM', new Date());
-      if (isValid(date2)) return date2;
-
-      // Excel date serial number handling
-      const excelEpoch = new Date(1899, 11, 30);
-      const excelDateNumber = Number(dateStr);
-      if (!isNaN(excelDateNumber)) {
-          return addDays(excelEpoch, excelDateNumber);
-      }
-      
-      return null;
-  }
 
   const handleProcessFile = async () => {
     if (!file) {
@@ -169,111 +167,129 @@ export function FileUploader({ onImportComplete, onFileSelect, shiftsToPublish, 
         const data = e.target?.result;
         if (!data) throw new Error("Could not read file data.");
         
-        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+        const workbook = XLSX.read(data, { type: 'array', cellDates: true, cellStyles: true });
         
         let allShifts: ParsedShift[] = [];
         let allFailed: FailedShift[] = [];
 
         workbook.SheetNames.forEach(sheetName => {
-          if (!enabledSheets[sheetName]) return;
-          
-          const sheet = workbook.Sheets[sheetName];
-          const jobStartRows = findRowsWithText(sheet, "START OF NEW JOB");
+            if (!enabledSheets[sheetName]) return;
+            
+            const sheet = workbook.Sheets[sheetName];
+            if (!sheet || !sheet['!ref']) return;
 
-          if (jobStartRows.length === 0) {
-              return; // No jobs in this sheet
-          }
+            const jobStartRows = findRowsWithText(sheet, "START OF NEW JOB");
 
-          jobStartRows.forEach((startRow, index) => {
-              const endOfBlockRow = (index + 1 < jobStartRows.length) ? jobStartRows[index + 1] - 1 : sheet['!ref'] ? XLSX.utils.decode_range(sheet['!ref']).e.r : 1000;
-              
-              // --- 1. Find Headers and Anchors ---
-              let jobManagerHeaderRow = -1;
-              let addressHeaderRow = -1;
-              let dateRow = -1;
-              let addressEndRow = -1;
+            jobStartRows.forEach((jobStartRow, index) => {
+                const endOfBlockRow = (index + 1 < jobStartRows.length) ? jobStartRows[index + 1] - 1 : XLSX.utils.decode_range(sheet['!ref']!).e.r;
+                
+                // --- Step 3: Get Manager Name ---
+                const jobManagerHeaderRow = jobStartRow + 2; // "JOB MANAGER" header
+                const managerName = getCellValue(sheet, jobManagerHeaderRow + 1, 0); // Name is below header
+                
+                let addressHeaderRow = -1;
+                let dateBoundaryRowForAddress = -1;
+                let dateRow = -1;
+                let gridStartRow = -1;
+                let gridEndRow = -1;
+                
+                // Scan to find the key rows based on their content/structure
+                for (let r = jobManagerHeaderRow + 2; r <= endOfBlockRow; r++) {
+                    if (getCellValue(sheet, r, 0).toUpperCase() === 'ADDRESS' && addressHeaderRow === -1) {
+                        addressHeaderRow = r;
+                    }
+                    // Look for the dark blue date boundary row
+                    if (addressHeaderRow !== -1 && dateBoundaryRowForAddress === -1 && getCellValue(sheet, r, 0) && parseDate(getCellValue(sheet, r, 0))) {
+                        dateBoundaryRowForAddress = r;
+                    }
+                    // Look for the light blue date row
+                    if (isDateRow(sheet, r) && dateRow === -1) {
+                        dateRow = r;
+                        gridStartRow = r + 1; // Grid starts right after the date row
+                    }
+                }
 
-              for (let r = startRow + 1; r <= endOfBlockRow; r++) {
-                  const cellA = getCellValue(sheet, r, 0);
-                  if (cellA.toUpperCase() === "JOB MANAGER") jobManagerHeaderRow = r;
-                  if (cellA.toUpperCase() === "ADDRESS") addressHeaderRow = r;
-                  
-                  // Find Date Row (light blue)
-                  const cellF = getCellValue(sheet, r, 5); // Check column F for a date
-                  if (cellF && parseDate(cellF)) {
-                      dateRow = r;
-                  }
-                  
-                  // Find Address End (dark blue)
-                  const cellB = getCellValue(sheet, r, 1);
-                  if (cellB && parseDate(cellB)) {
-                      addressEndRow = r;
-                  }
-              }
+                // The grid ends before the next job starts, or at the end of the block
+                gridEndRow = endOfBlockRow;
 
-              if (jobManagerHeaderRow === -1 || addressHeaderRow === -1 || dateRow === -1) return;
 
-              // --- 2. Extract Manager and Address ---
-              const managerName = getCellValue(sheet, jobManagerHeaderRow + 1, 0);
+                // --- Step 4: Get Site Address ---
+                let siteAddress = "";
+                if (addressHeaderRow !== -1 && dateBoundaryRowForAddress !== -1) {
+                    for (let r = addressHeaderRow + 1; r < dateBoundaryRowForAddress; r++) {
+                        const addrPart = getCellValue(sheet, r, 0);
+                        if (addrPart) {
+                            siteAddress += (siteAddress ? '\n' : '') + addrPart;
+                        }
+                    }
+                }
 
-              let siteAddress = "";
-              if (addressHeaderRow !== -1 && addressEndRow !== -1) {
-                  for (let r = addressHeaderRow + 1; r < addressEndRow; r++) {
-                      const addrPart = getCellValue(sheet, r, 0);
-                      if (addrPart) {
-                          siteAddress += (siteAddress ? '\n' : '') + addrPart;
-                      }
-                  }
-              }
+                if (!siteAddress) { // Fallback if structure is slightly different
+                    siteAddress = `Project from sheet '${sheetName}'`;
+                }
+                
+                // --- Step 5 & 7: Find Dates and Parse Shifts ---
+                if (dateRow === -1 || gridStartRow === -1) return; // Cannot proceed without a date row
+                
+                const dates: { col: number; date: Date }[] = [];
+                for (let c = 5; c < 50; c++) { // Check from col F up to AX
+                    const dateStr = getCellValue(sheet, dateRow, c);
+                    if (!dateStr) break;
+                    const parsed = parseDate(dateStr);
+                    if (parsed) {
+                        dates.push({ col: c, date: parsed });
+                    }
+                }
+                if (dates.length === 0) return;
 
-              // --- 3. Extract Dates ---
-              const dates: { col: number; date: Date }[] = [];
-              for (let c = 5; c < 50; c++) { // Check up to column AX
-                  const dateStr = getCellValue(sheet, dateRow, c);
-                  if (!dateStr) break;
-                  const parsed = parseDate(dateStr);
-                  if (parsed) {
-                      dates.push({ col: c, date: parsed });
-                  }
-              }
-              if (dates.length === 0) return;
 
-              // --- 4. Identify Shift Grid and Parse Shifts ---
-              const gridStartRow = dateRow + 1;
-              const gridEndRow = endOfBlockRow;
-              
-              for (let r = gridStartRow; r <= gridEndRow; r++) {
-                  for (const { col, date } of dates) {
-                      const cellContent = getCellValue(sheet, r, col);
-                      if (!cellContent) continue;
+                // --- Step 6 & 7: Scan Grid and Parse Shifts ---
+                for (let r = gridStartRow; r <= gridEndRow; r++) {
+                    // Check if this row is the start of the next job block and stop
+                    if (getCellValue(sheet, r, 0).toUpperCase() === 'START OF NEW JOB') {
+                        break;
+                    }
+                    
+                    for (const { col, date } of dates) {
+                        const cellContent = getCellValue(sheet, r, col);
+                        if (!cellContent) continue;
 
-                      const parts = cellContent.split('-').map(p => p.trim());
-                      if (parts.length < 2) {
-                          allFailed.push({ date, projectAddress: siteAddress, cellContent, reason: "Invalid format. Expected 'Task - User'.", sheetName });
-                          continue;
-                      }
+                        const parts = cellContent.split('-').map(p => p.trim());
+                        if (parts.length < 2) {
+                            allFailed.push({ date, projectAddress: siteAddress, cellContent, reason: "Invalid format. Expected 'Task - User'.", sheetName, rowNumber: r + 1 });
+                            continue;
+                        }
 
-                      const task = parts.slice(0, -1).join('-').trim();
-                      const userName = parts[parts.length - 1].trim().toUpperCase();
-                      const userId = userMap.get(userName);
+                        const task = parts.slice(0, -1).join('-').trim();
+                        const userNameFromCell = parts[parts.length - 1].trim();
+                        const userId = userMap.get(userNameFromCell.toUpperCase());
 
-                      if (!userId) {
-                          allFailed.push({ date, projectAddress: siteAddress, cellContent, reason: `User '${userName}' not found in the system.`, sheetName });
-                          continue;
-                      }
+                        if (!userId) {
+                            allFailed.push({ date, projectAddress: siteAddress, cellContent, reason: `User '${userNameFromCell}' not found in the system.`, sheetName, rowNumber: r + 1 });
+                            continue;
+                        }
 
-                      allShifts.push({
+                        // Determine shift type (am/pm/all-day)
+                        let shiftType: 'am' | 'pm' | 'all-day' = 'all-day';
+                        const cellAbove = getCellValue(sheet, r - 1, col).toUpperCase();
+                        if (cellAbove.includes('AM')) {
+                            shiftType = 'am';
+                        } else if (cellAbove.includes('PM')) {
+                            shiftType = 'pm';
+                        }
+                        
+                        allShifts.push({
                           task,
-                          userName: parts[parts.length - 1].trim(), // Keep original casing for display
+                          userName: userNameFromCell, // Keep original casing for display
                           userId,
                           date,
                           address: siteAddress,
                           manager: managerName,
-                          type: 'all-day', // Defaulting to all-day as type is not specified in the grid
-                      });
-                  }
-              }
-          });
+                          type: shiftType, 
+                        });
+                    }
+                }
+            });
         });
 
         // In a real scenario, this is where you'd reconcile with existing shifts.
