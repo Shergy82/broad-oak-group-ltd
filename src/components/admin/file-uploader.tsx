@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useCallback } from 'react';
@@ -9,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/shared/spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Upload, FileWarning, TestTube2, Sheet, ChevronDown } from 'lucide-react';
+import { Upload, FileWarning, TestTube2, Sheet, ChevronDown, X } from 'lucide-react';
 import type { Shift, UserProfile, ShiftStatus } from '@/types';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
@@ -169,6 +170,16 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
   const [selectedSheets, setSelectedSheets] = useState<string[]>([]);
   const { toast } = useToast();
 
+  const handleClear = () => {
+    setFile(null);
+    setSheetNames([]);
+    setSelectedSheets([]);
+    setError(null);
+    const fileInput = document.getElementById('shift-file-input') as HTMLInputElement;
+    if (fileInput) fileInput.value = "";
+    onFileSelect();
+  }
+
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) {
       const selectedFile = event.target.files[0];
@@ -222,7 +233,7 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
   const getShiftKey = (shift: { userId: string; date: Date | Timestamp; task: string; address: string }): string => {
     const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
     const normalizedDate = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-    return `${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${normalizeText(shift.address)}-${normalizeText(shift.task)}`;
+    return `${''}${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${normalizeText(shift.address)}-${normalizeText(shift.task)}`;
   };
 
 
@@ -262,7 +273,7 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
         let allFailedShifts: FailedShift[] = [];
         
         const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        today.setUTCHours(0, 0, 0, 0);
 
         for (const sheetName of selectedSheets) {
             const worksheet = workbook.Sheets[sheetName];
@@ -521,11 +532,7 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
         onImportComplete(allFailedShifts, onConfirm);
         
         // Reset file input after successful import
-        setFile(null);
-        const fileInput = document.getElementById('shift-file-input') as HTMLInputElement;
-        if (fileInput) fileInput.value = "";
-        setSheetNames([]);
-        setSelectedSheets([]);
+        handleClear();
 
       } catch (err: any) {
         console.error('Import failed:', err);
@@ -542,7 +549,7 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
     }
 
     reader.readAsArrayBuffer(file);
-  }, [file, selectedSheets, toast]);
+  }, [file, selectedSheets, toast, onImportComplete, onFileSelect]);
 
   const handleImport = () => {
     runImport(isDryRun === false);
@@ -575,7 +582,10 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
                             <span className="truncate">
                                 {selectedSheets.length === 0 
                                     ? 'Select sheets...' 
-                                    : selectedSheets.join(', ')}
+                                    : selectedSheets.length === 1
+                                    ? selectedSheets[0]
+                                    : `${selectedSheets.length} sheets selected`
+                                }
                             </span>
                             <ChevronDown className="h-4 w-4 opacity-50" />
                         </Button>
@@ -608,11 +618,21 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
                     Dry Run
                 </Label>
             </div>
-            <Button onClick={handleImport} disabled={!file || isUploading || selectedSheets.length === 0} className="w-full sm:w-auto">
-              {isUploading ? <Spinner /> : isDryRun ? <><TestTube2 className="mr-2 h-4 w-4" /> Run Test</> : <><Upload className="mr-2 h-4 w-4" /> Import Shifts</>}
-            </Button>
+            <div className="flex items-center gap-2">
+                <Button onClick={handleImport} disabled={!file || isUploading || selectedSheets.length === 0} className="w-full sm:w-auto">
+                  {isUploading ? <Spinner /> : isDryRun ? <><TestTube2 className="mr-2 h-4 w-4" /> Run Test</> : <><Upload className="mr-2 h-4 w-4" /> Import Shifts</>}
+                </Button>
+                {file && (
+                   <Button variant="outline" onClick={handleClear} disabled={isUploading}>
+                        <X className="mr-2 h-4 w-4" />
+                        Clear
+                    </Button>
+                )}
+            </div>
         </div>
       </div>
     </div>
   );
 }
+
+    
