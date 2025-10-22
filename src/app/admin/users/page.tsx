@@ -20,18 +20,16 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Download, Users, Trash2, RefreshCcw } from 'lucide-react';
+import { Download, Users, Trash2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { format } from 'date-fns';
 import { Input } from '@/components/ui/input';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { Spinner } from '@/components/shared/spinner';
 
 
 export default function UserManagementPage() {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isSyncing, setIsSyncing] = useState(false);
   const { userProfile: currentUserProfile } = useUserProfile();
   const { toast } = useToast();
   
@@ -239,28 +237,6 @@ export default function UserManagementPage() {
       }
   };
 
-  const handleSyncUserNames = async () => {
-    if (!isOwner) {
-        toast({ variant: 'destructive', title: 'Permission Denied' });
-        return;
-    }
-    if (!functions) {
-        toast({ variant: 'destructive', title: 'Functions not available' });
-        return;
-    }
-    setIsSyncing(true);
-    toast({ title: 'Syncing User Names...', description: 'This may take a moment. Please do not navigate away.' });
-    try {
-        const syncUserNamesToShiftsFn = httpsCallable(functions, 'syncUserNamesToShifts');
-        const result = await syncUserNamesToShiftsFn();
-        toast({ title: 'Sync Complete', description: (result.data as any).message });
-    } catch (error: any) {
-        toast({ variant: 'destructive', title: 'Sync Failed', description: error.message || 'An unknown error occurred.' });
-    } finally {
-        setIsSyncing(false);
-    }
-  };
-  
   return (
     <Card>
       <CardHeader>
@@ -272,28 +248,6 @@ export default function UserManagementPage() {
                 </CardDescription>
             </div>
             <div className="flex gap-2">
-                {isOwner && (
-                    <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                            <Button variant="secondary" disabled={isSyncing}>
-                                {isSyncing ? <Spinner /> : <RefreshCcw className="mr-2 h-4 w-4" />}
-                                Sync Names
-                            </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                            <AlertDialogHeader>
-                                <AlertDialogTitle>Sync User Names to Shifts?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                This will update all existing shifts with the correct user name. Run this utility if you see "Unknown User" on schedules. This is a one-time operation to fix historical data.
-                                </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction onClick={handleSyncUserNames}>Run Sync</AlertDialogAction>
-                            </AlertDialogFooter>
-                        </AlertDialogContent>
-                    </AlertDialog>
-                )}
                 <Button variant="outline" onClick={handleDownloadPdf} disabled={loading || users.length === 0}>
                     <Download className="mr-2 h-4 w-4" />
                     Directory
