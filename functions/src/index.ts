@@ -694,6 +694,64 @@ export const setUserStatus = functions.region("europe-west2").https.onCall(async
     }
 });
 
+
+export const setUserRole = functions.region("europe-west2").https.onCall(async (data, context) => {
+  // 1. Authentication & Authorization
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "You must be logged in to change roles.");
+  }
+  const callerUid = context.auth.uid;
+  const callerDoc = await db.collection("users").doc(callerUid).get();
+  const callerProfile = callerDoc.data();
+
+  if (!callerProfile || callerProfile.role !== 'owner') {
+    throw new functions.https.HttpsError("permission-denied", "Only the account owner can change user roles.");
+  }
+  
+  // 2. Validation
+  const { uid, newRole } = data;
+  const validRoles = ['user', 'admin'];
+
+  if (typeof uid !== 'string' || !validRoles.includes(newRole)) {
+    throw new functions.https.HttpsError("invalid-argument", `Invalid arguments. 'uid' must be a string and 'newRole' must be one of ${validRoles.join(', ')}.`);
+  }
+
+  if (uid === callerUid) {
+    throw new functions.https.HttpsError("permission-denied", "The account owner cannot change their own role.");
+  }
+
+  // 3. Execution
+  try {
+    // Atomically update both Firestore and Auth claims
+    const userDocRef = db.collection('users').doc(uid);
+    await db.runTransaction(async (transaction) => {
+        const userDoc = await transaction.get(userDocRef);
+        if (!userDoc.exists) {
+            throw new functions.https.HttpsError("not-found", "The specified user does not exist in Firestore.");
+        }
+        if (userDoc.data()?.role === 'owner') {
+            throw new functions.https.HttpsError("permission-denied", "The role of an owner cannot be changed.");
+        }
+        
+        // Update Firestore first
+        transaction.update(userDocRef, { role: newRole });
+    });
+
+    // Then set the custom claim in Auth
+    await admin.auth().setCustomUserClaims(uid, { role: newRole });
+
+    functions.logger.log(`Owner ${callerUid} has set user ${uid} to role: ${newRole}.`);
+    return { success: true };
+  } catch (error: any) {
+    functions.logger.error(`Error updating role for user ${uid}:`, error);
+    if (error instanceof functions.https.HttpsError) {
+        throw error;
+    }
+    throw new functions.https.HttpsError("internal", `An unexpected error occurred while updating user role: ${error.message}`);
+  }
+});
+
+
 export const deleteUser = functions.region("europe-west2").https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
@@ -754,3 +812,5 @@ export const deleteUser = functions.region("europe-west2").https.onCall(async (d
     throw new functions.https.HttpsError("internal", `An unexpected error occurred while deleting the user: ${error.message}`);
   }
 });
+
+    
