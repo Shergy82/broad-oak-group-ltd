@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Download, Users, Trash2 } from 'lucide-react';
+import { Download, Users, Trash2, UserCog } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { format } from 'date-fns';
 import { Input } from '@/components/ui/input';
@@ -35,6 +35,7 @@ export default function UserManagementPage() {
   
   const isOwner = currentUserProfile?.role === 'owner';
   const isPrivilegedUser = isOwner || currentUserProfile?.role === 'admin';
+  const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
 
   useEffect(() => {
     if (!currentUserProfile || !db) {
@@ -236,6 +237,19 @@ export default function UserManagementPage() {
         toast({ variant: 'destructive', title: 'Error', description: error.message || 'Failed to delete user.' });
       }
   };
+  
+  const handleManageUser = (uid: string) => {
+    if (projectId) {
+      const url = `https://console.firebase.google.com/project/${projectId}/authentication/users/${uid}`;
+      window.open(url, '_blank');
+    } else {
+      toast({
+        variant: 'destructive',
+        title: 'Project ID not found',
+        description: 'Could not construct the link to the Firebase Console.',
+      });
+    }
+  };
 
   return (
     <Card>
@@ -331,6 +345,9 @@ export default function UserManagementPage() {
                           <TableCell className="text-right">
                               {isOwner && user.uid !== currentUserProfile?.uid && (
                                 <div className="flex gap-2 justify-end">
+                                   <Button variant="outline" size="sm" onClick={() => handleManageUser(user.uid)}>
+                                    <UserCog className="mr-2 h-4 w-4" /> Manage
+                                  </Button>
                                   <Button variant="outline" size="sm" onClick={() => handleUserStatusChange(user.uid, user.status)}>
                                       {user.status === 'suspended' || user.status === 'pending-approval' ? 'Activate' : 'Suspend'}
                                   </Button>
@@ -409,12 +426,15 @@ export default function UserManagementPage() {
                   </CardContent>
                   {isOwner && user.uid !== currentUserProfile?.uid && (
                     <CardFooter className="grid grid-cols-2 gap-2 p-2 bg-muted/20">
+                      <Button variant="outline" size="sm" onClick={() => handleManageUser(user.uid)} className="w-full">
+                        <UserCog className="mr-2 h-4 w-4" /> Manage
+                      </Button>
                       <Button variant="outline" size="sm" onClick={() => handleUserStatusChange(user.uid, user.status)} className="w-full">
                           {user.status === 'suspended' || user.status === 'pending-approval' ? 'Activate' : 'Suspend'}
                       </Button>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button variant="destructive" size="sm" className="w-full"><Trash2 className="mr-2 h-4 w-4" /> Delete</Button>
+                          <Button variant="destructive" size="sm" className="w-full col-span-2"><Trash2 className="mr-2 h-4 w-4" /> Delete</Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader><AlertDialogTitle>Are you sure?</AlertDialogTitle><AlertDialogDescription>This will permanently delete "{user.name}".</AlertDialogDescription></AlertDialogHeader>
