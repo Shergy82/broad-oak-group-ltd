@@ -5,9 +5,13 @@ import { Header } from '@/components/layout/header';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { HelpCircle, Bell, ThumbsUp, HardHat, CheckCircle2, XCircle, Megaphone, TrendingUp, Briefcase, SunMoon } from 'lucide-react';
+import { HelpCircle, Bell, ThumbsUp, HardHat, CheckCircle2, XCircle, Megaphone, TrendingUp, Briefcase, SunMoon, Shield, Building2, Fingerprint } from 'lucide-react';
+import { useUserProfile } from '@/hooks/use-user-profile';
 
 export default function HelpPage() {
+  const { userProfile } = useUserProfile();
+  const isPrivilegedUser = userProfile && ['admin', 'owner'].includes(userProfile.role);
+
   return (
     <div className="flex min-h-screen w-full flex-col">
       <Header />
@@ -28,13 +32,14 @@ export default function HelpPage() {
               <AccordionItem value="item-1">
                 <AccordionTrigger>Your Dashboard: Viewing Your Schedule</AccordionTrigger>
                 <AccordionContent className="space-y-4">
-                  <p>Your Dashboard is the main screen for managing your work. It's organized into three tabs:</p>
+                  <p>Your Dashboard is the main screen for managing your active work. It's organized into four tabs:</p>
                   <ul className="list-disc pl-6 space-y-2">
                     <li><strong>Today:</strong> Shows all your shifts scheduled for the current day, separated into AM, PM, and All Day sections.</li>
-                    <li><strong>This Week:</strong> Gives you an overview of all your shifts for the current week, organized by day.</li>
+                    <li><strong>This Week:</strong> Gives you an overview of all your active shifts for the current week, organized by day.</li>
                     <li><strong>Next Week:</strong> Shows you all your scheduled shifts for the upcoming week.</li>
+                    <li><strong>Last Week:</strong> Shows your active shifts from the previous week, allowing you to complete any you may have missed.</li>
                   </ul>
-                   <p>From here, you can see the details of each shift and perform actions on them.</p>
+                   <p>Your dashboard also shows a section for "Recently Completed & Incomplete" shifts from the last four weeks. You can dismiss these from your view once you've reviewed them.</p>
                 </AccordionContent>
               </AccordionItem>
 
@@ -44,8 +49,8 @@ export default function HelpPage() {
                   <p>Each shift you are assigned follows a simple, multi-step process. You are responsible for updating the status of your shifts as you complete them.</p>
                   
                   <div className="space-y-4 rounded-lg border p-4">
-                    <h4 className="font-semibold flex items-center gap-2"><ThumbsUp className="h-5 w-5 text-accent" />1. Accepting a New Shift</h4>
-                    <p>When you are assigned a new shift, you will see a pop-up dialog when you log in. You must accept the shift to confirm you have received it. You can either accept shifts one-by-one or all at once.</p>
+                    <h4 className="font-semibold flex items-center gap-2"><ThumbsUp className="h-5 w-5 text-accent-foreground" />1. Accepting a New Shift</h4>
+                    <p>When you are assigned new shifts, you will see a pop-up when you log in. You must accept the shifts to confirm you have received them. This moves their status from "Pending" to "Confirmed".</p>
                   </div>
 
                   <div className="space-y-4 rounded-lg border p-4">
@@ -65,72 +70,72 @@ export default function HelpPage() {
                 </AccordionContent>
               </AccordionItem>
               
-              <AccordionItem value="item-3">
+               <AccordionItem value="item-site-schedule">
+                <AccordionTrigger>Site Schedule View</AccordionTrigger>
+                <AccordionContent className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="h-5 w-5 text-muted-foreground" />
+                    <p>The "Site Schedule" page provides a comprehensive view of all work scheduled for a specific property. This is useful for seeing who else is scheduled to be on a site and when.</p>
+                  </div>
+                   <ul className="list-disc pl-6 space-y-2">
+                      <li>Use the search bar and dropdown to find a property address.</li>
+                      <li>Once selected, you can view the schedule for last week, this week, and next week.</li>
+                      <li>You can also download a PDF of the schedule for the selected property.</li>
+                   </ul>
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="item-digital-sign-in">
+                <AccordionTrigger>Digital Sign In/Out</AccordionTrigger>
+                <AccordionContent className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Fingerprint className="h-5 w-5 text-muted-foreground" />
+                    <p>The "Digital Sign In/Out" link in the main menu will take you to a separate application to log your presence on-site for health and safety compliance.</p>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="item-announcements">
                 <AccordionTrigger>Announcements</AccordionTrigger>
                 <AccordionContent className="space-y-4">
                    <div className="flex items-center gap-2">
                     <Megaphone className="h-5 w-5 text-muted-foreground" />
-                    <p>When there are new, important announcements from the company, you will see a pop-up when you first log in. You must read and acknowledge these announcements before you can proceed to your dashboard.</p>
+                    <p>When there are new, important announcements, you will see a pop-up when you first log in. You must read and acknowledge them before you can proceed. You can access all announcements from the user menu.</p>
                    </div>
-                  <p>You can also access all past and present announcements by clicking on your profile icon in the top-right and selecting "Announcements" from the menu.</p>
                 </AccordionContent>
               </AccordionItem>
               
-              <AccordionItem value="item-4">
+              <AccordionItem value="item-stats">
                 <AccordionTrigger>Your Stats</AccordionTrigger>
                 <AccordionContent className="space-y-4">
                   <div className="flex items-center gap-2">
                     <TrendingUp className="h-5 w-5 text-muted-foreground" />
-                    <p>The "Stats" page (available in the user menu) shows your all-time performance data, including:</p>
+                    <p>The "Stats" page shows your all-time performance data and a team leaderboard, recognizing top performers for the week, month, and all time based on shift completion rates.</p>
                   </div>
-                  <ul className="list-disc pl-6 space-y-2">
-                    <li><strong>Total Shifts:</strong> The total number of shifts you have ever been assigned.</li>
-                    <li><strong>Completed:</strong> The total number of shifts you have successfully marked as completed.</li>
-                    <li><strong>Incomplete:</strong> The total number of shifts you have marked as incomplete.</li>
-                    <li><strong>Completion Rate:</strong> The percentage of your shifts that are marked as completed.</li>
-                  </ul>
-                  <p>This page also includes a "Team Leaderboard" to recognize top performers.</p>
                 </AccordionContent>
               </AccordionItem>
               
-               <AccordionItem value="item-5">
+               <AccordionItem value="item-projects">
                 <AccordionTrigger>Projects & Files</AccordionTrigger>
                 <AccordionContent className="space-y-4">
                   <div className="flex items-center gap-2">
                     <Briefcase className="h-5 w-5 text-muted-foreground" />
-                    <p>The "Projects" page lists all company projects. You can use this page to find project-specific documents.</p>
+                    <p>The "Projects" page lists company projects. You can find and download project-specific documents and upload new files like photos or delivery notes.</p>
                   </div>
-                  <p>Each project card has an "Attached Files" section. From here, you can:</p>
-                  <ul className="list-disc pl-6 space-y-2">
-                    <li><strong>View and Download:</strong> See a list of all files for a project and download them by clicking the download icon.</li>
-                    <li><strong>Upload:</strong> You can upload new files (like photos or documents) to a project using the "Upload File" button.</li>
-                    <li><strong>Delete:</strong> You can delete any file that you originally uploaded.</li>
-                  </ul>
                 </AccordionContent>
               </AccordionItem>
 
-              <AccordionItem value="item-6">
-                <AccordionTrigger>Health & Safety Documents</AccordionTrigger>
+              <AccordionItem value="item-hs">
+                <AccordionTrigger>Health & Safety</AccordionTrigger>
                 <AccordionContent className="space-y-4">
                   <div className="flex items-center gap-2">
                     <HardHat className="h-5 w-5 text-muted-foreground" />
-                    <p>From the main menu, select "Health & Safety" to access a shared folder of important documents. Click the button on this page to open the folder and explore the files.</p>
+                    <p>This link takes you to a shared Google Drive folder containing important health and safety documents, which you can view or download.</p>
                   </div>
-                </AccordionContent>
-              </AccordionItem>
-
-              <AccordionItem value="item-7">
-                <AccordionTrigger>Annual Leave & Sickness</AccordionTrigger>
-                <AccordionContent className="space-y-4">
-                  <div className="flex items-center gap-2">
-                    <SunMoon className="h-5 w-5 text-muted-foreground" />
-                    <p>The "Annual Leave & Sickness" link in the main menu will take you to a separate application to manage your time off.</p>
-                  </div>
-                  <p>You will need to create an account in this separate application to register and report any sickness or holiday requests.</p>
                 </AccordionContent>
               </AccordionItem>
               
-              <AccordionItem value="item-8">
+              <AccordionItem value="item-notifications">
                 <AccordionTrigger>Enabling Push Notifications</AccordionTrigger>
                 <AccordionContent>
                   <Alert>
@@ -148,6 +153,57 @@ export default function HelpPage() {
                   </Alert>
                 </AccordionContent>
               </AccordionItem>
+            
+             {isPrivilegedUser && (
+                <>
+                    <CardTitle className="flex items-center gap-3 pt-8">
+                        <Shield className="h-8 w-8 text-primary" />
+                        Admin Guide
+                    </CardTitle>
+                    <AccordionItem value="admin-schedule">
+                        <AccordionTrigger>Team Schedule</AccordionTrigger>
+                        <AccordionContent className="space-y-4">
+                          <p>The Team Schedule provides a master view of all shifts for all users. You can filter by user and view shifts for today, this week, and next week. It also includes an archive of completed/incomplete shifts from the last 6 weeks.</p>
+                          <ul className="list-disc pl-6 space-y-2">
+                              <li><strong>Add/Edit/Delete Shifts:</strong> Owners can manually manage shifts directly from this view.</li>
+                              <li><strong>Download Reports:</strong> Download PDF reports for the day or week, providing a summary of all activities.</li>
+                          </ul>
+                        </AccordionContent>
+                    </AccordionItem>
+                     <AccordionItem value="admin-panel">
+                        <AccordionTrigger>Admin Panel</AccordionTrigger>
+                        <AccordionContent className="space-y-4">
+                          <p>The Admin Panel is the central hub for bulk operations and system configuration.</p>
+                          <ul className="list-disc pl-6 space-y-2">
+                              <li><strong>Import Shifts:</strong> Upload an Excel workbook to create, update, and delete shifts in bulk. Use the "Dry Run" option to preview changes before publishing.</li>
+                              <li><strong>Notification Control:</strong> Globally enable or disable all push notifications for all users.</li>
+                              <li><strong>VAPID Key Setup:</strong> A guide for the owner to configure the keys required for push notifications.</li>
+                              <li><strong>Test Notifications:</strong> Send a test push notification to any user to verify the system is working.</li>
+                          </ul>
+                        </AccordionContent>
+                    </AccordionItem>
+                     <AccordionItem value="admin-users">
+                        <AccordionTrigger>User Management</AccordionTrigger>
+                        <AccordionContent className="space-y-4">
+                          <p>This page allows you to view and manage all registered users.</p>
+                          <ul className="list-disc pl-6 space-y-2">
+                              <li><strong>View Users:</strong> See a list of all users, their roles, and their status.</li>
+                              <li><strong>Set Operative ID & Type:</strong> Assign an Operative ID and set their employment type (Direct/Subbie).</li>
+                              <li><strong>Activate/Suspend Users:</strong> Owners can approve new user registrations or suspend existing accounts.</li>
+                               <li><strong>Delete Users:</strong> Owners can permanently delete user accounts.</li>
+                              <li><strong>Download Directory:</strong> Generate a PDF directory of all operatives, separated by employment type.</li>
+                          </ul>
+                        </AccordionContent>
+                    </AccordionItem>
+                     <AccordionItem value="admin-performance">
+                        <AccordionTrigger>Operative Performance</AccordionTrigger>
+                        <AccordionContent className="space-y-4">
+                          <p>The Performance page provides key metrics on operative efficiency. You can filter the data by week, month, or all time.</p>
+                           <p>Metrics include total shifts assigned, completion rate, and incomplete rate, sorted from best to worst performance.</p>
+                        </AccordionContent>
+                    </AccordionItem>
+                </>
+             )}
 
             </Accordion>
           </CardContent>
