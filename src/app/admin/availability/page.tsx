@@ -12,7 +12,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Calendar as CalendarIcon, Users, UserCheck, Filter, ChevronDown, Check, Clock, Sun, Moon, MapPin } from 'lucide-react';
+import { Calendar as CalendarIcon, Users, UserCheck, Filter, ChevronDown, Check, Clock, Sun, Moon, MapPin, X } from 'lucide-react';
 import { getCorrectedLocalDate } from '@/lib/utils';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -28,6 +28,7 @@ interface AvailableUser {
   availability: 'full' | 'am' | 'pm' | 'partial';
   shiftLocation?: string;
   availableDates?: Date[];
+  unavailableDates?: Date[];
 }
 
 const getInitials = (name?: string) => {
@@ -181,12 +182,16 @@ export default function AvailabilityPage() {
           // User is fully available for the whole range
           available.push({ user, availability: 'full' });
         } else {
-          // User has some shifts, find the days they are free
+          // User has some shifts, find the days they are free and busy
           const shiftDates = new Set(userShiftsInRange.map(s => format(getCorrectedLocalDate(s.date), 'yyyy-MM-dd')));
           const datesAvailable: Date[] = [];
+          const datesUnavailable: Date[] = [];
+          
           allDatesInRange.forEach(day => {
-            if (!shiftDates.has(format(day, 'yyyy-MM-dd'))) {
-              datesAvailable.push(day);
+            if (shiftDates.has(format(day, 'yyyy-MM-dd'))) {
+                datesUnavailable.push(day);
+            } else {
+                datesAvailable.push(day);
             }
           });
 
@@ -195,9 +200,9 @@ export default function AvailabilityPage() {
               user,
               availability: 'partial',
               availableDates: datesAvailable,
+              unavailableDates: datesUnavailable,
             });
           }
-          // If they have shifts every day, they are not available at all, so they are not added to the list.
         }
       });
       return available;
@@ -308,7 +313,7 @@ export default function AvailabilityPage() {
                     </h3>
                      {availableUsers.length > 0 ? (
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                           {availableUsers.map(({ user, availability, shiftLocation, availableDates }) => (
+                           {availableUsers.map(({ user, availability, shiftLocation, availableDates, unavailableDates }) => (
                                <div key={user.uid} className="flex items-start gap-3 p-3 border rounded-md bg-muted/50">
                                    <Avatar className="h-8 w-8 mt-1">
                                        <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
@@ -332,10 +337,22 @@ export default function AvailabilityPage() {
                                       ) : availability === 'partial' && availableDates ? (
                                         <div className="mt-1">
                                           <Badge variant="outline" className="border-blue-500/50 bg-blue-500/10 text-blue-700">Partially Available</Badge>
-                                          <p className="text-xs text-muted-foreground mt-2">
-                                            <span className="font-medium">Available on: </span>
-                                            {availableDates.map(d => format(d, 'EEE d MMM')).join(', ')}
-                                          </p>
+                                           <div className="mt-2 text-xs space-y-1">
+                                                {availableDates.length > 0 && (
+                                                    <p className="flex items-center gap-1.5">
+                                                        <Check className="h-4 w-4 text-green-600 shrink-0"/>
+                                                        <span className="font-medium">Free:</span>
+                                                        <span className="text-muted-foreground">{availableDates.map(d => format(d, 'd MMM')).join(', ')}</span>
+                                                    </p>
+                                                )}
+                                                {unavailableDates && unavailableDates.length > 0 && (
+                                                    <p className="flex items-center gap-1.5">
+                                                        <X className="h-4 w-4 text-red-600 shrink-0"/>
+                                                        <span className="font-medium">Busy:</span>
+                                                        <span className="text-muted-foreground">{unavailableDates.map(d => format(d, 'd MMM')).join(', ')}</span>
+                                                    </p>
+                                                )}
+                                            </div>
                                         </div>
                                       ) : (
                                         <Badge variant="outline" className="mt-1 border-green-500/50 bg-green-500/10 text-green-700">Fully Available</Badge>
@@ -361,3 +378,4 @@ export default function AvailabilityPage() {
     </Card>
   );
 }
+
