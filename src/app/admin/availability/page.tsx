@@ -12,8 +12,15 @@ import { Calendar } from '@/components/ui/calendar';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Calendar as CalendarIcon, Users, UserCheck } from 'lucide-react';
+import { Calendar as CalendarIcon, Users, UserCheck, Filter, ChevronDown, Check } from 'lucide-react';
 import { getCorrectedLocalDate, isWithin } from '@/lib/utils';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem } from '@/components/ui/dropdown-menu';
+import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
+
+type Role = 'user' | 'admin' | 'owner';
 
 const getInitials = (name?: string) => {
     if (!name) return '??';
@@ -32,6 +39,11 @@ export default function AvailabilityPage() {
   const [allShifts, setAllShifts] = useState<Shift[]>([]);
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const [selectedRoles, setSelectedRoles] = useState<Set<Role>>(new Set(['user', 'admin', 'owner']));
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
+  const [isUserFilterApplied, setIsUserFilterApplied] = useState(false);
+
 
   useEffect(() => {
     setLoading(true);
@@ -58,9 +70,9 @@ export default function AvailabilityPage() {
     const usersQuery = query(collection(db, 'users'));
     const unsubUsers = onSnapshot(usersQuery, (snapshot) => {
         const fetchedUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
-        // This was the problem: it was filtering out admins/owners.
-        // Now it includes everyone.
         setAllUsers(fetchedUsers.sort((a,b) => a.name.localeCompare(b.name)));
+        // Initially, select all users by default
+        setSelectedUserIds(new Set(fetchedUsers.map(u => u.uid)));
         usersLoaded = true;
         checkAllDataLoaded();
     }, (err) => {
@@ -74,6 +86,42 @@ export default function AvailabilityPage() {
         unsubUsers();
     };
   }, []);
+
+  const handleRoleToggle = (role: Role) => {
+      setSelectedRoles(prev => {
+          const newRoles = new Set(prev);
+          if (newRoles.has(role)) {
+              newRoles.delete(role);
+          } else {
+              newRoles.add(role);
+          }
+          return newRoles;
+      });
+  };
+
+  const handleUserToggle = (userId: string) => {
+      setSelectedUserIds(prev => {
+          const newUserIds = new Set(prev);
+          if (newUserIds.has(userId)) {
+              newUserIds.delete(userId);
+          } else {
+              newUserIds.add(userId);
+          }
+          setIsUserFilterApplied(true); // Mark that a manual user selection has occurred
+          return newUserIds;
+      });
+  };
+
+  useEffect(() => {
+    // This effect updates the user selection only when the roles change,
+    // and only if the user hasn't started manually picking individuals.
+    if (!isUserFilterApplied) {
+        const userIdsInSelectedRoles = allUsers
+            .filter(u => selectedRoles.has(u.role as Role))
+            .map(u => u.uid);
+        setSelectedUserIds(new Set(userIdsInSelectedRoles));
+    }
+  }, [selectedRoles, allUsers, isUserFilterApplied]);
 
   const availableUsers = useMemo(() => {
     if (!dateRange?.from || allUsers.length === 0) {
@@ -95,9 +143,13 @@ export default function AvailabilityPage() {
         busyUserIds.add(shift.userId);
     });
     
-    return allUsers.filter(user => !busyUserIds.has(user.uid));
+    return allUsers.filter(user => 
+      !busyUserIds.has(user.uid) && // Not busy
+      selectedRoles.has(user.role as Role) && // Role is selected
+      selectedUserIds.has(user.uid) // Individual user is selected
+    );
 
-  }, [dateRange, allShifts, allUsers]);
+  }, [dateRange, allShifts, allUsers, selectedRoles, selectedUserIds]);
 
   const selectedPeriodText = () => {
     if (!dateRange?.from) return 'No date selected';
@@ -128,7 +180,57 @@ export default function AvailabilityPage() {
                 numberOfMonths={1}
             />
         </div>
-        <div className="md:col-span-2">
+        <div className="md:col-span-2 space-y-6">
+           <Card className="bg-muted/30">
+            <CardHeader className="py-4">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Filter className="h-4 w-4" />
+                Filters
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col sm:flex-row gap-6">
+              <div className="space-y-2">
+                <h4 className="font-medium text-sm">Roles</h4>
+                <div className="flex gap-4">
+                  {(['user', 'admin', 'owner'] as Role[]).map(role => (
+                    <div key={role} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`role-${role}`}
+                        checked={selectedRoles.has(role)}
+                        onCheckedChange={() => handleRoleToggle(role)}
+                      />
+                      <Label htmlFor={`role-${role}`} className="capitalize">{role}</Label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <h4 className="font-medium text-sm">Users</h4>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="w-full sm:w-[250px] justify-between">
+                      <span>{selectedUserIds.size} of {allUsers.length} users selected</span>
+                      <ChevronDown className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
+                    <ScrollArea className="h-72">
+                      {allUsers.map(user => (
+                        <DropdownMenuCheckboxItem
+                          key={user.uid}
+                          checked={selectedUserIds.has(user.uid)}
+                          onCheckedChange={() => handleUserToggle(user.uid)}
+                        >
+                          <span className="truncate">{user.name}</span>
+                        </DropdownMenuCheckboxItem>
+                      ))}
+                    </ScrollArea>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </CardContent>
+           </Card>
+
            {loading ? (
              <div className="space-y-4">
                  <Skeleton className="h-8 w-1/2" />
@@ -165,7 +267,9 @@ export default function AvailabilityPage() {
                          <Alert className="border-dashed">
                             <Users className="h-4 w-4" />
                             <AlertTitle>No Operatives Available</AlertTitle>
-                            <AlertDescription>All operatives have assigned shifts in the selected period.</AlertDescription>
+                            <AlertDescription>
+                              No users match the current date and filter criteria. Try adjusting the date range or filters.
+                            </AlertDescription>
                         </Alert>
                     )}
                 </div>
@@ -176,3 +280,4 @@ export default function AvailabilityPage() {
     </Card>
   );
 }
+
