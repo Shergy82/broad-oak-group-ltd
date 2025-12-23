@@ -1,10 +1,13 @@
 
 'use client';
 
+import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { CalendarCheck } from 'lucide-react';
+import { Calendar } from '@/components/ui/calendar';
 
 export function AvailabilityOverview() {
+  const [date, setDate] = useState<Date | undefined>(new Date());
+
   return (
     <Card>
       <CardHeader>
@@ -13,14 +16,13 @@ export function AvailabilityOverview() {
           View and manage operative availability, time off, and holidays.
         </CardDescription>
       </CardHeader>
-      <CardContent>
-        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center h-96">
-            <CalendarCheck className="mx-auto h-12 w-12 text-muted-foreground" />
-            <h3 className="mt-4 text-lg font-semibold">Under Construction</h3>
-            <p className="mt-2 text-sm text-muted-foreground">
-                The availability calendar and management tools will be displayed here.
-            </p>
-        </div>
+      <CardContent className="flex justify-center">
+        <Calendar
+          mode="single"
+          selected={date}
+          onSelect={setDate}
+          className="rounded-md border"
+        />
       </CardContent>
     </Card>
   );
