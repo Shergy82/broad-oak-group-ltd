@@ -168,29 +168,39 @@ export default function AvailabilityPage() {
     } else {
       // Multi-day range logic
       const allDatesInRange = eachDayOfInterval({ start, end });
-      
-      const partiallyAvailable: AvailableUser[] = [];
+      const available: AvailableUser[] = [];
 
       usersToConsider.forEach(user => {
-        const datesAvailable: Date[] = [];
-        allDatesInRange.forEach(day => {
-          const hasShiftOnDay = allShifts.some(shift => 
-            shift.userId === user.uid && isSameDay(getCorrectedLocalDate(shift.date), day)
-          );
-          if (!hasShiftOnDay) {
-            datesAvailable.push(day);
+        const userShiftsInRange = allShifts.filter(shift =>
+          shift.userId === user.uid &&
+          isSameDay(getCorrectedLocalDate(shift.date), start) <= isSameDay(getCorrectedLocalDate(shift.date), end) &&
+          getCorrectedLocalDate(shift.date) >= start && getCorrectedLocalDate(shift.date) <= end
+        );
+
+        if (userShiftsInRange.length === 0) {
+          // User is fully available for the whole range
+          available.push({ user, availability: 'full' });
+        } else {
+          // User has some shifts, find the days they are free
+          const shiftDates = new Set(userShiftsInRange.map(s => format(getCorrectedLocalDate(s.date), 'yyyy-MM-dd')));
+          const datesAvailable: Date[] = [];
+          allDatesInRange.forEach(day => {
+            if (!shiftDates.has(format(day, 'yyyy-MM-dd'))) {
+              datesAvailable.push(day);
+            }
+          });
+
+          if (datesAvailable.length > 0) {
+            available.push({
+              user,
+              availability: 'partial',
+              availableDates: datesAvailable,
+            });
           }
-        });
-        
-        if (datesAvailable.length > 0) {
-           partiallyAvailable.push({
-             user,
-             availability: 'partial',
-             availableDates: datesAvailable,
-           });
+          // If they have shifts every day, they are not available at all, so they are not added to the list.
         }
       });
-      return partiallyAvailable;
+      return available;
     }
   }, [dateRange, allShifts, allUsers, selectedRoles, selectedUserIds]);
   
