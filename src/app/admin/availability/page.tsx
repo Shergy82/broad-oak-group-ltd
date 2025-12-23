@@ -74,9 +74,9 @@ export default function AvailabilityPage() {
     };
   }, []);
 
-  const { availableUsers, busyUsers } = useMemo(() => {
+  const { availableUsers } = useMemo(() => {
     if (!dateRange?.from || allUsers.length === 0) {
-      return { availableUsers: allUsers, busyUsers: new Map<string, Shift[]>() };
+      return { availableUsers: allUsers };
     }
     
     const start = startOfDay(dateRange.from);
@@ -89,17 +89,14 @@ export default function AvailabilityPage() {
         return isWithin(shiftDate, interval);
     });
 
-    const busyUserMap = new Map<string, Shift[]>();
+    const busyUserIds = new Set<string>();
     shiftsInInterval.forEach(shift => {
-        if (!busyUserMap.has(shift.userId)) {
-            busyUserMap.set(shift.userId, []);
-        }
-        busyUserMap.get(shift.userId)!.push(shift);
+        busyUserIds.add(shift.userId);
     });
     
-    const availableUsers = allUsers.filter(user => !busyUserMap.has(user.uid));
+    const available = allUsers.filter(user => !busyUserIds.has(user.uid));
 
-    return { availableUsers, busyUsers: busyUserMap };
+    return { availableUsers: available };
 
   }, [dateRange, allShifts, allUsers]);
 
@@ -118,7 +115,7 @@ export default function AvailabilityPage() {
       <CardHeader>
         <CardTitle>Operative Availability</CardTitle>
         <CardDescription>
-          Select a date or a date range to view operative availability based on their assigned shifts.
+          Select a date or a date range to view which operatives are available.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -136,8 +133,6 @@ export default function AvailabilityPage() {
            {loading ? (
              <div className="space-y-4">
                  <Skeleton className="h-8 w-1/2" />
-                 <Skeleton className="h-24 w-full" />
-                 <Skeleton className="h-8 w-1/3" />
                  <Skeleton className="h-32 w-full" />
              </div>
            ) : !dateRange?.from ? (
@@ -151,45 +146,6 @@ export default function AvailabilityPage() {
            ) : (
              <div className="space-y-6">
                 <div>
-                    <h3 className="text-lg font-semibold flex items-center gap-2 mb-3">
-                        <UserX className="text-destructive h-5 w-5"/>
-                        Busy Operatives ({busyUsers.size})
-                        <span className="text-sm font-normal text-muted-foreground ml-2">{selectedPeriodText()}</span>
-                    </h3>
-                    {busyUsers.size > 0 ? (
-                        <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
-                           {[...busyUsers.entries()].map(([userId, shifts]) => {
-                               const user = allUsers.find(u => u.uid === userId);
-                               return (
-                                   <div key={userId} className="flex items-start gap-4 p-3 border rounded-lg">
-                                       <Avatar>
-                                           <AvatarFallback>{getInitials(user?.name)}</AvatarFallback>
-                                       </Avatar>
-                                       <div className="flex-grow">
-                                           <p className="font-semibold">{user?.name || 'Unknown User'}</p>
-                                           <div className="space-y-1 mt-1">
-                                                {shifts.map(shift => (
-                                                    <div key={shift.id} className="text-xs text-muted-foreground">
-                                                        <span className="font-medium text-foreground">{format(getCorrectedLocalDate(shift.date), 'EEE, dd MMM')}: </span>
-                                                        <span>{shift.task} at {shift.address}</span>
-                                                        <Badge variant="outline" className="ml-2 capitalize">{shift.type === 'all-day' ? 'All Day' : shift.type}</Badge>
-                                                    </div>
-                                                ))}
-                                           </div>
-                                       </div>
-                                   </div>
-                               )
-                           })}
-                        </div>
-                    ) : (
-                         <Alert className="border-dashed">
-                            <Users className="h-4 w-4" />
-                            <AlertTitle>All Operatives Available</AlertTitle>
-                            <AlertDescription>No shifts are assigned to any operatives in the selected period.</AlertDescription>
-                        </Alert>
-                    )}
-                </div>
-                 <div>
                     <h3 className="text-lg font-semibold flex items-center gap-2 mb-3">
                         <UserCheck className="text-green-600 h-5 w-5"/>
                         Available Operatives ({availableUsers.length})
@@ -221,3 +177,4 @@ export default function AvailabilityPage() {
     </Card>
   );
 }
+
