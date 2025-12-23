@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { addDays, format, startOfDay, isSameDay } from 'date-fns';
+import { addDays, format, startOfDay, isSameDay, eachDayOfInterval } from 'date-fns';
 import type { DateRange } from 'react-day-picker';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -13,7 +13,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Calendar as CalendarIcon, Users, UserCheck, Filter, ChevronDown, Check, Clock, Sun, Moon, MapPin } from 'lucide-react';
-import { getCorrectedLocalDate, isWithin } from '@/lib/utils';
+import { getCorrectedLocalDate } from '@/lib/utils';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem } from '@/components/ui/dropdown-menu';
@@ -25,8 +25,9 @@ type Role = 'user' | 'admin' | 'owner';
 
 interface AvailableUser {
   user: UserProfile;
-  availability: 'full' | 'am' | 'pm';
+  availability: 'full' | 'am' | 'pm' | 'partial';
   shiftLocation?: string;
+  availableDates?: Date[];
 }
 
 const getInitials = (name?: string) => {
@@ -165,18 +166,31 @@ export default function AvailabilityPage() {
         }).filter((u): u is AvailableUser => u !== null);
 
     } else {
-        // Multi-day range logic
-        const interval = { start, end };
-        const shiftsInInterval = allShifts.filter((shift) => {
-            const shiftDate = getCorrectedLocalDate(shift.date);
-            return isWithin(shiftDate, interval);
-        });
+      // Multi-day range logic
+      const allDatesInRange = eachDayOfInterval({ start, end });
+      
+      const partiallyAvailable: AvailableUser[] = [];
 
-        const busyUserIds = new Set(shiftsInInterval.map(s => s.userId));
+      usersToConsider.forEach(user => {
+        const datesAvailable: Date[] = [];
+        allDatesInRange.forEach(day => {
+          const hasShiftOnDay = allShifts.some(shift => 
+            shift.userId === user.uid && isSameDay(getCorrectedLocalDate(shift.date), day)
+          );
+          if (!hasShiftOnDay) {
+            datesAvailable.push(day);
+          }
+        });
         
-        return usersToConsider
-            .filter((user) => !busyUserIds.has(user.uid))
-            .map(user => ({ user, availability: 'full' }));
+        if (datesAvailable.length > 0) {
+           partiallyAvailable.push({
+             user,
+             availability: 'partial',
+             availableDates: datesAvailable,
+           });
+        }
+      });
+      return partiallyAvailable;
     }
   }, [dateRange, allShifts, allUsers, selectedRoles, selectedUserIds]);
   
@@ -284,14 +298,14 @@ export default function AvailabilityPage() {
                     </h3>
                      {availableUsers.length > 0 ? (
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                           {availableUsers.map(({ user, availability, shiftLocation }) => (
+                           {availableUsers.map(({ user, availability, shiftLocation, availableDates }) => (
                                <div key={user.uid} className="flex items-start gap-3 p-3 border rounded-md bg-muted/50">
                                    <Avatar className="h-8 w-8 mt-1">
                                        <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
                                    </Avatar>
                                    <div className="flex-grow">
                                       <p className="text-sm font-medium">{user.name}</p>
-                                      {availability !== 'full' ? (
+                                      {availability === 'am' || availability === 'pm' ? (
                                         <>
                                           <Badge variant="secondary" className="capitalize mt-1">
                                             {availability === 'am' && <Sun className="h-3 w-3 mr-1.5 text-orange-500" />}
@@ -305,6 +319,14 @@ export default function AvailabilityPage() {
                                               </p>
                                           )}
                                         </>
+                                      ) : availability === 'partial' && availableDates ? (
+                                        <div className="mt-1">
+                                          <Badge variant="outline" className="border-blue-500/50 bg-blue-500/10 text-blue-700">Partially Available</Badge>
+                                          <p className="text-xs text-muted-foreground mt-2">
+                                            <span className="font-medium">Available on: </span>
+                                            {availableDates.map(d => format(d, 'EEE d MMM')).join(', ')}
+                                          </p>
+                                        </div>
                                       ) : (
                                         <Badge variant="outline" className="mt-1 border-green-500/50 bg-green-500/10 text-green-700">Fully Available</Badge>
                                       )}
