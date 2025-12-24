@@ -147,7 +147,6 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
         // --- Auto-create project if it doesn't exist ---
         if (shiftDataAfter?.address) {
             const projectsRef = db.collection('projects');
-            // Use correct Admin SDK syntax for where()
             const projectQuery = projectsRef.where('address', '==', shiftDataAfter.address);
             
             try {
