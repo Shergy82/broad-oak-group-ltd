@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useRouter } from 'next/navigation';
@@ -8,7 +7,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { Logo } from '../shared/logo';
 import { Button } from '@/components/ui/button';
-import { Briefcase, Calendar, HardHat, LogOut, Megaphone, Shield, User, UserCog, Users, TrendingUp, HelpCircle, Fingerprint, Building2, CalendarCheck } from 'lucide-react';
+import { Briefcase, Calendar, HardHat, LogOut, Megaphone, Shield, User, UserCog, Users, TrendingUp, HelpCircle, Fingerprint, Building2, CalendarCheck, CheckSquare } from 'lucide-react';
 import { NotificationButton } from '../shared/notification-button';
 import {
   DropdownMenu,
@@ -103,6 +102,10 @@ export function Header() {
                     <DropdownMenuItem onClick={() => router.push('/schedule')} className="cursor-pointer">
                       <Users className="mr-2" />
                       <span>Team Schedule</span>
+                    </DropdownMenuItem>
+                     <DropdownMenuItem onClick={() => router.push('/admin/tasks')} className="cursor-pointer">
+                      <CheckSquare className="mr-2" />
+                      <span>Tasks</span>
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => router.push('/admin/availability')} className="cursor-pointer">
                       <CalendarCheck className="mr-2" />
