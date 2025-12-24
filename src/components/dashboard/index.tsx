@@ -16,6 +16,7 @@ import { getCorrectedLocalDate } from '@/lib/utils';
 import { Badge } from '../ui/badge';
 import { Download, History, Clock, Sunrise, Sunset } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ScrollArea, ScrollBar } from '../ui/scroll-area';
 
 export default function Dashboard({ userShifts, loading }: { userShifts: Shift[], loading: boolean }) {
   const { user } = useAuth();
@@ -284,14 +285,17 @@ export default function Dashboard({ userShifts, loading }: { userShifts: Shift[]
       )}
       
       <Tabs defaultValue="today" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 sm:w-auto sm:inline-flex">
-          <TabsTrigger value="last-week" className="data-[state=active]:bg-amber-100 data-[state=active]:text-amber-800 dark:data-[state=active]:bg-amber-900/50 dark:data-[state=active]:text-amber-300">Last Week</TabsTrigger>
-          <TabsTrigger value="today">Today</TabsTrigger>
-          <TabsTrigger value="this-week">This Week</TabsTrigger>
-          <TabsTrigger value="next-week">Next Week</TabsTrigger>
-          <TabsTrigger value="week-3">Week 3</TabsTrigger>
-          <TabsTrigger value="week-4">Week 4</TabsTrigger>
-        </TabsList>
+        <ScrollArea className="w-full whitespace-nowrap rounded-lg">
+          <TabsList className="inline-flex">
+            <TabsTrigger value="last-week" className="data-[state=active]:bg-amber-100 data-[state=active]:text-amber-800 dark:data-[state=active]:bg-amber-900/50 dark:data-[state=active]:text-amber-300">Last Week</TabsTrigger>
+            <TabsTrigger value="today">Today</TabsTrigger>
+            <TabsTrigger value="this-week">This Week</TabsTrigger>
+            <TabsTrigger value="next-week">Next Week</TabsTrigger>
+            <TabsTrigger value="week-3">Week 3</TabsTrigger>
+            <TabsTrigger value="week-4">Week 4</TabsTrigger>
+          </TabsList>
+          <ScrollBar orientation="horizontal" />
+        </ScrollArea>
         <TabsContent value="last-week">
           {renderWeekView(lastWeekShifts, "last week", true)}
         </TabsContent>
