@@ -28,6 +28,7 @@ export interface UserProfile {
   status?: 'active' | 'suspended' | 'pending-approval';
   employmentType?: 'direct' | 'subbie';
   operativeId?: string;
+  trade?: string;
 }
 
 export interface Project {

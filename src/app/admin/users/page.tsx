@@ -94,9 +94,9 @@ export default function UserManagementPage() {
       }
   }
 
-  const handleOperativeIdChange = async (uid: string, operativeId: string) => {
+  const handleFieldChange = async (uid: string, field: 'operativeId' | 'trade', value: string) => {
     if (!isPrivilegedUser) {
-        toast({ variant: "destructive", title: "Permission Denied", description: "You cannot change the Operative ID." });
+        toast({ variant: "destructive", title: "Permission Denied", description: `You cannot change the ${field}.` });
         return;
     }
     if (!db) {
@@ -105,10 +105,10 @@ export default function UserManagementPage() {
     }
     const userDocRef = doc(db, 'users', uid);
     try {
-        await updateDoc(userDocRef, { operativeId });
-        toast({ title: "Success", description: "Operative ID updated." });
+        await updateDoc(userDocRef, { [field]: value });
+        toast({ title: "Success", description: `${field === 'operativeId' ? 'Operative ID' : 'Trade'} updated.` });
     } catch (error: any) {
-        toast({ variant: "destructive", title: "Update Failed", description: error.message || "Could not update Operative ID." });
+        toast({ variant: "destructive", title: "Update Failed", description: error.message || `Could not update ${field}.` });
     }
   };
 
@@ -292,6 +292,7 @@ export default function UserManagementPage() {
                     <TableRow>
                     <TableHead>Name</TableHead>
                     <TableHead>Operative ID</TableHead>
+                    <TableHead>Trade</TableHead>
                     <TableHead>Phone Number</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead>Status</TableHead>
@@ -307,13 +308,26 @@ export default function UserManagementPage() {
                             {isPrivilegedUser ? (
                               <Input
                                 defaultValue={user.operativeId || ''}
-                                onBlur={(e) => handleOperativeIdChange(user.uid, e.target.value)}
+                                onBlur={(e) => handleFieldChange(user.uid, 'operativeId', e.target.value)}
                                 className="h-8 w-24"
                                 placeholder="Set ID"
                                 disabled={!isPrivilegedUser}
                               />
                             ) : (
                               user.operativeId || <Badge variant="outline">N/A</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {isPrivilegedUser ? (
+                              <Input
+                                defaultValue={user.trade || ''}
+                                onBlur={(e) => handleFieldChange(user.uid, 'trade', e.target.value)}
+                                className="h-8 w-32"
+                                placeholder="Set Trade"
+                                disabled={!isPrivilegedUser}
+                              />
+                            ) : (
+                              user.trade || <Badge variant="outline">N/A</Badge>
                             )}
                           </TableCell>
                           <TableCell>{user.phoneNumber || 'N/A'}</TableCell>
@@ -399,9 +413,19 @@ export default function UserManagementPage() {
                             <strong className="shrink-0">ID:</strong>
                             <Input
                                 defaultValue={user.operativeId || ''}
-                                onBlur={(e) => handleOperativeIdChange(user.uid, e.target.value)}
+                                onBlur={(e) => handleFieldChange(user.uid, 'operativeId', e.target.value)}
                                 className="h-8"
                                 placeholder="Set ID"
+                                disabled={!isPrivilegedUser}
+                              />
+                          </div>
+                          <div className="flex items-center gap-2 pt-2">
+                            <strong className="shrink-0">Trade:</strong>
+                            <Input
+                                defaultValue={user.trade || ''}
+                                onBlur={(e) => handleFieldChange(user.uid, 'trade', e.target.value)}
+                                className="h-8"
+                                placeholder="Set Trade"
                                 disabled={!isPrivilegedUser}
                               />
                           </div>
