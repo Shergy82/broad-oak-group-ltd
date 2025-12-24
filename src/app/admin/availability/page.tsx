@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -44,6 +45,7 @@ interface DayData {
     availableUsers: {
         user: UserProfile;
         availability: 'full' | 'am' | 'pm';
+        shiftLocation?: string;
     }[];
 }
 
@@ -273,8 +275,9 @@ export default function AvailabilityPage() {
             if (shiftsOnDay.length === 0) {
                 availableUsers.push({ user, availability: 'full' });
             } else if (shiftsOnDay.length === 1) {
-                if (shiftsOnDay[0].type === 'am') availableUsers.push({ user, availability: 'pm' });
-                if (shiftsOnDay[0].type === 'pm') availableUsers.push({ user, availability: 'am' });
+                const shift = shiftsOnDay[0];
+                if (shift.type === 'am') availableUsers.push({ user, availability: 'pm', shiftLocation: shift.address });
+                if (shift.type === 'pm') availableUsers.push({ user, availability: 'am', shiftLocation: shift.address });
             }
         }
         return {
@@ -319,7 +322,7 @@ export default function AvailabilityPage() {
                     </span>
                     <div className="mt-2 flex flex-wrap gap-1">
                         <TooltipProvider>
-                            {availableUsers.slice(0, 10).map(({ user, availability }) => (
+                            {availableUsers.slice(0, 10).map(({ user, availability, shiftLocation }) => (
                                 <Tooltip key={user.uid}>
                                     <TooltipTrigger>
                                          <Avatar className={`h-6 w-6 border-2 ${availability === 'full' ? 'border-green-500' : 'border-blue-500'}`}>
@@ -327,7 +330,10 @@ export default function AvailabilityPage() {
                                         </Avatar>
                                     </TooltipTrigger>
                                     <TooltipContent>
-                                        <p>{user.name} - {availability === 'full' ? 'Full Day' : `${availability.toUpperCase()} Available`}</p>
+                                        <p>
+                                            {user.name} - {availability === 'full' ? 'Full Day' : `${availability.toUpperCase()} Available`}
+                                            {availability !== 'full' && shiftLocation && <span className="text-muted-foreground text-xs"> (Busy at {extractLocation(shiftLocation)})</span>}
+                                        </p>
                                     </TooltipContent>
                                 </Tooltip>
                             ))}
