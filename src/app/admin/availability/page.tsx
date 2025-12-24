@@ -382,7 +382,17 @@ export default function AvailabilityPage() {
     doc.save(`availability_report_${reportType}_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
   };
 
-  const renderSimpleView = () => (
+  const renderSimpleView = () => {
+    const getBorderColor = (availability: 'full' | 'am' | 'pm') => {
+        switch (availability) {
+            case 'full': return 'border-green-500';
+            case 'am': return 'border-sky-500';
+            case 'pm': return 'border-orange-500';
+            default: return 'border-gray-400';
+        }
+    };
+    
+    return (
     <div className="md:col-span-3 space-y-4">
         <div className="flex justify-between items-center bg-muted/50 p-2 rounded-lg">
             <Button variant="outline" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}>
@@ -407,7 +417,7 @@ export default function AvailabilityPage() {
                             {availableUsers.slice(0, 10).map(({ user, availability, shiftLocation }) => (
                                 <Tooltip key={user.uid}>
                                     <TooltipTrigger>
-                                         <Avatar className={`h-6 w-6 border-2 ${availability === 'full' ? 'border-green-500' : 'border-blue-500'}`}>
+                                         <Avatar className={`h-6 w-6 border-2 ${getBorderColor(availability)}`}>
                                             <AvatarFallback className="text-[10px]">{getInitials(user.name)}</AvatarFallback>
                                         </Avatar>
                                     </TooltipTrigger>
@@ -436,8 +446,23 @@ export default function AvailabilityPage() {
                 </div>
             ))}
         </div>
+        <div className="flex justify-center items-center gap-6 text-xs text-muted-foreground pt-4">
+            <div className="flex items-center gap-2">
+                <div className="h-3 w-3 rounded-full border-2 border-green-500" />
+                <span>Full Day</span>
+            </div>
+            <div className="flex items-center gap-2">
+                <div className="h-3 w-3 rounded-full border-2 border-sky-500" />
+                <span>AM Available</span>
+            </div>
+             <div className="flex items-center gap-2">
+                <div className="h-3 w-3 rounded-full border-2 border-orange-500" />
+                <span>PM Available</span>
+            </div>
+        </div>
     </div>
   );
+  }
   
   return (
     <Card>
