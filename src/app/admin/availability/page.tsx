@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { addDays, format, startOfDay, isSameDay, eachDayOfInterval, isBefore, subDays, startOfMonth, endOfMonth, getDaysInMonth, getDay, addMonths, subMonths, startOfWeek, endOfWeek, isWithinInterval } from 'date-fns';
+import { addDays, format, startOfDay, isSameDay, eachDayOfInterval, isBefore, subMonths, startOfMonth, endOfMonth, getDay, addMonths, startOfWeek, endOfWeek, isWithinInterval } from 'date-fns';
 import type { DateRange } from 'react-day-picker';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -79,6 +79,9 @@ const extractLocation = (address: string | undefined): string => {
     return parts[parts.length - 1].trim();
 };
 
+const LS_ROLES_KEY = 'availability_selectedRoles';
+const LS_VIEW_KEY = 'availability_viewMode';
+
 export default function AvailabilityPage() {
   const [dateRange, setDateRange] = useState<DateRange | undefined>({
       from: startOfDay(new Date()),
@@ -99,6 +102,21 @@ export default function AvailabilityPage() {
     setLoading(true);
     let shiftsLoaded = false;
     let usersLoaded = false;
+
+    // Load saved preferences from localStorage on initial mount
+    try {
+        const savedRoles = localStorage.getItem(LS_ROLES_KEY);
+        if (savedRoles) {
+            setSelectedRoles(new Set(JSON.parse(savedRoles)));
+        }
+        const savedViewMode = localStorage.getItem(LS_VIEW_KEY);
+        if (savedViewMode) {
+            setViewMode(savedViewMode as 'detailed' | 'simple');
+        }
+    } catch (e) {
+        console.error("Failed to load filter preferences from localStorage", e);
+    }
+
 
     const checkAllDataLoaded = () => {
         if (shiftsLoaded && usersLoaded) {
@@ -144,6 +162,12 @@ export default function AvailabilityPage() {
           } else {
               newRoles.add(role);
           }
+          // Save to localStorage
+          try {
+            localStorage.setItem(LS_ROLES_KEY, JSON.stringify(Array.from(newRoles)));
+          } catch (e) {
+            console.error("Failed to save roles to localStorage", e);
+          }
           return newRoles;
       });
   };
@@ -160,6 +184,16 @@ export default function AvailabilityPage() {
           return newUserIds;
       });
   };
+
+  const handleViewModeChange = (checked: boolean) => {
+      const newMode = checked ? 'simple' : 'detailed';
+      setViewMode(newMode);
+      try {
+        localStorage.setItem(LS_VIEW_KEY, newMode);
+      } catch (e) {
+        console.error("Failed to save view mode to localStorage", e);
+      }
+  }
 
   useEffect(() => {
     if (!isUserFilterApplied) {
@@ -189,7 +223,7 @@ export default function AvailabilityPage() {
         const userShiftsInRange = allShifts.filter(shift =>
             shift.userId === user.uid && 
             isBefore(startOfDay(getCorrectedLocalDate(shift.date)), addDays(end, 1)) &&
-            isBefore(subDays(start, 1), startOfDay(getCorrectedLocalDate(shift.date)))
+            isBefore(start, addDays(startOfDay(getCorrectedLocalDate(shift.date)), 1))
         );
 
         const dayStates = intervalDays.map((day): DayAvailability => {
@@ -233,8 +267,6 @@ export default function AvailabilityPage() {
     const startDayOfWeek = getDay(start);
     const startOffset = startDayOfWeek === 0 ? 6 : startDayOfWeek -1;
 
-    const prevMonth = subMonths(start, 1);
-    const daysInPrevMonth = getDaysInMonth(prevMonth);
     const paddingDaysStart = Array.from({length: startOffset}, (_, i) => {
         return addDays(start, -(startOffset - i));
     });
@@ -483,7 +515,7 @@ export default function AvailabilityPage() {
                 <Switch
                     id="view-mode-toggle"
                     checked={viewMode === 'simple'}
-                    onCheckedChange={(checked) => setViewMode(checked ? 'simple' : 'detailed')}
+                    onCheckedChange={handleViewModeChange}
                 />
             </div>
         </div>
