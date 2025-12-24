@@ -3,7 +3,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { addDays, format, startOfDay, isSameDay, eachDayOfInterval, isBefore, subDays, startOfMonth, endOfMonth, getDaysInMonth, getDay, addMonths, subMonths } from 'date-fns';
+import { addDays, format, startOfDay, isSameDay, eachDayOfInterval, isBefore, subDays, startOfMonth, endOfMonth, getDaysInMonth, getDay, addMonths, subMonths, startOfWeek, endOfWeek, isWithinInterval } from 'date-fns';
 import type { DateRange } from 'react-day-picker';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -13,11 +13,11 @@ import { Calendar as CalendarPicker } from '@/components/ui/calendar';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Calendar as CalendarIcon, Users, UserCheck, Filter, ChevronDown, Check, Clock, Sun, Moon, MapPin, X, CheckCircle, XCircle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Calendar as CalendarIcon, Users, UserCheck, Filter, ChevronDown, Check, Clock, Sun, Moon, MapPin, X, CheckCircle, XCircle, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { getCorrectedLocalDate } from '@/lib/utils';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
@@ -300,6 +300,103 @@ export default function AvailabilityPage() {
     return `from ${start} to ${end}`;
   }
 
+  const handleDownloadPdf = async (reportType: 'day' | 'week' | 'month') => {
+    const { default: jsPDF } = await import('jspdf');
+    const { default: autoTable } = await import('jspdf-autotable');
+
+    if (!dateRange?.from) return;
+
+    const baseDate = dateRange.from;
+    let interval;
+    let reportTitle = '';
+
+    switch (reportType) {
+      case 'day':
+        interval = { start: baseDate, end: baseDate };
+        reportTitle = `Daily Availability Report for ${format(baseDate, 'PPP')}`;
+        break;
+      case 'week':
+        interval = { start: startOfWeek(baseDate, { weekStartsOn: 1 }), end: endOfWeek(baseDate, { weekStartsOn: 1 }) };
+        reportTitle = `Weekly Availability Report (w/c ${format(interval.start, 'dd MMM yyyy')})`;
+        break;
+      case 'month':
+        interval = { start: startOfMonth(baseDate), end: endOfMonth(baseDate) };
+        reportTitle = `Monthly Availability Report for ${format(baseDate, 'MMMM yyyy')}`;
+        break;
+    }
+    
+    const intervalDays = eachDayOfInterval(interval);
+    
+    const doc = new jsPDF();
+    doc.setFontSize(18);
+    doc.text(reportTitle, 14, 22);
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+    doc.text(`Generated on: ${format(new Date(), 'PPP p')}`, 14, 28);
+    
+    let finalY = 35;
+    
+    const usersToConsider = allUsers.filter(u => selectedUserIds.has(u.uid));
+
+    const head = [['Operative', 'Date', 'Availability', 'Notes']];
+    const body: string[][] = [];
+
+    usersToConsider.forEach(user => {
+      const userShiftsInRange = allShifts.filter(shift =>
+          shift.userId === user.uid && isWithinInterval(getCorrectedLocalDate(shift.date), interval)
+      );
+
+      let addedUserRow = false;
+
+      intervalDays.forEach(day => {
+        const shiftsOnDay = userShiftsInRange.filter(shift => isSameDay(getCorrectedLocalDate(shift.date), day));
+        
+        let availability = '';
+        let notes = '';
+
+        if (shiftsOnDay.length === 0) {
+          availability = 'Full Day';
+        } else if (shiftsOnDay.length === 1) {
+          const shift = shiftsOnDay[0];
+          if (shift.type === 'am') {
+            availability = 'PM Available';
+            notes = `AM shift at ${extractLocation(shift.address)}`;
+          } else if (shift.type === 'pm') {
+            availability = 'AM Available';
+            notes = `PM shift at ${extractLocation(shift.address)}`;
+          }
+        }
+        
+        if (availability) {
+          body.push([
+            !addedUserRow ? user.name : '',
+            format(day, 'EEE, dd MMM'),
+            availability,
+            notes
+          ]);
+          addedUserRow = true;
+        }
+      });
+    });
+    
+    autoTable(doc, {
+        head,
+        body,
+        startY: finalY,
+        headStyles: { fillColor: [6, 95, 212] },
+        didParseCell: function (data) {
+            if (data.row.index > 0 && data.section === 'body') {
+                if (body[data.row.index][0] === '' && body[data.row.index-1][0] !== '') {
+                   data.cell.styles.borderTopWidth = 1;
+                   data.cell.styles.borderTopColor = [220, 220, 220];
+                }
+            }
+        }
+    });
+
+    doc.save(`availability_report_${reportType}_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+  };
+
   const renderSimpleView = () => (
     <div className="md:col-span-3 space-y-4">
         <div className="flex justify-between items-center bg-muted/50 p-2 rounded-lg">
@@ -401,10 +498,25 @@ export default function AvailabilityPage() {
                 <div className="md:col-span-2 space-y-6">
                     <Card className="bg-muted/30">
                         <CardHeader className="py-4">
-                        <CardTitle className="text-base flex items-center gap-2">
-                            <Filter className="h-4 w-4" />
-                            Filters
-                        </CardTitle>
+                            <div className="flex justify-between items-center">
+                                <CardTitle className="text-base flex items-center gap-2">
+                                    <Filter className="h-4 w-4" />
+                                    Filters
+                                </CardTitle>
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button variant="outline" size="sm" disabled={!dateRange?.from}>
+                                            <Download className="h-4 w-4 mr-2" />
+                                            Download Report
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent>
+                                        <DropdownMenuItem onClick={() => handleDownloadPdf('day')}>Daily Report</DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => handleDownloadPdf('week')}>Weekly Report</DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => handleDownloadPdf('month')}>Monthly Report</DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            </div>
                         </CardHeader>
                         <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-start">
                             <div className="space-y-2">
