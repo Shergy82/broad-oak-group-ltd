@@ -136,13 +136,42 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
     let payload: object | null = null;
 
     if (change.after.exists && !change.before.exists) {
-      // A new shift is created
-      userId = shiftDataAfter?.userId;
-      payload = {
-        title: "New Shift Assigned",
-        body: `You have a new shift: ${shiftDataAfter?.task} at ${shiftDataAfter?.address}.`,
-        data: { url: `/dashboard` },
-      };
+        // A new shift is created
+        userId = shiftDataAfter?.userId;
+        payload = {
+            title: "New Shift Assigned",
+            body: `You have a new shift: ${shiftDataAfter?.task} at ${shiftDataAfter?.address}.`,
+            data: { url: `/dashboard` },
+        };
+
+        // --- Auto-create project if it doesn't exist ---
+        if (shiftDataAfter?.address) {
+            const projectsRef = db.collection('projects');
+            const projectQuery = query(projectsRef, where('address', '==', shiftDataAfter.address));
+            
+            try {
+                const querySnapshot = await projectQuery.get();
+                if (querySnapshot.empty) {
+                    // No project with this address exists, so create one.
+                    const reviewDate = new Date();
+                    reviewDate.setDate(reviewDate.getDate() + 28); // 4 weeks
+                    
+                    const newProject = {
+                        address: shiftDataAfter.address,
+                        bNumber: shiftDataAfter.bNumber || '',
+                        manager: shiftDataAfter.manager || '',
+                        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                        nextReviewDate: admin.firestore.Timestamp.fromDate(reviewDate),
+                        // Note: We don't know who *created* the shift here, so creator fields are omitted.
+                    };
+                    
+                    await projectsRef.add(newProject);
+                    functions.logger.log(`Automatically created new project for address: ${shiftDataAfter.address}`);
+                }
+            } catch (error) {
+                functions.logger.error(`Failed to check or create project for address: ${shiftDataAfter.address}`, error);
+            }
+        }
     } else if (!change.after.exists && change.before.exists) {
       // A shift is deleted
       userId = shiftDataBefore?.userId;
