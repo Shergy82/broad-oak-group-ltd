@@ -49,10 +49,16 @@ export default function UserManagementPage() {
 
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       let employmentTypes: { [key: string]: 'direct' | 'subbie' } = {};
+      let trades: { [key: string]: string } = {};
+
       if (typeof window !== 'undefined') {
         const storedTypes = localStorage.getItem('employmentTypes');
         if (storedTypes) {
           employmentTypes = JSON.parse(storedTypes);
+        }
+        const storedTrades = localStorage.getItem('userTrades');
+        if (storedTrades) {
+            trades = JSON.parse(storedTrades);
         }
       }
 
@@ -62,6 +68,10 @@ export default function UserManagementPage() {
         // Apply locally stored type if it exists
         if (employmentTypes[user.uid]) {
             user.employmentType = employmentTypes[user.uid];
+        }
+        // Apply locally stored trade if it exists and there isn't one from Firestore
+        if (trades[user.uid] && !user.trade) {
+            user.trade = trades[user.uid];
         }
         fetchedUsers.push(user);
       });
@@ -106,6 +116,12 @@ export default function UserManagementPage() {
     const userDocRef = doc(db, 'users', uid);
     try {
         await updateDoc(userDocRef, { [field]: value });
+        if (field === 'trade' && typeof window !== 'undefined') {
+            const storedTrades = localStorage.getItem('userTrades');
+            const trades = storedTrades ? JSON.parse(storedTrades) : {};
+            trades[uid] = value;
+            localStorage.setItem('userTrades', JSON.stringify(trades));
+        }
         toast({ title: "Success", description: `${field === 'operativeId' ? 'Operative ID' : 'Trade'} updated.` });
     } catch (error: any) {
         toast({ variant: "destructive", title: "Update Failed", description: error.message || `Could not update ${field}.` });
@@ -479,3 +495,5 @@ export default function UserManagementPage() {
     </Card>
   );
 }
+
+    
