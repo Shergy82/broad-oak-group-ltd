@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -285,13 +284,13 @@ export default function AvailabilityPage() {
     return `from ${start} to ${end}`;
   }
 
-  const handleDownloadPdf = async (reportType: 'day' | 'week' | 'month') => {
+  const handleDownloadPdf = async (reportType: 'day' | 'week' | 'month' | 'next-month') => {
     const { default: jsPDF } = await import('jspdf');
     const { default: autoTable } = await import('jspdf-autotable');
 
     if (!dateRange?.from) return;
 
-    const baseDate = dateRange.from;
+    let baseDate = dateRange.from;
     let interval;
     let reportTitle = '';
 
@@ -307,6 +306,11 @@ export default function AvailabilityPage() {
       case 'month':
         interval = { start: startOfMonth(baseDate), end: endOfMonth(baseDate) };
         reportTitle = `Monthly Availability Report for ${format(baseDate, 'MMMM yyyy')}`;
+        break;
+      case 'next-month':
+        const nextMonthDate = addMonths(baseDate, 1);
+        interval = { start: startOfMonth(nextMonthDate), end: endOfMonth(nextMonthDate) };
+        reportTitle = `Monthly Availability Report for ${format(nextMonthDate, 'MMMM yyyy')}`;
         break;
     }
     
@@ -523,7 +527,8 @@ export default function AvailabilityPage() {
                                     <DropdownMenuContent>
                                         <DropdownMenuItem onClick={() => handleDownloadPdf('day')}>Daily Report</DropdownMenuItem>
                                         <DropdownMenuItem onClick={() => handleDownloadPdf('week')}>Weekly Report</DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => handleDownloadPdf('month')}>Monthly Report</DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => handleDownloadPdf('month')}>This Month Report</DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => handleDownloadPdf('next-month')}>Next Month Report</DropdownMenuItem>
                                     </DropdownMenuContent>
                                 </DropdownMenu>
                             </div>
