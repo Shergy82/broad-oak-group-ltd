@@ -182,7 +182,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
   }
 
   const renderTaskList = () => {
-    if (tradeTasks.length === 0 || shift.status === 'pending-confirmation' || isHistorical) return null;
+    if (shift.status !== 'on-site') return null;
 
     return (
       <div className="mt-4 p-4 border-t">
