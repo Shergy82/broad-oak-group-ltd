@@ -93,7 +93,6 @@ export default function AvailabilityPage() {
   const [selectedRoles, setSelectedRoles] = useState<Set<Role>>(new Set(['user', 'admin', 'owner']));
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
   const [isUserFilterApplied, setIsUserFilterApplied] = useState(false);
-  const [locationFilter, setLocationFilter] = useState('');
   const [viewMode, setViewMode] = useState<'detailed' | 'simple'>('detailed');
 
 
@@ -194,16 +193,6 @@ export default function AvailabilityPage() {
             isBefore(subDays(start, 1), startOfDay(getCorrectedLocalDate(shift.date)))
         );
 
-        const lowercasedFilter = locationFilter.trim().toLowerCase();
-        if (lowercasedFilter && userShiftsInRange.length > 0) {
-            const hasMatchingShift = userShiftsInRange.some(shift => 
-                shift.address.toLowerCase().includes(lowercasedFilter)
-            );
-            if (!hasMatchingShift) {
-                return null;
-            }
-        }
-  
         const dayStates = intervalDays.map((day): DayAvailability => {
             const shiftsOnDay = userShiftsInRange.filter(shift => isSameDay(getCorrectedLocalDate(shift.date), day));
             
@@ -227,16 +216,12 @@ export default function AvailabilityPage() {
         if (isPartiallyAvailable) {
             return { user, availability: 'partial', dayStates };
         }
-        
-        if (lowercasedFilter && dayStates.every(d => d.type === 'busy')) {
-            return null;
-        }
 
         return null;
       })
       .filter((u): u is AvailableUser => u !== null);
       
-  }, [dateRange, allShifts, allUsers, selectedRoles, selectedUserIds, locationFilter]);
+  }, [dateRange, allShifts, allUsers, selectedRoles, selectedUserIds]);
 
   const monthGridData: DayData[] = useMemo(() => {
     if (viewMode !== 'simple') return [];
@@ -534,40 +519,29 @@ export default function AvailabilityPage() {
                                 ))}
                                 </div>
                             </div>
-                            <div className="space-y-4">
-                                <div className="space-y-2">
-                                    <h4 className="font-medium text-sm">Users</h4>
-                                    <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <Button variant="outline" className="w-full sm:w-[250px] justify-between">
-                                        <span>{selectedUserIds.size} of {allUsers.length} users selected</span>
-                                        <ChevronDown className="h-4 w-4" />
-                                        </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
-                                        <ScrollArea className="h-72">
-                                        {allUsers.map(user => (
-                                            <DropdownMenuCheckboxItem
-                                            key={user.uid}
-                                            checked={selectedUserIds.has(user.uid)}
-                                            onCheckedChange={() => handleUserToggle(user.uid)}
-                                            >
-                                            <span className="truncate">{user.name}</span>
-                                            </DropdownMenuCheckboxItem>
-                                        ))}
-                                        </ScrollArea>
-                                    </DropdownMenuContent>
-                                    </DropdownMenu>
-                                </div>
-                                <div className="space-y-2">
-                                    <h4 className="font-medium text-sm">Area / Postcode</h4>
-                                    <Input
-                                        placeholder="e.g. London, SW1..."
-                                        value={locationFilter}
-                                        onChange={(e) => setLocationFilter(e.target.value)}
-                                        className="w-full sm:w-[250px]"
-                                    />
-                                </div>
+                            <div className="space-y-2">
+                                <h4 className="font-medium text-sm">Users</h4>
+                                <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button variant="outline" className="w-full sm:w-[250px] justify-between">
+                                    <span>{selectedUserIds.size} of {allUsers.length} users selected</span>
+                                    <ChevronDown className="h-4 w-4" />
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
+                                    <ScrollArea className="h-72">
+                                    {allUsers.map(user => (
+                                        <DropdownMenuCheckboxItem
+                                        key={user.uid}
+                                        checked={selectedUserIds.has(user.uid)}
+                                        onCheckedChange={() => handleUserToggle(user.uid)}
+                                        >
+                                        <span className="truncate">{user.name}</span>
+                                        </DropdownMenuCheckboxItem>
+                                    ))}
+                                    </ScrollArea>
+                                </DropdownMenuContent>
+                                </DropdownMenu>
                             </div>
                         </CardContent>
                     </Card>
