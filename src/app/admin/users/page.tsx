@@ -305,7 +305,7 @@ export default function UserManagementPage() {
               </TableCell>
               <TableCell>{user.phoneNumber || 'N/A'}</TableCell>
               <TableCell>
-                <Badge variant={user.role === 'owner' ? 'default' : (user.role === 'admin' || user.role === 'manager') ? 'secondary' : 'outline'} className="capitalize">
+                <Badge variant={user.role === 'owner' ? 'default' : user.role === 'admin' ? 'secondary' : 'outline'} className={`capitalize ${user.role === 'manager' ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''}`}>
                     {user.role}
                 </Badge>
               </TableCell>
@@ -377,7 +377,7 @@ export default function UserManagementPage() {
               <CardContent className="text-sm space-y-3">
                  <div className="flex items-center gap-2">
                     <strong>Role:</strong>
-                    <Badge variant={user.role === 'owner' ? 'default' : (user.role === 'admin' || user.role === 'manager') ? 'secondary' : 'outline'} className="capitalize">
+                    <Badge variant={user.role === 'owner' ? 'default' : user.role === 'admin' ? 'secondary' : 'outline'} className={`capitalize ${user.role === 'manager' ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''}`}>
                         {user.role}
                     </Badge>
                   </div>
