@@ -302,7 +302,7 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-3xl">
+            <DialogContent className="max-w-4xl">
                 <DialogHeader>
                     <DialogTitle>Manage Files for: {project.address}</DialogTitle>
                     <DialogDescription>Upload new files or delete existing ones for this project.</DialogDescription>
@@ -325,8 +325,8 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                                   <TableHeader>
                                     <TableRow>
                                       <TableHead>File</TableHead>
-                                      <TableHead className="text-right">Size</TableHead>
-                                      <TableHead className="text-right w-[100px]">Actions</TableHead>
+                                      <TableHead>Uploaded By</TableHead>
+                                      <TableHead className="text-right">Actions</TableHead>
                                     </TableRow>
                                   </TableHeader>
                                     <TableBody>
@@ -336,8 +336,9 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                                                   <a href={getFileViewUrl(file)} target="_blank" rel="noopener noreferrer" className="hover:underline" title={file.name}>
                                                     {file.name}
                                                   </a>
+                                                  <p className="text-xs text-muted-foreground">{formatFileSize(file.size)}</p>
                                                 </TableCell>
-                                                <TableCell className="text-right text-xs text-muted-foreground">{formatFileSize(file.size)}</TableCell>
+                                                <TableCell className="text-xs text-muted-foreground">{file.uploaderName}</TableCell>
                                                 <TableCell className="text-right">
                                                     <a href={file.url} target="_blank" rel="noopener noreferrer" download>
                                                       <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -500,7 +501,7 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                         <AlertDialogFooter>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
                             <AlertDialogAction onClick={handleDeleteAllProjects} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                                Yes, Delete Everything
+                                {isDeletingAll ? <Spinner /> : 'Yes, Delete Everything'}
                             </AlertDialogAction>
                         </AlertDialogFooter>
                     </AlertDialogContent>
