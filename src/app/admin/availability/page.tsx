@@ -230,10 +230,13 @@ export default function AvailabilityPage() {
   }
   
   const usersMatchingFilters = useMemo(() => {
-    return allUsers
-        .filter(u => selectedRoles.has(u.role as Role))
-        .filter(u => selectedTrades.size === 0 || !u.trade || selectedTrades.has(u.trade));
+    return allUsers.filter(u => {
+        const roleMatch = selectedRoles.has(u.role as Role);
+        const tradeMatch = selectedTrades.size === 0 || (u.trade && selectedTrades.has(u.trade));
+        return roleMatch && tradeMatch;
+    });
   }, [allUsers, selectedRoles, selectedTrades]);
+
 
   // Effect to synchronize the selectedUserIds based on role and trade filters
   useEffect(() => {
@@ -747,7 +750,3 @@ export default function AvailabilityPage() {
     </Card>
   );
 }
-
-    
-
-    
