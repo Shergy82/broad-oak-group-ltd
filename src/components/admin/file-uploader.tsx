@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/shared/spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Upload, FileWarning, TestTube2, Sheet, ChevronDown, X } from 'lucide-react';
-import type { Shift, UserProfile, ShiftStatus } from '@/types';
+import type { Shift, UserProfile, ShiftStatus, Project } from '@/types';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
@@ -490,6 +490,9 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
         
         const onConfirm = async () => {
           const batch = writeBatch(db);
+          const projectsRef = collection(db, 'projects');
+          const existingProjectsSnapshot = await getDocs(projectsRef);
+          const existingProjectAddresses = new Set(existingProjectsSnapshot.docs.map(doc => (doc.data() as Project).address));
 
           toCreate.forEach(shift => {
               const newShiftData = {
@@ -499,6 +502,21 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
                   createdAt: serverTimestamp(),
               };
               batch.set(doc(collection(db, 'shifts')), newShiftData);
+              
+              // Project creation logic moved here
+              if (shift.address && !existingProjectAddresses.has(shift.address)) {
+                  const reviewDate = new Date();
+                  reviewDate.setDate(reviewDate.getDate() + 28);
+                  const newProject = {
+                      address: shift.address,
+                      bNumber: shift.bNumber || '',
+                      manager: shift.manager || '',
+                      createdAt: serverTimestamp(),
+                      nextReviewDate: Timestamp.fromDate(reviewDate),
+                  };
+                  batch.set(doc(projectsRef), newProject);
+                  existingProjectAddresses.add(shift.address); // Avoid re-creating in the same batch
+              }
           });
 
           toUpdate.forEach(({ old, new: newShift }) => {
