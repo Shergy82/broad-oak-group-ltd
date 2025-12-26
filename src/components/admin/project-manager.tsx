@@ -531,7 +531,6 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                     <TableHead>E Number</TableHead>
                     <TableHead>Manager</TableHead>
                     <TableHead>Created At</TableHead>
-                    <TableHead>Created By</TableHead>
                     <TableHead>Next Review</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -543,7 +542,6 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                         <TableCell>{project.eNumber}</TableCell>
                         <TableCell>{project.manager}</TableCell>
                         <TableCell>{project.createdAt ? format(project.createdAt.toDate(), 'dd/MM/yyyy') : 'N/A'}</TableCell>
-                        <TableCell>{project.createdBy ?? 'N/A'}</TableCell>
                         <TableCell>{project.nextReviewDate ? format(project.nextReviewDate.toDate(), 'dd/MM/yyyy') : 'N/A'}</TableCell>
                         <TableCell className="text-right space-x-2">
                             <Button variant="outline" size="sm" onClick={() => handleManageFiles(project)}>
@@ -590,7 +588,7 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                         </CardHeader>
                         <CardContent className="text-sm space-y-2">
                              <div><strong>Manager:</strong> {project.manager || 'N/A'}</div>
-                             <div><strong>Created:</strong> {project.createdAt ? format(project.createdAt.toDate(), 'dd/MM/yyyy') : 'N/A'} by {project.createdBy || 'N/A'}</div>
+                             <div><strong>Created:</strong> {project.createdAt ? format(project.createdAt.toDate(), 'dd/MM/yyyy') : 'N/A'}</div>
                              <div><strong>Next Review:</strong> {project.nextReviewDate ? format(project.nextReviewDate.toDate(), 'dd/MM/yyyy') : 'N/A'}</div>
                         </CardContent>
                         <CardFooter className="grid grid-cols-2 gap-2">

@@ -668,5 +668,3 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
     </div>
   );
 }
-
-    
