@@ -24,7 +24,9 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
-type Role = 'user' | 'admin' | 'owner';
+type Role = 'user' | 'admin' | 'owner' | 'manager' | 'TLO';
+const ALL_ROLES: Role[] = ['user', 'admin', 'owner', 'manager', 'TLO'];
+
 
 interface DayAvailability {
     date: Date;
@@ -80,6 +82,7 @@ const extractLocation = (address: string | undefined): string => {
 };
 
 const LS_ROLES_KEY = 'availability_selectedRoles';
+const LS_TRADES_KEY = 'availability_selectedTrades';
 const LS_VIEW_KEY = 'availability_viewMode';
 
 export default function AvailabilityPage() {
@@ -92,7 +95,9 @@ export default function AvailabilityPage() {
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [selectedRoles, setSelectedRoles] = useState<Set<Role>>(new Set(['user', 'admin', 'owner']));
+  const [selectedRoles, setSelectedRoles] = useState<Set<Role>>(new Set(ALL_ROLES));
+  const [availableTrades, setAvailableTrades] = useState<string[]>([]);
+  const [selectedTrades, setSelectedTrades] = useState<Set<string>>(new Set());
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
   const [isUserFilterApplied, setIsUserFilterApplied] = useState(false);
   const [viewMode, setViewMode] = useState<'detailed' | 'simple'>('detailed');
@@ -108,6 +113,10 @@ export default function AvailabilityPage() {
         const savedRoles = localStorage.getItem(LS_ROLES_KEY);
         if (savedRoles) {
             setSelectedRoles(new Set(JSON.parse(savedRoles)));
+        }
+        const savedTrades = localStorage.getItem(LS_TRADES_KEY);
+        if (savedTrades) {
+            setSelectedTrades(new Set(JSON.parse(savedTrades)));
         }
         const savedViewMode = localStorage.getItem(LS_VIEW_KEY);
         if (savedViewMode) {
@@ -139,6 +148,11 @@ export default function AvailabilityPage() {
     const unsubUsers = onSnapshot(usersQuery, (snapshot) => {
         const fetchedUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
         setAllUsers(fetchedUsers.sort((a,b) => a.name.localeCompare(b.name)));
+
+        const trades = [...new Set(fetchedUsers.map(u => u.trade).filter(Boolean))] as string[];
+        setAvailableTrades(trades.sort());
+        setSelectedTrades(prev => new Set([...prev, ...trades]));
+
         setSelectedUserIds(new Set(fetchedUsers.map(u => u.uid)));
         usersLoaded = true;
         checkAllDataLoaded();
@@ -162,15 +176,29 @@ export default function AvailabilityPage() {
           } else {
               newRoles.add(role);
           }
-          // Save to localStorage
           try {
             localStorage.setItem(LS_ROLES_KEY, JSON.stringify(Array.from(newRoles)));
-          } catch (e) {
-            console.error("Failed to save roles to localStorage", e);
-          }
+          } catch (e) { console.error("Failed to save roles to localStorage", e); }
           return newRoles;
       });
+      setIsUserFilterApplied(false); // Let role filter re-apply to users
   };
+  
+  const handleTradeToggle = (trade: string) => {
+      setSelectedTrades(prev => {
+          const newTrades = new Set(prev);
+          if (newTrades.has(trade)) {
+              newTrades.delete(trade);
+          } else {
+              newTrades.add(trade);
+          }
+           try {
+            localStorage.setItem(LS_TRADES_KEY, JSON.stringify(Array.from(newTrades)));
+          } catch (e) { console.error("Failed to save trades to localStorage", e); }
+          return newTrades;
+      })
+       setIsUserFilterApplied(false); // Let trade filter re-apply to users
+  }
 
   const handleUserToggle = (userId: string) => {
       setSelectedUserIds(prev => {
@@ -199,10 +227,11 @@ export default function AvailabilityPage() {
     if (!isUserFilterApplied) {
         const userIdsInSelectedRoles = allUsers
             .filter(u => selectedRoles.has(u.role as Role))
+            .filter(u => !u.trade || selectedTrades.has(u.trade))
             .map(u => u.uid);
         setSelectedUserIds(new Set(userIdsInSelectedRoles));
     }
-  }, [selectedRoles, allUsers, isUserFilterApplied]);
+  }, [selectedRoles, selectedTrades, allUsers, isUserFilterApplied]);
 
   const availableUsers: AvailableUser[] = useMemo(() => {
     if (!dateRange?.from || allUsers.length === 0) {
@@ -213,10 +242,7 @@ export default function AvailabilityPage() {
     const end = dateRange.to ? startOfDay(dateRange.to) : start;
     const intervalDays = eachDayOfInterval({ start, end });
   
-    const usersToConsider = allUsers.filter(
-      (user) =>
-        selectedRoles.has(user.role as Role) && selectedUserIds.has(user.uid)
-    );
+    const usersToConsider = allUsers.filter(user => selectedUserIds.has(user.uid));
   
     return usersToConsider
       .map((user): AvailableUser | null => {
@@ -254,7 +280,7 @@ export default function AvailabilityPage() {
       })
       .filter((u): u is AvailableUser => u !== null);
       
-  }, [dateRange, allShifts, allUsers, selectedRoles, selectedUserIds]);
+  }, [dateRange, allShifts, allUsers, selectedUserIds]);
 
   const monthGridData: DayData[] = useMemo(() => {
     if (viewMode !== 'simple') return [];
@@ -280,9 +306,7 @@ export default function AvailabilityPage() {
 
     const allGridDays = daysInGrid.concat(paddingDaysEnd);
 
-    const usersToConsider = allUsers.filter(
-      (user) => selectedRoles.has(user.role as Role) && selectedUserIds.has(user.uid)
-    );
+    const usersToConsider = allUsers.filter(user => selectedUserIds.has(user.uid));
 
     return allGridDays.map(day => {
         const availableUsers: DayData['availableUsers'] = [];
@@ -303,7 +327,7 @@ export default function AvailabilityPage() {
         }
     });
 
-  }, [currentMonth, allShifts, allUsers, selectedRoles, selectedUserIds, viewMode]);
+  }, [currentMonth, allShifts, allUsers, selectedUserIds, viewMode]);
   
 
   const selectedPeriodText = () => {
@@ -566,21 +590,47 @@ export default function AvailabilityPage() {
                             </div>
                         </CardHeader>
                         <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-start">
-                            <div className="space-y-2">
-                                <h4 className="font-medium text-sm">Roles</h4>
-                                <div className="flex gap-4">
-                                {(['user', 'admin', 'owner'] as Role[]).map(role => (
-                                    <div key={role} className="flex items-center space-x-2">
-                                    <Checkbox
-                                        id={`role-${role}`}
-                                        checked={selectedRoles.has(role)}
-                                        onCheckedChange={() => handleRoleToggle(role)}
-                                    />
-                                    <Label htmlFor={`role-${role}`} className="capitalize">{role}</Label>
+                           <div className="space-y-4">
+                                <div className="space-y-2">
+                                    <h4 className="font-medium text-sm">Roles</h4>
+                                    <div className="flex flex-wrap gap-x-4 gap-y-2">
+                                    {ALL_ROLES.map(role => (
+                                        <div key={role} className="flex items-center space-x-2">
+                                        <Checkbox
+                                            id={`role-${role}`}
+                                            checked={selectedRoles.has(role)}
+                                            onCheckedChange={() => handleRoleToggle(role)}
+                                        />
+                                        <Label htmlFor={`role-${role}`} className="capitalize">{role}</Label>
+                                        </div>
+                                    ))}
                                     </div>
-                                ))}
                                 </div>
-                            </div>
+                                <div className="space-y-2">
+                                     <h4 className="font-medium text-sm">Trades</h4>
+                                     <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <Button variant="outline" className="w-full sm:w-[250px] justify-between">
+                                                <span>{selectedTrades.size} of {availableTrades.length} trades selected</span>
+                                                <ChevronDown className="h-4 w-4" />
+                                            </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
+                                            <ScrollArea className="h-48">
+                                            {availableTrades.map(trade => (
+                                                <DropdownMenuCheckboxItem
+                                                key={trade}
+                                                checked={selectedTrades.has(trade)}
+                                                onCheckedChange={() => handleTradeToggle(trade)}
+                                                >
+                                                <span className="truncate">{trade}</span>
+                                                </DropdownMenuCheckboxItem>
+                                            ))}
+                                            </ScrollArea>
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
+                                </div>
+                           </div>
                             <div className="space-y-2">
                                 <h4 className="font-medium text-sm">Users</h4>
                                 <DropdownMenu>
