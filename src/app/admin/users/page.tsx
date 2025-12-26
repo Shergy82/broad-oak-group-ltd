@@ -327,9 +327,10 @@ export default function UserManagementPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="user">User</SelectItem>
-                      <SelectItem value="admin">Admin</SelectItem>
-                      <SelectItem value="manager">Manager</SelectItem>
                       <SelectItem value="TLO">TLO</SelectItem>
+                      <SelectItem value="manager">Manager</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                      {isOwner && <SelectItem value="owner">Owner</SelectItem>}
                     </SelectContent>
                   </Select>
                 ) : (
@@ -418,9 +419,10 @@ export default function UserManagementPage() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="user">User</SelectItem>
-                          <SelectItem value="admin">Admin</SelectItem>
+                          <SelectItem value="TLO">TLO</SelectItem>
                           <SelectItem value="manager">Manager</SelectItem>
-                           <SelectItem value="TLO">TLO</SelectItem>
+                          <SelectItem value="admin">Admin</SelectItem>
+                          {isOwner && <SelectItem value="owner">Owner</SelectItem>}
                         </SelectContent>
                       </Select>
                     ) : (
@@ -602,3 +604,5 @@ export default function UserManagementPage() {
     </Card>
   );
 }
+
+    
