@@ -228,29 +228,19 @@ export default function AvailabilityPage() {
         console.error("Failed to save view mode to localStorage", e);
       }
   }
+  
+  const usersMatchingFilters = useMemo(() => {
+    return allUsers
+        .filter(u => selectedRoles.has(u.role as Role))
+        .filter(u => selectedTrades.size === 0 || !u.trade || selectedTrades.has(u.trade));
+  }, [allUsers, selectedRoles, selectedTrades]);
 
   // Effect to synchronize the selectedUserIds based on role and trade filters
   useEffect(() => {
-    const userIdsMatchingFilters = new Set(
-        allUsers
-            .filter(u => selectedRoles.has(u.role as Role))
-            .filter(u => !u.trade || selectedTrades.has(u.trade))
-            .map(u => u.uid)
-    );
-
-    // This ensures that when the role/trade filters change, the user selection is updated
-    // to only include users who match the new filter criteria.
-    setSelectedUserIds(currentSelectedIds => {
-        const newSelectedIds = new Set<string>();
-        currentSelectedIds.forEach(id => {
-            if (userIdsMatchingFilters.has(id)) {
-                newSelectedIds.add(id);
-            }
-        });
-        return newSelectedIds;
-    });
-    
-  }, [selectedRoles, selectedTrades, allUsers]);
+    // When the filters change, reset the selected users to all users that match the new filters.
+    const userIdsMatchingFilters = new Set(usersMatchingFilters.map(u => u.uid));
+    setSelectedUserIds(userIdsMatchingFilters);
+  }, [usersMatchingFilters]);
 
   const availableUsers: AvailableUser[] = useMemo(() => {
     if (!dateRange?.from || allUsers.length === 0) {
@@ -655,13 +645,13 @@ export default function AvailabilityPage() {
                                 <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
                                     <Button variant="outline" className="w-full sm:w-[250px] justify-between">
-                                    <span>{selectedUserIds.size} of {allUsers.length} users selected</span>
+                                    <span>{selectedUserIds.size} of {usersMatchingFilters.length} users selected</span>
                                     <ChevronDown className="h-4 w-4" />
                                     </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
                                     <ScrollArea className="h-72">
-                                    {allUsers.map(user => (
+                                    {usersMatchingFilters.map(user => (
                                         <DropdownMenuCheckboxItem
                                         key={user.uid}
                                         checked={selectedUserIds.has(user.uid)}
@@ -748,7 +738,7 @@ export default function AvailabilityPage() {
                                         <Users className="h-4 w-4" />
                                         <AlertTitle>No Operatives Available</AlertTitle>
                                         <AlertDescription>
-                                        No users match the current date and filter criteria.
+                                        No users match the current date and filter criteria. Try adjusting your filters.
                                         </AlertDescription>
                                     </Alert>
                                 )}
@@ -762,3 +752,5 @@ export default function AvailabilityPage() {
     </Card>
   );
 }
+
+    
