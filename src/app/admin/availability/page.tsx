@@ -23,6 +23,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 
 type Role = 'user' | 'admin' | 'owner' | 'manager' | 'TLO';
 const ALL_ROLES: Role[] = ['user', 'TLO', 'manager', 'admin', 'owner'];
@@ -40,14 +41,15 @@ interface AvailableUser {
   dayStates: DayAvailability[];
 }
 
+interface AvailableUserForDay {
+    user: UserProfile;
+    availability: 'full' | 'am' | 'pm';
+    shiftLocation?: string;
+}
 interface DayData {
     date: Date;
     isCurrentMonth: boolean;
-    availableUsers: {
-        user: UserProfile;
-        availability: 'full' | 'am' | 'pm';
-        shiftLocation?: string;
-    }[];
+    availableUsers: AvailableUserForDay[];
 }
 
 const getInitials = (name?: string) => {
@@ -100,6 +102,9 @@ export default function AvailabilityPage() {
   const [selectedTrades, setSelectedTrades] = useState<Set<string>>(new Set());
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<'detailed' | 'simple'>('detailed');
+  
+  const [isDayDetailOpen, setIsDayDetailOpen] = useState(false);
+  const [selectedDayData, setSelectedDayData] = useState<DayData | null>(null);
 
 
   useEffect(() => {
@@ -231,7 +236,7 @@ export default function AvailabilityPage() {
   
   const usersMatchingFilters = useMemo(() => {
     return allUsers.filter(u => {
-        const roleMatch = selectedRoles.has(u.role as Role);
+        const roleMatch = selectedRoles.size === 0 || selectedRoles.has(u.role as Role);
         const tradeMatch = selectedTrades.size === 0 || (u.trade && selectedTrades.has(u.trade));
         return roleMatch && tradeMatch;
     });
@@ -240,7 +245,6 @@ export default function AvailabilityPage() {
 
   // Effect to synchronize the selectedUserIds based on role and trade filters
   useEffect(() => {
-    // When the filters change, reset the selected users to all users that match the new filters.
     const userIdsMatchingFilters = new Set(usersMatchingFilters.map(u => u.uid));
     setSelectedUserIds(userIdsMatchingFilters);
   }, [usersMatchingFilters]);
@@ -341,6 +345,10 @@ export default function AvailabilityPage() {
 
   }, [currentMonth, allShifts, allUsers, selectedUserIds, viewMode]);
   
+  const handleOpenDayDetail = (dayData: DayData) => {
+    setSelectedDayData(dayData);
+    setIsDayDetailOpen(true);
+  }
 
   const selectedPeriodText = () => {
     if (!dateRange?.from) return 'No date selected';
@@ -479,14 +487,14 @@ export default function AvailabilityPage() {
             {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
                 <div key={day} className="p-2 border-b border-r text-center font-semibold text-muted-foreground bg-muted/30">{day}</div>
             ))}
-            {monthGridData.map(({ date, isCurrentMonth, availableUsers }, index) => (
-                <div key={index} className={`relative min-h-[120px] border-b border-r p-2 ${isCurrentMonth ? 'bg-background' : 'bg-muted/20'}`}>
-                    <span className={`text-sm font-medium ${isCurrentMonth ? 'text-foreground' : 'text-muted-foreground'}`}>
-                        {format(date, 'd')}
+            {monthGridData.map((dayData, index) => (
+                <div key={index} className={`relative min-h-[120px] border-b border-r p-2 cursor-pointer transition-colors hover:bg-muted/50 ${dayData.isCurrentMonth ? 'bg-background' : 'bg-muted/20'}`} onClick={() => dayData.isCurrentMonth && handleOpenDayDetail(dayData)}>
+                    <span className={`text-sm font-medium ${dayData.isCurrentMonth ? 'text-foreground' : 'text-muted-foreground'}`}>
+                        {format(dayData.date, 'd')}
                     </span>
                     <div className="mt-2 flex flex-wrap gap-1">
                         <TooltipProvider>
-                            {availableUsers.slice(0, 10).map(({ user, availability, shiftLocation }) => (
+                            {dayData.availableUsers.slice(0, 10).map(({ user, availability, shiftLocation }) => (
                                 <Tooltip key={user.uid}>
                                     <TooltipTrigger>
                                          <Avatar className={`h-6 w-6 border-2 ${getBorderColor(availability)}`}>
@@ -501,15 +509,15 @@ export default function AvailabilityPage() {
                                     </TooltipContent>
                                 </Tooltip>
                             ))}
-                            {availableUsers.length > 10 && (
+                            {dayData.availableUsers.length > 10 && (
                                 <Tooltip>
                                     <TooltipTrigger>
                                         <Avatar className="h-6 w-6">
-                                            <AvatarFallback className="text-[10px] bg-muted-foreground text-muted">+{availableUsers.length - 10}</AvatarFallback>
+                                            <AvatarFallback className="text-[10px] bg-muted-foreground text-muted">+{dayData.availableUsers.length - 10}</AvatarFallback>
                                         </Avatar>
                                     </TooltipTrigger>
                                     <TooltipContent>
-                                        <p>{availableUsers.length - 10} more available</p>
+                                        <p>{dayData.availableUsers.length - 10} more available</p>
                                     </TooltipContent>
                                 </Tooltip>
                             )}
@@ -534,6 +542,48 @@ export default function AvailabilityPage() {
         </div>
     </div>
   );
+  }
+
+  const renderDayDetailDialog = () => {
+    if (!selectedDayData) return null;
+
+    const fullDay = selectedDayData.availableUsers.filter(u => u.availability === 'full');
+    const amAvailable = selectedDayData.availableUsers.filter(u => u.availability === 'am');
+    const pmAvailable = selectedDayData.availableUsers.filter(u => u.availability === 'pm');
+
+    const renderUserList = (users: AvailableUserForDay[], title: string, Icon: React.ElementType, color: string) => (
+        users.length > 0 && (
+            <div>
+                <h3 className={`font-semibold mb-2 flex items-center gap-2 ${color}`}><Icon className="h-4 w-4" /> {title} ({users.length})</h3>
+                <div className="space-y-2">
+                    {users.map(({user, shiftLocation}) => (
+                        <div key={user.uid} className="flex items-center justify-between p-2 bg-muted/50 rounded-md text-sm">
+                            <span>{user.name}</span>
+                            {shiftLocation && <span className="text-xs text-muted-foreground truncate max-w-[150px]">Busy at {extractLocation(shiftLocation)}</span>}
+                        </div>
+                    ))}
+                </div>
+            </div>
+        )
+    )
+
+    return (
+        <Dialog open={isDayDetailOpen} onOpenChange={setIsDayDetailOpen}>
+            <DialogContent className="max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Available Operatives</DialogTitle>
+                    <DialogDescription>{format(selectedDayData.date, 'PPPP')}</DialogDescription>
+                </DialogHeader>
+                <ScrollArea className="max-h-[60vh] -mx-4 px-4">
+                    <div className="space-y-6 py-4">
+                        {renderUserList(fullDay, "Fully Available", CheckCircle, 'text-green-600')}
+                        {renderUserList(amAvailable, "AM Available", Sun, 'text-sky-600')}
+                        {renderUserList(pmAvailable, "PM Available", Moon, 'text-orange-600')}
+                    </div>
+                </ScrollArea>
+            </DialogContent>
+        </Dialog>
+    )
   }
   
   return (
@@ -747,6 +797,7 @@ export default function AvailabilityPage() {
             </>
         )}
       </CardContent>
+      {renderDayDetailDialog()}
     </Card>
   );
 }
