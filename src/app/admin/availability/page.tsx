@@ -99,7 +99,6 @@ export default function AvailabilityPage() {
   const [availableTrades, setAvailableTrades] = useState<string[]>([]);
   const [selectedTrades, setSelectedTrades] = useState<Set<string>>(new Set());
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
-  const [isUserFilterApplied, setIsUserFilterApplied] = useState(false);
   const [viewMode, setViewMode] = useState<'detailed' | 'simple'>('detailed');
 
 
@@ -113,59 +112,69 @@ export default function AvailabilityPage() {
         const savedRoles = localStorage.getItem(LS_ROLES_KEY);
         if (savedRoles) {
             setSelectedRoles(new Set(JSON.parse(savedRoles)));
+        } else {
+            setSelectedRoles(new Set(ALL_ROLES));
         }
+
         const savedTrades = localStorage.getItem(LS_TRADES_KEY);
-        if (savedTrades) {
-            setSelectedTrades(new Set(JSON.parse(savedTrades)));
-        }
+        const tradesToSet = savedTrades ? new Set(JSON.parse(savedTrades)) : null;
+
         const savedViewMode = localStorage.getItem(LS_VIEW_KEY);
         if (savedViewMode) {
             setViewMode(savedViewMode as 'detailed' | 'simple');
         }
+
+        const checkAllDataLoaded = () => {
+            if (shiftsLoaded && usersLoaded) {
+                setLoading(false);
+            }
+        };
+        
+        const shiftsQuery = query(collection(db, 'shifts'));
+        const unsubShifts = onSnapshot(shiftsQuery, (snapshot) => {
+            setAllShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
+            shiftsLoaded = true;
+            checkAllDataLoaded();
+        }, (err) => {
+            console.error("Error fetching shifts:", err);
+            shiftsLoaded = true;
+            checkAllDataLoaded();
+        });
+
+        const usersQuery = query(collection(db, 'users'));
+        const unsubUsers = onSnapshot(usersQuery, (snapshot) => {
+            const fetchedUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
+            setAllUsers(fetchedUsers.sort((a,b) => a.name.localeCompare(b.name)));
+
+            const allAvailableTrades = [...new Set(fetchedUsers.flatMap(u => u.trade).filter(Boolean))] as string[];
+            setAvailableTrades(allAvailableTrades.sort());
+            
+            if (tradesToSet) {
+                // Filter stored trades to only include ones that are still available
+                const validStoredTrades = Array.from(tradesToSet).filter(t => allAvailableTrades.includes(t));
+                setSelectedTrades(new Set(validStoredTrades));
+            } else {
+                // If nothing was stored, select all available trades by default
+                setSelectedTrades(new Set(allAvailableTrades));
+            }
+            
+            usersLoaded = true;
+            checkAllDataLoaded();
+        }, (err) => {
+            console.error("Error fetching users:", err);
+            usersLoaded = true;
+            checkAllDataLoaded();
+        });
+
+        return () => {
+            unsubShifts();
+            unsubUsers();
+        };
+
     } catch (e) {
-        console.error("Failed to load filter preferences from localStorage", e);
+        console.error("Failed to load preferences or data", e);
+        setLoading(false);
     }
-
-
-    const checkAllDataLoaded = () => {
-        if (shiftsLoaded && usersLoaded) {
-            setLoading(false);
-        }
-    };
-    
-    const shiftsQuery = query(collection(db, 'shifts'));
-    const unsubShifts = onSnapshot(shiftsQuery, (snapshot) => {
-        setAllShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
-        shiftsLoaded = true;
-        checkAllDataLoaded();
-    }, (err) => {
-        console.error("Error fetching shifts:", err);
-        shiftsLoaded = true;
-        checkAllDataLoaded();
-    });
-
-    const usersQuery = query(collection(db, 'users'));
-    const unsubUsers = onSnapshot(usersQuery, (snapshot) => {
-        const fetchedUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
-        setAllUsers(fetchedUsers.sort((a,b) => a.name.localeCompare(b.name)));
-
-        const trades = [...new Set(fetchedUsers.map(u => u.trade).filter(Boolean))] as string[];
-        setAvailableTrades(trades.sort());
-        setSelectedTrades(prev => new Set([...prev, ...trades]));
-
-        setSelectedUserIds(new Set(fetchedUsers.map(u => u.uid)));
-        usersLoaded = true;
-        checkAllDataLoaded();
-    }, (err) => {
-        console.error("Error fetching users:", err);
-        usersLoaded = true;
-        checkAllDataLoaded();
-    });
-
-    return () => {
-        unsubShifts();
-        unsubUsers();
-    };
   }, []);
 
   const handleRoleToggle = (role: Role) => {
@@ -181,7 +190,6 @@ export default function AvailabilityPage() {
           } catch (e) { console.error("Failed to save roles to localStorage", e); }
           return newRoles;
       });
-      setIsUserFilterApplied(false); // Let role filter re-apply to users
   };
   
   const handleTradeToggle = (trade: string) => {
@@ -197,7 +205,6 @@ export default function AvailabilityPage() {
           } catch (e) { console.error("Failed to save trades to localStorage", e); }
           return newTrades;
       })
-       setIsUserFilterApplied(false); // Let trade filter re-apply to users
   }
 
   const handleUserToggle = (userId: string) => {
@@ -208,7 +215,6 @@ export default function AvailabilityPage() {
           } else {
               newUserIds.add(userId);
           }
-          setIsUserFilterApplied(true);
           return newUserIds;
       });
   };
@@ -223,15 +229,28 @@ export default function AvailabilityPage() {
       }
   }
 
+  // Effect to synchronize the selectedUserIds based on role and trade filters
   useEffect(() => {
-    if (!isUserFilterApplied) {
-        const userIdsInSelectedRoles = allUsers
+    const userIdsMatchingFilters = new Set(
+        allUsers
             .filter(u => selectedRoles.has(u.role as Role))
             .filter(u => !u.trade || selectedTrades.has(u.trade))
-            .map(u => u.uid);
-        setSelectedUserIds(new Set(userIdsInSelectedRoles));
-    }
-  }, [selectedRoles, selectedTrades, allUsers, isUserFilterApplied]);
+            .map(u => u.uid)
+    );
+
+    // This ensures that when the role/trade filters change, the user selection is updated
+    // to only include users who match the new filter criteria.
+    setSelectedUserIds(currentSelectedIds => {
+        const newSelectedIds = new Set<string>();
+        currentSelectedIds.forEach(id => {
+            if (userIdsMatchingFilters.has(id)) {
+                newSelectedIds.add(id);
+            }
+        });
+        return newSelectedIds;
+    });
+    
+  }, [selectedRoles, selectedTrades, allUsers]);
 
   const availableUsers: AvailableUser[] = useMemo(() => {
     if (!dateRange?.from || allUsers.length === 0) {
