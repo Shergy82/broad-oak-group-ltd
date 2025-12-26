@@ -34,7 +34,8 @@ export default function UserManagementPage() {
   const { toast } = useToast();
   
   const isOwner = currentUserProfile?.role === 'owner';
-  const isPrivilegedUser = isOwner || currentUserProfile?.role === 'admin' || currentUserProfile?.role === 'manager';
+  const isAdmin = currentUserProfile?.role === 'admin';
+  const isPrivilegedUser = isOwner || isAdmin || currentUserProfile?.role === 'manager';
   const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
 
   useEffect(() => {
@@ -110,11 +111,20 @@ export default function UserManagementPage() {
       }
   }
 
-  const handleFieldChange = async (uid: string, field: 'operativeId' | 'trade', value: string) => {
-    if (!isPrivilegedUser) {
+  const handleFieldChange = async (uid: string, field: 'operativeId' | 'trade' | 'role', value: string) => {
+    const canChangeRole = (isOwner || isAdmin) && uid !== currentUserProfile?.uid;
+    const canChangeOtherFields = isPrivilegedUser;
+
+    if (field === 'role' && !canChangeRole) {
+        toast({ variant: 'destructive', title: 'Permission Denied', description: 'You cannot change this user\'s role.' });
+        return;
+    }
+
+    if (field !== 'role' && !canChangeOtherFields) {
         toast({ variant: "destructive", title: "Permission Denied", description: `You cannot change the ${field}.` });
         return;
     }
+
     if (!db) {
       toast({ variant: 'destructive', title: 'Database not configured' });
       return;
@@ -128,7 +138,7 @@ export default function UserManagementPage() {
             trades[uid] = value;
             localStorage.setItem('userTrades', JSON.stringify(trades));
         }
-        toast({ title: "Success", description: `${field === 'operativeId' ? 'Operative ID' : 'Trade'} updated.` });
+        toast({ title: "Success", description: `User's ${field} updated successfully.` });
     } catch (error: any) {
         toast({ variant: "destructive", title: "Update Failed", description: error.message || `Could not update ${field}.` });
     }
@@ -274,7 +284,9 @@ export default function UserManagementPage() {
   };
   
   const renderUserTableRows = (userList: UserProfile[]) => {
-      return userList.map((user) => (
+      return userList.map((user) => {
+        const canChangeRole = (isOwner || isAdmin) && user.uid !== currentUserProfile?.uid;
+        return (
             <TableRow key={user.uid} className={user.status === 'suspended' ? 'bg-muted/30' : ''}>
               <TableCell className="font-medium">{user.name}</TableCell>
               <TableCell>
@@ -305,9 +317,25 @@ export default function UserManagementPage() {
               </TableCell>
               <TableCell>{user.phoneNumber || 'N/A'}</TableCell>
               <TableCell>
-                <Badge variant={user.role === 'owner' ? 'default' : user.role === 'admin' ? 'secondary' : 'outline'} className={`capitalize ${user.role === 'manager' ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''}`}>
+                {canChangeRole ? (
+                  <Select
+                    value={user.role}
+                    onValueChange={(value) => handleFieldChange(user.uid, 'role', value)}
+                  >
+                    <SelectTrigger className="w-[120px]">
+                      <SelectValue placeholder="Set Role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="user">User</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                      <SelectItem value="manager">Manager</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Badge variant={user.role === 'owner' ? 'default' : user.role === 'admin' ? 'secondary' : 'outline'} className={`capitalize ${user.role === 'manager' ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''}`}>
                     {user.role}
-                </Badge>
+                  </Badge>
+                )}
               </TableCell>
               <TableCell>
                   {getStatusBadge(user.status)}
@@ -361,11 +389,13 @@ export default function UserManagementPage() {
                   )}
               </TableCell>
             </TableRow>
-        ));
+        )});
   }
   
   const renderUserCards = (userList: UserProfile[]) => {
-      return userList.map((user) => (
+      return userList.map((user) => {
+        const canChangeRole = (isOwner || isAdmin) && user.uid !== currentUserProfile?.uid;
+        return (
             <Card key={user.uid} className={user.status === 'suspended' ? 'bg-muted/50' : ''}>
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -377,9 +407,25 @@ export default function UserManagementPage() {
               <CardContent className="text-sm space-y-3">
                  <div className="flex items-center gap-2">
                     <strong>Role:</strong>
-                    <Badge variant={user.role === 'owner' ? 'default' : user.role === 'admin' ? 'secondary' : 'outline'} className={`capitalize ${user.role === 'manager' ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''}`}>
-                        {user.role}
-                    </Badge>
+                    {canChangeRole ? (
+                      <Select
+                        value={user.role}
+                        onValueChange={(value) => handleFieldChange(user.uid, 'role', value)}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Set Role" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="user">User</SelectItem>
+                          <SelectItem value="admin">Admin</SelectItem>
+                          <SelectItem value="manager">Manager</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Badge variant={user.role === 'owner' ? 'default' : user.role === 'admin' ? 'secondary' : 'outline'} className={`capitalize ${user.role === 'manager' ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''}`}>
+                          {user.role}
+                      </Badge>
+                    )}
                   </div>
                  
                  {isPrivilegedUser && (
@@ -450,7 +496,7 @@ export default function UserManagementPage() {
                 </CardFooter>
               )}
             </Card>
-          ));
+          )});
   }
 
 
