@@ -27,6 +27,7 @@ export interface FailedShift {
     cellContent: string;
     reason: string;
     sheetName: string;
+    cellRef: string;
 }
 
 export interface DryRunResult {
@@ -347,24 +348,25 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                 }
 
                 if (!address) {
-                     allFailedShifts.push({ date: null, projectAddress: `Block at row ${blockStartRowIndex + 1}`, cellContent: '', reason: 'Could not find a valid Address cell in Column A for this project block.', sheetName });
+                     allFailedShifts.push({ date: null, projectAddress: `Block at row ${blockStartRowIndex + 1}`, cellContent: '', reason: 'Could not find a valid Address cell in Column A for this project block.', sheetName, cellRef: `A${blockStartRowIndex + 1}` });
                      continue;
                 }
                 if (dateRowIndex === -1) {
-                    allFailedShifts.push({ date: null, projectAddress: address, cellContent: '', reason: 'Could not find a valid Date Row within this project block.', sheetName });
+                    allFailedShifts.push({ date: null, projectAddress: address, cellContent: '', reason: 'Could not find a valid Date Row within this project block.', sheetName, cellRef: 'N/A' });
                     continue;
                 }
 
                 for (let r = blockStartRowIndex; r < blockEndRowIndex; r++) {
                     for (let c = 1; c < dateRow.length; c++) { 
                         const shiftDate = dateRow[c];
+                        const cellRef = XLSX.utils.encode_cell({ r, c });
+
                         if (!shiftDate) continue;
 
                         if (shiftDate < today) {
                           continue; // Skip shifts with past dates
                         }
 
-                        const cellRef = XLSX.utils.encode_cell({ r: r, c: c });
                         const cell = worksheet[cellRef];
                         let cellContentRaw = cell?.w || cell?.v;
                         
@@ -417,7 +419,8 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                                             projectAddress: address,
                                             cellContent: cellContentRaw,
                                             reason: `Could not find a user matching "${userName}".`,
-                                            sheetName
+                                            sheetName,
+                                            cellRef: cellRef,
                                         });
                                     }
                                 }

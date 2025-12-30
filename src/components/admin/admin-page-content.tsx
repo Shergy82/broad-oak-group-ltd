@@ -81,9 +81,10 @@ export default function AdminPageContent() {
     doc.setTextColor(100);
     doc.text(`Generated on: ${format(generationDate, 'PPP p')}`, 14, 28);
     
-    const head = [['Sheet', 'Date', 'Project Address', 'Original Cell Content', 'Reason for Failure']];
+    const head = [['Sheet', 'Cell', 'Date', 'Project Address', 'Original Cell Content', 'Reason for Failure']];
     const body = importReport.failed.map(shift => [
         shift.sheetName,
+        shift.cellRef,
         shift.date ? format(shift.date, 'dd/MM/yyyy') : 'N/A',
         shift.projectAddress,
         shift.cellContent,
@@ -186,10 +187,10 @@ export default function AdminPageContent() {
                      {failed.length > 0 && (
                         <div className="max-h-60 overflow-y-auto border rounded-lg">
                         <Table>
-                            <TableHeader><TableRow><TableHead>Sheet</TableHead><TableHead>Date</TableHead><TableHead>Cell</TableHead><TableHead>Reason</TableHead></TableRow></TableHeader>
+                            <TableHeader><TableRow><TableHead>Sheet</TableHead><TableHead>Cell</TableHead><TableHead>Date</TableHead><TableHead>Content</TableHead><TableHead>Reason</TableHead></TableRow></TableHeader>
                             <TableBody>
                                 {failed.map((shift, index) => (
-                                    <TableRow key={index}><TableCell>{shift.sheetName}</TableCell><TableCell>{shift.date ? format(shift.date, 'dd/MM/yy') : 'N/A'}</TableCell><TableCell className="font-mono text-xs">{shift.cellContent}</TableCell><TableCell>{shift.reason}</TableCell></TableRow>
+                                    <TableRow key={index}><TableCell>{shift.sheetName}</TableCell><TableCell className="font-mono text-xs">{shift.cellRef}</TableCell><TableCell>{shift.date ? format(shift.date, 'dd/MM/yy') : 'N/A'}</TableCell><TableCell className="font-mono text-xs">{shift.cellContent}</TableCell><TableCell>{shift.reason}</TableCell></TableRow>
                                 ))}
                             </TableBody>
                         </Table>
@@ -244,6 +245,7 @@ export default function AdminPageContent() {
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>Sheet</TableHead>
+                                    <TableHead>Cell</TableHead>
                                     <TableHead>Date</TableHead>
                                     <TableHead>Project Address</TableHead>
                                     <TableHead>Original Cell Content</TableHead>
@@ -254,6 +256,7 @@ export default function AdminPageContent() {
                                 {importReport.failed.map((shift, index) => (
                                     <TableRow key={index}>
                                         <TableCell>{shift.sheetName}</TableCell>
+                                        <TableCell className="font-mono text-xs">{shift.cellRef}</TableCell>
                                         <TableCell>{shift.date ? format(shift.date, 'dd/MM/yyyy') : 'N/A'}</TableCell>
                                         <TableCell>{shift.projectAddress}</TableCell>
                                         <TableCell className="font-mono text-xs">{shift.cellContent}</TableCell>
