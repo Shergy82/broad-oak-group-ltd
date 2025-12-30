@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useCallback } from 'react';
@@ -11,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/shared/spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Upload, FileWarning, TestTube2, Sheet, ChevronDown, X } from 'lucide-react';
-import type { Shift, UserProfile, ShiftStatus, Project } from '@/types';
+import type { Shift, UserProfile, Project } from '@/types';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
@@ -299,35 +298,29 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                 const blockStartRowIndex = projectBlockStartRows[i];
                 const blockEndRowIndex = i + 1 < projectBlockStartRows.length ? projectBlockStartRows[i+1] : jsonData.length;
                 
-                let manager = jsonData[blockStartRowIndex + 1]?.[0] || 'Unknown Manager';
+                let manager = '';
                 let address = '';
                 let eNumber = '';
                 let dateRow: (Date | null)[] = [];
                 let dateRowIndex = -1;
 
-                const addressKeywords = ['road', 'street', 'avenue', 'lane', 'drive', 'court', 'close', 'crescent', 'place', 'gardens', 'grove'];
+                let managerRowIndex = -1;
+                let addressRowIndex = -1;
+
+                // Find the specific rows for Manager, Address, and Dates within the block
                 for (let r = blockStartRowIndex; r < blockEndRowIndex; r++) {
                     const row = jsonData[r] || [];
-                    const cellAValue = row[0];
+                    const cellAValue = (row[0] || '').toString().trim().toUpperCase();
 
-                    if (!address && cellAValue && typeof cellAValue === 'string') {
-                        const lowerCellValue = cellAValue.toLowerCase();
-                        if (addressKeywords.some(keyword => lowerCellValue.includes(keyword))) {
-                            const parts = cellAValue.split('\n');
-                            const firstLine = parts[0].trim();
-                            // Regex to find an 'E' number, like E12345
-                            const eNumberMatch = firstLine.match(/^E\d+/i);
-                            if (eNumberMatch) {
-                                eNumber = eNumberMatch[0];
-                                address = cellAValue.replace(eNumber, '').trim().replace(/\n/g, ', ');
-                            } else {
-                                address = parts.join(', ').trim();
-                            }
-                        }
+                    if (cellAValue.includes('JOB MANAGER')) {
+                        managerRowIndex = r + 1; // Manager name is in the next row
                     }
-                    
+                    if (cellAValue.includes('ADDRESS')) {
+                        addressRowIndex = r + 1; // Address starts in the next row
+                    }
+
                     if (dateRowIndex === -1) {
-                        const dayAbbrs = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+                         const dayAbbrs = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
                         const monthAbbrs = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
                         let dateCellCount = 0;
                         row.forEach(cell => {
@@ -339,24 +332,52 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                                 }
                             }
                         });
-
-                        if (dateCellCount > 2) {
+                        if (dateCellCount > 2) { // Heuristic: if more than 2 cells look like dates, it's the date row
                             dateRowIndex = r;
                             dateRow = row.map(cell => parseDate(cell));
                         }
                     }
                 }
+                
+                if (managerRowIndex !== -1 && managerRowIndex < blockEndRowIndex) {
+                    manager = jsonData[managerRowIndex]?.[0] || 'Unknown Manager';
+                }
+
+                if (addressRowIndex !== -1) {
+                    let fullAddress = [];
+                    for (let r = addressRowIndex; r < blockEndRowIndex; r++) {
+                        const addrPart = jsonData[r]?.[0];
+                        if (addrPart && typeof addrPart === 'string' && addrPart.trim() !== '') {
+                            fullAddress.push(addrPart.trim());
+                        } else {
+                            break; // Stop when we hit an empty row
+                        }
+                    }
+                    if (fullAddress.length > 0) {
+                        const firstLine = fullAddress[0];
+                        const eNumberMatch = firstLine.match(/^(E\d+)\s*/i);
+                        if (eNumberMatch) {
+                            eNumber = eNumberMatch[0].trim();
+                            fullAddress[0] = firstLine.replace(eNumberMatch[0], '').trim();
+                        }
+                        address = fullAddress.join(', ');
+                    }
+                }
 
                 if (!address) {
-                     allFailedShifts.push({ date: null, projectAddress: `Block at row ${blockStartRowIndex + 1}`, cellContent: '', reason: 'Could not find a valid Address cell in Column A for this project block.', sheetName, cellRef: `A${blockStartRowIndex + 1}` });
+                     allFailedShifts.push({ date: null, projectAddress: `Block at row ${blockStartRowIndex + 1}`, cellContent: '', reason: 'Could not find a valid Address within this project block.', sheetName, cellRef: `A${blockStartRowIndex + 1}` });
                      continue;
                 }
                 if (dateRowIndex === -1) {
-                    allFailedShifts.push({ date: null, projectAddress: address, cellContent: '', reason: 'Could not find a valid Date Row within this project block.', sheetName, cellRef: 'N/A' });
+                    allFailedShifts.push({ date: null, projectAddress: address, cellContent: '', reason: 'Could not find a valid Date Row within this project block.', sheetName, cellRef: `A${blockStartRowIndex + 1}` });
                     continue;
                 }
 
-                for (let r = blockStartRowIndex; r < blockEndRowIndex; r++) {
+                // Now process the shifts for the block
+                for (let r = dateRowIndex + 1; r < blockEndRowIndex; r++) {
+                    const rowData = jsonData[r];
+                    if (!rowData) continue;
+
                     for (let c = 1; c < dateRow.length; c++) { 
                         const shiftDate = dateRow[c];
                         const cellRef = XLSX.utils.encode_cell({ r, c });
