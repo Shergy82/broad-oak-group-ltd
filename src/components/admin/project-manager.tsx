@@ -283,7 +283,7 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
             const { downloadUrl } = result.data;
             
             toast({ title: 'Zip created!', description: 'Your download will begin shortly.' });
-            window.open(downloadUrl, '_blank');
+            window.location.href = downloadUrl;
         } catch (error: any) {
             console.error("Error zipping files:", error);
             toast({ variant: 'destructive', title: 'Zipping Failed', description: error.message || 'Could not create zip file.' });
