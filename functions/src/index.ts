@@ -440,67 +440,69 @@ export const deleteUser = onCall({ region: europeWest2 }, async (request) => {
 });
 
 export const zipProjectFiles = onCall(
-    { region: europeWest2, timeoutSeconds: 300, memory: "1GiB" },
-    async (request) => {
-      if (!request.auth) {
-        throw new HttpsError("unauthenticated", "You must be logged in.");
-      }
-  
-      const projectId = request.data?.projectId;
-      if (!projectId) {
-        throw new HttpsError("invalid-argument", "projectId is required.");
-      }
-  
-      const bucket = admin.storage().bucket();
-      const zip = new JSZip();
-  
-      const filesSnap = await db
-        .collection("projects")
-        .doc(projectId)
-        .collection("files")
-        .get();
-  
-      if (filesSnap.empty) {
-        throw new HttpsError("not-found", "No files to zip.");
-      }
-  
-      let added = 0;
-  
-      for (const doc of filesSnap.docs) {
-        const data = doc.data();
-        if (!data.fullPath || !data.name) {
-          logger.warn("Skipping file with missing data", { fileId: doc.id });
-          continue;
-        }
-        try {
-          const [buffer] = await bucket.file(data.fullPath).download();
-          zip.file(data.name, buffer);
-          added++;
-        } catch (err) {
-          logger.error("Download failed for file:", { fullPath: data.fullPath, error: err });
-        }
-      }
-  
-      if (added === 0) {
-        throw new HttpsError("internal", "Files exist in Firestore but none could be downloaded from Storage. Check function logs for details.");
-      }
-  
-      const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
-  
-      const zipPath = `temp_zips/project_${projectId}_${Date.now()}.zip`;
-      const zipFile = bucket.file(zipPath);
-  
-      await zipFile.save(zipBuffer, {
-        contentType: "application/zip",
-        resumable: false,
-      });
-  
-      const [url] = await zipFile.getSignedUrl({
-        action: "read",
-        expires: Date.now() + 15 * 60 * 1000,
-        version: "v4",
-      });
-  
-      return { downloadUrl: url };
+  { region: europeWest2, timeoutSeconds: 300, memory: "1GiB" },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "You must be logged in.");
     }
-  );
+
+    const projectId = request.data?.projectId;
+    if (!projectId) {
+      throw new HttpsError("invalid-argument", "projectId is required.");
+    }
+
+    const bucket = admin.storage().bucket();
+    const zip = new JSZip();
+
+    const filesSnap = await db
+      .collection("projects")
+      .doc(projectId)
+      .collection("files")
+      .get();
+
+    if (filesSnap.empty) {
+      throw new HttpsError("not-found", "No files to zip for this project.");
+    }
+
+    let addedFileCount = 0;
+
+    // Use a sequential loop to avoid memory exhaustion
+    for (const doc of filesSnap.docs) {
+      const data = doc.data();
+      if (!data.fullPath || !data.name) {
+        logger.warn("Skipping file with missing data", { fileId: doc.id });
+        continue;
+      }
+      try {
+        const [buffer] = await bucket.file(data.fullPath).download();
+        zip.file(data.name, buffer);
+        addedFileCount++;
+      } catch (err) {
+        logger.error("Download failed for file:", { fullPath: data.fullPath, error: err });
+        // Do not re-throw; continue to zip other files
+      }
+    }
+
+    if (addedFileCount === 0) {
+      throw new HttpsError("internal", "Files exist in Firestore but none could be downloaded from Storage. Check function logs for details.");
+    }
+
+    const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
+
+    const zipPath = `temp_zips/project_${projectId}_${Date.now()}.zip`;
+    const zipFile = bucket.file(zipPath);
+
+    await zipFile.save(zipBuffer, {
+      contentType: "application/zip",
+      resumable: false,
+    });
+
+    const [url] = await zipFile.getSignedUrl({
+      action: "read",
+      expires: Date.now() + 15 * 60 * 1000, // 15 minutes
+      version: "v4",
+    });
+
+    return { downloadUrl: url };
+  }
+);

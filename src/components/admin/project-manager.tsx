@@ -6,7 +6,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { db, storage, httpsCallable, functions } from '@/lib/firebase';
+import { db, storage, functions, httpsCallable } from '@/lib/firebase';
 import {
   collection,
   onSnapshot,
@@ -153,7 +153,7 @@ function FileUploader({ project, userProfile }: { project: Project; userProfile:
   const { toast } = useToast();
 
   const handleFileUpload = (files: FileList | null) => {
-    if (!files || files.length === 0 || !storage) return;
+    if (!files || files.length === 0) return;
     setIsUploading(true);
 
     const uploadPromises = Array.from(files).map(file => {
@@ -175,10 +175,6 @@ function FileUploader({ project, userProfile }: { project: Project; userProfile:
             reject(error);
           },
           async () => {
-            if (!db) {
-                reject(new Error("Firestore not available"));
-                return;
-            }
             try {
               const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
               await addDoc(collection(db, `projects/${project.id}/files`), {
@@ -257,9 +253,9 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
     const [isLoading, setIsLoading] = useState(true);
     const { toast } = useToast();
     const [isZipping, setIsZipping] = useState(false);
-    
+
     useEffect(() => {
-        if (!project || !db) return;
+        if (!project) return;
         setIsLoading(true);
         const q = query(collection(db, `projects/${project.id}/files`), orderBy('uploadedAt', 'desc'));
         const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -277,7 +273,7 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
             toast({ variant: 'destructive', title: 'Error', description: 'Required services not available.'});
             return;
         }
-        if (files.length === 0) {
+         if (files.length === 0) {
             toast({ variant: 'destructive', title: 'No Files', description: 'There are no files to zip for this project.'});
             return;
         }
@@ -288,21 +284,21 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
         try {
             const zipProjectFilesFn = httpsCallable<{ projectId: string }, { downloadUrl: string }>(functions, 'zipProjectFiles');
             const result = await zipProjectFilesFn({ projectId: project.id });
-
-            const downloadUrl = result.data?.downloadUrl;
-            if (!downloadUrl) {
-              throw new Error("Cloud Function did not return a download URL.");
-            }
+            const { downloadUrl } = result.data;
             
+            if (!downloadUrl) {
+                throw new Error("Cloud function did not return a download URL.");
+            }
+
             toast({ title: 'Zip created!', description: 'Your download will begin shortly.' });
             window.open(downloadUrl, '_blank');
-            
+
         } catch (error: any) {
             console.error("Error zipping files:", error);
             toast({ 
                 variant: 'destructive', 
                 title: 'Zipping Failed', 
-                description: error.message || 'Could not create zip file. Check the function logs for more details.' 
+                description: error.message || 'Could not create zip file. Check the function logs.' 
             });
         } finally {
             setIsZipping(false);
@@ -449,13 +445,8 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [isDeletingAll, setIsDeletingAll] = useState(false);
   const { toast } = useToast();
-  
+
   useEffect(() => {
-    if (!db) {
-        setProjects([]);
-        setLoading(false);
-        return;
-    }
     const q = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project)));
