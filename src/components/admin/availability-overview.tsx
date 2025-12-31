@@ -11,7 +11,7 @@ import { getCorrectedLocalDate } from '@/lib/utils';
 import { Avatar, AvatarFallback } from '../ui/avatar';
 import { Skeleton } from '../ui/skeleton';
 import { Users, Sun, Moon, MapPin } from 'lucide-react';
-import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { ScrollArea, ScrollBar } from '../ui/scroll-area';
 
 
 interface AvailableUser {
@@ -32,7 +32,6 @@ const getInitials = (name?: string) => {
 const extractLocation = (address: string | undefined): string => {
     if (!address) return '';
 
-    // Prioritize postcode if present
     const postcodeRegex = /(L|l)ondon\s+([A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})/i;
     const match = address.match(postcodeRegex);
 
@@ -40,14 +39,12 @@ const extractLocation = (address: string | undefined): string => {
         return match[0].trim();
     }
     
-    // Fallback for just a postcode if "London" isn't there
     const genericPostcodeRegex = /([A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})$/i;
     const genericMatch = address.match(genericPostcodeRegex);
     if (genericMatch && genericMatch[0]) {
         return genericMatch[0].trim();
     }
     
-    // Fallback to the last part of the address if no postcode found
     const parts = address.split(',');
     return parts[parts.length - 1].trim();
 };
@@ -61,27 +58,25 @@ const AvailabilityList = ({ title, users, icon: Icon, color }: { title: string, 
                 <Icon className="h-5 w-5" />
                 {title} ({users.length})
             </h4>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                <TooltipProvider>
+            <ScrollArea className="w-full whitespace-nowrap rounded-md">
+                <div className="flex w-max space-x-6 pb-4">
                     {users.map(({ user, shiftLocation }) => (
-                        <div key={user.uid} className="flex flex-col items-center text-center gap-2">
-                             <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Avatar>
-                                        <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
-                                    </Avatar>
-                                </TooltipTrigger>
-                                {shiftLocation && (
-                                <TooltipContent>
-                                    <p className="flex items-center gap-1.5"><MapPin className="h-3 w-3" /> Shift at {extractLocation(shiftLocation)}</p>
-                                </TooltipContent>
-                                )}
-                            </Tooltip>
-                            <p className="text-xs font-medium">{user.name}</p>
+                        <div key={user.uid} className="flex flex-col items-center text-center gap-2 w-24">
+                            <Avatar>
+                                <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
+                            </Avatar>
+                            <p className="text-xs font-medium truncate w-full">{user.name}</p>
+                            {shiftLocation && (
+                                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                    <MapPin className="h-3 w-3" />
+                                    <span className="truncate">{extractLocation(shiftLocation)}</span>
+                                </div>
+                            )}
                         </div>
                     ))}
-                </TooltipProvider>
-            </div>
+                </div>
+                 <ScrollBar orientation="horizontal" />
+            </ScrollArea>
         </div>
     )
 }
@@ -145,7 +140,6 @@ export function AvailabilityOverview() {
                     return { user, availability: 'am', shiftLocation: shift.address };
                 }
             }
-            // If user has 2+ shifts (one am, one pm), they are not available
             return null;
         }).filter((u): u is AvailableUser => u !== null);
 
@@ -160,7 +154,7 @@ export function AvailabilityOverview() {
       <CardHeader>
         <CardTitle>Today's Availability</CardTitle>
         <CardDescription>
-          A simple overview of which operatives are available today. Hover over an avatar for location info.
+          A simple overview of which operatives are available today.
         </CardDescription>
       </CardHeader>
       <CardContent>
