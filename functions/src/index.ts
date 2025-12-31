@@ -1,7 +1,7 @@
 
 'use server';
 import * as functions from "firebase-functions";
-import { onCall, onRequest } from "firebase-functions/v2/https";
+import { onCall } from "firebase-functions/v2/https";
 import admin from "firebase-admin";
 import * as webPush from "web-push";
 import JSZip from "jszip";
@@ -857,5 +857,3 @@ export const zipProjectFiles = onCall(
         throw new functions.https.HttpsError("internal", `An unexpected error occurred: ${error.message || 'Check function logs for details.'}`);
     }
 });
-
-    

@@ -7,6 +7,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { db, storage, functions } from '@/lib/firebase';
+import { httpsCallable } from 'firebase/functions';
 import {
   collection,
   onSnapshot,
@@ -58,7 +59,6 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
-import { httpsCallable } from 'firebase/functions';
 
 
 const projectSchema = z.object({
@@ -675,7 +675,5 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
     </div>
   );
 }
-
-    
 
     
