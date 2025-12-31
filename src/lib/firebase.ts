@@ -23,19 +23,22 @@ let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 let db: Firestore | null = null;
 let storage: FirebaseStorage | null = null;
+let functions: Functions | null = null;
 
 if (isFirebaseConfigured && typeof window !== 'undefined') {
     app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = getFirestore(app);
     storage = getStorage(app);
+    functions = getFunctions(app, 'europe-west2');
 } else if (isFirebaseConfigured) {
     // For server-side rendering
     app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = getFirestore(app);
     storage = getStorage(app);
+    functions = getFunctions(app, 'europe-west2');
 }
 
 
-export { app, auth, db, storage };
+export { app, auth, db, storage, functions };
