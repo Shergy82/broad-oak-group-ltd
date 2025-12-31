@@ -5,7 +5,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { db, storage, functions, httpsCallable } from '@/lib/firebase';
+import { db, storage, functions } from '@/lib/firebase';
+import { httpsCallable } from 'firebase/functions';
 import {
   collection,
   onSnapshot,
@@ -300,7 +301,7 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
         }
         
         try {
-            const deleteProjectFileFn = httpsCallable(functions, 'deleteProjectFile');
+            const deleteProjectFileFn = httpsCallable<{projectId: string, fileId: string}>(functions, 'deleteProjectFile');
             await deleteProjectFileFn({ projectId: project.id, fileId: file.id });
             toast({ title: "File Deleted", description: `Successfully deleted ${file.name}.` });
         } catch (error: any) {
@@ -471,7 +472,7 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
 
     toast({ title: 'Deleting Project...', description: 'This may take a moment. The page will update automatically.' });
     try {
-        const deleteProjectAndFilesFn = httpsCallable(functions, 'deleteProjectAndFiles');
+        const deleteProjectAndFilesFn = httpsCallable<{projectId: string}>(functions, 'deleteProjectAndFiles');
         await deleteProjectAndFilesFn({ projectId: project.id });
         
         toast({ title: 'Success', description: 'Project and all its files have been deleted.' });
