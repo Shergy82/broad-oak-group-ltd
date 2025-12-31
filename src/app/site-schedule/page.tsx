@@ -181,11 +181,11 @@ export default function SiteSchedulePage() {
 
     const userNameMap = useMemo(() => new Map(users.map(u => [u.uid, u.name])), [users]);
 
-    const { lastWeekShifts, thisWeekShifts, nextWeekShifts } = useMemo(() => {
+    const { lastWeekShifts, thisWeekShifts, nextWeekShifts, week3Shifts, week4Shifts } = useMemo(() => {
         const today = startOfToday();
         
         if (!selectedAddress) {
-            return { lastWeekShifts: {}, thisWeekShifts: {}, nextWeekShifts: {} };
+            return { lastWeekShifts: {}, thisWeekShifts: {}, nextWeekShifts: {}, week3Shifts: {}, week4Shifts: {} };
         }
 
         const relevantShifts = allShifts.filter(s => s.address === selectedAddress);
@@ -207,11 +207,15 @@ export default function SiteSchedulePage() {
         const startOfThisWeek = startOfWeek(today, { weekStartsOn: 1 });
         const startOfNextWeek = addDays(startOfThisWeek, 7);
         const startOfLastWeek = subDays(startOfThisWeek, 7);
+        const startOfWeek3 = addDays(startOfThisWeek, 14);
+        const startOfWeek4 = addDays(startOfThisWeek, 21);
 
         return {
             lastWeekShifts: groupShifts(startOfLastWeek),
             thisWeekShifts: groupShifts(startOfThisWeek),
-            nextWeekShifts: groupShifts(startOfNextWeek)
+            nextWeekShifts: groupShifts(startOfNextWeek),
+            week3Shifts: groupShifts(startOfWeek3),
+            week4Shifts: groupShifts(startOfWeek4),
         };
     }, [allShifts, selectedAddress]);
 
@@ -370,11 +374,17 @@ export default function SiteSchedulePage() {
                             </div>
                         ) : (
                             <Tabs defaultValue="this-week">
-                                <TabsList>
-                                    <TabsTrigger value="last-week">Last Week</TabsTrigger>
-                                    <TabsTrigger value="this-week">This Week</TabsTrigger>
-                                    <TabsTrigger value="next-week">Next Week</TabsTrigger>
-                                </TabsList>
+                                <div className="flex flex-col space-y-2">
+                                    <TabsList className="grid grid-cols-3">
+                                        <TabsTrigger value="last-week">Last Week</TabsTrigger>
+                                        <TabsTrigger value="this-week">This Week</TabsTrigger>
+                                        <TabsTrigger value="next-week">Next Week</TabsTrigger>
+                                    </TabsList>
+                                     <TabsList className="grid grid-cols-2">
+                                        <TabsTrigger value="week-3">Week 3</TabsTrigger>
+                                        <TabsTrigger value="week-4">Week 4</TabsTrigger>
+                                    </TabsList>
+                                </div>
                                 <TabsContent value="last-week" className="mt-4">
                                     <WeekScheduleView shifts={lastWeekShifts} weekName="Last Week" userNameMap={userNameMap} />
                                 </TabsContent>
@@ -383,6 +393,12 @@ export default function SiteSchedulePage() {
                                 </TabsContent>
                                 <TabsContent value="next-week" className="mt-4">
                                      <WeekScheduleView shifts={nextWeekShifts} weekName="Next Week" userNameMap={userNameMap} />
+                                </TabsContent>
+                                <TabsContent value="week-3" className="mt-4">
+                                     <WeekScheduleView shifts={week3Shifts} weekName="Week 3" userNameMap={userNameMap} />
+                                </TabsContent>
+                                <TabsContent value="week-4" className="mt-4">
+                                     <WeekScheduleView shifts={week4Shifts} weekName="Week 4" userNameMap={userNameMap} />
                                 </TabsContent>
                             </Tabs>
                         )}
