@@ -6,7 +6,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { db, storage, functions } from '@/lib/firebase';
+import { db, storage, app } from '@/lib/firebase';
 import { httpsCallable, getFunctions } from 'firebase/functions';
 import {
   collection,
@@ -254,6 +254,7 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
     const [isLoading, setIsLoading] = useState(true);
     const { toast } = useToast();
     const [isZipping, setIsZipping] = useState(false);
+    const functions = getFunctions(app, "europe-west2");
 
     useEffect(() => {
         if (!project) return;
@@ -278,13 +279,13 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
         toast({ title: 'Zipping files...', description: 'Please wait, this may take a moment for large projects.' });
 
         try {
-            // Explicitly get the functions instance for the correct region.
-            const functionsInstance = getFunctions(undefined, "europe-west2");
-            const zipProjectFilesFn = httpsCallable<{ projectId: string }, { downloadUrl: string }>(functionsInstance, 'zipProjectFiles');
-            
+            console.log("ZIP START", project.id);
+            const zipProjectFilesFn = httpsCallable<{ projectId: string }, { downloadUrl: string }>(functions, 'zipProjectFiles');
             const result = await zipProjectFilesFn({ projectId: project.id });
-            const downloadUrl = result.data.downloadUrl;
-            
+            console.log("ZIP DONE", result.data);
+
+            const downloadUrl = (result.data as any)?.downloadUrl;
+
             if (downloadUrl) {
                 toast({ title: 'Zip created!', description: 'Your download will begin shortly.' });
                 window.open(downloadUrl, '_blank');
@@ -305,7 +306,7 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
 
 
     const handleDeleteFile = async (file: ProjectFile) => {
-        if (!project || !functions) {
+        if (!project) {
             toast({ variant: 'destructive', title: 'Error', description: 'Required services are not available.' });
             return;
         }
@@ -443,6 +444,7 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [isDeletingAll, setIsDeletingAll] = useState(false);
   const { toast } = useToast();
+  const functions = getFunctions(app);
 
   useEffect(() => {
     const q = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
@@ -475,10 +477,6 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
         toast({ variant: 'destructive', title: 'Permission Denied', description: 'You do not have permission to delete projects.' });
         return;
     }
-     if (!functions) {
-        toast({ variant: 'destructive', title: 'Error', description: 'Firebase Functions service is not available.' });
-        return;
-    }
 
     toast({ title: 'Deleting Project...', description: 'This may take a moment. The page will update automatically.' });
     try {
@@ -497,10 +495,6 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
   };
 
   const handleDeleteAllProjects = async () => {
-    if (!functions) {
-        toast({ variant: 'destructive', title: 'Error', description: 'Firebase Functions service is not available.' });
-        return;
-    }
     setIsDeletingAll(true);
     toast({ title: 'Deleting All Projects...', description: 'This may take a moment. The page will update automatically.' });
 
