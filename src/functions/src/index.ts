@@ -789,45 +789,52 @@ export const deleteUser = functions.region("europe-west2").https.onCall(async (d
 export const zipProjectFiles = onCall(
     { region: "europe-west2", timeoutSeconds: 300, memory: "1GiB" },
     async (request) => {
+        // 1. Authentication Check
         if (!request.auth) {
-            throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
+            throw new functions.https.HttpsError("unauthenticated", "You must be logged in to perform this action.");
         }
         
         const { projectId } = request.data;
         if (!projectId) {
-            throw new functions.https.HttpsError("invalid-argument", "Project ID is required.");
+            throw new functions.https.HttpsError("invalid-argument", "A 'projectId' must be provided.");
         }
 
         const zip = new JSZip();
         const bucket = admin.storage().bucket();
         
         try {
+            // 2. Fetch File Documents from Firestore
             const filesCollectionRef = db.collection('projects').doc(projectId).collection('files');
             const filesSnapshot = await filesCollectionRef.get();
 
             if (filesSnapshot.empty) {
-                throw new functions.https.HttpsError("not-found", "No files found for this project.");
+                throw new functions.https.HttpsError("not-found", "No files found for this project to zip.");
             }
 
-            // Use Promise.all to fetch all files in parallel
-            await Promise.all(filesSnapshot.docs.map(async (fileDoc) => {
+            // 3. Sequential File Processing (Robust and Memory-Efficient)
+            for (const fileDoc of filesSnapshot.docs) {
                 const fileData = fileDoc.data();
-                if (!fileData.fullPath || !fileData.name) {
-                    functions.logger.warn(`Skipping file with missing data in project ${projectId}`, fileDoc.id);
-                    return;
+                // CRITICAL FIX: Ensure we only process documents with valid data.
+                if (fileData && fileData.fullPath && fileData.name) {
+                    try {
+                        // Download file content using the Admin SDK
+                        const [fileContents] = await bucket.file(fileData.fullPath).download();
+                        // Add file to the zip archive
+                        zip.file(fileData.name, fileContents);
+                        functions.logger.log(`Successfully added ${fileData.name} to the zip archive.`);
+                    } catch (downloadError: any) {
+                        functions.logger.error(`Failed to download and add file ${fileData.fullPath} to zip. Skipping file.`, downloadError);
+                    }
+                } else {
+                    functions.logger.warn(`Skipping file with missing data in project ${projectId}: ${fileDoc.id}`);
                 }
-                
-                try {
-                    // This uses the Admin SDK to download the file directly from storage, bypassing public access rules.
-                    const [fileContents] = await bucket.file(fileData.fullPath).download();
-                    zip.file(fileData.name, fileContents);
-                    functions.logger.log(`Added ${fileData.name} to zip from direct storage download.`);
-                } catch (downloadError: any) {
-                    functions.logger.error(`Failed to download file ${fileData.fullPath} for zipping.`, downloadError);
-                    // We'll continue and zip the files we *can* access, rather than failing the whole operation.
-                }
-            }));
+            }
             
+            // 4. Generate and Upload the Zip Archive
+            if (Object.keys(zip.files).length === 0) {
+                 throw new functions.https.HttpsError("internal", "Failed to add any files to the archive. This may be due to download errors. See function logs for details.");
+            }
+
             const zipBuffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
             
             const zipFileName = `project_${projectId}_${Date.now()}.zip`;
@@ -836,9 +843,10 @@ export const zipProjectFiles = onCall(
             
             await zipFile.save(zipBuffer, { contentType: 'application/zip' });
             
+            // 5. Generate and Return a Signed URL
             const [signedUrl] = await zipFile.getSignedUrl({
                 action: 'read',
-                expires: Date.now() + 15 * 60 * 1000, // 15 minutes
+                expires: Date.now() + 15 * 60 * 1000, // URL is valid for 15 minutes
                 version: 'v4',
             });
             
@@ -847,9 +855,10 @@ export const zipProjectFiles = onCall(
         } catch(error: any) {
             functions.logger.error(`CRITICAL: Zipping function failed for project ${projectId}`, error);
             if (error instanceof functions.https.HttpsError) {
-              throw error;
+              throw error; // Re-throw HttpsError so client gets the specific message
             }
-            throw new functions.https.HttpsError("internal", `An unexpected error occurred: ${error.message || 'Check function logs for details.'}`);
+            // For any other unexpected errors, return a generic internal error.
+            throw new functions.https.HttpsError("internal", `An unexpected server error occurred. Please check the function logs for project ID: ${projectId}`);
         }
     }
 );
