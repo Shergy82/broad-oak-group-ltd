@@ -17,6 +17,7 @@ import {
   doc,
   serverTimestamp,
   Timestamp,
+  getDocs,
 } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { format } from 'date-fns';
@@ -269,16 +270,17 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
     }, [project]);
 
     const handleZipAndDownload = async () => {
-        if (!project || !functions) {
-            toast({ variant: 'destructive', title: 'Error', description: 'Required services not available.'});
+        if (!project || !functions || files.length === 0) {
+            toast({ variant: 'destructive', title: 'Error', description: 'Required services not available or no files to zip.'});
             return;
         }
         setIsZipping(true);
         toast({ title: 'Zipping files...', description: 'Please wait, this may take a moment for large projects.' });
 
         try {
-            const zipProjectFilesFn = httpsCallable<{ projectId: string }, { downloadUrl: string }>(functions, 'zipProjectFiles');
-            const result = await zipProjectFilesFn({ projectId: project.id });
+            const filesToZip = files.map(f => ({ name: f.name, url: f.url, fullPath: f.fullPath }));
+            const zipProjectFilesFn = httpsCallable<{ projectId: string, files: typeof filesToZip }, { downloadUrl: string }>(functions, 'zipProjectFiles');
+            const result = await zipProjectFilesFn({ projectId: project.id, files: filesToZip });
             const { downloadUrl } = result.data;
             
             toast({ title: 'Zip created!', description: 'Your download will begin shortly.' });
