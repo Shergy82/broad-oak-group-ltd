@@ -9,18 +9,27 @@ import { Logo } from '@/components/shared/logo';
 import Link from 'next/link';
 import { Spinner } from '@/components/shared/spinner';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useUserProfile } from '@/hooks/use-user-profile';
 
 export default function LoginPage() {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading: isAuthLoading } = useAuth();
+  const { userProfile, loading: isProfileLoading } = useUserProfile();
   const router = useRouter();
+  
+  const isLoading = isAuthLoading || (user && isProfileLoading);
 
   useEffect(() => {
-    if (!isLoading && user) {
-      router.push('/dashboard');
+    if (!isLoading && user && userProfile) {
+      const isPrivileged = ['admin', 'owner', 'manager'].includes(userProfile.role);
+      if (isPrivileged) {
+        router.push('/admin/control-panel');
+      } else {
+        router.push('/dashboard');
+      }
     }
-  }, [user, isLoading, router]);
+  }, [user, userProfile, isLoading, router]);
 
-  if (isLoading || user) {
+  if (isLoading || (user && userProfile)) {
     return (
       <div className="flex min-h-screen w-full flex-col items-center justify-center">
         <Spinner size="lg" />

@@ -4,7 +4,6 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { FileUploader, FailedShift, DryRunResult } from '@/components/admin/file-uploader';
-import { ShiftScheduleOverview } from '@/components/admin/shift-schedule-overview';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { useAllUsers } from '@/hooks/use-all-users';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -14,6 +13,9 @@ import { format } from 'date-fns';
 import { Alert, AlertTitle, AlertDescription } from '../ui/alert';
 import type { UserProfile } from '@/types';
 import { Spinner } from '../shared/spinner';
+import { VapidKeyGenerator } from './vapid-key-generator';
+import { TestNotificationSender } from './test-notification-sender';
+import { NotificationToggle } from './notification-toggle';
 
 
 export default function AdminPageContent() {
@@ -152,7 +154,7 @@ export default function AdminPageContent() {
                             <TableHeader><TableRow><TableHead>Operative</TableHead><TableHead>Date</TableHead><TableHead>Task</TableHead><TableHead>Changes</TableHead></TableRow></TableHeader>
                             <TableBody>
                                 {sortedUpdate.map(({old, new: newShift}, index) => (
-                                    <TableRow key={index}><TableCell>{userNameMap.get(newShift.userId) || newShift.userId}</TableCell><TableCell>{format(newShift.date, 'dd/MM/yy')}</TableCell><TableCell>{newShift.task}</TableCell><TableCell className="text-xs">Manager: {old.manager} -&gt; {newShift.manager}</TableCell></TableRow>
+                                    <TableRow key={index}><TableCell>{userNameMap.get(newShift.userId) || newShift.userId}</TableCell><TableCell>{format(newShift.date, 'dd/MM/yy')}</TableCell><TableCell>{newShift.task}</TableCell><TableCell className="text-xs">Manager: {old.manager} -> {newShift.manager}</TableCell></TableRow>
                                 ))}
                             </TableBody>
                         </Table>
@@ -287,12 +289,16 @@ export default function AdminPageContent() {
         </>
       )}
       
-      {isPrivilegedUser && userProfile && (
-         <ShiftScheduleOverview userProfile={userProfile} />
+      {userProfile?.role === 'owner' && (
+        <div className="grid gap-6 lg:grid-cols-2">
+            <VapidKeyGenerator />
+            <div className="space-y-6">
+                <NotificationToggle />
+                <TestNotificationSender />
+            </div>
+        </div>
       )}
 
     </div>
   );
 }
-
-    

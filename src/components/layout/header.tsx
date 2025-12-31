@@ -7,7 +7,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { Logo } from '../shared/logo';
 import { Button } from '@/components/ui/button';
-import { Briefcase, Calendar, HardHat, LogOut, Megaphone, Shield, User, UserCog, Users, TrendingUp, HelpCircle, Fingerprint, Building2, CalendarCheck, CheckSquare } from 'lucide-react';
+import { Briefcase, Calendar, HardHat, LogOut, Megaphone, Shield, User, UserCog, Users, TrendingUp, HelpCircle, Fingerprint, Building2, CalendarCheck, CheckSquare, Settings } from 'lucide-react';
 import { NotificationButton } from '../shared/notification-button';
 import {
   DropdownMenu,
@@ -99,6 +99,10 @@ export function Header() {
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuLabel>Admin Area</DropdownMenuLabel>
+                    <DropdownMenuItem onClick={() => router.push('/admin/control-panel')} className="cursor-pointer">
+                      <Settings className="mr-2" />
+                      <span>Control Panel</span>
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => router.push('/schedule')} className="cursor-pointer">
                       <Users className="mr-2" />
                       <span>Team Schedule</span>
@@ -114,10 +118,6 @@ export function Header() {
                     <DropdownMenuItem onClick={() => router.push('/admin/performance')} className="cursor-pointer">
                       <TrendingUp className="mr-2" />
                       <span>Performance</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => router.push('/admin')} className="cursor-pointer">
-                      <Shield className="mr-2" />
-                      <span>Admin Panel</span>
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => router.push('/admin/users')} className="cursor-pointer">
                       <UserCog className="mr-2" />

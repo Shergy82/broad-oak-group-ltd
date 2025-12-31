@@ -1,7 +1,18 @@
 
 'use client';
-import AdminPageContent from "@/components/admin/admin-page-content";
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useUserProfile } from '@/hooks/use-user-profile';
 
-export default function AdminPage() {
-    return <AdminPageContent />;
+export default function AdminPageRedirect() {
+  const router = useRouter();
+  const { userProfile, loading } = useUserProfile();
+
+  useEffect(() => {
+    if (!loading && userProfile) {
+      router.replace('/admin/control-panel');
+    }
+  }, [userProfile, loading, router]);
+
+  return null;
 }
