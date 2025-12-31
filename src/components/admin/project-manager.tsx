@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -269,6 +270,7 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
     }, [project]);
 
     const handleDownloadPhotosAsPdf = async () => {
+      if (!project) return;
       const imageFiles = files.filter(file => file.type?.startsWith('image/'));
 
       if (imageFiles.length === 0) {
@@ -287,24 +289,39 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
       });
     
       const doc = new jsPDF();
-      doc.setFontSize(20);
-      doc.text(project?.address || 'Project Photos', 14, 22);
-      doc.setFontSize(12);
-      doc.text(`Generated on: ${format(new Date(), 'PPP p')}`, 14, 30);
+      const addTitlePage = () => {
+        doc.setFontSize(22);
+        doc.text("Project Photo Report", 105, 80, { align: 'center' });
+        
+        doc.setFontSize(16);
+        const addressLines = doc.splitTextToSize(project.address, 180);
+        doc.text(addressLines, 105, 100, { align: 'center' });
+
+        doc.setFontSize(12);
+        if (project.eNumber) {
+            doc.text(`E-Number: ${project.eNumber}`, 105, 120, { align: 'center' });
+        }
+         if (project.manager) {
+            doc.text(`Manager: ${project.manager}`, 105, 128, { align: 'center' });
+        }
+        
+        doc.setFontSize(10);
+        doc.setTextColor(150);
+        doc.text(`Report generated on: ${format(new Date(), 'PPP p')}`, 105, 150, { align: 'center' });
+      };
+
+      addTitlePage();
 
       try {
         for (let i = 0; i < imageFiles.length; i++) {
           const file = imageFiles[i];
-          if (i > 0) {
-            doc.addPage();
-          }
+          doc.addPage();
 
           toast({
             title: 'Processing Image...',
             description: `Adding ${file.name} (${i + 1} of ${imageFiles.length}) to the PDF.`,
           });
           
-          // Use a CORS proxy to fetch the image data
           const response = await fetch(`https://images.weserv.nl/?url=${encodeURIComponent(file.url)}`);
           if (!response.ok) {
             throw new Error(`Failed to fetch image ${file.name}`);
@@ -327,7 +344,7 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
           const pageHeight = doc.internal.pageSize.getHeight();
           const margin = 15;
           const usableWidth = pageWidth - margin * 2;
-          const usableHeight = pageHeight - margin * 2 - 20; // Subtract space for footer
+          const usableHeight = pageHeight - margin * 2 - 20;
 
           const aspectRatio = img.width / img.height;
           let imgWidth = usableWidth;
@@ -343,10 +360,12 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
           
           doc.addImage(imageData, 'JPEG', x, y, imgWidth, imgHeight);
 
-          // Add footer with file name
-          doc.setFontSize(10);
-          doc.setTextColor(150);
-          doc.text(file.name, pageWidth / 2, pageHeight - 10, { align: 'center' });
+          // Add footer with file name, uploader, and date
+          doc.setFontSize(8);
+          doc.setTextColor(120);
+          const uploadedAt = file.uploadedAt ? format(file.uploadedAt.toDate(), 'dd/MM/yyyy p') : 'Unknown date';
+          const footerText = `${file.name} | Uploaded by: ${file.uploaderName} on ${uploadedAt}`;
+          doc.text(footerText, pageWidth / 2, pageHeight - 10, { align: 'center' });
         }
 
         doc.save(`${project?.address.replace(/[^a-zA-Z0-9]/g, '_')}_photos.pdf`);
