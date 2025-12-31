@@ -6,8 +6,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { db, storage, functions } from '@/lib/firebase';
-import { httpsCallable } from 'firebase/functions';
+import { db, storage, functions, httpsCallable } from '@/lib/firebase';
 import {
   collection,
   onSnapshot,
@@ -286,7 +285,7 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
             window.location.href = downloadUrl;
         } catch (error: any) {
             console.error("Error zipping files:", error);
-            toast({ variant: 'destructive', title: 'Zipping Failed', description: error.message || 'Could not create zip file.' });
+            toast({ variant: 'destructive', title: 'Zipping Failed', description: error.message || 'Could not create zip file. Check the function logs.' });
         } finally {
             setIsZipping(false);
         }
