@@ -786,42 +786,17 @@ export const deleteUser = functions.region("europe-west2").https.onCall(async (d
   }
 });
 
-export const zipProjectFiles = onRequest(
+export const zipProjectFiles = onCall(
   { region: "europe-west2", timeoutSeconds: 300, memory: "1GiB" },
-  async (request, response) => {
-    // Manually handle CORS for onRequest functions
-    response.set("Access-Control-Allow-Origin", "*");
-    response.set("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
-    response.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-
-    if (request.method === "OPTIONS") {
-      response.status(204).send();
-      return;
-    }
-
-    functions.logger.log("Zipping function triggered. Request body:", request.body);
-
-    const authorization = request.headers.authorization;
-    if (!authorization || !authorization.startsWith("Bearer ")) {
-      functions.logger.error("Unauthenticated user tried to zip files.");
-      response.status(403).send("Unauthorized");
-      return;
-    }
-
-    const idToken = authorization.split("Bearer ")[1];
-    try {
-      await admin.auth().verifyIdToken(idToken);
-    } catch (error) {
-      functions.logger.error("Token verification failed:", error);
-      response.status(403).send("Unauthorized");
-      return;
+  async (request) => {
+    
+    if (!request.auth) {
+        throw new functions.https.HttpsError("unauthenticated", "You must be logged in to perform this action.");
     }
     
-    const { projectId } = request.body;
+    const { projectId } = request.data;
     if (!projectId) {
-      functions.logger.error("Missing projectId in request.");
-      response.status(400).send("projectId is required.");
-      return;
+        throw new functions.https.HttpsError("invalid-argument","projectId is required.");
     }
 
     try {
@@ -829,9 +804,7 @@ export const zipProjectFiles = onRequest(
         const filesSnapshot = await projectRef.collection('files').get();
 
         if (filesSnapshot.empty) {
-            functions.logger.warn("No files found for project:", projectId);
-            response.status(404).send("No files found for this project.");
-            return;
+            throw new functions.https.HttpsError("not-found", "No files found for this project.");
         }
         
         functions.logger.log(`Found ${filesSnapshot.size} files to zip for project ${projectId}.`);
@@ -874,10 +847,13 @@ export const zipProjectFiles = onRequest(
         });
         
         functions.logger.log("Returning signed URL:", signedUrl);
-        response.status(200).json({ downloadUrl: signedUrl });
+        return { downloadUrl: signedUrl };
 
     } catch(error: any) {
         functions.logger.error(`CRITICAL: Zipping function failed for project ${projectId}`, error);
-        response.status(500).send(`An unexpected error occurred: ${error.message || 'Check function logs for details.'}`);
+        if (error instanceof functions.https.HttpsError) {
+          throw error;
+        }
+        throw new functions.https.HttpsError("internal", `An unexpected error occurred: ${error.message || 'Check function logs for details.'}`);
     }
 });

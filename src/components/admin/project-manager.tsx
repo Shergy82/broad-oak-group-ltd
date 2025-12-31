@@ -285,7 +285,7 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
         try {
             const idToken = await auth.currentUser.getIdToken();
             
-            const functionUrl = `https://europe-west2-${process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID}.cloudfunctions.net/zipProjectFiles`;
+            const functionUrl = `https://zipProjectFiles-${process.env.NEXT_PUBLIC_FIREBASE_FUNCTION_HASH}-ew.a.run.app`;
             
             const response = await fetch(functionUrl, {
                 method: 'POST',
@@ -293,12 +293,12 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${idToken}`,
                 },
-                body: JSON.stringify({ projectId: project.id }),
+                body: JSON.stringify({ data: { projectId: project.id } }),
             });
 
             if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(errorText || `Function returned status ${response.status}`);
+                const errorData = await response.json();
+                throw new Error(errorData.message || `Function returned status ${response.status}`);
             }
 
             const result = await response.json();
@@ -706,7 +706,3 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
     </div>
   );
 }
-
-    
-
-    
