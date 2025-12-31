@@ -20,6 +20,8 @@ import {
 } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { format } from 'date-fns';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -269,42 +271,43 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
     }, [project]);
 
     const handleZipAndDownload = async () => {
-        if (!project || !functions) {
-            toast({ variant: 'destructive', title: 'Error', description: 'Required services not available.'});
-            return;
-        }
-         if (files.length === 0) {
-            toast({ variant: 'destructive', title: 'No Files', description: 'There are no files to zip for this project.'});
-            return;
-        }
-
-        setIsZipping(true);
-        toast({ title: 'Zipping files...', description: 'Please wait, this may take a moment for large projects.' });
-
-        try {
-            const zipProjectFilesFn = httpsCallable<{ projectId: string }, { downloadUrl: string }>(functions, 'zipProjectFiles');
-            const result = await zipProjectFilesFn({ projectId: project.id });
-            const { downloadUrl } = result.data;
-            
-            if (!downloadUrl) {
-                throw new Error("Cloud function did not return a download URL.");
-            }
-
-            toast({ title: 'Zip created!', description: 'Your download will begin shortly.' });
-            window.open(downloadUrl, '_blank');
-
-        } catch (error: any) {
-            console.error("Error zipping files:", error);
-            toast({ 
-                variant: 'destructive', 
-                title: 'Zipping Failed', 
-                description: error.message || 'Could not create zip file. Check the function logs.' 
-            });
-        } finally {
-            setIsZipping(false);
-        }
+      if (!project || files.length === 0) {
+        toast({ variant: 'destructive', title: 'Error', description: 'No files to zip.' });
+        return;
+      }
+      setIsZipping(true);
+      toast({ title: 'Zipping files...', description: 'Please wait, this may take a moment.' });
+    
+      try {
+        const zip = new JSZip();
+        
+        // Use a proxy to bypass CORS issues when fetching files from Firebase Storage
+        const fetchPromises = files.map(file =>
+          fetch(`https://cors-anywhere.herokuapp.com/${file.url}`)
+            .then(response => {
+              if (!response.ok) {
+                throw new Error(`Failed to fetch ${file.name}: ${response.statusText}`);
+              }
+              return response.blob();
+            })
+            .then(blob => {
+              zip.file(file.name, blob);
+            })
+        );
+    
+        await Promise.all(fetchPromises);
+    
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        saveAs(zipBlob, `${project.address.replace(/[^a-z0-9]/gi, '_')}.zip`);
+    
+        toast({ title: 'Success', description: 'Your download has started.' });
+      } catch (error: any) {
+        console.error("Error zipping files:", error);
+        toast({ variant: 'destructive', title: 'Zipping Failed', description: error.message || 'Could not create zip file.' });
+      } finally {
+        setIsZipping(false);
+      }
     };
-
 
     const handleDeleteFile = async (file: ProjectFile) => {
         if (!project || !functions) {
