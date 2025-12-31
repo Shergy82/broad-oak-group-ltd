@@ -6,21 +6,18 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { db, storage, functions } from '@/lib/firebase';
-import { httpsCallable } from 'firebase/functions';
+import { getAuth } from 'firebase/auth';
 import {
   collection,
   onSnapshot,
   query,
   orderBy,
   addDoc,
-  deleteDoc,
   doc,
   serverTimestamp,
   Timestamp,
-  writeBatch,
-  getDocs
 } from 'firebase/firestore';
-import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import {
@@ -61,6 +58,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
+import { httpsCallable } from 'firebase/functions';
 
 
 const projectSchema = z.object({
@@ -255,6 +253,7 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
     const [isLoading, setIsLoading] = useState(true);
     const { toast } = useToast();
     const [isZipping, setIsZipping] = useState(false);
+    const auth = getAuth();
 
     useEffect(() => {
         if (!project) return;
@@ -271,17 +270,36 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
     }, [project]);
 
     const handleZipAndDownload = async () => {
-        if (!project || !functions) {
-            toast({ variant: 'destructive', title: 'Error', description: 'Required services not available.'});
+        if (!project) {
+            toast({ variant: 'destructive', title: 'Error', description: 'No project selected.' });
             return;
         }
+        if (!auth.currentUser) {
+            toast({ variant: 'destructive', title: 'Error', description: 'You must be logged in.' });
+            return;
+        }
+
         setIsZipping(true);
         toast({ title: 'Zipping files...', description: 'Please wait, this may take a moment for large projects.' });
 
         try {
-            const zipProjectFilesFn = httpsCallable<{ projectId: string }, { downloadUrl: string }>(functions, 'zipProjectFiles');
-            const result = await zipProjectFilesFn({ projectId: project.id });
-            const { downloadUrl } = result.data;
+            const idToken = await auth.currentUser.getIdToken();
+            const response = await fetch(`https://europe-west2-${process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID}.cloudfunctions.net/zipProjectFiles`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${idToken}`,
+                },
+                body: JSON.stringify({ projectId: project.id }),
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(errorText || `Function returned status ${response.status}`);
+            }
+
+            const result = await response.json();
+            const { downloadUrl } = result;
             
             toast({ title: 'Zip created!', description: 'Your download will begin shortly.' });
             window.location.href = downloadUrl;
@@ -677,3 +695,5 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
     </div>
   );
 }
+
+    
