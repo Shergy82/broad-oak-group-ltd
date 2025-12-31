@@ -278,14 +278,13 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
             toast({ variant: 'destructive', title: 'Error', description: 'You must be logged in.' });
             return;
         }
-
+        
         setIsZipping(true);
         toast({ title: 'Zipping files...', description: 'Please wait, this may take a moment for large projects.' });
 
         try {
             const idToken = await auth.currentUser.getIdToken();
-            
-            const functionUrl = `https://zipProjectFiles-${process.env.NEXT_PUBLIC_FIREBASE_FUNCTION_HASH}-ew.a.run.app`;
+            const functionUrl = `https://europe-west2-${process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID}.cloudfunctions.net/zipProjectFiles`;
             
             const response = await fetch(functionUrl, {
                 method: 'POST',
@@ -293,12 +292,12 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${idToken}`,
                 },
-                body: JSON.stringify({ data: { projectId: project.id } }),
+                body: JSON.stringify({ projectId: project.id }),
             });
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.message || `Function returned status ${response.status}`);
+                throw new Error(errorData.error.message || `Function returned status ${response.status}`);
             }
 
             const result = await response.json();
