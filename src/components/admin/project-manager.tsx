@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -43,7 +42,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/shared/spinner';
 import { useToast } from '@/hooks/use-toast';
-import { PlusCircle, UploadCloud, File as FileIcon, Trash2, FolderOpen, Download, Trash, FileArchive } from 'lucide-react';
+import { PlusCircle, UploadCloud, File as FileIcon, Trash2, FolderOpen, Download, Trash, FileArchive, Image as ImageIcon } from 'lucide-react';
 import type { Project, ProjectFile, UserProfile } from '@/types';
 import { cn } from '@/lib/utils';
 import {
@@ -59,6 +58,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
+import jsPDF from 'jspdf';
 
 
 const projectSchema = z.object({
@@ -252,7 +252,7 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
     const [files, setFiles] = useState<ProjectFile[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const { toast } = useToast();
-    const [isZipping, setIsZipping] = useState(false);
+    const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
     useEffect(() => {
         if (!project) return;
@@ -268,28 +268,102 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
         return () => unsubscribe();
     }, [project]);
 
-    const handleZipAndDownload = async () => {
-        if (!project || !functions || files.length === 0) {
-            toast({ variant: 'destructive', title: 'Error', description: 'Required services not available or no files to zip.'});
-            return;
-        }
-        setIsZipping(true);
-        toast({ title: 'Zipping files...', description: 'Please wait, this may take a moment for large projects.' });
+    const handleDownloadPhotosAsPdf = async () => {
+      const imageFiles = files.filter(file => file.type?.startsWith('image/'));
 
-        try {
-            const zipProjectFilesFn = httpsCallable<{ projectId: string }, { downloadUrl: string }>(functions, 'zipProjectFiles');
-            const result = await zipProjectFilesFn({ projectId: project.id });
-            const { downloadUrl } = result.data;
-            
-            toast({ title: 'Zip created!', description: 'Your download will begin shortly.' });
-            // Trigger the download by opening the signed URL in a new tab
-            window.open(downloadUrl, '_blank');
-        } catch (error: any) {
-            console.error("Error zipping files:", error);
-            toast({ variant: 'destructive', title: 'Zipping Failed', description: error.message || 'Could not create zip file. Check the function logs.' });
-        } finally {
-            setIsZipping(false);
+      if (imageFiles.length === 0) {
+        toast({
+          variant: 'destructive',
+          title: 'No Images Found',
+          description: 'This project does not have any images to include in a PDF.',
+        });
+        return;
+      }
+    
+      setIsGeneratingPdf(true);
+      toast({
+        title: 'Generating PDF...',
+        description: `Processing ${imageFiles.length} images. Please wait.`,
+      });
+    
+      const doc = new jsPDF();
+      doc.setFontSize(20);
+      doc.text(project?.address || 'Project Photos', 14, 22);
+      doc.setFontSize(12);
+      doc.text(`Generated on: ${format(new Date(), 'PPP p')}`, 14, 30);
+
+      try {
+        for (let i = 0; i < imageFiles.length; i++) {
+          const file = imageFiles[i];
+          if (i > 0) {
+            doc.addPage();
+          }
+
+          toast({
+            title: 'Processing Image...',
+            description: `Adding ${file.name} (${i + 1} of ${imageFiles.length}) to the PDF.`,
+          });
+          
+          // Use a CORS proxy to fetch the image data
+          const response = await fetch(`https://images.weserv.nl/?url=${encodeURIComponent(file.url)}`);
+          if (!response.ok) {
+            throw new Error(`Failed to fetch image ${file.name}`);
+          }
+
+          const blob = await response.blob();
+          const reader = new FileReader();
+          
+          const imageData: string = await new Promise((resolve, reject) => {
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          
+          const img = new Image();
+          img.src = imageData;
+          await new Promise(resolve => { img.onload = resolve; });
+
+          const pageWidth = doc.internal.pageSize.getWidth();
+          const pageHeight = doc.internal.pageSize.getHeight();
+          const margin = 15;
+          const usableWidth = pageWidth - margin * 2;
+          const usableHeight = pageHeight - margin * 2 - 20; // Subtract space for footer
+
+          const aspectRatio = img.width / img.height;
+          let imgWidth = usableWidth;
+          let imgHeight = imgWidth / aspectRatio;
+
+          if (imgHeight > usableHeight) {
+            imgHeight = usableHeight;
+            imgWidth = imgHeight * aspectRatio;
+          }
+
+          const x = (pageWidth - imgWidth) / 2;
+          const y = (pageHeight - imgHeight) / 2 - 10;
+          
+          doc.addImage(imageData, 'JPEG', x, y, imgWidth, imgHeight);
+
+          // Add footer with file name
+          doc.setFontSize(10);
+          doc.setTextColor(150);
+          doc.text(file.name, pageWidth / 2, pageHeight - 10, { align: 'center' });
         }
+
+        doc.save(`${project?.address.replace(/[^a-zA-Z0-9]/g, '_')}_photos.pdf`);
+        toast({
+          title: 'PDF Generated!',
+          description: 'Your download should begin shortly.',
+        });
+      } catch (error) {
+        console.error("Error generating PDF: ", error);
+        toast({
+          variant: 'destructive',
+          title: 'PDF Generation Failed',
+          description: 'An error occurred while creating the PDF. One or more images may be corrupt or inaccessible.',
+        });
+      } finally {
+        setIsGeneratingPdf(false);
+      }
     };
 
 
@@ -348,11 +422,11 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                             <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={handleZipAndDownload}
-                                disabled={isLoading || isZipping || files.length === 0}
+                                onClick={handleDownloadPhotosAsPdf}
+                                disabled={isLoading || isGeneratingPdf || files.filter(f => f.type?.startsWith('image/')).length === 0}
                             >
-                                {isZipping ? <Spinner /> : <FileArchive className="mr-2" />}
-                                Zip & Download All
+                                {isGeneratingPdf ? <Spinner /> : <ImageIcon className="mr-2" />}
+                                Download Photos as PDF
                             </Button>
                         </div>
                         {isLoading ? <Skeleton className="h-48 w-full" /> : files.length === 0 ? (
@@ -676,5 +750,6 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
     </div>
   );
 }
+    
 
     
