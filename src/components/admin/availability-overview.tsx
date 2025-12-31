@@ -13,6 +13,7 @@ import { Skeleton } from '../ui/skeleton';
 import { Users, Sun, Moon, MapPin, HardHat } from 'lucide-react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Spinner } from '../shared/spinner';
+import { ScrollArea, ScrollBar } from '../ui/scroll-area';
 
 
 interface AvailableUser {
@@ -61,26 +62,29 @@ const UserAvatarList = ({ users }: { users: AvailableUser[] }) => {
         );
     }
     return (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
-            {users.map(({ user, shiftLocation, availability }) => (
-                <div key={user.uid} className="flex flex-col items-center text-center gap-2">
-                    <Avatar className="h-16 w-16 text-lg">
-                        <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
-                    </Avatar>
-                    <div className="flex flex-col">
-                        <p className="text-sm font-medium truncate w-full">{user.name}</p>
-                        {shiftLocation && (
-                            <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
-                                <MapPin className="h-3 w-3 shrink-0" />
-                                <span className="truncate">{extractLocation(shiftLocation)}</span>
-                            </div>
-                        )}
-                         {availability === 'am' && <p className="text-xs font-semibold text-sky-600">AM Free</p>}
-                         {availability === 'pm' && <p className="text-xs font-semibold text-orange-600">PM Free</p>}
+        <ScrollArea className="w-full whitespace-nowrap rounded-md">
+            <div className="flex w-max space-x-6 pb-4">
+                {users.map(({ user, shiftLocation, availability }) => (
+                    <div key={user.uid} className="flex flex-col items-center text-center gap-2 w-24">
+                        <Avatar className="h-16 w-16 text-lg">
+                            <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
+                        </Avatar>
+                        <div className="flex flex-col">
+                            <p className="text-sm font-medium truncate w-full">{user.name}</p>
+                            {shiftLocation && (
+                                <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+                                    <MapPin className="h-3 w-3 shrink-0" />
+                                    <span className="truncate">{extractLocation(shiftLocation)}</span>
+                                </div>
+                            )}
+                            {availability === 'am' && <p className="text-xs font-semibold text-sky-600">AM Free</p>}
+                            {availability === 'pm' && <p className="text-xs font-semibold text-orange-600">PM Free</p>}
+                        </div>
                     </div>
-                </div>
-            ))}
-        </div>
+                ))}
+            </div>
+            <ScrollBar orientation="horizontal" />
+        </ScrollArea>
     )
 }
 
