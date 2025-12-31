@@ -3,7 +3,7 @@ import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
 import { getAuth, type Auth } from "firebase/auth";
 import { getFirestore, type Firestore } from "firebase/firestore";
 import { getStorage, type FirebaseStorage } from "firebase/storage";
-import { getFunctions, type Functions } from "firebase/functions";
+import { getFunctions, type Functions, httpsCallable as _httpsCallable } from "firebase/functions";
 
 
 // Your Firebase project configuration.
@@ -41,4 +41,4 @@ if (isFirebaseConfigured && typeof window !== 'undefined') {
 }
 
 
-export { app, auth, db, storage, functions };
+export { app, auth, db, storage, functions, _httpsCallable as httpsCallable };

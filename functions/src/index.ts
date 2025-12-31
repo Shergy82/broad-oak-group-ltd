@@ -1,10 +1,11 @@
+
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import admin from "firebase-admin";
 import * as webPush from "web-push";
 import { logger } from "firebase-functions/v2";
-import { getAppConfig } from "firebase-functions/params";
+import * as functions from "firebase-functions";
 import JSZip = require("jszip");
 
 
@@ -13,7 +14,6 @@ if (!admin.apps.length) {
   admin.initializeApp();
 }
 const db = admin.firestore();
-const webpushConfig = getAppConfig("webpush");
 
 // Define a converter for the PushSubscription type for robust data handling.
 const pushSubscriptionConverter = {
@@ -40,7 +40,7 @@ export const getVapidPublicKey = onCall({ region: europeWest2 }, (request) => {
     if (!request.auth) {
         throw new HttpsError("unauthenticated", "You must be logged in.");
     }
-    const publicKey = webpushConfig.public_key as string;
+    const publicKey = functions.config().webpush.public_key as string;
     if (!publicKey) {
         logger.error("CRITICAL: VAPID public key (webpush.public_key) not set in function configuration.");
         throw new HttpsError('not-found', 'VAPID public key is not configured on the server.');
@@ -58,7 +58,7 @@ export const getNotificationStatus = onCall({ region: europeWest2 }, async (requ
         throw new HttpsError("permission-denied", "Only the account owner can view settings.");
     }
     const settingsDoc = await db.collection('settings').doc('notifications').get();
-    return { enabled: settingsDoc.exists && settingsDoc.data()?.enabled !== false };
+    return { enabled: settingsDoc.exists && Boolean(settingsDoc.data()?.enabled) !== false };
 });
 
 
@@ -84,13 +84,13 @@ export const sendShiftNotification = onDocumentWritten({ document: "shifts/{shif
     const shiftId = event.params.shiftId;
     
     const settingsDoc = await db.collection('settings').doc('notifications').get();
-    if (settingsDoc.exists() && settingsDoc.data()?.enabled === false) {
+    if (settingsDoc.exists() && Boolean(settingsDoc.data()?.enabled) === false) {
         logger.log('Global notifications are disabled. Aborting.');
         return;
     }
     
-    const publicKey = webpushConfig.public_key as string;
-    const privateKey = webpushConfig.private_key as string;
+    const publicKey = functions.config().webpush.public_key as string;
+    const privateKey = functions.config().webpush.private_key as string;
 
     if (!publicKey || !privateKey) {
         logger.error("CRITICAL: VAPID keys are not configured.");
@@ -167,12 +167,12 @@ export const sendShiftNotification = onDocumentWritten({ document: "shifts/{shif
 export const projectReviewNotifier = onSchedule({ schedule: "every 24 hours", region: europeWest2 }, async (event) => {
     logger.log("Running daily project review notifier.");
     const settingsDoc = await db.collection('settings').doc('notifications').get();
-    if (settingsDoc.exists() && settingsDoc.data()?.enabled === false) {
+    if (settingsDoc.exists() && Boolean(settingsDoc.data()?.enabled) === false) {
       logger.log('Global notifications are disabled by the owner. Aborting project review notifier.');
       return;
     }
-    const publicKey = webpushConfig.public_key as string;
-    const privateKey = webpushConfig.private_key as string;
+    const publicKey = functions.config().webpush.public_key as string;
+    const privateKey = functions.config().webpush.private_key as string;
     if (!publicKey || !privateKey) {
       logger.error("CRITICAL: VAPID keys are not configured. Cannot send project review notifications.");
       return;
@@ -237,12 +237,12 @@ export const projectReviewNotifier = onSchedule({ schedule: "every 24 hours", re
 export const pendingShiftNotifier = onSchedule({ schedule: "every 1 hours", region: europeWest2 }, async (event) => {
     logger.log("Running hourly pending shift notifier.");
     const settingsDoc = await db.collection('settings').doc('notifications').get();
-    if (settingsDoc.exists() && settingsDoc.data()?.enabled === false) {
+    if (settingsDoc.exists() && Boolean(settingsDoc.data()?.enabled) === false) {
       logger.log('Global notifications are disabled by the owner. Aborting pending shift notifier.');
       return;
     }
-    const publicKey = webpushConfig.public_key as string;
-    const privateKey = webpushConfig.private_key as string;
+    const publicKey = functions.config().webpush.public_key as string;
+    const privateKey = functions.config().webpush.private_key as string;
     if (!publicKey || !privateKey) {
       logger.error("CRITICAL: VAPID keys are not configured. Cannot send pending shift reminders.");
       return;
