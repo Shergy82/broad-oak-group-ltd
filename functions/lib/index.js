@@ -3,7 +3,12 @@
 import * as functions from "firebase-functions";
 import admin from "firebase-admin";
 import * as webPush from "web-push";
-admin.initializeApp();
+import JSZip from "jszip";
+
+if (!admin.apps.length) {
+  admin.initializeApp();
+}
+
 const db = admin.firestore();
 // Define a converter for the PushSubscription type.
 // This is the modern, correct way to handle typed data with Firestore.
