@@ -866,3 +866,5 @@ export const zipProjectFiles = functions.runWith({timeoutSeconds: 300, memory: '
         throw new functions.https.HttpsError("internal", `An unexpected error occurred: ${error.message || 'Check function logs for details.'}`);
     }
 });
+
+    
