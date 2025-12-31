@@ -667,4 +667,12 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
         </>
       )}
 
-      {
+      <FileManagerDialog 
+        project={selectedProject} 
+        open={isFileManagerOpen} 
+        onOpenChange={setFileManagerOpen} 
+        userProfile={userProfile} 
+      />
+    </div>
+  );
+}
