@@ -6,7 +6,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { db, storage, functions, httpsCallable } from '@/lib/firebase';
+import { db, storage, functions } from '@/lib/firebase';
+import { httpsCallable, getFunctions } from 'firebase/functions';
 import {
   collection,
   onSnapshot,
@@ -269,23 +270,34 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
     }, [project]);
 
     const handleZipAndDownload = async () => {
-        if (!project || !functions || files.length === 0) {
-            toast({ variant: 'destructive', title: 'Error', description: 'Required services not available or no files to zip.'});
+        if (!project || files.length === 0) {
+            toast({ variant: 'destructive', title: 'Error', description: 'No project selected or no files to zip.'});
             return;
         }
         setIsZipping(true);
         toast({ title: 'Zipping files...', description: 'Please wait, this may take a moment for large projects.' });
 
         try {
-            const zipProjectFilesFn = httpsCallable<{ projectId: string }, { downloadUrl: string }>(functions, 'zipProjectFiles');
-            const result = await zipProjectFilesFn({ projectId: project.id });
-            const { downloadUrl } = result.data;
+            // Explicitly get the functions instance for the correct region.
+            const functionsInstance = getFunctions(undefined, "europe-west2");
+            const zipProjectFilesFn = httpsCallable<{ projectId: string }, { downloadUrl: string }>(functionsInstance, 'zipProjectFiles');
             
-            toast({ title: 'Zip created!', description: 'Your download will begin shortly.' });
-            window.open(downloadUrl, '_blank');
+            const result = await zipProjectFilesFn({ projectId: project.id });
+            const downloadUrl = result.data.downloadUrl;
+            
+            if (downloadUrl) {
+                toast({ title: 'Zip created!', description: 'Your download will begin shortly.' });
+                window.open(downloadUrl, '_blank');
+            } else {
+                throw new Error("Cloud Function did not return a download URL.");
+            }
         } catch (error: any) {
             console.error("Error zipping files:", error);
-            toast({ variant: 'destructive', title: 'Zipping Failed', description: error.message || 'Could not create zip file. Check the function logs.' });
+            toast({ 
+                variant: 'destructive', 
+                title: 'Zipping Failed', 
+                description: error.message || 'Could not create zip file. Check the function logs in Firebase for more details.' 
+            });
         } finally {
             setIsZipping(false);
         }
@@ -677,4 +689,3 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
 }
 
     
-
