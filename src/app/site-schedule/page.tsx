@@ -21,6 +21,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useRouter } from 'next/navigation';
 import { Spinner } from '@/components/shared/spinner';
 import { useUserProfile } from '@/hooks/use-user-profile';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 
 const DayCard = ({ day, shifts, userNameMap }: { day: string, shifts: Shift[], userNameMap: Map<string, string> }) => {
@@ -219,7 +220,7 @@ export default function SiteSchedulePage() {
         };
     }, [allShifts, selectedAddress]);
 
-    const handleDownloadPdf = async () => {
+    const handleDownloadPdf = async (weeks: ('last'|'this'|'next'|'w3'|'w4')[]) => {
         if (!selectedAddress) {
             toast({
                 variant: 'destructive',
@@ -252,9 +253,21 @@ export default function SiteSchedulePage() {
         doc.text(`Generated on: ${format(generationDate, 'PPP p')}`, pageMargin, finalY);
         finalY += 10;
         
+        const weekData = {
+            'last': { title: 'Last Week', shifts: lastWeekShifts },
+            'this': { title: 'This Week', shifts: thisWeekShifts },
+            'next': { title: 'Next Week', shifts: nextWeekShifts },
+            'w3': { title: 'Week 3', shifts: week3Shifts },
+            'w4': { title: 'Week 4', shifts: week4Shifts },
+        };
+        
+        let hasAnyShifts = false;
+
         const generateTableForWeek = (title: string, shiftsForPeriod: { [key: string]: Shift[] }) => {
             const allWeekShifts = Object.values(shiftsForPeriod).flat();
             if (allWeekShifts.length === 0) return;
+
+            hasAnyShifts = true;
 
             doc.setFontSize(16);
             doc.text(title, pageMargin, finalY);
@@ -282,12 +295,13 @@ export default function SiteSchedulePage() {
             finalY = (doc as any).lastAutoTable.finalY + 15;
         }
         
-        generateTableForWeek('Last Week', lastWeekShifts);
-        generateTableForWeek('This Week', thisWeekShifts);
-        generateTableForWeek('Next Week', nextWeekShifts);
+        weeks.forEach(weekKey => {
+            const data = weekData[weekKey];
+            generateTableForWeek(data.title, data.shifts);
+        });
 
-        if (Object.values(lastWeekShifts).flat().length === 0 && Object.values(thisWeekShifts).flat().length === 0 && Object.values(nextWeekShifts).flat().length === 0) {
-            doc.text("No shifts scheduled for this property for these periods.", 14, finalY);
+        if (!hasAnyShifts) {
+            doc.text("No shifts scheduled for the selected period(s).", 14, finalY);
         }
 
         doc.save(`schedule_${selectedAddress.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
@@ -323,10 +337,19 @@ export default function SiteSchedulePage() {
                                     className="w-full sm:w-[400px] pl-10"
                                 />
                             </div>
-                            <Button variant="outline" onClick={handleDownloadPdf} disabled={!selectedAddress || loading}>
-                                <Download className="mr-2 h-4 w-4" />
-                                Download PDF
-                            </Button>
+                             <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button variant="outline" disabled={!selectedAddress || loading}>
+                                        <Download className="mr-2 h-4 w-4" />
+                                        Download PDF
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent>
+                                    <DropdownMenuItem onSelect={() => handleDownloadPdf(['this'])}>This Week</DropdownMenuItem>
+                                    <DropdownMenuItem onSelect={() => handleDownloadPdf(['this', 'next'])}>This & Next Week</DropdownMenuItem>
+                                    <DropdownMenuItem onSelect={() => handleDownloadPdf(['last', 'this', 'next', 'w3', 'w4'])}>All Weeks</DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
                         </div>
                          <div className="pt-2">
                             <Select onValueChange={setSelectedAddress} value={selectedAddress || ''}>
