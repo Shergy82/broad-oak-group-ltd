@@ -278,9 +278,8 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
         toast({ title: 'Zipping files...', description: 'Please wait, this may take a moment for large projects.' });
 
         try {
-            const filesToZip = files.map(f => ({ name: f.name, url: f.url, fullPath: f.fullPath }));
-            const zipProjectFilesFn = httpsCallable<{ projectId: string, files: typeof filesToZip }, { downloadUrl: string }>(functions, 'zipProjectFiles');
-            const result = await zipProjectFilesFn({ projectId: project.id, files: filesToZip });
+            const zipProjectFilesFn = httpsCallable<{ projectId: string }, { downloadUrl: string }>(functions, 'zipProjectFiles');
+            const result = await zipProjectFilesFn({ projectId: project.id });
             const { downloadUrl } = result.data;
             
             toast({ title: 'Zip created!', description: 'Your download will begin shortly.' });
