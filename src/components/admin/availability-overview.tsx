@@ -172,7 +172,7 @@ export function AvailabilityOverview() {
                 <Spinner size="lg" />
             </div>
         ) : (
-            <Tabs defaultValue="working-today">
+            <Tabs>
                 <TabsList className="grid w-full grid-cols-3">
                     <TabsTrigger value="working-today">
                         <HardHat className="mr-2" /> Working Today ({workingToday.length})
