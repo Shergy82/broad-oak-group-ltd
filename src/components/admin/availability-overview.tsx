@@ -11,7 +11,7 @@ import { getCorrectedLocalDate } from '@/lib/utils';
 import { Avatar, AvatarFallback } from '../ui/avatar';
 import { Skeleton } from '../ui/skeleton';
 import { Users, Sun, Moon, MapPin, HardHat } from 'lucide-react';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Spinner } from '../shared/spinner';
 
 
@@ -88,7 +88,6 @@ export function AvailabilityOverview() {
     const [shifts, setShifts] = useState<Shift[]>([]);
     const [users, setUsers] = useState<UserProfile[]>([]);
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState<string>('');
 
     useEffect(() => {
         const shiftsQuery = query(collection(db, 'shifts'));
@@ -158,17 +157,13 @@ export function AvailabilityOverview() {
         }
     }, [todaysAvailability]);
 
-    const handleTabChange = (value: string) => {
-        setActiveTab(prev => (prev === value ? '' : value));
-    };
-
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Today's Availability</CardTitle>
         <CardDescription>
-          A simple overview of which operatives are available today.
+          A simple overview of which operatives are available today. Click a category to expand.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -177,28 +172,38 @@ export function AvailabilityOverview() {
                 <Spinner size="lg" />
             </div>
         ) : (
-            <Tabs value={activeTab} onValueChange={handleTabChange}>
-                <TabsList className="grid w-full grid-cols-3">
-                    <TabsTrigger value="working-today">
-                        <HardHat className="mr-2" /> Working Today ({workingToday.length})
-                    </TabsTrigger>
-                    <TabsTrigger value="fully-available">
-                        <Sun className="mr-2" /> Fully Available ({fullyAvailable.length})
-                    </TabsTrigger>
-                    <TabsTrigger value="semi-available">
-                        <Moon className="mr-2" /> Semi-Available ({semiAvailable.length})
-                    </TabsTrigger>
-                </TabsList>
-                <TabsContent value="working-today" className="mt-6">
-                    <UserAvatarList users={workingToday} />
-                </TabsContent>
-                <TabsContent value="fully-available" className="mt-6">
-                     <UserAvatarList users={fullyAvailable} />
-                </TabsContent>
-                <TabsContent value="semi-available" className="mt-6">
-                    <UserAvatarList users={semiAvailable} />
-                </TabsContent>
-            </Tabs>
+            <Accordion type="multiple" className="w-full">
+                <AccordionItem value="working-today">
+                    <AccordionTrigger className="text-base font-semibold">
+                         <div className="flex items-center gap-3">
+                            <HardHat /> Working Today ({workingToday.length})
+                         </div>
+                    </AccordionTrigger>
+                    <AccordionContent className="pt-6">
+                        <UserAvatarList users={workingToday} />
+                    </AccordionContent>
+                </AccordionItem>
+                 <AccordionItem value="fully-available">
+                    <AccordionTrigger className="text-base font-semibold">
+                        <div className="flex items-center gap-3">
+                            <Sun /> Fully Available ({fullyAvailable.length})
+                        </div>
+                    </AccordionTrigger>
+                    <AccordionContent className="pt-6">
+                        <UserAvatarList users={fullyAvailable} />
+                    </AccordionContent>
+                </AccordionItem>
+                 <AccordionItem value="semi-available">
+                    <AccordionTrigger className="text-base font-semibold">
+                         <div className="flex items-center gap-3">
+                            <Moon /> Semi-Available ({semiAvailable.length})
+                        </div>
+                    </AccordionTrigger>
+                    <AccordionContent className="pt-6">
+                        <UserAvatarList users={semiAvailable} />
+                    </AccordionContent>
+                </AccordionItem>
+            </Accordion>
         )}
       </CardContent>
     </Card>
