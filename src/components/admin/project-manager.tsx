@@ -285,7 +285,6 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
         try {
             const idToken = await auth.currentUser.getIdToken();
             
-            // The URL is constructed using the project ID from environment variables
             const functionUrl = `https://europe-west2-${process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID}.cloudfunctions.net/zipProjectFiles`;
             
             const response = await fetch(functionUrl, {
