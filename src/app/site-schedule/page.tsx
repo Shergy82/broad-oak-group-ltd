@@ -96,7 +96,7 @@ export default function SiteSchedulePage() {
     const [addressSearchTerm, setAddressSearchTerm] = useState('');
     const { toast } = useToast();
     
-    const isPrivilegedUser = userProfile && ['admin', 'owner'].includes(userProfile.role);
+    const isPrivilegedUser = userProfile && ['admin', 'owner', 'manager'].includes(userProfile.role);
 
     useEffect(() => {
       if (!isAuthLoading && !user) {
@@ -118,21 +118,26 @@ export default function SiteSchedulePage() {
             setLoading(false);
         });
         
-        const usersQuery = query(collection(db, 'users'));
-        const unsubUsers = onSnapshot(usersQuery, (snapshot) => {
-            const fetchedUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
-            setUsers(fetchedUsers);
-            setError(null);
-        }, (err) => {
-            console.error("Error fetching users:", err);
-            setError("Could not fetch all user data.");
-        });
-        
-        return () => {
-          unsubShifts();
-          unsubUsers();
-        };
-    }, []);
+        // This is a privileged operation. We will only perform it if the user is an admin/owner/manager.
+        // For regular users, we will fetch user data on demand.
+        if (isPrivilegedUser) {
+            const usersQuery = query(collection(db, 'users'));
+            const unsubUsers = onSnapshot(usersQuery, (snapshot) => {
+                const fetchedUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
+                setUsers(fetchedUsers);
+            }, (err) => {
+                console.error("Error fetching users:", err);
+                // Non-critical error, as we can fetch names from shifts.
+                // We don't set a blocking error message here.
+            });
+            return () => {
+              unsubShifts();
+              unsubUsers();
+            };
+        } else {
+            return () => unsubShifts();
+        }
+    }, [isPrivilegedUser]);
 
     const naturalSort = (a: string, b: string) => {
         const aParts = a.match(/(\d+)|(\D+)/g) || [];
