@@ -15,7 +15,6 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Calendar as CalendarIcon, Users, UserCheck, Filter, ChevronDown, Check, Clock, Sun, Moon, MapPin, X, CheckCircle, XCircle, ChevronLeft, ChevronRight, Download, PlusCircle, Trash2, CalendarOff } from 'lucide-react';
 import { getCorrectedLocalDate } from '@/lib/utils';
-import { cn } from '@/lib/utils';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuItem } from '@/components/ui/dropdown-menu';
@@ -32,7 +31,6 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import {
     AlertDialog,
@@ -45,6 +43,7 @@ import {
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { cn } from '@/lib/utils';
 
 type Role = 'user' | 'admin' | 'owner' | 'manager' | 'TLO';
 const ALL_ROLES: Role[] = ['user', 'TLO', 'manager', 'admin', 'owner'];
@@ -181,30 +180,24 @@ function AddUnavailabilityDialog({ users, open, onOpenChange }: { users: UserPro
                         )} />
 
                         <FormField control={form.control} name="range" render={({ field }) => (
-                            <FormItem className="flex flex-col">
-                                <FormLabel>Date Range</FormLabel>
-                                <Popover>
-                                    <PopoverTrigger asChild>
-                                        <Button variant="outline" className={cn("justify-start text-left font-normal", !field.value.from && "text-muted-foreground")}>
-                                            <CalendarIcon className="mr-2 h-4 w-4" />
-                                            {field.value.from ? (field.value.to ? `${format(field.value.from, "PPP")} - ${format(field.value.to, "PPP")}` : format(field.value.from, "PPP")) : <span>Pick a date range</span>}
-                                        </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0" align="start">
-                                        <CalendarPicker
-                                            mode="range"
-                                            selected={field.value}
-                                            onSelect={(range) => {
-                                                if (range?.from && range.to && isBefore(range.to, range.from)) {
-                                                    field.onChange({ from: range.to, to: range.from });
-                                                } else {
-                                                    field.onChange(range);
-                                                }
-                                            }}
-                                            initialFocus
-                                        />
-                                    </PopoverContent>
-                                </Popover>
+                             <FormItem className="flex flex-col">
+                                <FormLabel>
+                                    Date Range: {field.value.from ? (field.value.to ? `${format(field.value.from, "PPP")} - ${format(field.value.to, "PPP")}` : format(field.value.from, "PPP")) : <span>Pick a date range</span>}
+                                </FormLabel>
+                                <div className="p-2 border rounded-md">
+                                    <CalendarPicker
+                                        mode="range"
+                                        selected={field.value}
+                                        onSelect={(range) => {
+                                            if (range?.from && range.to && isBefore(range.to, range.from)) {
+                                                field.onChange({ from: range.to, to: range.from });
+                                            } else {
+                                                field.onChange(range);
+                                            }
+                                        }}
+                                        initialFocus
+                                    />
+                                </div>
                                 <FormMessage />
                             </FormItem>
                         )} />
