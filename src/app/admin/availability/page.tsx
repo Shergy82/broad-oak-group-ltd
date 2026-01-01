@@ -43,7 +43,8 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
     AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
+} from "@/components/ui/alert-dialog";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 type Role = 'user' | 'admin' | 'owner' | 'manager' | 'TLO';
 const ALL_ROLES: Role[] = ['user', 'TLO', 'manager', 'admin', 'owner'];
@@ -191,21 +192,20 @@ function AddUnavailabilityDialog({ users, open, onOpenChange }: { users: UserPro
                                         </Button>
                                     </PopoverTrigger>
                                     <PopoverContent className="w-auto p-0" align="start">
-                                        <CalendarPicker 
-                                          mode="range" 
-                                          selected={field.value} 
-                                          onSelect={(range) => {
-                                            field.onChange(range);
-                                            // Do not automatically close if only `from` is selected
-                                            if (range?.from && range.to) {
-                                                setDatePickerOpen(false);
-                                            } else if (range?.from && !range.to) {
-                                                // Keep it open
-                                            } else {
-                                                setDatePickerOpen(false);
-                                            }
-                                          }}
-                                          initialFocus 
+                                        <CalendarPicker
+                                            mode="range"
+                                            selected={field.value}
+                                            onSelect={(range) => {
+                                                if (range?.from && range.to && isBefore(range.to, range.from)) {
+                                                    field.onChange({ from: range.to, to: range.from });
+                                                } else {
+                                                    field.onChange(range);
+                                                }
+                                                if (range?.from && range?.to) {
+                                                    setDatePickerOpen(false);
+                                                }
+                                            }}
+                                            initialFocus
                                         />
                                     </PopoverContent>
                                 </Popover>
