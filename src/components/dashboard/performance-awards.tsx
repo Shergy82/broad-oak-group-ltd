@@ -78,7 +78,7 @@ const LeaderboardColumn = ({ title, performers }: { title: string, performers: P
 export function PerformanceAwards({ allShifts, allUsers }: PerformanceAwardsProps) {
 
     const calculateTopPerformers = (shifts: Shift[], users: UserProfile[]): PerformanceMetric[] => {
-        const userProfiles = users.filter(u => u.role === 'user');
+        const userProfiles = users.filter(u => u.role === 'user' || u.role === 'TLO');
         if (userProfiles.length === 0 || shifts.length === 0) return [];
 
         const metrics = userProfiles.map(user => {

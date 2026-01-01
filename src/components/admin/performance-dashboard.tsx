@@ -48,7 +48,7 @@ export function PerformanceDashboard() {
     const unsubUsers = onSnapshot(usersQuery, 
       (snapshot) => {
         const fetchedUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
-        setUsers(fetchedUsers.filter(u => u.role === 'user').sort((a,b) => a.name.localeCompare(b.name)));
+        setUsers(fetchedUsers.filter(u => u.role === 'user' || u.role === 'TLO').sort((a,b) => a.name.localeCompare(b.name)));
         setLoading(false);
       },
       (err) => {
@@ -214,7 +214,7 @@ export function PerformanceDashboard() {
                 <Users className="mx-auto h-12 w-12 text-muted-foreground" />
                 <h3 className="mt-4 text-lg font-semibold">No Operative Data</h3>
                 <p className="mt-2 text-sm text-muted-foreground">
-                    No users with the 'user' role were found or none have been assigned shifts in this period.
+                    No users with the 'user' or 'TLO' role were found or none have been assigned shifts in this period.
                 </p>
             </div>
         ) : (

@@ -145,7 +145,7 @@ export function AvailabilityOverview() {
         });
 
         const unsubUsers = onSnapshot(usersQuery, (snapshot) => {
-            setUsers(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile)).filter(u => u.role === 'user' || u.role === 'TLO'));
+            setUsers(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile)));
             usersLoaded = true;
             checkAllLoaded();
         });
