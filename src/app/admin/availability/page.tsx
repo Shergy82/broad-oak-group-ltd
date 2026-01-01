@@ -38,7 +38,6 @@ import {
     AlertDialogCancel,
     AlertDialogContent,
     AlertDialogDescription,
-    AlertDialogFooter,
     AlertDialogHeader,
     AlertDialogTitle,
     AlertDialogTrigger,
@@ -114,7 +113,7 @@ const LS_FILTER_BY_KEY = 'availability_filterBy';
 const unavailabilitySchema = z.object({
     userId: z.string().min(1, "Please select an operative."),
     range: z.object({
-        from: z.date(),
+        from: z.date({ required_error: 'A start date must be selected.' }),
         to: z.date().optional(),
     }),
     reason: z.string().min(1, "Please select a reason."),
@@ -126,8 +125,18 @@ function AddUnavailabilityDialog({ users, open, onOpenChange }: { users: UserPro
     
     const form = useForm<z.infer<typeof unavailabilitySchema>>({
         resolver: zodResolver(unavailabilitySchema),
-        defaultValues: { userId: '', range: { from: new Date() }, reason: '' },
+        defaultValues: { userId: '', reason: '' },
     });
+
+    useEffect(() => {
+        if(open) {
+            form.reset({
+                userId: '',
+                range: { from: new Date(), to: undefined },
+                reason: ''
+            });
+        }
+    }, [open, form])
 
     const handleAddUnavailability = async (values: z.infer<typeof unavailabilitySchema>) => {
         setIsLoading(true);
@@ -184,19 +193,13 @@ function AddUnavailabilityDialog({ users, open, onOpenChange }: { users: UserPro
                         <FormField control={form.control} name="range" render={({ field }) => (
                              <FormItem className="flex flex-col">
                                 <FormLabel>
-                                    Date Range: {field.value.from ? (field.value.to ? `${format(field.value.from, "PPP")} - ${format(field.value.to, "PPP")}` : format(field.value.from, "PPP")) : <span>Pick a date range</span>}
+                                    Date Range: {field.value?.from ? (field.value.to ? `${format(field.value.from, "PPP")} - ${format(field.value.to, "PPP")}` : format(field.value.from, "PPP")) : <span>Pick a date range</span>}
                                 </FormLabel>
                                 <div className="p-2 border rounded-md">
                                     <CalendarPicker
                                         mode="range"
                                         selected={field.value}
-                                        onSelect={(range) => {
-                                            if (range?.from && range.to && isBefore(range.to, range.from)) {
-                                                field.onChange({ from: range.to, to: range.from });
-                                            } else {
-                                                field.onChange(range);
-                                            }
-                                        }}
+                                        onSelect={field.onChange}
                                         initialFocus
                                     />
                                 </div>
@@ -731,7 +734,7 @@ export default function AvailabilityPage() {
         {viewMode === 'detailed' && (
             <>
                 <div className="flex justify-center">
-                     <CalendarPicker mode="range" selected={dateRange} onSelect={(range) => { if (range?.from && range.to && isBefore(range.to, range.from)) { setDateRange({ from: range.to, to: range.from }); } else { setDateRange(range); }}} className="rounded-md border" defaultMonth={dateRange?.from} numberOfMonths={1} />
+                     <CalendarPicker mode="range" selected={dateRange} onSelect={setDateRange} className="rounded-md border" defaultMonth={dateRange?.from} numberOfMonths={1} />
                 </div>
                 <div className="md:col-span-2 space-y-6">
                     <Card className="bg-muted/30">
@@ -849,7 +852,8 @@ export default function AvailabilityPage() {
                                                     <TableCell>{format(getCorrectedLocalDate(u.endDate), 'PPP')}</TableCell>
                                                     <TableCell><Badge variant="outline">{u.reason}</Badge></TableCell>
                                                     <TableCell className="text-right">
-                                                        <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon"><Trash2 className="h-4 w-4 text-destructive/70" /></Button></AlertDialogTrigger>
+                                                        <AlertDialog>
+                                                            <AlertDialogTrigger asChild><Button variant="ghost" size="icon"><Trash2 className="h-4 w-4 text-destructive/70" /></Button></AlertDialogTrigger>
                                                             <AlertDialogContent>
                                                                 <AlertDialogHeader><AlertDialogTitle>Delete Record?</AlertDialogTitle><AlertDialogDescription>Are you sure you want to delete this unavailability record for {u.userName}?</AlertDialogDescription></AlertDialogHeader>
                                                                 <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteUnavailability(u.id)}>Delete</AlertDialogAction></AlertDialogFooter>
