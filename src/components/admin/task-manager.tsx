@@ -48,7 +48,7 @@ export function TaskManager() {
 
   const handleAddTrade = async () => {
     if (!newTradeName.trim()) {
-      toast({ variant: 'destructive', title: 'Trade name cannot be empty.' });
+      toast({ variant: 'destructive', title: 'Category name cannot be empty.' });
       return;
     }
     if (!db) return;
@@ -59,10 +59,10 @@ export function TaskManager() {
         tasks: [],
       });
       setNewTradeName('');
-      toast({ title: 'Success', description: `Trade "${newTradeName.trim()}" added.` });
+      toast({ title: 'Success', description: `Category "${newTradeName.trim()}" added.` });
     } catch (error) {
       console.error('Error adding trade: ', error);
-      toast({ variant: 'destructive', title: 'Error', description: 'Could not add trade. Check permissions.' });
+      toast({ variant: 'destructive', title: 'Error', description: 'Could not add category. Check permissions.' });
     }
   };
 
@@ -70,10 +70,10 @@ export function TaskManager() {
     if (!db) return;
     try {
       await deleteDoc(doc(db, 'trade_tasks', tradeId));
-      toast({ title: 'Success', description: 'Trade deleted.' });
+      toast({ title: 'Success', description: 'Category deleted.' });
     } catch (error) {
       console.error('Error deleting trade: ', error);
-      toast({ variant: 'destructive', title: 'Error', description: 'Could not delete trade.' });
+      toast({ variant: 'destructive', title: 'Error', description: 'Could not delete category.' });
     }
   };
 
@@ -122,7 +122,7 @@ export function TaskManager() {
             <CardHeader>
                 <CardTitle>Task Management</CardTitle>
                 <CardDescription>
-                Create and manage reusable tasks organized by trade.
+                Create and manage reusable tasks organized by category (e.g., trade or role).
                 </CardDescription>
             </CardHeader>
             <CardContent>
@@ -139,19 +139,19 @@ export function TaskManager() {
       <CardHeader>
         <CardTitle>Task Management</CardTitle>
         <CardDescription>
-          Create and manage reusable tasks organized by trade. This data is stored centrally for all users.
+          Create and manage reusable tasks organized by category (e.g., trade or role). This data is stored centrally for all users.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="flex gap-2">
           <Input
-            placeholder="e.g., Plumber, Electrician..."
+            placeholder="e.g., Plumber, Owner..."
             value={newTradeName}
             onChange={(e) => setNewTradeName(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && handleAddTrade()}
           />
           <Button onClick={handleAddTrade}>
-            <PlusCircle className="mr-2 h-4 w-4" /> Add Trade
+            <PlusCircle className="mr-2 h-4 w-4" /> Add Category
           </Button>
         </div>
 
@@ -228,9 +228,9 @@ export function TaskManager() {
           </Accordion>
         ) : (
           <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center">
-            <h3 className="text-lg font-semibold">No Trades Created Yet</h3>
+            <h3 className="text-lg font-semibold">No Categories Created Yet</h3>
             <p className="mt-2 text-sm text-muted-foreground">
-              Add a trade using the form above to start organizing your tasks.
+              Add a category using the form above to start organizing your tasks.
             </p>
           </div>
         )}
