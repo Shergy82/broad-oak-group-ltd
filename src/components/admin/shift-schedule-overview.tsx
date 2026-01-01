@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot, query, doc, deleteDoc, writeBatch, where, getDocs } from 'firebase/firestore';
 import { db, functions, httpsCallable } from '@/lib/firebase';
 import type { Shift, UserProfile, Project } from '@/types';
-import { addDays, format, isSameWeek, isToday, startOfWeek, endOfWeek, subWeeks } from 'date-fns';
+import { addDays, format, isSameWeek, isToday, startOfWeek, endOfWeek, subWeeks, subDays } from 'date-fns';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -596,6 +596,80 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     doc.save(`daily_report_${format(today, 'yyyy-MM-dd')}.pdf`);
   };
 
+  const handleDownloadYesterdayReport = async () => {
+    const { default: jsPDF } = await import('jspdf');
+    const { default: autoTable } = await import('jspdf-autotable');
+
+    const yesterday = subDays(new Date(), 1);
+    const yesterdayDateString = format(yesterday, 'PPP');
+    
+    const yesterdayShifts = shifts.filter(s => {
+      const shiftDate = getCorrectedLocalDate(s.date);
+      return isSameDay(shiftDate, yesterday);
+    });
+
+    if (yesterdayShifts.length === 0) {
+      toast({
+        title: 'No Shifts Yesterday',
+        description: `There are no shifts recorded for ${yesterdayDateString}.`,
+      });
+      return;
+    }
+
+    const doc = new jsPDF();
+    doc.setFontSize(18);
+    doc.text(`Report for Yesterday: ${yesterdayDateString}`, 14, 22);
+
+    let lastY = 25;
+
+    const completedShifts = yesterdayShifts.filter(s => s.status === 'completed');
+    const incompleteShifts = yesterdayShifts.filter(s => s.status === 'incomplete');
+    const noActionShifts = yesterdayShifts.filter(s => ['pending-confirmation', 'confirmed', 'on-site'].includes(s.status));
+
+    const generateShiftTable = (title: string, data: Shift[], includeNotes: boolean = false) => {
+      if (data.length === 0) {
+        doc.setFontSize(12);
+        doc.setTextColor(100);
+        doc.text(`No shifts in this category.`, 14, lastY + 10);
+        lastY += 15;
+        return;
+      }
+      
+      doc.setFontSize(14);
+      doc.setTextColor(0);
+      doc.text(title, 14, lastY + 10);
+      
+      const head = [['Operative', 'Task', 'Address', 'Status']];
+      if (includeNotes) head[0].push('Notes');
+
+      const body = data.map(shift => {
+        const row = [
+          userNameMap.get(shift.userId) || 'Unknown',
+          shift.task,
+          shift.address,
+          shift.status.replace(/-/g, ' '),
+        ];
+        if (includeNotes) row.push(shift.notes || 'N/A');
+        return row;
+      });
+
+      autoTable(doc, {
+        startY: lastY + 14,
+        head,
+        body,
+        theme: 'striped',
+        headStyles: { fillColor: [6, 95, 212] },
+      });
+      lastY = (doc as any).lastAutoTable.finalY + 10;
+    };
+
+    generateShiftTable('Completed Shifts', completedShifts);
+    generateShiftTable('Incomplete Shifts', incompleteShifts, true);
+    generateShiftTable('Shifts with No Action Taken', noActionShifts);
+
+    doc.save(`yesterday_report_${format(yesterday, 'yyyy-MM-dd')}.pdf`);
+  };
+
   const handleDownloadWeeklyReport = async () => {
     const { default: jsPDF } = await import('jspdf');
     const { default: autoTable } = await import('jspdf-autotable');
@@ -992,6 +1066,10 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                         <BarChart2 className="mr-2 h-4 w-4" />
                         Daily Report
                     </Button>
+                    <Button variant="outline" size="sm" onClick={handleDownloadYesterdayReport}>
+                        <History className="mr-2 h-4 w-4" />
+                        Yesterday Report
+                    </Button>
                      <Button variant="outline" size="sm" onClick={handleDownloadWeeklyReport}>
                         <Calendar className="mr-2 h-4 w-4" />
                         Weekly Report
@@ -1128,3 +1206,4 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     </>
   );
 }
+
