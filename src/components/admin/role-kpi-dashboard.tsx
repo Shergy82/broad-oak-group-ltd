@@ -1,6 +1,7 @@
+
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import type { Shift, UserProfile } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -18,6 +19,7 @@ interface PerformanceMetrics {
   completed: number;
   incomplete: number;
   completionRate: number;
+  tasksDone: number;
 }
 
 interface RoleKpiDashboardProps {
@@ -26,9 +28,22 @@ interface RoleKpiDashboardProps {
 }
 
 const DEFAULT_ROLES: (UserProfile['role'])[] = ['manager', 'TLO'];
+const LS_SHIFT_TASKS_KEY = 'shiftTaskCompletion';
 
 export function RoleKpiDashboard({ allShifts, allUsers }: RoleKpiDashboardProps) {
   const [selectedRoles, setSelectedRoles] = useState<Set<UserProfile['role']>>(new Set(DEFAULT_ROLES));
+  const [shiftTaskData, setShiftTaskData] = useState<{[key: string]: number[]}>({});
+  
+  useEffect(() => {
+    try {
+      const storedData = localStorage.getItem(LS_SHIFT_TASKS_KEY);
+      if (storedData) {
+        setShiftTaskData(JSON.parse(storedData));
+      }
+    } catch (e) {
+      console.error("Failed to load task completion data from localStorage", e);
+    }
+  }, []);
 
   const availableRoles = useMemo(() => {
     const roles = new Set(allUsers.map(u => u.role));
@@ -53,6 +68,10 @@ export function RoleKpiDashboard({ allShifts, allUsers }: RoleKpiDashboardProps)
           
           const rateCalculationTotal = userShifts.filter(s => s.status !== 'pending-confirmation').length;
           const completionRate = rateCalculationTotal > 0 ? (completed / rateCalculationTotal) * 100 : 0;
+          
+          const tasksDone = userShifts.reduce((acc, shift) => {
+              return acc + (shiftTaskData[shift.id]?.length || 0);
+          }, 0);
 
           return {
             userId: user.uid,
@@ -61,6 +80,7 @@ export function RoleKpiDashboard({ allShifts, allUsers }: RoleKpiDashboardProps)
             completed,
             incomplete,
             completionRate,
+            tasksDone,
           };
         })
         .filter((metric): metric is PerformanceMetrics => metric !== null);
@@ -71,7 +91,7 @@ export function RoleKpiDashboard({ allShifts, allUsers }: RoleKpiDashboardProps)
     });
 
     return data;
-  }, [allShifts, allUsers, selectedRoles]);
+  }, [allShifts, allUsers, selectedRoles, shiftTaskData]);
   
   const handleRoleToggle = (role: UserProfile['role']) => {
       setSelectedRoles(prev => {
@@ -132,6 +152,7 @@ export function RoleKpiDashboard({ allShifts, allUsers }: RoleKpiDashboardProps)
                     <TableRow>
                       <TableHead>User</TableHead>
                       <TableHead className="text-center">Total Shifts</TableHead>
+                      <TableHead className="text-center">Tasks Done</TableHead>
                       <TableHead className="text-center">Completed</TableHead>
                       <TableHead className="text-center">Incomplete</TableHead>
                       <TableHead className="text-right">Completion Rate</TableHead>
@@ -142,6 +163,7 @@ export function RoleKpiDashboard({ allShifts, allUsers }: RoleKpiDashboardProps)
                       <TableRow key={data.userId}>
                         <TableCell className="font-medium">{data.userName}</TableCell>
                         <TableCell className="text-center">{data.totalShifts}</TableCell>
+                        <TableCell className="text-center">{data.tasksDone}</TableCell>
                         <TableCell className="text-center">{data.completed}</TableCell>
                         <TableCell className="text-center">{data.incomplete}</TableCell>
                         <TableCell className="text-right font-semibold text-primary">{data.completionRate.toFixed(1)}%</TableCell>
