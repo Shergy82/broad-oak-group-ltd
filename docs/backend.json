@@ -35,6 +35,42 @@
         }
       },
       "required": ["text", "photoRequired"]
+    },
+    "Unavailability": {
+      "title": "Unavailability",
+      "description": "Represents a period of unavailability for a user (e.g., holiday, sickness).",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The ID of the unavailable user."
+        },
+        "userName": {
+            "type": "string",
+            "description": "The name of the unavailable user."
+        },
+        "startDate": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The start date of the unavailability period."
+        },
+        "endDate": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The end date of the unavailability period."
+        },
+        "reason": {
+          "type": "string",
+          "enum": ["Holiday", "Sickness", "Other"],
+          "description": "The reason for the unavailability."
+        },
+        "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The timestamp when the record was created."
+        }
+      },
+      "required": ["userId", "userName", "startDate", "endDate", "reason", "createdAt"]
     }
   },
   "auth": {
@@ -46,6 +82,12 @@
         "$ref": "#/entities/Trade"
       },
       "description": "Stores the lists of standard tasks, organized by trade."
+    },
+    "/unavailability/{unavailabilityId}": {
+        "schema": {
+            "$ref": "#/entities/Unavailability"
+        },
+        "description": "Stores unavailability records for all users."
     }
   }
 }

@@ -32,6 +32,16 @@ export interface UserProfile {
   trade?: string;
 }
 
+export interface Unavailability {
+  id: string;
+  userId: string;
+  userName: string;
+  startDate: Timestamp;
+  endDate: Timestamp;
+  reason: 'Holiday' | 'Sickness' | 'Other';
+  createdAt: Timestamp;
+}
+
 export interface Project {
   id: string; // Firestore document ID
   address: string;
