@@ -9,12 +9,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/shared/spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Upload, FileWarning, TestTube2, Sheet, ChevronDown, X } from 'lucide-react';
+import { Upload, FileWarning, TestTube2, Sheet, ChevronDown, X, UploadCloud, FileIcon } from 'lucide-react';
 import type { Shift, UserProfile, Project } from '@/types';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { cn } from '@/lib/utils';
 
 
 type ParsedShift = Omit<Shift, 'id' | 'status' | 'date' | 'createdAt' | 'userName'> & { date: Date; userName: string; };
@@ -170,6 +171,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
   const [sheetNames, setSheetNames] = useState<string[]>([]);
   const [selectedSheets, setSelectedSheets] = useState<string[]>([]);
   const { toast } = useToast();
+  const [isDragOver, setIsDragOver] = useState(false);
 
   const handleClear = () => {
     setFile(null);
@@ -181,39 +183,40 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
     onFileSelect();
   }
 
+  const processFile = (selectedFile: File) => {
+    setFile(selectedFile);
+    setError(null);
+    onFileSelect();
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const data = e.target?.result;
+        if (!data) return;
+        const workbook = XLSX.read(data, { type: 'array', bookSheets: true });
+        const allSheets = workbook.SheetNames;
+        setSheetNames(allSheets);
+        
+        try {
+            const storedSelection = localStorage.getItem(LOCAL_STORAGE_KEY);
+            if (storedSelection) {
+                const parsed = JSON.parse(storedSelection);
+                const validStored = parsed.filter((s: string) => allSheets.includes(s));
+                setSelectedSheets(validStored.length > 0 ? validStored : [allSheets[0]]);
+            } else {
+                setSelectedSheets(allSheets.length > 0 ? [allSheets[0]] : []);
+            }
+        } catch {
+            setSelectedSheets(allSheets.length > 0 ? [allSheets[0]] : []);
+        }
+    };
+    reader.readAsArrayBuffer(selectedFile);
+  }
+
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) {
       const selectedFile = event.target.files[0];
        if (selectedFile) {
-        setFile(selectedFile);
-        setError(null);
-        onFileSelect();
-        
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const data = e.target?.result;
-            if (!data) return;
-            const workbook = XLSX.read(data, { type: 'array', bookSheets: true });
-            const allSheets = workbook.SheetNames;
-            setSheetNames(allSheets);
-            
-            // Restore previous selection from localStorage
-            try {
-                const storedSelection = localStorage.getItem(LOCAL_STORAGE_KEY);
-                if (storedSelection) {
-                    const parsed = JSON.parse(storedSelection);
-                    // Filter to ensure only sheets present in the new file are selected
-                    const validStored = parsed.filter((s: string) => allSheets.includes(s));
-                    setSelectedSheets(validStored.length > 0 ? validStored : [allSheets[0]]);
-                } else {
-                    // Default to selecting the first sheet if no preference is stored
-                    setSelectedSheets(allSheets.length > 0 ? [allSheets[0]] : []);
-                }
-            } catch {
-                setSelectedSheets(allSheets.length > 0 ? [allSheets[0]] : []);
-            }
-        };
-        reader.readAsArrayBuffer(selectedFile);
+        processFile(selectedFile);
        }
     }
   };
@@ -223,7 +226,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
         ? selectedSheets.filter(s => s !== sheetName)
         : [...selectedSheets, sheetName];
       setSelectedSheets(newSelection);
-      // Save preference to localStorage
       try {
         localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(newSelection));
       } catch (e) {
@@ -612,6 +614,25 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
   const handleImport = () => {
     runImport(isDryRun === false);
   };
+  
+  const onDragProps = {
+    onDragOver: (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        setIsDragOver(true);
+    },
+    onDragLeave: (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        setIsDragOver(false);
+    },
+    onDrop: (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        setIsDragOver(false);
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            processFile(e.dataTransfer.files[0]);
+            e.dataTransfer.clearData();
+        }
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -623,71 +644,99 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
         </Alert>
       )}
       <div className="space-y-4">
-        <Input
-          id="shift-file-input"
-          type="file"
-          accept=".xlsx, .xls"
-          onChange={handleFileChange}
-          className="w-full file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20 cursor-pointer"
-        />
-
-        {sheetNames.length > 0 && (
-            <div className="space-y-2">
-                 <Label htmlFor="sheet-select">Select Sheets to Import</Label>
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button id="sheet-select" variant="outline" className="w-full justify-between">
-                            <span className="truncate">
-                                {selectedSheets.length === 0 
-                                    ? 'Select sheets...' 
-                                    : selectedSheets.length === 1
-                                    ? selectedSheets[0]
-                                    : `${selectedSheets.length} sheets selected`
-                                }
-                            </span>
-                            <ChevronDown className="h-4 w-4 opacity-50" />
-                        </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
-                        <DropdownMenuLabel>Available Sheets</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        <ScrollArea className="h-72">
-                            {sheetNames.map(name => (
-                                <DropdownMenuCheckboxItem
-                                    key={name}
-                                    checked={selectedSheets.includes(name)}
-                                    onCheckedChange={() => toggleSheet(name)}
-                                    onSelect={(e) => e.preventDefault()} // prevent menu from closing on item click
-                                >
-                                    <Sheet className="mr-2 h-4 w-4 text-muted-foreground" />
-                                    {name}
-                                </DropdownMenuCheckboxItem>
-                            ))}
-                        </ScrollArea>
-                    </DropdownMenuContent>
-                </DropdownMenu>
-            </div>
-        )}
-
-        <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex items-center space-x-2">
-                <Checkbox id="dry-run" checked={isDryRun} onCheckedChange={(checked) => setIsDryRun(!!checked)} />
-                <Label htmlFor="dry-run" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                    Dry Run
-                </Label>
-            </div>
-            <div className="flex items-center gap-2">
-                <Button onClick={handleImport} disabled={!file || isUploading || selectedSheets.length === 0} className="w-full sm:w-auto">
-                  {isUploading ? <Spinner /> : isDryRun ? <><TestTube2 className="mr-2 h-4 w-4" /> Run Test</> : <><Upload className="mr-2 h-4 w-4" /> Import Shifts</>}
+        {!file ? (
+            <div
+                {...onDragProps}
+                className={cn(
+                    "flex flex-col items-center justify-center p-6 border-2 border-dashed border-muted-foreground/30 rounded-lg text-center transition-colors h-48",
+                    isDragOver && "border-primary bg-primary/10"
+                )}
+            >
+                <UploadCloud className="h-12 w-12 text-muted-foreground" />
+                <h3 className="mt-2 text-sm font-medium text-foreground">
+                    Drag & drop Excel file here
+                </h3>
+                <p className="mt-1 text-xs text-muted-foreground">or click to select a file</p>
+                <Input 
+                    id="shift-file-input"
+                    type="file" 
+                    accept=".xlsx, .xls"
+                    className="sr-only" 
+                    onChange={handleFileChange}
+                />
+                <Button asChild variant="link" className="mt-2">
+                    <Label htmlFor="shift-file-input" className="cursor-pointer">Browse file</Label>
                 </Button>
-                {file && (
-                   <Button variant="outline" onClick={handleClear} disabled={isUploading}>
-                        <X className="mr-2 h-4 w-4" />
-                        Clear
+            </div>
+        ) : (
+            <div className="p-4 border rounded-lg space-y-4">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <FileIcon className="h-6 w-6 text-primary" />
+                        <div>
+                            <p className="text-sm font-medium">{file.name}</p>
+                            <p className="text-xs text-muted-foreground">{Math.round(file.size / 1024)} KB</p>
+                        </div>
+                    </div>
+                    <Button variant="ghost" size="icon" onClick={handleClear} className="text-muted-foreground hover:text-destructive hover:bg-destructive/10">
+                        <X className="h-5 w-5"/>
                     </Button>
+                </div>
+                {sheetNames.length > 0 && (
+                    <div className="space-y-2">
+                         <Label htmlFor="sheet-select">Select Sheets to Import</Label>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button id="sheet-select" variant="outline" className="w-full justify-between">
+                                    <span className="truncate">
+                                        {selectedSheets.length === 0 
+                                            ? 'Select sheets...' 
+                                            : selectedSheets.length === 1
+                                            ? selectedSheets[0]
+                                            : `${selectedSheets.length} sheets selected`
+                                        }
+                                    </span>
+                                    <ChevronDown className="h-4 w-4 opacity-50" />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
+                                <DropdownMenuLabel>Available Sheets</DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                <ScrollArea className="h-72">
+                                    {sheetNames.map(name => (
+                                        <DropdownMenuCheckboxItem
+                                            key={name}
+                                            checked={selectedSheets.includes(name)}
+                                            onCheckedChange={() => toggleSheet(name)}
+                                            onSelect={(e) => e.preventDefault()} // prevent menu from closing on item click
+                                        >
+                                            <Sheet className="mr-2 h-4 w-4 text-muted-foreground" />
+                                            {name}
+                                        </DropdownMenuCheckboxItem>
+                                    ))}
+                                </ScrollArea>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
                 )}
             </div>
-        </div>
+        )}
+        
+        {file && (
+            <div className="flex flex-col sm:flex-row gap-4 pt-2">
+                <div className="flex items-center space-x-2">
+                    <Checkbox id="dry-run" checked={isDryRun} onCheckedChange={(checked) => setIsDryRun(!!checked)} />
+                    <Label htmlFor="dry-run" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                        Dry Run
+                    </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                    <Button onClick={handleImport} disabled={!file || isUploading || selectedSheets.length === 0} className="w-full sm:w-auto">
+                      {isUploading ? <Spinner /> : isDryRun ? <><TestTube2 className="mr-2 h-4 w-4" /> Run Test</> : <><Upload className="mr-2 h-4 w-4" /> Import Shifts</>}
+                    </Button>
+                </div>
+            </div>
+        )}
       </div>
     </div>
   );
