@@ -122,8 +122,7 @@ const unavailabilitySchema = z.object({
 function AddUnavailabilityDialog({ users, open, onOpenChange }: { users: UserProfile[], open: boolean, onOpenChange: (open: boolean) => void }) {
     const { toast } = useToast();
     const [isLoading, setIsLoading] = useState(false);
-    const [isDatePickerOpen, setDatePickerOpen] = useState(false);
-
+    
     const form = useForm<z.infer<typeof unavailabilitySchema>>({
         resolver: zodResolver(unavailabilitySchema),
         defaultValues: { userId: '', range: { from: new Date() }, reason: '' },
@@ -184,7 +183,7 @@ function AddUnavailabilityDialog({ users, open, onOpenChange }: { users: UserPro
                         <FormField control={form.control} name="range" render={({ field }) => (
                             <FormItem className="flex flex-col">
                                 <FormLabel>Date Range</FormLabel>
-                                <Popover open={isDatePickerOpen} onOpenChange={setDatePickerOpen}>
+                                <Popover>
                                     <PopoverTrigger asChild>
                                         <Button variant="outline" className={cn("justify-start text-left font-normal", !field.value.from && "text-muted-foreground")}>
                                             <CalendarIcon className="mr-2 h-4 w-4" />
@@ -200,9 +199,6 @@ function AddUnavailabilityDialog({ users, open, onOpenChange }: { users: UserPro
                                                     field.onChange({ from: range.to, to: range.from });
                                                 } else {
                                                     field.onChange(range);
-                                                }
-                                                if (range?.from && range?.to) {
-                                                    setDatePickerOpen(false);
                                                 }
                                             }}
                                             initialFocus
