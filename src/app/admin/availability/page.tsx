@@ -184,7 +184,7 @@ function AddUnavailabilityDialog({ users, open, onOpenChange }: { users: UserPro
                         <FormField control={form.control} name="range" render={({ field }) => (
                             <FormItem className="flex flex-col">
                                 <FormLabel>Date Range</FormLabel>
-                                <Popover open={isDatePickerOpen} onOpenChange={setDatePickerOpen} modal={true}>
+                                <Popover open={isDatePickerOpen} onOpenChange={setDatePickerOpen}>
                                     <PopoverTrigger asChild>
                                         <Button variant="outline" className={cn("justify-start text-left font-normal", !field.value.from && "text-muted-foreground")}>
                                             <CalendarIcon className="mr-2 h-4 w-4" />
