@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -13,7 +14,8 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Calendar as CalendarIcon, Users, UserCheck, Filter, ChevronDown, Check, Clock, Sun, Moon, MapPin, X, CheckCircle, XCircle, ChevronLeft, ChevronRight, Download, PlusCircle, Trash2, CalendarOff } from 'lucide-react';
-import { getCorrectedLocalDate, cn } from '@/lib/utils';
+import { getCorrectedLocalDate } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuItem } from '@/components/ui/dropdown-menu';
@@ -119,6 +121,7 @@ const unavailabilitySchema = z.object({
 function AddUnavailabilityDialog({ users, open, onOpenChange }: { users: UserProfile[], open: boolean, onOpenChange: (open: boolean) => void }) {
     const { toast } = useToast();
     const [isLoading, setIsLoading] = useState(false);
+    const [isDatePickerOpen, setDatePickerOpen] = useState(false);
 
     const form = useForm<z.infer<typeof unavailabilitySchema>>({
         resolver: zodResolver(unavailabilitySchema),
@@ -180,7 +183,7 @@ function AddUnavailabilityDialog({ users, open, onOpenChange }: { users: UserPro
                         <FormField control={form.control} name="range" render={({ field }) => (
                             <FormItem className="flex flex-col">
                                 <FormLabel>Date Range</FormLabel>
-                                <Popover>
+                                <Popover open={isDatePickerOpen} onOpenChange={setDatePickerOpen} modal={true}>
                                     <PopoverTrigger asChild>
                                         <Button variant="outline" className={cn("justify-start text-left font-normal", !field.value.from && "text-muted-foreground")}>
                                             <CalendarIcon className="mr-2 h-4 w-4" />
@@ -188,7 +191,22 @@ function AddUnavailabilityDialog({ users, open, onOpenChange }: { users: UserPro
                                         </Button>
                                     </PopoverTrigger>
                                     <PopoverContent className="w-auto p-0" align="start">
-                                        <CalendarPicker mode="range" selected={field.value} onSelect={field.onChange} initialFocus />
+                                        <CalendarPicker 
+                                          mode="range" 
+                                          selected={field.value} 
+                                          onSelect={(range) => {
+                                            field.onChange(range);
+                                            // Do not automatically close if only `from` is selected
+                                            if (range?.from && range.to) {
+                                                setDatePickerOpen(false);
+                                            } else if (range?.from && !range.to) {
+                                                // Keep it open
+                                            } else {
+                                                setDatePickerOpen(false);
+                                            }
+                                          }}
+                                          initialFocus 
+                                        />
                                     </PopoverContent>
                                 </Popover>
                                 <FormMessage />
@@ -751,7 +769,7 @@ export default function AvailabilityPage() {
                            <div className="space-y-4">
                                 <div className="space-y-2">
                                     <h4 className="font-medium text-sm">Filter By</h4>
-                                    <RadioGroup value={filterBy} onValueChange={handleFilterByChange} className="flex space-x-4">
+                                    <RadioGroup value={filterBy} onValueChange={handleFilterByChange as (value: string) => void} className="flex space-x-4">
                                         <div className="flex items-center space-x-2"><RadioGroupItem value="role" id="filter-role" /><Label htmlFor="filter-role">Role</Label></div>
                                         <div className="flex items-center space-x-2"><RadioGroupItem value="trade" id="filter-trade" /><Label htmlFor="filter-trade">Trade</Label></div>
                                     </RadioGroup>
