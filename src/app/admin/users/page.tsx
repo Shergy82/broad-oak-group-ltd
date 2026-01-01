@@ -303,16 +303,16 @@ export default function UserManagementPage() {
                 )}
               </TableCell>
               <TableCell>
-                {isPrivilegedUser && !['admin', 'owner', 'manager'].includes(user.role) ? (
+                {isPrivilegedUser ? (
                   <Input
                     defaultValue={user.trade || ''}
                     onBlur={(e) => handleFieldChange(user.uid, 'trade', e.target.value)}
                     className="h-8 w-32"
-                    placeholder="Set Trade"
+                    placeholder="N/A"
                     disabled={!isPrivilegedUser}
                   />
                 ) : (
-                  <Badge variant="outline">N/A</Badge>
+                  user.trade || <Badge variant="outline">N/A</Badge>
                 )}
               </TableCell>
               <TableCell>{user.phoneNumber || 'N/A'}</TableCell>
@@ -444,18 +444,16 @@ export default function UserManagementPage() {
                             disabled={!isPrivilegedUser}
                           />
                       </div>
-                      {!['admin', 'owner', 'manager'].includes(user.role) && (
-                        <div className="flex items-center gap-2 pt-2">
-                          <strong className="shrink-0">Trade:</strong>
-                          <Input
-                              defaultValue={user.trade || ''}
-                              onBlur={(e) => handleFieldChange(user.uid, 'trade', e.target.value)}
-                              className="h-8"
-                              placeholder="Set Trade"
-                              disabled={!isPrivilegedUser}
-                            />
-                        </div>
-                      )}
+                      <div className="flex items-center gap-2 pt-2">
+                        <strong className="shrink-0">Trade:</strong>
+                        <Input
+                            defaultValue={user.trade || ''}
+                            onBlur={(e) => handleFieldChange(user.uid, 'trade', e.target.value)}
+                            className="h-8"
+                            placeholder="N/A"
+                            disabled={!isPrivilegedUser}
+                        />
+                      </div>
                       {!['admin', 'owner', 'manager'].includes(user.role) && (
                           <div className="flex items-center gap-2 pt-2">
                             <strong className="shrink-0">Type:</strong>
