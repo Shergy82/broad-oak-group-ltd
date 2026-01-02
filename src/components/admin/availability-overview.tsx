@@ -65,7 +65,7 @@ const UserAvatarList = ({ users, category, onUserClick }: { users: AvailableUser
     
     let filteredUsers = users;
     if (category === 'working') {
-        filteredUsers = users.filter(u => u.availability !== 'full');
+        filteredUsers = users.filter(u => u.availability === 'busy');
     } else if (category === 'full') {
         filteredUsers = users.filter(u => u.availability === 'full');
     } else if (category === 'semi') {
@@ -189,7 +189,7 @@ export function AvailabilityOverview() {
     
     const { workingTodayCount, fullyAvailableCount, semiAvailableCount } = useMemo(() => {
         return {
-            workingTodayCount: todaysAvailability.filter(u => u.availability !== 'full').length,
+            workingTodayCount: todaysAvailability.filter(u => u.availability === 'busy').length,
             fullyAvailableCount: todaysAvailability.filter(u => u.availability === 'full').length,
             semiAvailableCount: todaysAvailability.filter(u => u.availability === 'am' || u.availability === 'pm').length,
         }
