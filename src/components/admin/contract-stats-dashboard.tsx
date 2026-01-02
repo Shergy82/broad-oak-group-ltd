@@ -4,13 +4,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { Shift, UserProfile } from '@/types';
+import type { Shift } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { BarChart, Briefcase, User, HardHat, CheckCircle, Building } from 'lucide-react';
-import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
+import { X } from 'lucide-react';
+
 
 interface ContractStats {
   name: string;
@@ -24,8 +27,8 @@ export function ContractStatsDashboard() {
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [contractSearch, setContractSearch] = useState('');
-  const [managerSearch, setManagerSearch] = useState('');
+  const [selectedContract, setSelectedContract] = useState('all');
+  const [selectedManager, setSelectedManager] = useState('all');
 
   useEffect(() => {
     const shiftsQuery = query(collection(db, 'shifts'));
@@ -44,15 +47,33 @@ export function ContractStatsDashboard() {
 
     return () => unsubShifts();
   }, []);
+  
+  const { availableContracts, availableManagers } = useMemo(() => {
+      const contractSet = new Set<string>();
+      const managerSet = new Set<string>();
+      shifts.forEach(shift => {
+          if (shift.contract) contractSet.add(shift.contract);
+          if (shift.manager) managerSet.add(shift.manager);
+      });
+      return {
+          availableContracts: Array.from(contractSet).sort(),
+          availableManagers: Array.from(managerSet).sort(),
+      };
+  }, [shifts]);
 
-  const contractData = useMemo((): ContractStats[] => {
+  const filteredContracts = useMemo((): ContractStats[] => {
     if (loading || error) return [];
 
-    const statsByContract: { [key: string]: ContractStats } = {};
+    let filteredShifts = shifts;
 
-    const filteredShifts = shifts.filter(shift => 
-        !managerSearch || (shift.manager && shift.manager.toLowerCase().includes(managerSearch.toLowerCase()))
-    );
+    if (selectedManager !== 'all') {
+        filteredShifts = filteredShifts.filter(shift => shift.manager === selectedManager);
+    }
+    if (selectedContract !== 'all') {
+        filteredShifts = filteredShifts.filter(shift => shift.contract === selectedContract);
+    }
+    
+    const statsByContract: { [key: string]: ContractStats } = {};
 
     filteredShifts.forEach(shift => {
       const contractName = shift.contract || 'Unassigned';
@@ -78,13 +99,8 @@ export function ContractStatsDashboard() {
 
     return Object.values(statsByContract).sort((a, b) => b.totalShifts - a.totalShifts);
 
-  }, [shifts, loading, error, managerSearch]);
+  }, [shifts, loading, error, selectedManager, selectedContract]);
 
-  const filteredContracts = useMemo(() => {
-    return contractData.filter(contract =>
-      contract.name.toLowerCase().includes(contractSearch.toLowerCase())
-    );
-  }, [contractData, contractSearch]);
 
   return (
     <Card>
@@ -97,18 +113,24 @@ export function ContractStatsDashboard() {
                 </CardDescription>
             </div>
             <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                 <Input
-                    placeholder="Search managers..."
-                    value={managerSearch}
-                    onChange={(e) => setManagerSearch(e.target.value)}
-                    className="max-w-sm"
-                />
-                 <Input
-                    placeholder="Search contracts..."
-                    value={contractSearch}
-                    onChange={(e) => setContractSearch(e.target.value)}
-                    className="max-w-sm"
-                />
+                 <Select value={selectedManager} onValueChange={setSelectedManager}>
+                    <SelectTrigger className="w-full sm:w-[180px]">
+                        <SelectValue placeholder="Filter by manager..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">All Managers</SelectItem>
+                        {availableManagers.map(manager => <SelectItem key={manager} value={manager}>{manager}</SelectItem>)}
+                    </SelectContent>
+                </Select>
+                 <Select value={selectedContract} onValueChange={setSelectedContract}>
+                    <SelectTrigger className="w-full sm:w-[180px]">
+                        <SelectValue placeholder="Filter by contract..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">All Contracts</SelectItem>
+                        {availableContracts.map(contract => <SelectItem key={contract} value={contract}>{contract}</SelectItem>)}
+                    </SelectContent>
+                </Select>
             </div>
         </div>
       </CardHeader>
