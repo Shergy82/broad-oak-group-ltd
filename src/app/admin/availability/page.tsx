@@ -31,17 +31,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-    AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import { Spinner } from '@/components/shared/spinner';
@@ -119,7 +109,7 @@ const unavailabilitySchema = z.object({
     reason: z.string().min(1, "Please select a reason."),
 });
 
-function AddUnavailabilityDialog({ users, open, onOpenChange }: { users: UserProfile[], open: boolean, onOpenChange: (open: boolean) => void }) {
+function AddUnavailabilityForm({ users }: { users: UserProfile[] }) {
     const { toast } = useToast();
     const [isLoading, setIsLoading] = useState(false);
     
@@ -129,21 +119,10 @@ function AddUnavailabilityDialog({ users, open, onOpenChange }: { users: UserPro
             userId: '',
             range: {
                 from: startOfDay(new Date()),
-                to: undefined,
             },
             reason: ''
         },
     });
-
-    useEffect(() => {
-        if(open) {
-            form.reset({
-                userId: '',
-                range: { from: startOfDay(new Date()), to: undefined },
-                reason: ''
-            });
-        }
-    }, [open, form])
 
     const handleAddUnavailability = async (values: z.infer<typeof unavailabilitySchema>) => {
         setIsLoading(true);
@@ -166,7 +145,6 @@ function AddUnavailabilityDialog({ users, open, onOpenChange }: { users: UserPro
             });
             toast({ title: 'Success', description: `${user.name}'s unavailability added.` });
             form.reset();
-            onOpenChange(false);
         } catch (error) {
             console.error('Error adding unavailability: ', error);
             toast({ variant: 'destructive', title: 'Error', description: 'Could not add unavailability record.' });
@@ -176,75 +154,74 @@ function AddUnavailabilityDialog({ users, open, onOpenChange }: { users: UserPro
     };
     
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent>
-                <DialogHeader>
-                    <DialogTitle>Add Unavailability</DialogTitle>
-                    <DialogDescription>Record a period of unavailability for an operative.</DialogDescription>
-                </DialogHeader>
-                <Form {...form}>
-                    <form onSubmit={form.handleSubmit(handleAddUnavailability)} className="space-y-4 py-4">
-                        <FormField control={form.control} name="userId" render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>Operative</FormLabel>
-                                <Select onValueChange={field.onChange} value={field.value}>
-                                    <FormControl>
-                                        <SelectTrigger><SelectValue placeholder="Select an operative..." /></SelectTrigger>
-                                    </FormControl>
-                                    <SelectContent><ScrollArea className="h-64">{users.map(u => <SelectItem key={u.uid} value={u.uid}>{u.name}</SelectItem>)}</ScrollArea></SelectContent>
-                                </Select>
-                                <FormMessage />
-                            </FormItem>
-                        )} />
+      <Card>
+        <CardHeader>
+          <CardTitle>Add Unavailability</CardTitle>
+          <CardDescription>Record a period of unavailability for an operative.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Form {...form}>
+              <form onSubmit={form.handleSubmit(handleAddUnavailability)} className="space-y-4">
+                  <FormField control={form.control} name="userId" render={({ field }) => (
+                      <FormItem>
+                          <FormLabel>Operative</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                              <FormControl>
+                                  <SelectTrigger><SelectValue placeholder="Select an operative..." /></SelectTrigger>
+                              </FormControl>
+                              <SelectContent><ScrollArea className="h-64">{users.map(u => <SelectItem key={u.uid} value={u.uid}>{u.name}</SelectItem>)}</ScrollArea></SelectContent>
+                          </Select>
+                          <FormMessage />
+                      </FormItem>
+                  )} />
 
-                         <FormField control={form.control} name="range" render={({ field }) => (
-                            <FormItem className="flex flex-col">
-                                <FormLabel>
-                                    Date Range: {field.value?.from ? (field.value.to ? `${format(field.value.from, "PPP")} - ${format(field.value.to, "PPP")}` : format(field.value.from, "PPP")) : <span>Pick a date range</span>}
-                                </FormLabel>
-                                <div className="p-2 border rounded-md">
-                                    <CalendarPicker
-                                        mode="range"
-                                        selected={field.value}
-                                        onSelect={(range) => {
-                                            if (range?.from && range.to && isBefore(range.to, range.from)) {
-                                                field.onChange({ from: range.to, to: range.from });
-                                            } else {
-                                                field.onChange(range);
-                                            }
-                                        }}
-                                        initialFocus
-                                    />
-                                </div>
-                                <FormMessage />
-                            </FormItem>
-                        )} />
+                   <FormField control={form.control} name="range" render={({ field }) => (
+                      <FormItem>
+                           <FormLabel>
+                              Date Range: {field.value?.from ? (field.value.to ? `${format(field.value.from, "PPP")} - ${format(field.value.to, "PPP")}` : format(field.value.from, "PPP")) : <span>Pick a date range</span>}
+                          </FormLabel>
+                          <div className="flex justify-center rounded-md border">
+                              <CalendarPicker
+                                  mode="range"
+                                  selected={field.value}
+                                  onSelect={(range) => {
+                                      if (range?.from && range.to && isBefore(range.to, range.from)) {
+                                          field.onChange({ from: range.to, to: range.from });
+                                      } else {
+                                          field.onChange(range);
+                                      }
+                                  }}
+                                  initialFocus
+                              />
+                          </div>
+                          <FormMessage />
+                      </FormItem>
+                  )} />
 
-                        <FormField control={form.control} name="reason" render={({ field }) => (
-                            <FormItem>
-                                <FormLabel>Reason</FormLabel>
-                                <Select onValueChange={field.onChange} value={field.value}>
-                                    <FormControl>
-                                        <SelectTrigger><SelectValue placeholder="Select a reason..." /></SelectTrigger>
-                                    </FormControl>
-                                    <SelectContent>
-                                        <SelectItem value="Holiday">Holiday</SelectItem>
-                                        <SelectItem value="Sickness">Sickness</SelectItem>
-                                        <SelectItem value="Other">Other</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                                <FormMessage />
-                            </FormItem>
-                        )} />
+                  <FormField control={form.control} name="reason" render={({ field }) => (
+                      <FormItem>
+                          <FormLabel>Reason</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                              <FormControl>
+                                  <SelectTrigger><SelectValue placeholder="Select a reason..." /></SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                  <SelectItem value="Holiday">Holiday</SelectItem>
+                                  <SelectItem value="Sickness">Sickness</SelectItem>
+                                  <SelectItem value="Other">Other</SelectItem>
+                              </SelectContent>
+                          </Select>
+                          <FormMessage />
+                      </FormItem>
+                  )} />
 
-                        <DialogFooter>
-                            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isLoading}>Cancel</Button>
-                            <Button type="submit" disabled={isLoading}>{isLoading ? <Spinner /> : 'Add Record'}</Button>
-                        </DialogFooter>
-                    </form>
-                </Form>
-            </DialogContent>
-        </Dialog>
+                  <Button type="submit" disabled={isLoading} className="w-full">
+                      {isLoading ? <Spinner /> : 'Add Record'}
+                  </Button>
+              </form>
+          </Form>
+        </CardContent>
+      </Card>
     );
 }
 
@@ -268,7 +245,6 @@ export default function AvailabilityPage() {
   
   const [isDayDetailOpen, setIsDayDetailOpen] = useState(false);
   const [selectedDayData, setSelectedDayData] = useState<DayData | null>(null);
-  const [isUnavailabilityFormOpen, setUnavailabilityFormOpen] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -746,18 +722,12 @@ export default function AvailabilityPage() {
 
         {viewMode === 'detailed' && (
             <>
-                <div className="flex justify-center">
-                     <CalendarPicker mode="range" selected={dateRange} onSelect={setDateRange} className="rounded-md border" defaultMonth={dateRange?.from} numberOfMonths={1} />
-                </div>
-                <div className="md:col-span-2 space-y-6">
+                <div className="col-span-1 md:col-span-2 space-y-6">
                     <Card className="bg-muted/30">
                         <CardHeader className="py-4">
                             <div className="flex justify-between items-center">
                                 <CardTitle className="text-base flex items-center gap-2"><Filter className="h-4 w-4" /> Filters</CardTitle>
                                 <div className="flex gap-2">
-                                     <Button variant="outline" size="sm" onClick={() => setUnavailabilityFormOpen(true)}>
-                                        <PlusCircle className="h-4 w-4 mr-2" /> Add Unavailability
-                                    </Button>
                                     <DropdownMenu>
                                         <DropdownMenuTrigger asChild>
                                             <Button variant="outline" size="sm" disabled={!dateRange?.from}><Download className="h-4 w-4 mr-2" /> Download Report</Button>
@@ -772,7 +742,7 @@ export default function AvailabilityPage() {
                                 </div>
                             </div>
                         </CardHeader>
-                        <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-start">
+                        <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-start pt-6">
                            <div className="space-y-4">
                                 <div className="space-y-2">
                                     <h4 className="font-medium text-sm">Filter By</h4>
@@ -818,14 +788,11 @@ export default function AvailabilityPage() {
                             <Skeleton className="h-8 w-1/2" />
                             <Skeleton className="h-32 w-full" />
                         </div>
-                    ) : !dateRange?.from ? (
-                        <Alert>
-                            <CalendarIcon className="h-4 w-4" />
-                            <AlertTitle>Select a Date</AlertTitle>
-                            <AlertDescription>Click on the calendar to select a date or drag to select a range.</AlertDescription>
-                        </Alert>
                     ) : (
                         <div className="space-y-6">
+                            <div className="flex justify-center">
+                                <CalendarPicker mode="range" selected={dateRange} onSelect={setDateRange} className="rounded-md border" defaultMonth={dateRange?.from} numberOfMonths={1} />
+                            </div>
                             <div>
                                 <h3 className="text-lg font-semibold flex items-center gap-2 mb-3"><UserCheck className="text-green-600 h-5 w-5"/>Available Operatives ({availableUsers.filter(u => u.availability !== 'unavailable').length})<span className="text-sm font-normal text-muted-foreground ml-2">{selectedPeriodText()}</span></h3>
                                 {availableUsers.length > 0 ? (
@@ -852,41 +819,45 @@ export default function AvailabilityPage() {
                                     <Alert className="border-dashed"><Users className="h-4 w-4" /><AlertTitle>No Operatives Available</AlertTitle><AlertDescription>No users match the current date and filter criteria. Try adjusting your filters.</AlertDescription></Alert>
                                 )}
                             </div>
-                             <Card className="mt-6">
-                                <CardHeader><CardTitle className="text-lg flex items-center gap-2"><CalendarOff className="h-5 w-5 text-muted-foreground"/>Upcoming Unavailability</CardTitle></CardHeader>
-                                <CardContent>
-                                    {unavailability.length > 0 ? (
-                                        <div className="border rounded-md"><Table>
-                                            <TableHeader><TableRow><TableHead>Operative</TableHead><TableHead>From</TableHead><TableHead>To</TableHead><TableHead>Reason</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
-                                            <TableBody>{unavailability.sort((a,b) => a.startDate.toMillis() - b.startDate.toMillis()).map(u => (
-                                                <TableRow key={u.id}>
-                                                    <TableCell>{u.userName}</TableCell>
-                                                    <TableCell>{format(getCorrectedLocalDate(u.startDate), 'PPP')}</TableCell>
-                                                    <TableCell>{format(getCorrectedLocalDate(u.endDate), 'PPP')}</TableCell>
-                                                    <TableCell><Badge variant="outline">{u.reason}</Badge></TableCell>
-                                                    <TableCell className="text-right">
-                                                        <AlertDialog>
-                                                            <AlertDialogTrigger asChild><Button variant="ghost" size="icon"><Trash2 className="h-4 w-4 text-destructive/70" /></Button></AlertDialogTrigger>
-                                                            <AlertDialogContent>
-                                                                <AlertDialogHeader><AlertDialogTitle>Delete Record?</AlertDialogTitle><AlertDialogDescription>Are you sure you want to delete this unavailability record for {u.userName}?</AlertDialogDescription></AlertDialogHeader>
-                                                                <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteUnavailability(u.id)}>Delete</AlertDialogAction></AlertDialogFooter>
-                                                            </AlertDialogContent>
-                                                        </AlertDialog>
-                                                    </TableCell>
-                                                </TableRow>
-                                            ))}</TableBody>
-                                        </Table></div>
-                                    ) : (<p className="text-sm text-muted-foreground text-center p-4 border rounded-md">No upcoming unavailability records found.</p>)}
-                                </CardContent>
-                            </Card>
                         </div>
                     )}
+                </div>
+                <div className="col-span-1 space-y-6">
+                  <AddUnavailabilityForm users={allUsers} />
+                  <Card>
+                      <CardHeader><CardTitle className="text-lg flex items-center gap-2"><CalendarOff className="h-5 w-5 text-muted-foreground"/>Upcoming Unavailability</CardTitle></CardHeader>
+                      <CardContent>
+                          {unavailability.length > 0 ? (
+                              <div className="border rounded-md"><Table>
+                                  <TableHeader><TableRow><TableHead>Operative</TableHead><TableHead>From</TableHead><TableHead>To</TableHead><TableHead>Reason</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                                  <TableBody>{unavailability.sort((a,b) => a.startDate.toMillis() - b.startDate.toMillis()).map(u => (
+                                      <TableRow key={u.id}>
+                                          <TableCell>{u.userName}</TableCell>
+                                          <TableCell>{format(getCorrectedLocalDate(u.startDate), 'PPP')}</TableCell>
+                                          <TableCell>{format(getCorrectedLocalDate(u.endDate), 'PPP')}</TableCell>
+                                          <TableCell><Badge variant="outline">{u.reason}</Badge></TableCell>
+                                          <TableCell className="text-right">
+                                              <AlertDialog>
+                                                  <AlertDialogTrigger asChild><Button variant="ghost" size="icon"><Trash2 className="h-4 w-4 text-destructive/70" /></Button></AlertDialogTrigger>
+                                                  <AlertDialogContent>
+                                                      <AlertDialogHeader><AlertDialogTitle>Delete Record?</AlertDialogTitle><AlertDialogDescription>Are you sure you want to delete this unavailability record for {u.userName}?</AlertDialogDescription></AlertDialogHeader>
+                                                      <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteUnavailability(u.id)}>Delete</AlertDialogAction></AlertDialogFooter>
+                                                  </AlertDialogContent>
+                                              </AlertDialog>
+                                          </TableCell>
+                                      </TableRow>
+                                  ))}</TableBody>
+                              </Table></div>
+                          ) : (<p className="text-sm text-muted-foreground text-center p-4 border rounded-md">No upcoming unavailability records found.</p>)}
+                      </CardContent>
+                  </Card>
                 </div>
             </>
         )}
       </CardContent>
       {renderDayDetailDialog()}
-      {isUnavailabilityFormOpen && <AddUnavailabilityDialog users={allUsers} open={isUnavailabilityFormOpen} onOpenChange={setUnavailabilityFormOpen} />}
     </Card>
   );
 }
+
+    
