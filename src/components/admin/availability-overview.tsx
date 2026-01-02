@@ -85,7 +85,9 @@ const UserAvatarList = ({ users, category, onUserClick }: { users: AvailableUser
             <div className="flex flex-wrap gap-x-6 gap-y-4">
                 {filteredUsers.map((availableUser) => {
                     const { user, shifts, availability } = availableUser;
-                    const shiftLocation = shifts[0]?.address;
+                    
+                    const uniqueLocations = [...new Set(shifts.map(s => extractLocation(s.address)).filter(Boolean))].join(', ');
+                    
                     const isClickable = availability !== 'full';
                     return (
                         <div 
@@ -101,10 +103,10 @@ const UserAvatarList = ({ users, category, onUserClick }: { users: AvailableUser
                             </Avatar>
                             <div className="flex flex-col">
                                 <p className="text-sm font-medium truncate w-full">{user.name}</p>
-                                {shiftLocation && (
+                                {uniqueLocations && (
                                     <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
                                         <MapPin className="h-3 w-3 shrink-0" />
-                                        <span className="truncate">{extractLocation(shiftLocation)}</span>
+                                        <span className="truncate">{uniqueLocations}</span>
                                     </div>
                                 )}
                                 {availability === 'am' && <p className="text-xs font-semibold text-sky-600">AM Free</p>}
@@ -175,13 +177,12 @@ export function AvailabilityOverview() {
 
             if (hasAmShift && hasPmShift) {
                  return { user, availability: 'busy', shifts: userShiftsToday };
-            } else if (hasAmShift) { // Only AM or all-day shifts
+            } else if (hasAmShift) { 
                  return { user, availability: 'pm', shifts: userShiftsToday };
-            } else if (hasPmShift) { // Only PM or all-day shifts
+            } else if (hasPmShift) {
                  return { user, availability: 'am', shifts: userShiftsToday };
             }
 
-            // Fallback for any other case, though it's unlikely
             return { user, availability: 'busy', shifts: userShiftsToday };
         }).filter((u): u is AvailableUser => u !== null);
 
