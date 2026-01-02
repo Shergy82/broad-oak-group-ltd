@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -240,20 +239,20 @@ function UnavailabilityManagerDialog({
     const [activeTab, setActiveTab] = useState('add');
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-md">
+            <DialogContent className="max-w-3xl">
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                     <TabsList className="grid w-full grid-cols-2">
                         <TabsTrigger value="add">Add Unavailability</TabsTrigger>
                         <TabsTrigger value="view">Upcoming</TabsTrigger>
                     </TabsList>
-                    <TabsContent value="add">
+                    <TabsContent value="add" className="p-1">
                         <DialogHeader>
                             <DialogTitle>Add Unavailability</DialogTitle>
                             <DialogDescription>Record a period of unavailability for an operative.</DialogDescription>
                         </DialogHeader>
                         <AddUnavailabilityForm users={users} onSuccessfulAdd={() => setActiveTab('view')} />
                     </TabsContent>
-                    <TabsContent value="view">
+                    <TabsContent value="view" className="p-1">
                         <DialogHeader>
                             <DialogTitle className="text-lg flex items-center gap-2"><CalendarOff className="h-5 w-5 text-muted-foreground"/>Upcoming Unavailability</DialogTitle>
                             <DialogDescription>List of all upcoming recorded periods of unavailability.</DialogDescription>
