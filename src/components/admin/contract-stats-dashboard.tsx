@@ -24,7 +24,8 @@ export function ContractStatsDashboard() {
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [contractSearch, setContractSearch] = useState('');
+  const [managerSearch, setManagerSearch] = useState('');
 
   useEffect(() => {
     const shiftsQuery = query(collection(db, 'shifts'));
@@ -49,8 +50,11 @@ export function ContractStatsDashboard() {
 
     const statsByContract: { [key: string]: ContractStats } = {};
 
-    shifts.forEach(shift => {
-      // Use the 'contract' field (which comes from the sheet name)
+    const filteredShifts = shifts.filter(shift => 
+        !managerSearch || (shift.manager && shift.manager.toLowerCase().includes(managerSearch.toLowerCase()))
+    );
+
+    filteredShifts.forEach(shift => {
       const contractName = shift.contract || 'Unassigned';
 
       if (!statsByContract[contractName]) {
@@ -74,13 +78,13 @@ export function ContractStatsDashboard() {
 
     return Object.values(statsByContract).sort((a, b) => b.totalShifts - a.totalShifts);
 
-  }, [shifts, loading, error]);
+  }, [shifts, loading, error, managerSearch]);
 
   const filteredContracts = useMemo(() => {
     return contractData.filter(contract =>
-      contract.name.toLowerCase().includes(searchTerm.toLowerCase())
+      contract.name.toLowerCase().includes(contractSearch.toLowerCase())
     );
-  }, [contractData, searchTerm]);
+  }, [contractData, contractSearch]);
 
   return (
     <Card>
@@ -92,12 +96,20 @@ export function ContractStatsDashboard() {
                   High-level statistics for each contract, derived from shift data.
                 </CardDescription>
             </div>
-             <Input
-                placeholder="Search contracts..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="max-w-sm"
-            />
+            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                 <Input
+                    placeholder="Search managers..."
+                    value={managerSearch}
+                    onChange={(e) => setManagerSearch(e.target.value)}
+                    className="max-w-sm"
+                />
+                 <Input
+                    placeholder="Search contracts..."
+                    value={contractSearch}
+                    onChange={(e) => setContractSearch(e.target.value)}
+                    className="max-w-sm"
+                />
+            </div>
         </div>
       </CardHeader>
       <CardContent>
