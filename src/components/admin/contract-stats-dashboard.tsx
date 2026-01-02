@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -49,9 +50,8 @@ export function ContractStatsDashboard() {
     const statsByContract: { [key: string]: ContractStats } = {};
 
     shifts.forEach(shift => {
-      // We'll use the 'manager' field as an approximation for the contract/sheet name.
-      // A more robust solution would be to add a 'contract' field to the Shift type.
-      const contractName = shift.manager || 'Unassigned';
+      // Use the 'contract' field (which comes from the sheet name)
+      const contractName = shift.contract || 'Unassigned';
 
       if (!statsByContract[contractName]) {
         statsByContract[contractName] = {

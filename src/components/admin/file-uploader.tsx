@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useCallback } from 'react';
@@ -435,6 +436,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                                             address: address, 
                                             eNumber: eNumber,
                                             manager: manager,
+                                            contract: sheetName, // Assign sheet name as contract
                                         });
                                     } else {
                                         allFailedShifts.push({
@@ -501,7 +503,8 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
             if (existingShift) {
                 if (
                     existingShift.eNumber !== (excelShift.eNumber || '') || 
-                    existingShift.manager !== (excelShift.manager || '')
+                    existingShift.manager !== (excelShift.manager || '') ||
+                    existingShift.contract !== (excelShift.contract || '')
                 ) {
                      if (!protectedStatuses.includes(existingShift.status)) {
                         toUpdate.push({ old: existingShift, new: excelShift });
@@ -554,6 +557,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
               batch.update(doc(db, 'shifts', old.id), { 
                   eNumber: newShift.eNumber || '',
                   manager: newShift.manager || '',
+                  contract: newShift.contract || '',
               });
           });
 

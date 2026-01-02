@@ -14,6 +14,7 @@ export interface Shift {
   task: string;
   eNumber?: string;
   manager?: string;
+  contract?: string; // Added contract field
   notes?: string;
   createdAt: Timestamp;
   confirmedAt?: Timestamp;
@@ -104,5 +105,3 @@ export interface Trade {
   name: string;
   tasks: TradeTask[];
 }
-
-    
