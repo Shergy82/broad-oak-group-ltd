@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -21,6 +22,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { Badge } from '../ui/badge';
+import { ScrollArea } from '../ui/scroll-area';
 
 
 interface AvailableUser {
@@ -294,26 +296,28 @@ export function AvailabilityOverview() {
               Below are the shifts scheduled for {selectedUserShifts.user.name} today.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            {selectedUserShifts.shifts.map(shift => (
-              <Card key={shift.id}>
-                <CardHeader>
-                    <CardTitle className="text-base">{shift.task}</CardTitle>
-                    <CardDescription>{shift.address}</CardDescription>
-                </CardHeader>
-                <CardContent className="grid grid-cols-2 gap-2 text-sm">
-                   <div>
-                       <p className="font-medium">Type</p>
-                       <Badge variant="outline" className="capitalize">{shift.type === 'all-day' ? 'All Day' : shift.type}</Badge>
-                   </div>
-                    <div>
-                       <p className="font-medium">Status</p>
-                       <Badge variant="secondary" className="capitalize">{shift.status.replace('-', ' ')}</Badge>
-                   </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+          <ScrollArea className="max-h-[60vh] -mx-4 px-4">
+            <div className="space-y-4 py-4">
+              {selectedUserShifts.shifts.map(shift => (
+                <Card key={shift.id}>
+                  <CardHeader>
+                      <CardTitle className="text-base">{shift.task}</CardTitle>
+                      <CardDescription>{shift.address}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid grid-cols-2 gap-2 text-sm">
+                     <div>
+                         <p className="font-medium">Type</p>
+                         <Badge variant="outline" className="capitalize">{shift.type === 'all-day' ? 'All Day' : shift.type}</Badge>
+                     </div>
+                      <div>
+                         <p className="font-medium">Status</p>
+                         <Badge variant="secondary" className="capitalize">{shift.status.replace('-', ' ')}</Badge>
+                     </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </ScrollArea>
         </DialogContent>
       </Dialog>
     )}
