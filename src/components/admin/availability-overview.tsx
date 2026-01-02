@@ -181,7 +181,7 @@ export function AvailabilityOverview() {
                     return { user, availability: 'am', shifts: userShiftsToday };
                 }
             }
-            // This should not happen with the logic above, but as a fallback:
+            // Fallback for any other case, including a single 'all-day' shift missed by the condition above.
             return { user, availability: 'busy', shifts: userShiftsToday };
         }).filter((u): u is AvailableUser => u !== null);
 
