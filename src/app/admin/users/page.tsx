@@ -330,7 +330,7 @@ export default function UserManagementPage() {
                     </SelectContent>
                   </Select>
                 ) : (
-                  <Badge variant={user.role === 'admin' ? 'secondary' : 'outline'} className={`capitalize ${user.role === 'owner' ? 'bg-primary text-primary-foreground' : ''} ${user.role === 'manager' ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''} ${user.role === 'TLO' ? 'bg-purple-500 hover:bg-purple-600 text-white' : ''}`}>
+                  <Badge variant={user.role === 'admin' ? 'secondary' : user.role === 'owner' ? 'default' : 'outline'} className={`capitalize ${user.role === 'manager' ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''} ${user.role === 'TLO' ? 'bg-purple-500 hover:bg-purple-600 text-white' : ''}`}>
                     {user.role}
                   </Badge>
                 )}
@@ -422,7 +422,7 @@ export default function UserManagementPage() {
                         </SelectContent>
                       </Select>
                     ) : (
-                      <Badge variant={user.role === 'admin' ? 'secondary' : 'outline'} className={`capitalize ${user.role === 'owner' ? 'bg-primary text-primary-foreground' : ''} ${user.role === 'manager' ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''} ${user.role === 'TLO' ? 'bg-purple-500 hover:bg-purple-600 text-white' : ''}`}>
+                      <Badge variant={user.role === 'admin' ? 'secondary' : user.role === 'owner' ? 'default' : 'outline'} className={`capitalize ${user.role === 'manager' ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''} ${user.role === 'TLO' ? 'bg-purple-500 hover:bg-purple-600 text-white' : ''}`}>
                           {user.role}
                       </Badge>
                     )}
