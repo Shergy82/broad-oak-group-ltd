@@ -40,24 +40,12 @@ const getInitials = (name?: string) => {
       .toUpperCase();
 };
 
-const extractLocation = (address: string | undefined): string => {
-    if (!address) return '';
-
-    const postcodeRegex = /(L|l)ondon\s+([A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})/i;
+const extractPostcode = (address: string | undefined): string | null => {
+    if (!address) return null;
+    // Regex for UK postcodes. More robust.
+    const postcodeRegex = /([A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})$/i;
     const match = address.match(postcodeRegex);
-
-    if (match && match[0]) {
-        return match[0].trim();
-    }
-    
-    const genericPostcodeRegex = /([A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})$/i;
-    const genericMatch = address.match(genericPostcodeRegex);
-    if (genericMatch && genericMatch[0]) {
-        return genericMatch[0].trim();
-    }
-    
-    const parts = address.split(',');
-    return parts[parts.length - 1].trim();
+    return match ? match[0].trim().toUpperCase() : null;
 };
 
 
@@ -86,7 +74,7 @@ const UserAvatarList = ({ users, category, onUserClick }: { users: AvailableUser
                 {filteredUsers.map((availableUser) => {
                     const { user, shifts, availability } = availableUser;
                     
-                    const uniqueLocations = [...new Set(shifts.map(s => extractLocation(s.address)).filter(Boolean))].join(', ');
+                    const uniqueAddresses = [...new Set(shifts.map(s => s.address).filter(Boolean))];
                     
                     const isClickable = availability !== 'full';
                     return (
@@ -103,10 +91,18 @@ const UserAvatarList = ({ users, category, onUserClick }: { users: AvailableUser
                             </Avatar>
                             <div className="flex flex-col">
                                 <p className="text-sm font-medium truncate w-full">{user.name}</p>
-                                {uniqueLocations && (
-                                    <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+                                {uniqueAddresses.length > 0 && (
+                                    <div className="flex flex-col items-center justify-center gap-1 text-xs text-muted-foreground">
                                         <MapPin className="h-3 w-3 shrink-0" />
-                                        <span className="truncate">{uniqueLocations}</span>
+                                        {uniqueAddresses.length === 1 ? (
+                                            <span className="truncate">{uniqueAddresses[0]}</span>
+                                        ) : (
+                                            <div className="flex flex-col">
+                                                {uniqueAddresses.map(addr => extractPostcode(addr)).filter(Boolean).map((postcode, idx) => (
+                                                    <span key={idx} className="truncate">{postcode}</span>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                                 {availability === 'am' && <p className="text-xs font-semibold text-sky-600">AM Free</p>}
@@ -183,6 +179,7 @@ export function AvailabilityOverview() {
                  return { user, availability: 'am', shifts: userShiftsToday };
             }
 
+            // This should not be reached if logic is correct, but as a fallback:
             return { user, availability: 'busy', shifts: userShiftsToday };
         }).filter((u): u is AvailableUser => u !== null);
 
