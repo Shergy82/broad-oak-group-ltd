@@ -1,0 +1,5 @@
+projectAddress,projectBNumber,fileName,fileUrl,fileSize,fileType
+123 Oak Avenue,B-1001,Architectural Plans.pdf,https://example.com/files/plans.pdf,5242880,application/pdf
+123 Oak Avenue,B-1001,Site Survey.docx,https://example.com/files/survey.docx,102400,application/vnd.openxmlformats-officedocument.wordprocessingml.document
+456 Maple Drive,B-2022,Structural Calculations.xlsx,https://example.com/files/calcs.xlsx,256000,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+789 Pine Lane,B-3050,Initial Quote.pdf,https://example.com/files/quote.pdf,128000,application/pdf
