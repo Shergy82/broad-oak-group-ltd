@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -77,7 +75,7 @@ export default function UserManagementPage() {
         }
         fetchedUsers.push(user);
       });
-      setUsers(fetchedUsers.sort((a, b) => a.name.localeCompare(b.name)));
+      setUsers(fetchedUsers.sort((a, b) => (a.name || '').localeCompare(b.name || '')));
       setLoading(false);
     }, (error) => {
       console.error("Error fetching users: ", error);

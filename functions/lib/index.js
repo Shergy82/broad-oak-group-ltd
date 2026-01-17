@@ -91,7 +91,7 @@ exports.getNotificationStatus = (0, https_1.onCall)({ region: europeWest2 }, asy
         throw new https_1.HttpsError("permission-denied", "Only the account owner can view settings.");
     }
     const settingsDoc = await db.collection('settings').doc('notifications').get();
-    return { enabled: settingsDoc.exists && Boolean(settingsDoc.data()?.enabled) !== false };
+    return { enabled: settingsDoc.exists && (settingsDoc.data()?.enabled !== false) };
 });
 // Callable function for the owner to enable/disable all notifications globally.
 exports.setNotificationStatus = (0, https_1.onCall)({ region: europeWest2 }, async (request) => {
@@ -112,7 +112,7 @@ exports.setNotificationStatus = (0, https_1.onCall)({ region: europeWest2 }, asy
 // Firestore trigger that sends a push notification when a shift is created, updated, or deleted.
 exports.sendShiftNotification = (0, firestore_1.onDocumentWritten)({ document: "shifts/{shiftId}", region: europeWest2 }, async (event) => {
     const settingsDoc = await db.collection('settings').doc('notifications').get();
-    if (settingsDoc.exists() && Boolean(settingsDoc.data()?.enabled) === false) {
+    if (settingsDoc.exists && settingsDoc.data()?.enabled === false) {
         v2_1.logger.log('Global notifications are disabled. Aborting.');
         return;
     }
@@ -193,7 +193,7 @@ exports.sendShiftNotification = (0, firestore_1.onDocumentWritten)({ document: "
 exports.projectReviewNotifier = (0, scheduler_1.onSchedule)({ schedule: "every 24 hours", region: europeWest2 }, async (event) => {
     v2_1.logger.log("Running daily project review notifier.");
     const settingsDoc = await db.collection('settings').doc('notifications').get();
-    if (settingsDoc.exists() && Boolean(settingsDoc.data()?.enabled) === false) {
+    if (settingsDoc.exists && (settingsDoc.data()?.enabled === false)) {
         v2_1.logger.log('Global notifications are disabled by the owner. Aborting project review notifier.');
         return;
     }
@@ -264,7 +264,7 @@ exports.projectReviewNotifier = (0, scheduler_1.onSchedule)({ schedule: "every 2
 exports.pendingShiftNotifier = (0, scheduler_1.onSchedule)({ schedule: "every 1 hours", region: europeWest2 }, async (event) => {
     v2_1.logger.log("Running hourly pending shift notifier.");
     const settingsDoc = await db.collection('settings').doc('notifications').get();
-    if (settingsDoc.exists() && Boolean(settingsDoc.data()?.enabled) === false) {
+    if (settingsDoc.exists && (settingsDoc.data()?.enabled === false)) {
         v2_1.logger.log('Global notifications are disabled by the owner. Aborting pending shift notifier.');
         return;
     }
