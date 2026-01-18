@@ -1,4 +1,3 @@
-
 'use client';
 
 import Link from 'next/link';
@@ -34,7 +33,7 @@ export function Logo() {
   return (
     <Link href="/" className="mr-6 flex items-center space-x-2">
       <LogoIcon />
-      <span className="font-bold font-headline sm:inline-block text-foreground text-xl">
+      <span className="font-bold font-headline text-foreground text-xl whitespace-nowrap">
         BROAD OAK GROUP
       </span>
     </Link>
