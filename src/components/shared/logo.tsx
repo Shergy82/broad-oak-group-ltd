@@ -1,13 +1,42 @@
+
+'use client';
+
 import Link from 'next/link';
+
+const LogoIcon = () => (
+  <svg width="28" height="28" viewBox="0 0 32 32">
+    <g transform="translate(16,16)">
+      <path
+        d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z"
+        fill="#84cc16"
+        transform="rotate(0)"
+      />
+      <path
+        d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z"
+        fill="#22d3ee"
+        transform="rotate(90)"
+      />
+      <path
+        d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z"
+        fill="#f87171"
+        transform="rotate(180)"
+      />
+      <path
+        d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z"
+        fill="#fbbf24"
+        transform="rotate(270)"
+      />
+    </g>
+  </svg>
+);
 
 export function Logo() {
   return (
-    <Link href="https://www.broadoakgroup.com/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-primary">
-       <div>
-        <h1 className="text-xl md:text-2xl font-bold whitespace-nowrap text-foreground">
-          BROAD OAK GROUP
-        </h1>
-      </div>
+    <Link href="/" className="mr-6 flex items-center space-x-2">
+      <LogoIcon />
+      <span className="font-bold font-headline sm:inline-block text-foreground text-xl">
+        BROAD OAK GROUP
+      </span>
     </Link>
   );
 }
