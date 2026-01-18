@@ -45,9 +45,6 @@ export function Logo() {
         <h1 className="text-lg md:text-xl font-bold whitespace-nowrap">
           BROAD OAK GROUP
         </h1>
-        <span className="block text-sm font-light leading-tight italic">
-          Live
-        </span>
       </div>
     </Link>
   );
