@@ -1,10 +1,13 @@
 // Import the functions you need from the SDKs you need
-import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
+import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
 import { getAuth, type Auth } from "firebase/auth";
 import { getFirestore, type Firestore } from "firebase/firestore";
 import { getStorage, type FirebaseStorage } from "firebase/storage";
-import { getFunctions, type Functions, httpsCallable as _httpsCallable } from "firebase/functions";
-
+import {
+  getFunctions,
+  type Functions,
+  httpsCallable as _httpsCallable,
+} from "firebase/functions";
 
 // Your Firebase project configuration.
 const firebaseConfig = {
@@ -25,20 +28,16 @@ let db: Firestore | null = null;
 let storage: FirebaseStorage | null = null;
 let functions: Functions | null = null;
 
-if (isFirebaseConfigured && typeof window !== 'undefined') {
-    app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
-    auth = getAuth(app);
-    db = getFirestore(app);
-    storage = getStorage(app);
-    functions = getFunctions(app, 'europe-west2');
-} else if (isFirebaseConfigured) {
-    // For server-side rendering
-    app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
-    auth = getAuth(app);
-    db = getFirestore(app);
-    storage = getStorage(app);
-    functions = getFunctions(app, 'europe-west2');
-}
+if (isFirebaseConfigured) {
+  // Safe for client + SSR: initialize once and reuse
+  app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
+  auth = getAuth(app);
+  db = getFirestore(app);
+  storage = getStorage(app);
+
+  // ✅ MUST match your deployed callable region
+  functions = getFunctions(app, "europe-west2");
+}
 
 export { app, auth, db, storage, functions, _httpsCallable as httpsCallable };

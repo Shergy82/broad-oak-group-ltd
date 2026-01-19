@@ -17,6 +17,7 @@ interface UsePushNotificationsReturn {
   unsubscribe: () => Promise<void>;
 }
 
+// ✅ Your VAPID PUBLIC key (URL-safe base64)
 const VAPID_PUBLIC_KEY =
   'BLBYf-_fI0DuyhjHQhdBIBzPK8mUc7jrr5rfJYqfN_fPlx1qlSaKxEb2na8rhNIurBuZrSOV7NdK1JOaNEWpHNc';
 
@@ -27,6 +28,24 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const outputArray = new Uint8Array(rawData.length);
   for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
   return outputArray;
+}
+
+function isIOS(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+}
+
+function isStandalonePWA(): boolean {
+  if (typeof window === 'undefined') return false;
+
+  // iOS Safari uses navigator.standalone
+  const iOSStandalone = (window.navigator as any).standalone === true;
+
+  // Other platforms
+  const displayModeStandalone =
+    window.matchMedia?.('(display-mode: standalone)')?.matches === true;
+
+  return iOSStandalone || displayModeStandalone;
 }
 
 export function usePushNotifications(): UsePushNotificationsReturn {
@@ -45,10 +64,11 @@ export function usePushNotifications(): UsePushNotificationsReturn {
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isSubscribing, setIsSubscribing] = useState(false);
 
-  // ✅ stop spinner forever
+  // No async key fetch now
   const isKeyLoading = false;
   const vapidKey = VAPID_PUBLIC_KEY;
 
+  // Detect existing subscription (once SW is ready)
   useEffect(() => {
     let cancelled = false;
 
@@ -70,13 +90,29 @@ export function usePushNotifications(): UsePushNotificationsReturn {
 
   const subscribe = useCallback(async () => {
     if (!isSupported) {
-      toast({ title: 'Push not supported', description: 'This browser does not support push notifications.' });
+      toast({
+        title: 'Push not supported',
+        description: 'This browser does not support push notifications.',
+        variant: 'destructive',
+      });
       return;
     }
+
     if (!user) {
-      toast({ title: 'Not signed in', description: 'Please sign in first.' });
+      toast({ title: 'Not signed in', description: 'Please sign in first.', variant: 'destructive' });
       return;
     }
+
+    if (isIOS() && !isStandalonePWA()) {
+      toast({
+        title: 'Install required on iPhone',
+        description: 'On iPhone, add this site to your Home Screen, then open it from there to enable notifications.',
+        variant: 'destructive',
+        duration: 10000,
+      });
+      return;
+    }
+
 
     setIsSubscribing(true);
     try {
@@ -84,14 +120,24 @@ export function usePushNotifications(): UsePushNotificationsReturn {
       setPermission(perm);
 
       if (perm !== 'granted') {
-        toast({ title: 'Permission denied', description: 'Notifications are blocked in your browser settings.' });
+        toast({
+          title: 'Permission denied',
+          description: 'Notifications are blocked in your browser settings.',
+          variant: 'destructive',
+        });
         return;
       }
 
       const swRegistration = await navigator.serviceWorker.ready;
 
-      const appServerKey = urlBase64ToUint8Array(vapidKey);
-      if (appServerKey.length !== 65) {
+      const keyStr = (vapidKey ?? '').trim();
+      if (!keyStr) {
+        throw new Error('VAPID public key is missing.');
+      }
+
+      const appServerKey = urlBase64ToUint8Array(keyStr);
+
+      if (appServerKey.length !== 65 || appServerKey[0] !== 0x04) {
         throw new Error(
           `applicationServerKey must contain a valid P-256 public key (decoded ${appServerKey.length} bytes).`
         );
@@ -99,7 +145,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
 
       const subscription = await swRegistration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: appServerKey,
+        applicationServerKey: appServerKey.buffer,
       });
 
       const subsCol = collection(db, 'users', user.uid, 'pushSubscriptions');
@@ -128,7 +174,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     } finally {
       setIsSubscribing(false);
     }
-  }, [isSupported, toast, user]);
+  }, [isSupported, toast, user, vapidKey]);
 
   const unsubscribe = useCallback(async () => {
     if (!isSupported || !user) return;
