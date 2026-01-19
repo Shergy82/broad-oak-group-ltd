@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useRouter } from 'next/navigation';
@@ -8,7 +7,21 @@ import { useAuth } from '@/hooks/use-auth';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { Logo } from '../shared/logo';
 import { Button } from '@/components/ui/button';
-import { Briefcase, Calendar, HardHat, LogOut, Megaphone, Shield, User, UserCog, Users, TrendingUp, HelpCircle, Fingerprint, Building2 } from 'lucide-react';
+import {
+  Briefcase,
+  Calendar,
+  HardHat,
+  LogOut,
+  Megaphone,
+  Shield,
+  User,
+  UserCog,
+  Users,
+  TrendingUp,
+  HelpCircle,
+  Fingerprint,
+  Building2,
+} from 'lucide-react';
 import { NotificationButton } from '../shared/notification-button';
 import {
   DropdownMenu,
@@ -61,7 +74,11 @@ export function Header() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 {userProfile?.name && <DropdownMenuLabel>{userProfile.name}</DropdownMenuLabel>}
-                {userProfile?.email && <DropdownMenuLabel className="font-normal text-muted-foreground -mt-2 pb-2">{userProfile.email}</DropdownMenuLabel>}
+                {userProfile?.email && (
+                  <DropdownMenuLabel className="font-normal text-muted-foreground -mt-2 pb-2">
+                    {userProfile.email}
+                  </DropdownMenuLabel>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => router.push('/dashboard')} className="cursor-pointer">
                   <Calendar className="mr-2" />
@@ -71,7 +88,12 @@ export function Header() {
                   <Building2 className="mr-2" />
                   <span>Site Schedule</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => window.open('https://studio--studio-6303842196-5daf6.us-central1.hosted.app', '_blank')} className="cursor-pointer">
+                <DropdownMenuItem
+                  onSelect={() =>
+                    window.open('https://studio--studio-6303842196-5daf6.us-central1.hosted.app', '_blank')
+                  }
+                  className="cursor-pointer"
+                >
                   <Fingerprint className="mr-2" />
                   <span>Digital Sign In/Out</span>
                 </DropdownMenuItem>
@@ -79,7 +101,7 @@ export function Header() {
                   <Megaphone className="mr-2" />
                   <span>Announcements</span>
                 </DropdownMenuItem>
-                 <DropdownMenuItem onClick={() => router.push('/stats')} className="cursor-pointer">
+                <DropdownMenuItem onClick={() => router.push('/stats')} className="cursor-pointer">
                   <TrendingUp className="mr-2" />
                   <span>Stats</span>
                 </DropdownMenuItem>
@@ -95,7 +117,6 @@ export function Header() {
                   <HelpCircle className="mr-2" />
                   <span>Help & Support</span>
                 </DropdownMenuItem>
-                
                 {isPrivilegedUser && (
                   <>
                     <DropdownMenuSeparator />
@@ -104,7 +125,10 @@ export function Header() {
                       <Users className="mr-2" />
                       <span>Team Schedule</span>
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => router.push('/admin/performance')} className="cursor-pointer">
+                    <DropdownMenuItem
+                      onClick={() => router.push('/admin/performance')}
+                      className="cursor-pointer"
+                    >
                       <TrendingUp className="mr-2" />
                       <span>Performance</span>
                     </DropdownMenuItem>
@@ -118,7 +142,6 @@ export function Header() {
                     </DropdownMenuItem>
                   </>
                 )}
-
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer">
                   <LogOut className="mr-2" />

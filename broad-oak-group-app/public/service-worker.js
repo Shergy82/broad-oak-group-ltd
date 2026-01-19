@@ -1,51 +1,44 @@
-
 'use strict';
 
-self.addEventListener('push', (event) => {
+self.addEventListener('push', function(event) {
   if (!event.data) {
     console.error('Push event but no data');
     return;
   }
-  
   const data = event.data.json();
-  
-  const title = data.title || 'New Notification';
   const options = {
     body: data.body,
-    icon: '/icons/icon-192x192.png',
-    badge: '/icons/icon-96x96.png',
-    data: data.data || {}, // This can hold a URL to open on click
+    icon: '/icon-192.png', // Reference icons from the public folder
+    badge: '/icon-192.png',
+    data: {
+      url: data.data.url || '/'
+    }
   };
-
   event.waitUntil(
-    self.registration.showNotification(title, options)
+    self.registration.showNotification(data.title, options)
   );
 });
 
-self.addEventListener('notificationclick', (event) => {
+self.addEventListener('notificationclick', function(event) {
   event.notification.close();
 
-  const urlToOpen = event.notification.data.url || '/';
+  const targetUrl = event.notification.data.url;
 
   event.waitUntil(
     clients.matchAll({
       type: 'window',
       includeUncontrolled: true
-    }).then((clientList) => {
-      if (clientList.length > 0) {
-        let client = clientList[0];
-        for (let i = 0; i < clientList.length; i++) {
-          if (clientList[i].focused) {
-            client = clientList[i];
-          }
+    }).then(function(clientList) {
+      // Check if there's already a window open with the target URL
+      for (const client of clientList) {
+        if (client.url === targetUrl && 'focus' in client) {
+          return client.focus();
         }
-        return client.focus().then(c => c.navigate(urlToOpen));
       }
-      return clients.openWindow(urlToOpen);
+      // If not, open a new window
+      if (clients.openWindow) {
+        return clients.openWindow(targetUrl);
+      }
     })
   );
-});
-
-self.addEventListener('install', (event) => {
-  self.skipWaiting();
 });
