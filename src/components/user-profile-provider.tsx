@@ -56,6 +56,7 @@ export function UserProfileProvider({ children }: { children: React.ReactNode })
             }
         );
 
+        // Cleanup subscription on unmount
         return () => unsubscribe();
 
     }, [user, isAuthLoading]);
