@@ -1,3 +1,4 @@
+
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
@@ -128,6 +129,7 @@ export const sendShiftNotification = onDocumentWritten({
         if ((beforeData.address || "").trim() !== (afterData.address || "").trim()) changedFields.push('location');
         if ((beforeData.eNumber || "").trim() !== (afterData.eNumber || "").trim()) changedFields.push('E Number');
         if (beforeData.type !== afterData.type) changedFields.push('time (AM/PM)');
+        if (beforeData.status !== afterData.status) changedFields.push('status');
         
         if (beforeData.date && afterData.date && !beforeData.date.isEqual(afterData.date)) {
             changedFields.push('date');
@@ -137,8 +139,8 @@ export const sendShiftNotification = onDocumentWritten({
             userId = afterData.userId;
             const changes = changedFields.join(' & ');
             payload = {
-                title: "Your Shift Has Been Updated",
-                body: `The ${changes} for one of your shifts has been updated.`,
+                title: `Your Shift Has Been Updated`,
+                body: `The ${changes} for your shift on "${afterData.task}" has been updated.`,
                 data: { url: `/dashboard` },
             };
         } else {
