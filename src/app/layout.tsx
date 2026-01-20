@@ -1,11 +1,16 @@
-import type { Metadata } from 'next';
-import './globals.css';
+'use client';
+
 import { Toaster } from "@/components/ui/toaster";
+import "./globals.css";
+import { AuthProvider } from "@/components/auth-provider";
+import { UserProfileProvider } from "@/components/user-profile-provider";
 import { ServiceWorkerRegistrar } from "@/components/service-worker-registrar";
+import { Providers } from "@/components/providers";
+import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: 'LeadHub',
-  description: 'The ultimate platform for lead generation.',
+  title: "BROAD OAK GROUP",
+  description: "Live schedule and project management for Broad Oak Group operatives.",
 };
 
 export default function RootLayout({
@@ -14,21 +19,18 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="scroll-smooth">
+    <html lang="en" className="h-full">
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
-          rel="stylesheet"
-        />
+        <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#ffffff" />
       </head>
-      <body className="font-body antialiased">
-        {/* ✅ Registers the service worker early for push notifications */}
-        <ServiceWorkerRegistrar />
-
-        {children}
-        <Toaster />
+      <body className="font-body antialiased h-full">
+        <Providers>
+          {children}
+        </Providers>
       </body>
     </html>
   );
