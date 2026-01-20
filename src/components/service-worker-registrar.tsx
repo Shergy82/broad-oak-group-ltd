@@ -9,14 +9,11 @@ export function ServiceWorkerRegistrar() {
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
 
-    // Register ASAP (do NOT wait for window "load")
+    // Register ASAP, do NOT wait for window "load"
     (async () => {
       try {
         const reg = await navigator.serviceWorker.register('/service-worker.js');
         console.log('ServiceWorker registration successful with scope:', reg.scope);
-
-        // Optional: ensure it's active immediately
-        await navigator.serviceWorker.ready;
       } catch (error) {
         console.error('ServiceWorker registration failed:', error);
         toast({

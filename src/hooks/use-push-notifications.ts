@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { db, functions, httpsCallable } from '@/lib/firebase';
-import { collection, deleteDoc, doc, getDocs, setDoc } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDocs, setDoc, query } from 'firebase/firestore';
 
 interface UsePushNotificationsReturn {
   isSupported: boolean;
@@ -15,6 +15,7 @@ interface UsePushNotificationsReturn {
   vapidKey: string | null;
   subscribe: () => Promise<void>;
   unsubscribe: () => Promise<void>;
+  reset: () => Promise<void>;
 }
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
@@ -36,7 +37,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
   }, []);
 
   const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>(
-    typeof window === 'undefined' ? 'unsupported' : Notification.permission
+    typeof window !== 'undefined' ? Notification.permission : 'unsupported'
   );
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isSubscribing, setIsSubscribing] = useState(false);
@@ -56,6 +57,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
         return;
       }
       try {
+        setIsKeyLoading(true);
         const getVapidPublicKey = httpsCallable<{ }, { publicKey: string }>(functions, 'getVapidPublicKey');
         const result = await getVapidPublicKey();
         const key = result.data.publicKey;
@@ -74,21 +76,40 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     fetchVapidKey();
   }, [isSupported, toast]);
 
-
   useEffect(() => {
+    if (!isSupported || !user) return;
+    
     let cancelled = false;
     (async () => {
       try {
-        if (!isSupported || !user) return;
         const reg = await navigator.serviceWorker.ready;
         const existing = await reg.pushManager.getSubscription();
-        if (!cancelled) setIsSubscribed(!!existing);
+        if (!cancelled) {
+          setIsSubscribed(!!existing);
+        }
       } catch (err){
         console.error("Error checking push subscription status:", err);
       }
     })();
+
     return () => { cancelled = true; };
   }, [isSupported, user]);
+
+  const saveSubscription = useCallback(async (subscription: PushSubscription) => {
+    if (!db || !user) return;
+    
+    // Create a stable, URL-safe ID from the endpoint
+    const subId = btoa(subscription.endpoint).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const subsCol = collection(db, 'users', user.uid, 'pushSubscriptions');
+    const subDoc = doc(subsCol, subId);
+
+    await setDoc(subDoc, {
+        endpoint: subscription.endpoint,
+        keys: subscription.toJSON().keys ?? {},
+        createdAt: new Date().toISOString(),
+        userAgent: navigator.userAgent,
+    }, { merge: true });
+  }, [user]);
 
   const subscribe = useCallback(async () => {
     if (!isSupported || !user || !vapidKey) {
@@ -102,35 +123,31 @@ export function usePushNotifications(): UsePushNotificationsReturn {
 
     setIsSubscribing(true);
     try {
-      const perm = await Notification.requestPermission();
-      setPermission(perm);
+      const reg = await navigator.serviceWorker.ready;
+      let subscription = await reg.pushManager.getSubscription();
 
-      if (perm !== 'granted') {
-        toast({ title: 'Permission denied', description: 'Notifications are blocked in your browser settings.' });
-        return;
+      if (subscription) {
+        // Already subscribed, just ensure it's on our server
+        await saveSubscription(subscription);
+      } else {
+        const perm = await Notification.requestPermission();
+        setPermission(perm);
+
+        if (perm !== 'granted') {
+          throw new Error('Notifications permission was not granted.');
+        }
+        
+        const applicationServerKey = urlBase64ToUint8Array(vapidKey);
+        subscription = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey,
+        });
+
+        await saveSubscription(subscription);
       }
 
-      const swRegistration = await navigator.serviceWorker.ready;
-      
-      const applicationServerKey = urlBase64ToUint8Array(vapidKey);
-      const subscription = await swRegistration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey,
-      });
-
-      const subsCol = collection(db!, 'users', user.uid, 'pushSubscriptions');
-      const subId = btoa(subscription.endpoint).replace(/=/g, '').slice(0, 40);
-      const subDoc = doc(subsCol, subId);
-
-      await setDoc(subDoc, {
-          endpoint: subscription.endpoint,
-          keys: subscription.toJSON().keys ?? {},
-          createdAt: new Date().toISOString(),
-          userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
-      }, { merge: true });
-
       setIsSubscribed(true);
-      toast({ title: 'Subscribed', description: 'Push notifications are now enabled.' });
+      toast({ title: 'Subscribed!', description: 'Push notifications are now enabled.' });
     } catch (err: any) {
       console.error('Error subscribing to push notifications:', err);
       toast({
@@ -138,10 +155,11 @@ export function usePushNotifications(): UsePushNotificationsReturn {
         description: err?.message || 'An unexpected error occurred.',
         variant: 'destructive',
       });
+      setIsSubscribed(false); // Ensure state is correct on failure
     } finally {
       setIsSubscribing(false);
     }
-  }, [isSupported, toast, user, vapidKey]);
+  }, [isSupported, toast, user, vapidKey, saveSubscription]);
 
   const unsubscribe = useCallback(async () => {
     if (!isSupported || !user) return;
@@ -153,8 +171,11 @@ export function usePushNotifications(): UsePushNotificationsReturn {
 
       if (sub) {
         await sub.unsubscribe();
-        const subsCol = collection(db!, 'users', user.uid, 'pushSubscriptions');
-        const snap = await getDocs(subsCol);
+      }
+
+      if (db) {
+        const subsQuery = query(collection(db, 'users', user.uid, 'pushSubscriptions'));
+        const snap = await getDocs(subsQuery);
         await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
       }
 
@@ -172,6 +193,20 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     }
   }, [isSupported, toast, user]);
 
+  const reset = useCallback(async () => {
+    setIsSubscribing(true);
+    try {
+      await unsubscribe();
+      // A small delay to ensure the system processes the unsubscription before re-subscribing
+      await new Promise(resolve => setTimeout(resolve, 500));
+      await subscribe();
+    } catch (error) {
+      console.error("Error during notification reset:", error);
+    } finally {
+      setIsSubscribing(false);
+    }
+  }, [unsubscribe, subscribe]);
+
   return {
     isSupported,
     isSubscribed,
@@ -181,7 +216,6 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     vapidKey,
     subscribe,
     unsubscribe,
+    reset
   };
 }
-
-export default usePushNotifications;

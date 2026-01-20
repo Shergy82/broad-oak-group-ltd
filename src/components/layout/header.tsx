@@ -21,6 +21,7 @@ import {
   HelpCircle,
   Fingerprint,
   Building2,
+  RefreshCcw,
 } from 'lucide-react';
 import { NotificationButton } from '../shared/notification-button';
 import {
@@ -32,11 +33,24 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { usePushNotifications } from '@/hooks/use-push-notifications';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 
 export function Header() {
   const { user } = useAuth();
   const { userProfile } = useUserProfile();
   const router = useRouter();
+  const { reset } = usePushNotifications();
 
   const handleSignOut = async () => {
     if (auth) {
@@ -45,7 +59,7 @@ export function Header() {
     }
   };
 
-  const isPrivilegedUser = userProfile && ['admin', 'owner'].includes(userProfile.role);
+  const isPrivilegedUser = userProfile && ['admin', 'owner', 'manager'].includes(userProfile.role);
 
   const getInitials = (name?: string) => {
     if (!name) return <User className="h-5 w-5" />;
@@ -62,9 +76,7 @@ export function Header() {
       <div className="flex w-full items-center justify-end gap-2 md:gap-4">
         {user && (
           <>
-            {/* ✅ Keep only ONE bell */}
             <NotificationButton />
-
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="secondary" size="icon" className="rounded-full">
@@ -74,7 +86,6 @@ export function Header() {
                   <span className="sr-only">Toggle user menu</span>
                 </Button>
               </DropdownMenuTrigger>
-
               <DropdownMenuContent align="end">
                 {userProfile?.name && <DropdownMenuLabel>{userProfile.name}</DropdownMenuLabel>}
                 {userProfile?.email && (
@@ -82,19 +93,15 @@ export function Header() {
                     {userProfile.email}
                   </DropdownMenuLabel>
                 )}
-
                 <DropdownMenuSeparator />
-
                 <DropdownMenuItem onClick={() => router.push('/dashboard')} className="cursor-pointer">
                   <Calendar className="mr-2" />
                   <span>Dashboard</span>
                 </DropdownMenuItem>
-
                 <DropdownMenuItem onClick={() => router.push('/site-schedule')} className="cursor-pointer">
                   <Building2 className="mr-2" />
                   <span>Site Schedule</span>
                 </DropdownMenuItem>
-
                 <DropdownMenuItem
                   onSelect={() =>
                     window.open('https://studio--studio-6303842196-5daf6.us-central1.hosted.app', '_blank')
@@ -104,59 +111,89 @@ export function Header() {
                   <Fingerprint className="mr-2" />
                   <span>Digital Sign In/Out</span>
                 </DropdownMenuItem>
-
                 <DropdownMenuItem onClick={() => router.push('/announcements')} className="cursor-pointer">
                   <Megaphone className="mr-2" />
                   <span>Announcements</span>
                 </DropdownMenuItem>
-
                 <DropdownMenuItem onClick={() => router.push('/stats')} className="cursor-pointer">
                   <TrendingUp className="mr-2" />
                   <span>Stats</span>
                 </DropdownMenuItem>
-
                 <DropdownMenuItem onClick={() => router.push('/projects')} className="cursor-pointer">
                   <Briefcase className="mr-2" />
                   <span>Projects</span>
                 </DropdownMenuItem>
-
                 <DropdownMenuItem onClick={() => router.push('/health-and-safety')} className="cursor-pointer">
                   <HardHat className="mr-2" />
                   <span>Health & Safety</span>
                 </DropdownMenuItem>
 
+                <DropdownMenuSeparator />
+
+                <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                         <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="cursor-pointer">
+                           <RefreshCcw className="mr-2" />
+                           <span>Reset Notifications</span>
+                        </DropdownMenuItem>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Reset Notification Subscription?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                This will remove your old subscription and create a new one. Use this if you're having trouble receiving notifications.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={reset}>Reset</AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+
+
                 <DropdownMenuItem onClick={() => router.push('/help')} className="cursor-pointer">
                   <HelpCircle className="mr-2" />
                   <span>Help & Support</span>
                 </DropdownMenuItem>
-
+                
                 {isPrivilegedUser && (
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuLabel>Admin Area</DropdownMenuLabel>
-
+                     <DropdownMenuItem onClick={() => router.push('/admin/control-panel')} className="cursor-pointer">
+                      <Shield className="mr-2" />
+                      <span>Control Panel</span>
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => router.push('/schedule')} className="cursor-pointer">
                       <Users className="mr-2" />
                       <span>Team Schedule</span>
                     </DropdownMenuItem>
-
-                    <DropdownMenuItem onClick={() => router.push('/admin/performance')} className="cursor-pointer">
+                    <DropdownMenuItem onClick={() => router.push('/admin/availability')} className="cursor-pointer">
+                      <Calendar className="mr-2" />
+                      <span>Availability</span>
+                    </DropdownMenuItem>
+                     <DropdownMenuItem onClick={() => router.push('/admin/contracts')} className="cursor-pointer">
+                      <Briefcase className="mr-2" />
+                      <span>Contracts</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => router.push('/admin/performance')}
+                      className="cursor-pointer"
+                    >
                       <TrendingUp className="mr-2" />
                       <span>Performance</span>
                     </DropdownMenuItem>
-
-                    <DropdownMenuItem onClick={() => router.push('/admin')} className="cursor-pointer">
-                      <Shield className="mr-2" />
-                      <span>Admin Panel</span>
+                    <DropdownMenuItem onClick={() => router.push('/admin/tasks')} className="cursor-pointer">
+                        <ListChecks className="mr-2" />
+                        <span>Tasks</span>
                     </DropdownMenuItem>
-
                     <DropdownMenuItem onClick={() => router.push('/admin/users')} className="cursor-pointer">
                       <UserCog className="mr-2" />
                       <span>User Management</span>
                     </DropdownMenuItem>
                   </>
                 )}
-
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer">
                   <LogOut className="mr-2" />
