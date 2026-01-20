@@ -1,10 +1,11 @@
-'use client';
-
-import { Toaster } from "@/components/ui/toaster";
+import type { Metadata } from "next";
+import { Providers } from "@/components/providers";
 import "./globals.css";
-import { AuthProvider } from "@/components/auth-provider";
-import { UserProfileProvider } from "@/components/user-profile-provider";
-import { ServiceWorkerRegistrar } from "@/components/service-worker-registrar";
+
+export const metadata: Metadata = {
+  title: "BROAD OAK GROUP",
+  description: "Live schedule and project management for Broad Oak Group operatives.",
+};
 
 export default function RootLayout({
   children,
@@ -14,7 +15,6 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full">
       <head>
-        <title>BROAD OAK GROUP</title>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
@@ -22,13 +22,9 @@ export default function RootLayout({
         <meta name="theme-color" content="#ffffff" />
       </head>
       <body className="font-body antialiased h-full">
-        <AuthProvider>
-          <UserProfileProvider>
-            <ServiceWorkerRegistrar />
-            {children}
-            <Toaster />
-          </UserProfileProvider>
-        </AuthProvider>
+        <Providers>
+          {children}
+        </Providers>
       </body>
     </html>
   );
