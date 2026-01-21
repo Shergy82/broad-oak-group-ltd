@@ -10,29 +10,42 @@ runConfig:
 env:
   - variable: NEXT_PUBLIC_FIREBASE_API_KEY
     value: "AIzaSyBEF3PmL0FyLmZTDXxx9qzeaolZXNt5Sn8"
-    availability: [BUILD, RUNTIME]
+    availability:
+      - BUILD
+      - RUNTIME
 
   - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
     value: "the-final-project-5e248.firebaseapp.com"
-    availability: [BUILD, RUNTIME]
+    availability:
+      - BUILD
+      - RUNTIME
 
   - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
     value: "the-final-project-5e248"
-    availability: [BUILD, RUNTIME]
+    availability:
+      - BUILD
+      - RUNTIME
 
   - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
-    value: value: "the-final-project-5e248.appspot.com"
-    availability: [BUILD, RUNTIME]
+    value: "the-final-project-5e248.appspot.com"
+    availability:
+      - BUILD
+      - RUNTIME
 
   - variable: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
     value: "1075347108969"
-    availability: [BUILD, RUNTIME]
+    availability:
+      - BUILD
+      - RUNTIME
 
   - variable: NEXT_PUBLIC_FIREBASE_APP_ID
     value: "1:1075347108969:web:2e259a194a49d91bfcdef8"
-    availability: [BUILD, RUNTIME]
+    availability:
+      - BUILD
+      - RUNTIME
 
   - variable: NEXT_PUBLIC_VAPID_PUBLIC_KEY
     value: "BLBYf-_fl0DuyhjHQhdBlBzPK8mUc7jrr5rfJYqfN_fPIx1qlSaKxEb2na8rhNIurBuZrSOV7NdK1J0aNEWpHNc"
-    availability: [BUILD, RUNTIME]
-
+    availability:
+      - BUILD
+      - RUNTIME
