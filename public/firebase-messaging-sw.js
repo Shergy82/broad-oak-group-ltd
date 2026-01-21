@@ -1,29 +1,50 @@
-/* firebase-messaging-sw.js */
-/* MUST be plain JS (no ES modules) */
+/* firebase-messaging-sw.js
+   No importScripts, no Firebase SDK.
+   Handles Web Push payload directly.
+*/
 
-importScripts('https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/10.12.5/firebase-messaging-compat.js');
+self.addEventListener('push', function (event) {
+  var data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (e) {
+    try {
+      data = event.data ? JSON.parse(event.data.text()) : {};
+    } catch (e2) {
+      data = {};
+    }
+  }
 
-firebase.initializeApp({
-  apiKey: "AIzaSyBEF3PmL0FyLmZTDXxx9qzeaolZXNt5Sn8",
-  authDomain: "the-final-project-5e248.firebaseapp.com",
-  projectId: "the-final-project-5e248",
-  storageBucket: "the-final-project-5e248.appspot.com",
-  messagingSenderId: "1075347108969",
-  appId: "1:1075347108969:web:2e259a194a49d91bfcdef8"
+  // FCM may wrap payload
+  var notification = data.notification || (data.data && data.data.notification) || {};
+  var title = notification.title || data.title || 'Broad Oak Group';
+  var body = notification.body || data.body || '';
+
+  var options = {
+    body: body,
+    data: data.data || data || {},
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
 });
 
-const messaging = firebase.messaging();
+self.addEventListener('notificationclick', function (event) {
+  event.notification.close();
 
-messaging.onBackgroundMessage(function(payload) {
-  const notification = payload.notification || {};
-
-  self.registration.showNotification(
-    notification.title || 'Broad Oak Group',
-    {
-      body: notification.body || '',
-      icon: '/icons/icon-192.png',
-      data: payload.data || {}
+  var url = '/';
+  try {
+    if (event.notification && event.notification.data && event.notification.data.url) {
+      url = event.notification.data.url;
     }
+  } catch (e) {}
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (clientsArr) {
+      for (var i = 0; i < clientsArr.length; i++) {
+        var client = clientsArr[i];
+        if (client && 'focus' in client) return client.focus();
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(url);
+    })
   );
 });
