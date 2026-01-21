@@ -53,3 +53,4 @@ dist
 *.log
 firebase-debug.log*
 .DS_Store
+firebase-backup.zip
