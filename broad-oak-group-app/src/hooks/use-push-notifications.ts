@@ -52,6 +52,14 @@ export function usePushNotifications(): UsePushNotificationsReturn {
       return;
     }
 
+    // Local override: use NEXT_PUBLIC_VAPID_PUBLIC_KEY if set (quick testing)
+    const envKey = typeof process !== 'undefined' ? (process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? '').trim() : '';
+    if (envKey) {
+      setVapidKey(envKey);
+      setIsKeyLoading(false);
+      return;
+    }
+
     async function fetchVapidKey() {
       if (!functions) {
         toast({ title: 'Functions not available', variant: 'destructive' });
@@ -69,7 +77,6 @@ export function usePushNotifications(): UsePushNotificationsReturn {
         }
       } catch (error: any) {
         console.error('Failed to fetch VAPID public key:', error);
-        // Don't show toast for this, as the generator component will guide the user.
       } finally {
         setIsKeyLoading(false);
       }
@@ -116,10 +123,25 @@ export function usePushNotifications(): UsePushNotificationsReturn {
       }
 
       const swRegistration = await navigator.serviceWorker.ready;
-      
+
+      const keyStr = (vapidKey ?? '').trim();
+      if (!keyStr) {
+        throw new Error('VAPID public key is missing.');
+      }
+
+      const appServerKey = urlBase64ToUint8Array(keyStr);
+      // Debug info
+      console.debug('VAPID public key (base64):', keyStr);
+      console.debug('Decoded VAPID key length:', appServerKey.length, 'first bytes:', Array.from(appServerKey.slice(0,8)).map(b=>b.toString(16)));
+
+      if (appServerKey.length !== 65 || appServerKey[0] !== 0x04) {
+        console.error('Invalid decoded VAPID public key', { length: appServerKey.length, firstByte: appServerKey[0] });
+        throw new Error(`applicationServerKey must contain a valid P-256 public key (decoded ${appServerKey.length} bytes).`);
+      }
+
       const subscription = await swRegistration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(vapidKey),
+        applicationServerKey: appServerKey.buffer,
       });
 
       const subsCol = collection(db, 'users', user.uid, 'pushSubscriptions');
