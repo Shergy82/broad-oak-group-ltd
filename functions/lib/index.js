@@ -51,7 +51,7 @@ const VAPID_PUBLIC_KEY = (0, params_1.defineSecret)("VAPID_PUBLIC_KEY");
 exports.getVapidPublicKey = (0, https_1.onCall)({ region: "europe-west2", secrets: [VAPID_PUBLIC_KEY] }, async () => {
     try {
         const raw = await VAPID_PUBLIC_KEY.value();
-        // Normalize URL-safe base64 to standard base64 for decoding
+        // Normalize URL-safe base64 to standard base64 for decoding (debug only)
         const base64 = raw.replace(/-/g, "+").replace(/_/g, "/").replace(/\s+/g, "");
         const padding = "=".repeat((4 - (base64.length % 4)) % 4);
         const normalized = base64 + padding;
@@ -76,7 +76,7 @@ exports.getVapidPublicKey = (0, https_1.onCall)({ region: "europe-west2", secret
  * - shifts stored at: shifts/{shiftId}
  * - shift doc contains one of: userId OR assignedToUid OR workerId (uid of the worker)
  * - tokens stored at: users/{uid}/pushSubscriptions/{doc}
- *   where token is in field "fcmToken" or "token", or doc ID is the token
+ *   where the FCM token must be stored in field "fcmToken"
  */
 exports.sendShiftNotification = (0, firestore_1.onDocumentWritten)({ document: "shifts/{shiftId}", region: "europe-west2" }, async (event) => {
     var _a, _b, _c, _d;
@@ -89,10 +89,10 @@ exports.sendShiftNotification = (0, firestore_1.onDocumentWritten)({ document: "
     // Only notify on create or meaningful updates
     const isCreate = !before;
     const meaningfulChange = !before ||
-        after.status !== before.status ||
-        after.startTime !== before.startTime ||
-        after.endTime !== before.endTime ||
-        after.address !== before.address;
+        after.status !== (before === null || before === void 0 ? void 0 : before.status) ||
+        after.startTime !== (before === null || before === void 0 ? void 0 : before.startTime) ||
+        after.endTime !== (before === null || before === void 0 ? void 0 : before.endTime) ||
+        after.address !== (before === null || before === void 0 ? void 0 : before.address);
     if (!isCreate && !meaningfulChange) {
         console.info("sendShiftNotification: no meaningful change, skipping", { shiftId });
         return;
@@ -105,7 +105,7 @@ exports.sendShiftNotification = (0, firestore_1.onDocumentWritten)({ document: "
         console.warn("sendShiftNotification: missing uid field on shift", { shiftId });
         return;
     }
-    // Get tokens
+    // Read subscriptions and collect ONLY real FCM tokens
     const subsSnap = await admin
         .firestore()
         .collection("users")
@@ -113,22 +113,34 @@ exports.sendShiftNotification = (0, firestore_1.onDocumentWritten)({ document: "
         .collection("pushSubscriptions")
         .get();
     const tokens = [];
-    subsSnap.forEach((doc) => {
-        const d = doc.data();
-        const token = d.fcmToken || d.token || doc.id;
-        if (token)
-            tokens.push(token);
+    const docsByToken = new Map();
+    subsSnap.forEach((docSnap) => {
+        const d = docSnap.data();
+        const token = typeof d.fcmToken === "string" ? d.fcmToken.trim() : "";
+        if (!token)
+            return;
+        // Basic sanity checks: tokens aren't URLs and are usually long-ish
+        if (token.startsWith("http") || token.includes("://") || token.length < 50) {
+            console.warn("sendShiftNotification: skipping non-FCM token", {
+                uid,
+                shiftId,
+                docId: docSnap.id,
+                tokenSample: token.slice(0, 25),
+            });
+            return;
+        }
+        tokens.push(token);
+        docsByToken.set(token, docSnap);
     });
     if (tokens.length === 0) {
-        console.info("sendShiftNotification: no tokens for user", { uid, shiftId });
+        console.info("sendShiftNotification: no valid FCM tokens for user", { uid, shiftId });
         return;
     }
-    // Build a payload that displays on iPhone PWA + desktop
+    // Notification content
     const title = isCreate ? "New shift assigned" : "Shift updated";
     const body = "Tap to view your shift details.";
     const link = "https://broad-oak-group-ltd--the-final-project-5e248.europe-west4.hosted.app/shifts";
-    // IMPORTANT: Do NOT type this as MulticastMessage (it requires tokens).
-    // We build a "message without token/topic/condition" and add tokens at send time.
+    // Build a "message without token/topic/condition" and add tokens at send time.
     const baseMessage = {
         notification: { title, body },
         webpush: {
@@ -145,8 +157,10 @@ exports.sendShiftNotification = (0, firestore_1.onDocumentWritten)({ document: "
         data: {
             type: isCreate ? "shift_created" : "shift_updated",
             shiftId,
+            url: "/shifts",
         },
     };
+    // Send to tokens
     const res = await admin.messaging().sendEachForMulticast(Object.assign(Object.assign({}, baseMessage), { tokens }));
     const successCount = res.responses.filter((r) => r.success).length;
     console.info("sendShiftNotification: push attempted", {
@@ -155,35 +169,36 @@ exports.sendShiftNotification = (0, firestore_1.onDocumentWritten)({ document: "
         tokenCount: tokens.length,
         successCount,
     });
-    // Optional: remove dead tokens (only works if doc.id == token)
-    const dead = [];
+    // Remove dead tokens by deleting the *doc that contained them*
+    const batch = admin.firestore().batch();
+    let deadCount = 0;
     res.responses.forEach((r, i) => {
         var _a, _b;
-        if (!r.success) {
-            const code = ((_a = r.error) === null || _a === void 0 ? void 0 : _a.code) || "";
-            console.warn("sendShiftNotification: push failed", {
-                uid,
-                shiftId,
-                token: tokens[i],
-                code,
-                message: (_b = r.error) === null || _b === void 0 ? void 0 : _b.message,
-            });
-            if (code.includes("registration-token-not-registered") ||
-                code.includes("invalid-argument")) {
-                dead.push(tokens[i]);
+        if (r.success)
+            return;
+        const token = tokens[i];
+        const code = ((_a = r.error) === null || _a === void 0 ? void 0 : _a.code) || "";
+        console.warn("sendShiftNotification: push failed", {
+            uid,
+            shiftId,
+            code,
+            message: (_b = r.error) === null || _b === void 0 ? void 0 : _b.message,
+            tokenSample: token.slice(0, 25),
+        });
+        const isDead = code.includes("registration-token-not-registered") ||
+            code.includes("invalid-argument") ||
+            code.includes("invalid-registration-token");
+        if (isDead) {
+            const snap = docsByToken.get(token);
+            if (snap) {
+                batch.delete(snap.ref);
+                deadCount++;
             }
         }
     });
-    if (dead.length) {
-        const batch = admin.firestore().batch();
-        for (const t of dead) {
-            batch.delete(admin.firestore().collection("users").doc(uid).collection("pushSubscriptions").doc(t));
-        }
+    if (deadCount > 0) {
         await batch.commit().catch(() => { });
-        console.warn("sendShiftNotification: cleaned dead tokens", {
-            uid,
-            deadCount: dead.length,
-        });
+        console.warn("sendShiftNotification: cleaned dead tokens", { uid, deadCount });
     }
 });
 //# sourceMappingURL=index.js.map
