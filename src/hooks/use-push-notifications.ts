@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
-import { db, functions, httpsCallable } from '@/lib/firebase';
+import { db, functions, httpsCallable, app } from '@/lib/firebase';
 import { collection, deleteDoc, doc, getDocs, setDoc } from 'firebase/firestore';
+import { getMessaging, getToken, deleteToken, isSupported as isMessagingSupported } from 'firebase/messaging';
 
 interface UsePushNotificationsReturn {
   isSupported: boolean;
@@ -17,23 +18,9 @@ interface UsePushNotificationsReturn {
   unsubscribe: () => Promise<void>;
 }
 
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
-  return outputArray;
-}
-
 export function usePushNotifications(): UsePushNotificationsReturn {
   const { toast } = useToast();
   const { user } = useAuth();
-
-  const isSupported = useMemo(() => {
-    if (typeof window === 'undefined') return false;
-    return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
-  }, []);
 
   const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>(
     typeof window === 'undefined' ? 'unsupported' : Notification.permission
@@ -41,19 +28,27 @@ export function usePushNotifications(): UsePushNotificationsReturn {
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isSubscribing, setIsSubscribing] = useState(false);
 
-  // New state for fetching VAPID key
   const [isKeyLoading, setIsKeyLoading] = useState(true);
   const [vapidKey, setVapidKey] = useState<string | null>(null);
 
-  // Fetch VAPID public key from backend
+  const [currentToken, setCurrentToken] = useState<string | null>(null);
+
+  // Support check (must include firebase messaging support)
+  const isSupported = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return 'serviceWorker' in navigator && 'Notification' in window;
+  }, []);
+
+  // Fetch VAPID public key from env or backend callable
   useEffect(() => {
     if (!isSupported) {
       setIsKeyLoading(false);
       return;
     }
 
-    // Local override: use NEXT_PUBLIC_VAPID_PUBLIC_KEY if set (quick testing)
-    const envKey = typeof process !== 'undefined' ? (process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? '').trim() : '';
+    const envKey =
+      typeof process !== 'undefined' ? (process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? '').trim() : '';
+
     if (envKey) {
       setVapidKey(envKey);
       setIsKeyLoading(false);
@@ -67,16 +62,18 @@ export function usePushNotifications(): UsePushNotificationsReturn {
         return;
       }
       try {
-        const getVapidPublicKey = httpsCallable<{ }, { publicKey: string }>(functions, 'getVapidPublicKey');
+        const getVapidPublicKey = httpsCallable<{}, { publicKey: string }>(functions, 'getVapidPublicKey');
         const result = await getVapidPublicKey();
-        const key = result.data.publicKey;
-        if (key) {
-          setVapidKey(key);
-        } else {
-          throw new Error('VAPID public key is missing from server response.');
-        }
+        const key = (result.data.publicKey ?? '').trim();
+        if (!key) throw new Error('VAPID public key is missing from server response.');
+        setVapidKey(key);
       } catch (error: any) {
         console.error('Failed to fetch VAPID public key:', error);
+        toast({
+          title: 'VAPID Key Error',
+          description: error?.message || 'Failed to fetch VAPID key.',
+          variant: 'destructive',
+        });
       } finally {
         setIsKeyLoading(false);
       }
@@ -85,30 +82,103 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     fetchVapidKey();
   }, [isSupported, toast]);
 
+  // Helper: ensure token exists and is stored in Firestore
+  const ensureTokenStored = useCallback(
+    async (token: string) => {
+      if (!user) return;
+      const subsCol = collection(db, 'users', user.uid, 'pushSubscriptions');
+      const tokenDoc = doc(subsCol, token);
 
-  // Check current subscription status on load
+      await setDoc(
+        tokenDoc,
+        {
+          fcmToken: token,
+          updatedAt: new Date().toISOString(),
+          userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
+        },
+        { merge: true }
+      );
+    },
+    [user]
+  );
+
+  // On load: if already granted + we have vapidKey, try to get token and mark subscribed
   useEffect(() => {
     let cancelled = false;
+
     (async () => {
       try {
         if (!isSupported || !user) return;
-        const reg = await navigator.serviceWorker.ready;
-        const existing = await reg.pushManager.getSubscription();
-        if (!cancelled) setIsSubscribed(!!existing);
-      } catch (err){
-        console.error("Error checking push subscription status:", err);
+        if (!vapidKey || isKeyLoading) return;
+        if (Notification.permission !== 'granted') {
+          if (!cancelled) setIsSubscribed(false);
+          return;
+        }
+
+        const supported = await isMessagingSupported().catch(() => false);
+        if (!supported) {
+          if (!cancelled) setIsSubscribed(false);
+          return;
+        }
+
+        if (!app) return;
+
+        const swRegistration = await navigator.serviceWorker.ready;
+        const messaging = getMessaging(app);
+
+        const token = await getToken(messaging, {
+          vapidKey,
+          serviceWorkerRegistration: swRegistration,
+        });
+
+        if (!token) {
+          if (!cancelled) setIsSubscribed(false);
+          return;
+        }
+
+        if (!cancelled) {
+          setCurrentToken(token);
+          setIsSubscribed(true);
+        }
+
+        // Keep Firestore in sync
+        await ensureTokenStored(token);
+      } catch (err) {
+        console.error('Error checking FCM token/subscription:', err);
+        if (!cancelled) setIsSubscribed(false);
       }
     })();
-    return () => { cancelled = true; };
-  }, [isSupported, user]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isSupported, user, vapidKey, isKeyLoading, ensureTokenStored]);
 
   const subscribe = useCallback(async () => {
-    if (!isSupported || !user || !vapidKey) {
-        toast({ 
-            title: 'Cannot Subscribe', 
-            description: !isSupported ? 'Push not supported.' : !user ? 'Please sign in.' : 'VAPID key not loaded.',
-            variant: 'destructive'
-        });
+    if (!isSupported || !user) {
+      toast({
+        title: 'Cannot Subscribe',
+        description: !isSupported ? 'Push not supported.' : 'Please sign in.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!vapidKey) {
+      toast({
+        title: 'Cannot Subscribe',
+        description: 'VAPID key not loaded yet.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!app) {
+      toast({
+        title: 'Firebase not ready',
+        description: 'Firebase app not initialized.',
+        variant: 'destructive',
+      });
       return;
     }
 
@@ -118,44 +188,40 @@ export function usePushNotifications(): UsePushNotificationsReturn {
       setPermission(perm);
 
       if (perm !== 'granted') {
-        toast({ title: 'Permission denied', description: 'Notifications are blocked in your browser settings.' });
+        toast({
+          title: 'Permission denied',
+          description: 'Notifications are blocked in your browser settings.',
+        });
+        return;
+      }
+
+      const supported = await isMessagingSupported().catch(() => false);
+      if (!supported) {
+        toast({
+          title: 'Unsupported',
+          description: 'This browser/device does not support Firebase Messaging.',
+          variant: 'destructive',
+        });
         return;
       }
 
       const swRegistration = await navigator.serviceWorker.ready;
+      const messaging = getMessaging(app);
 
-      const keyStr = (vapidKey ?? '').trim();
-      if (!keyStr) {
-        throw new Error('VAPID public key is missing.');
-      }
-
-      const appServerKey = urlBase64ToUint8Array(keyStr);
-      // Debug info
-      console.debug('VAPID public key (base64):', keyStr);
-      console.debug('Decoded VAPID key length:', appServerKey.length, 'first bytes:', Array.from(appServerKey.slice(0,8)).map(b=>b.toString(16)));
-
-      if (appServerKey.length !== 65 || appServerKey[0] !== 0x04) {
-        console.error('Invalid decoded VAPID public key', { length: appServerKey.length, firstByte: appServerKey[0] });
-        throw new Error(`applicationServerKey must contain a valid P-256 public key (decoded ${appServerKey.length} bytes).`);
-      }
-
-      const subscription = await swRegistration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: appServerKey.buffer,
+      const token = await getToken(messaging, {
+        vapidKey,
+        serviceWorkerRegistration: swRegistration,
       });
 
-      const subsCol = collection(db, 'users', user.uid, 'pushSubscriptions');
-      const subId = btoa(subscription.endpoint).replace(/=/g, '').slice(0, 40);
-      const subDoc = doc(subsCol, subId);
+      if (!token) {
+        throw new Error('Failed to get an FCM token.');
+      }
 
-      await setDoc(subDoc, {
-          endpoint: subscription.endpoint,
-          keys: subscription.toJSON().keys ?? {},
-          createdAt: new Date().toISOString(),
-          userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
-      }, { merge: true });
+      await ensureTokenStored(token);
 
+      setCurrentToken(token);
       setIsSubscribed(true);
+
       toast({ title: 'Subscribed', description: 'Push notifications are now enabled.' });
     } catch (err: any) {
       console.error('Error subscribing to push notifications:', err);
@@ -167,24 +233,57 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     } finally {
       setIsSubscribing(false);
     }
-  }, [isSupported, toast, user, vapidKey]);
+  }, [isSupported, toast, user, vapidKey, ensureTokenStored]);
 
   const unsubscribe = useCallback(async () => {
     if (!isSupported || !user) return;
 
+    if (!app) {
+      toast({
+        title: 'Firebase not ready',
+        description: 'Firebase app not initialized.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsSubscribing(true);
     try {
-      const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.getSubscription();
+      const supported = await isMessagingSupported().catch(() => false);
+      if (!supported) {
+        setIsSubscribed(false);
+        return;
+      }
 
-      if (sub) {
-        await sub.unsubscribe();
-        const subsCol = collection(db, 'users', user.uid, 'pushSubscriptions');
+      const swRegistration = await navigator.serviceWorker.ready;
+      const messaging = getMessaging(app);
+
+      // Ensure we have the current token (if state lost, re-fetch it)
+      let token = currentToken;
+      if (!token && Notification.permission === 'granted' && vapidKey) {
+        token = await getToken(messaging, {
+          vapidKey,
+          serviceWorkerRegistration: swRegistration,
+        });
+      }
+
+      // Remove token from FCM
+      await deleteToken(messaging).catch(() => {});
+
+      // Remove stored docs in Firestore
+      const subsCol = collection(db, 'users', user.uid, 'pushSubscriptions');
+
+      if (token) {
+        await deleteDoc(doc(subsCol, token)).catch(() => {});
+      } else {
+        // fallback: delete all
         const snap = await getDocs(subsCol);
         await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
       }
 
+      setCurrentToken(null);
       setIsSubscribed(false);
+
       toast({ title: 'Unsubscribed', description: 'Push notifications have been disabled.' });
     } catch (err: any) {
       console.error('Error unsubscribing from push notifications:', err);
@@ -196,7 +295,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     } finally {
       setIsSubscribing(false);
     }
-  }, [isSupported, toast, user]);
+  }, [isSupported, toast, user, vapidKey, currentToken]);
 
   return {
     isSupported,
