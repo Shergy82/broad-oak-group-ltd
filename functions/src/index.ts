@@ -128,7 +128,7 @@ export const onShiftCreated = onDocumentCreated({ document: "shifts/{shiftId}", 
     const payload = {
         title: "New shift added",
         body: `A new shift was added for ${format(shiftDate, 'dd/MM/yyyy')}`,
-        data: { url: `/dashboard` },
+        data: { url: `/shift/${event.params.shiftId}` },
     };
 
     await sendNotificationToUser(userId, payload);
@@ -147,7 +147,7 @@ export const onShiftUpdated = onDocumentUpdated({ document: "shifts/{shiftId}", 
     // --- Check 1: User Reassignment ---
     if (beforeData.userId !== afterData.userId) {
         // Notify the OLD user that the shift was removed
-        if (beforeData.userId && !isShiftInPast(beforeData.date.toDate())) {
+        if (beforeData.userId) {
             const oldUserPayload = {
                 title: "Shift unassigned",
                 body: `Your shift for ${format(beforeData.date.toDate(), 'dd/MM/yyyy')} has been removed.`,
@@ -160,7 +160,7 @@ export const onShiftUpdated = onDocumentUpdated({ document: "shifts/{shiftId}", 
              const newUserPayload = {
                 title: "New shift added",
                 body: `A new shift was added for ${format(afterData.date.toDate(), 'dd/MM/yyyy')}`,
-                data: { url: `/dashboard` },
+                data: { url: `/shift/${shiftId}` },
             };
             await sendNotificationToUser(afterData.userId, newUserPayload);
         }
@@ -192,7 +192,7 @@ export const onShiftUpdated = onDocumentUpdated({ document: "shifts/{shiftId}", 
         const payload = {
             title: "Shift updated",
             body: `Your shift for ${format(afterDate, 'dd/MM/yyyy')} has been updated.`,
-            data: { url: `/dashboard` },
+            data: { url: `/shift/${shiftId}` },
         };
         logger.log(`Meaningful change detected for shift ${shiftId}. Sending notification.`);
         await sendNotificationToUser(userId, payload);
@@ -212,15 +212,11 @@ export const onShiftDeleted = onDocumentDeleted({ document: "shifts/{shiftId}", 
         return;
     }
 
-    const shiftDate = deletedData.date.toDate();
-    if (isShiftInPast(shiftDate)) {
-        logger.log("Deleted shift was in the past. No notification sent.", { shiftId: event.params.shiftId });
-        return;
-    }
-
+    // A deletion is always a meaningful event, so we notify regardless of the date.
+    
     const payload = {
         title: "Shift removed",
-        body: `Your shift for ${format(shiftDate, 'dd/MM/yyyy')} has been removed.`,
+        body: `Your shift for ${format(deletedData.date.toDate(), 'dd/MM/yyyy')} has been removed.`,
         data: { url: `/dashboard` },
     };
 
@@ -231,6 +227,7 @@ export const onShiftDeleted = onDocumentDeleted({ document: "shifts/{shiftId}", 
 
 // --- Other Callable Functions (Stubs and Existing Logic) ---
 
+export const getVapidPublicKey = onCall({ region: europeWest2 }, () => ({ enabled: true }));
 export const getNotificationStatus = onCall({ region: europeWest2 }, () => ({ enabled: true }));
 export const setNotificationStatus = onCall({ region: europeWest2 }, () => ({ success: true }));
 export const projectReviewNotifier = onSchedule({ schedule: "every 24 hours", region: europeWest2 }, () => { logger.log("projectReviewNotifier executed."); });
