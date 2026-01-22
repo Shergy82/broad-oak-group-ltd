@@ -1,8 +1,7 @@
-
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import Dashboard from '@/components/dashboard/index';
@@ -20,6 +19,10 @@ export default function DashboardPage() {
   const { userProfile, loading: isProfileLoading } = useUserProfile();
   const router = useRouter();
 
+  // ✅ Read ?gate=pending from the URL
+  const searchParams = useSearchParams();
+  const gatePending = searchParams.get('gate') === 'pending';
+
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [allShifts, setAllShifts] = useState<Shift[]>([]);
   const [loadingData, setLoadingData] = useState(true);
@@ -32,6 +35,16 @@ export default function DashboardPage() {
     }
   }, [user, isAuthLoading, router]);
 
+  // ✅ If user landed here via notification (/dashboard?gate=pending),
+  // force the NewShiftsDialog and don't let announcements steal focus.
+  useEffect(() => {
+    if (!user) return;
+    if (gatePending) {
+      setShowNewShifts(true);
+      setShowAnnouncements(false);
+    }
+  }, [gatePending, user]);
+
   useEffect(() => {
     if (!user || !db) {
       setLoadingData(false);
@@ -39,63 +52,100 @@ export default function DashboardPage() {
     }
     setLoadingData(true);
 
-    const announcementsQuery = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'));
+    const announcementsQuery = query(
+      collection(db, 'announcements'),
+      orderBy('createdAt', 'desc')
+    );
     const shiftsQuery = query(collection(db, 'shifts'), where('userId', '==', user.uid));
-    
+
     let announcementsLoaded = false;
     let shiftsLoaded = false;
 
     const checkAllDataLoaded = () => {
-        if (announcementsLoaded && shiftsLoaded) {
-            setLoadingData(false);
-        }
-    }
+      if (announcementsLoaded && shiftsLoaded) {
+        setLoadingData(false);
+      }
+    };
 
-    const unsubAnnouncements = onSnapshot(announcementsQuery, (snapshot) => {
-      setAnnouncements(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement)));
-      announcementsLoaded = true;
-      checkAllDataLoaded();
-    }, (error) => {
-        console.error("Error fetching announcements:", error);
+    const unsubAnnouncements = onSnapshot(
+      announcementsQuery,
+      (snapshot) => {
+        setAnnouncements(
+          snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Announcement))
+        );
         announcementsLoaded = true;
         checkAllDataLoaded();
-    });
+      },
+      (error) => {
+        console.error('Error fetching announcements:', error);
+        announcementsLoaded = true;
+        checkAllDataLoaded();
+      }
+    );
 
-    const unsubShifts = onSnapshot(shiftsQuery, (snapshot) => {
-        setAllShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
+    const unsubShifts = onSnapshot(
+      shiftsQuery,
+      (snapshot) => {
+        setAllShifts(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Shift)));
         shiftsLoaded = true;
         checkAllDataLoaded();
-    }, (error) => {
-        console.error("Error fetching user shifts:", error);
+      },
+      (error) => {
+        console.error('Error fetching user shifts:', error);
         shiftsLoaded = true;
         checkAllDataLoaded();
-    });
+      }
+    );
 
     return () => {
       unsubAnnouncements();
       unsubShifts();
     };
   }, [user]);
-  
+
   const unreadAnnouncements = useMemo(() => {
     if (!user || loadingData || announcements.length === 0) return [];
-    
+
     const storedAcknowledged = localStorage.getItem(`acknowledgedAnnouncements_${user.uid}`);
     const acknowledgedIds = new Set(storedAcknowledged ? JSON.parse(storedAcknowledged) : []);
 
-    return announcements.filter(a => !acknowledgedIds.has(a.id));
+    return announcements.filter((a) => !acknowledgedIds.has(a.id));
   }, [announcements, user, loadingData]);
 
+  // ✅ UPDATED: only show pending-confirmation shifts for today or future
   const newShifts = useMemo(() => {
     if (!user || loadingData || allShifts.length === 0) return [];
-    
-    const pendingShifts = allShifts.filter(shift => shift.status === 'pending-confirmation');
-    
+
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const pendingShifts = allShifts.filter((shift) => {
+      if (shift.status !== 'pending-confirmation') return false;
+
+      const d = getCorrectedLocalDate(shift.date);
+      d.setHours(0, 0, 0, 0);
+
+      // Only today or future
+      return d.getTime() >= startOfToday.getTime();
+    });
+
     // Sort shifts by date, from earliest to latest
-    return pendingShifts.sort((a, b) => getCorrectedLocalDate(a.date).getTime() - getCorrectedLocalDate(b.date).getTime());
+    return pendingShifts.sort(
+      (a, b) => getCorrectedLocalDate(a.date).getTime() - getCorrectedLocalDate(b.date).getTime()
+    );
   }, [allShifts, user, loadingData]);
-  
+
   const isLoading = isAuthLoading || isProfileLoading || loadingData;
+
+  // ✅ Optional polish:
+  // If they came via gate=pending but there are no pending shifts anymore,
+  // clean the URL back to /dashboard.
+  useEffect(() => {
+    if (!user) return;
+    if (gatePending && !loadingData && newShifts.length === 0) {
+      router.replace('/dashboard');
+    }
+  }, [gatePending, loadingData, newShifts.length, user, router]);
 
   if (isLoading || !user) {
     return (
@@ -107,22 +157,28 @@ export default function DashboardPage() {
 
   // --- Dialog Rendering Logic ---
   // Priority: 1. New Shifts, 2. Announcements
+
   if (newShifts.length > 0 && showNewShifts) {
     return (
-        <NewShiftsDialog
-            shifts={newShifts}
-            onClose={() => setShowNewShifts(false)}
-        />
-    )
+      <NewShiftsDialog
+        shifts={newShifts}
+        onClose={() => {
+          // ✅ If we are forcing the gate, do NOT allow closing
+          if (gatePending) return;
+          setShowNewShifts(false);
+        }}
+      />
+    );
   }
 
-  if (unreadAnnouncements.length > 0 && showAnnouncements) {
+  // If we're gated, don't show announcements until shifts are handled
+  if (!gatePending && unreadAnnouncements.length > 0 && showAnnouncements) {
     return (
-        <UnreadAnnouncements 
-          announcements={unreadAnnouncements} 
-          user={user} 
-          onClose={() => setShowAnnouncements(false)}
-        />
+      <UnreadAnnouncements
+        announcements={unreadAnnouncements}
+        user={user}
+        onClose={() => setShowAnnouncements(false)}
+      />
     );
   }
 
