@@ -1,19 +1,42 @@
-
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
-import { doc, updateDoc, deleteField, collection, query, where, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
+import {
+  doc,
+  updateDoc,
+  deleteField,
+  collection,
+  query,
+  where,
+  getDocs,
+  addDoc,
+  serverTimestamp,
+} from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { db, isFirebaseConfigured, storage } from '@/lib/firebase';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Clock, Sunrise, Sunset, ThumbsUp, CheckCircle2, XCircle, AlertTriangle, RotateCcw, Trash2, HardHat, ListChecks, Camera, Undo } from 'lucide-react';
+import {
+  Clock,
+  Sunrise,
+  Sunset,
+  ThumbsUp,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+  RotateCcw,
+  Trash2,
+  HardHat,
+  ListChecks,
+  Camera,
+  Undo,
+} from 'lucide-react';
 import { Spinner } from '@/components/shared/spinner';
-import type { Shift, ShiftStatus, UserProfile, TradeTask, Trade, Project } from '@/types';
+import type { Shift, ShiftStatus, UserProfile, TradeTask, Trade } from '@/types';
 import { useAuth } from '@/hooks/use-auth';
 import {
   Dialog,
@@ -25,7 +48,17 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '../ui/alert-dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '../ui/alert-dialog';
 import { Checkbox } from '../ui/checkbox';
 
 interface ShiftCardProps {
@@ -34,7 +67,7 @@ interface ShiftCardProps {
   onDismiss?: (shiftId: string) => void;
 }
 
-type TaskStatus = 
+type TaskStatus =
   | { status: 'completed' }
   | { status: 'rejected'; note: string };
 
@@ -44,13 +77,58 @@ const shiftTypeDetails = {
   'all-day': { icon: Clock, label: 'All Day', color: 'bg-indigo-500' },
 };
 
-const statusDetails: { [key in ShiftStatus]: { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline'; className: string; icon: React.ElementType } } = {
-  'pending-confirmation': { label: 'Pending', variant: 'secondary', className: '', icon: AlertTriangle },
-  confirmed: { label: 'Confirmed', variant: 'default', className: 'bg-primary hover:bg-primary/90', icon: ThumbsUp },
-  'on-site': { label: 'On Site', variant: 'default', className: 'bg-teal-500 hover:bg-teal-600', icon: HardHat },
-  completed: { label: 'Completed', variant: 'default', className: 'bg-green-600 hover:bg-green-700', icon: CheckCircle2 },
-  incomplete: { label: 'Incomplete', variant: 'destructive', className: 'bg-amber-600 hover:bg-amber-700 text-white border-amber-600', icon: XCircle },
-  rejected: { label: 'Rejected', variant: 'destructive', className: 'bg-destructive/80 hover:bg-destructive/90 text-white border-destructive/80', icon: XCircle },
+const statusDetails: {
+  [key in ShiftStatus]: {
+    label: string;
+    variant: 'default' | 'secondary' | 'destructive' | 'outline';
+    className: string;
+    icon: React.ElementType;
+  };
+} = {
+  'pending-confirmation': {
+    label: 'Pending',
+    variant: 'secondary',
+    className: '',
+    icon: AlertTriangle,
+  },
+  confirmed: {
+    label: 'Confirmed',
+    variant: 'default',
+    className: 'bg-primary hover:bg-primary/90',
+    icon: ThumbsUp,
+  },
+  'on-site': {
+    label: 'On Site',
+    variant: 'default',
+    className: 'bg-teal-500 hover:bg-teal-600',
+    icon: HardHat,
+  },
+  completed: {
+    label: 'Completed',
+    variant: 'default',
+    className: 'bg-green-600 hover:bg-green-700',
+    icon: CheckCircle2,
+  },
+  incomplete: {
+    label: 'Incomplete',
+    variant: 'destructive',
+    className: 'bg-amber-600 hover:bg-amber-700 text-white border-amber-600',
+    icon: XCircle,
+  },
+  rejected: {
+    label: 'Rejected',
+    variant: 'destructive',
+    className: 'bg-destructive/80 hover:bg-destructive/90 text-white border-destructive/80',
+    icon: XCircle,
+  },
+};
+
+// ✅ Expired display override (UI-only)
+const expiredStatusInfo = {
+  label: 'Expired',
+  variant: 'outline' as const,
+  className: 'text-muted-foreground border-muted-foreground/30',
+  icon: AlertTriangle,
 };
 
 const LS_SHIFT_TASKS_KEY = 'shiftTaskCompletion_v2';
@@ -68,27 +146,42 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
 
   const [tradeTasks, setTradeTasks] = useState<TradeTask[]>([]);
   const [taskStatuses, setTaskStatuses] = useState<{ [key: number]: TaskStatus }>({});
-  
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState<number | null>(null);
 
+  // Normalize shift date to a local "date-only" for display & comparisons
   const d = shift.date.toDate();
   const shiftDate = new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
 
-  const ShiftIcon = shiftTypeDetails[shift.type].icon;
-  const statusInfo = statusDetails[shift.status];
-  const StatusIcon = statusInfo.icon;
-  
-  const isHistorical = shift.status === 'completed' || shift.status === 'incomplete';
-  const allTasksCompleted = tradeTasks.length === 0 || (tradeTasks.every((_, index) => taskStatuses[index]?.status === 'completed' || taskStatuses[index]?.status === 'rejected'));
+  // ✅ Expired if strictly before today
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const shiftDay = new Date(shiftDate);
+  shiftDay.setHours(0, 0, 0, 0);
+  const isExpired = shiftDay.getTime() < today.getTime();
 
+  const ShiftIcon = shiftTypeDetails[shift.type].icon;
+
+  // ✅ Override status display if expired
+  const statusInfo = isExpired ? expiredStatusInfo : statusDetails[shift.status];
+  const StatusIcon = statusInfo.icon;
+
+  const isHistorical = shift.status === 'completed' || shift.status === 'incomplete';
+  const allTasksCompleted =
+    tradeTasks.length === 0 ||
+    tradeTasks.every(
+      (_, index) =>
+        taskStatuses[index]?.status === 'completed' ||
+        taskStatuses[index]?.status === 'rejected'
+    );
 
   useEffect(() => {
     async function fetchTasks() {
       if (!userProfile || !db) return;
-  
+
       const categoryName = userProfile.trade || userProfile.role;
-  
+
       if (categoryName) {
         try {
           const q = query(collection(db, 'trade_tasks'), where('name', '==', categoryName));
@@ -121,7 +214,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
           setTaskStatuses({});
         }
       } catch (e) {
-        console.error("Failed to load shift task completion state", e);
+        console.error('Failed to load shift task completion state', e);
         setTaskStatuses({});
       }
     }
@@ -130,22 +223,22 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
   const updateAndStoreTaskStatuses = (newStatuses: { [key: number]: TaskStatus }) => {
     setTaskStatuses(newStatuses);
     try {
-        const allShiftTasks = JSON.parse(localStorage.getItem(LS_SHIFT_TASKS_KEY) || '{}');
-        allShiftTasks[shift.id] = newStatuses;
-        localStorage.setItem(LS_SHIFT_TASKS_KEY, JSON.stringify(allShiftTasks));
+      const allShiftTasks = JSON.parse(localStorage.getItem(LS_SHIFT_TASKS_KEY) || '{}');
+      allShiftTasks[shift.id] = newStatuses;
+      localStorage.setItem(LS_SHIFT_TASKS_KEY, JSON.stringify(allShiftTasks));
     } catch (e) {
-      console.error("Failed to save shift task completion state", e);
+      console.error('Failed to save shift task completion state', e);
     }
-  }
+  };
 
   const handleTaskToggle = (taskIndex: number) => {
     const task = tradeTasks[taskIndex];
     if (task.photoRequired && !taskStatuses[taskIndex]) {
-        if (fileInputRef.current) {
-            fileInputRef.current.setAttribute('data-task-index', taskIndex.toString());
-            fileInputRef.current.click();
-        }
-        return;
+      if (fileInputRef.current) {
+        fileInputRef.current.setAttribute('data-task-index', taskIndex.toString());
+        fileInputRef.current.click();
+      }
+      return;
     }
 
     const newStatuses = { ...taskStatuses };
@@ -156,16 +249,20 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
     }
     updateAndStoreTaskStatuses(newStatuses);
   };
-  
+
   const handleOpenRejectDialog = (taskIndex: number) => {
     setRejectingTaskIndex(taskIndex);
     setRejectNoteDialogOpen(true);
   };
-  
+
   const handleRejectSubmit = () => {
     if (rejectingTaskIndex === null || !rejectionNote.trim()) {
-        toast({ variant: 'destructive', title: 'Reason Required', description: 'Please provide a reason for rejecting the task.' });
-        return;
+      toast({
+        variant: 'destructive',
+        title: 'Reason Required',
+        description: 'Please provide a reason for rejecting the task.',
+      });
+      return;
     }
     const newStatuses = { ...taskStatuses };
     newStatuses[rejectingTaskIndex] = { status: 'rejected', note: rejectionNote.trim() };
@@ -173,8 +270,8 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
     setRejectNoteDialogOpen(false);
     setRejectionNote('');
     setRejectingTaskIndex(null);
-  }
-  
+  };
+
   const handleUndoReject = (taskIndex: number) => {
     const newStatuses = { ...taskStatuses };
     delete newStatuses[taskIndex];
@@ -185,58 +282,64 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
     const file = event.target.files?.[0];
     const taskIndexString = event.target.getAttribute('data-task-index');
     if (!file || taskIndexString === null) return;
-    
+
     const taskIndex = parseInt(taskIndexString, 10);
     setIsUploadingPhoto(taskIndex);
-    
+
     try {
-        if (!db || !storage || !userProfile) throw new Error("Services not ready");
+      if (!db || !storage || !userProfile) throw new Error('Services not ready');
 
-        const projectsQuery = query(collection(db, 'projects'), where('address', '==', shift.address));
-        const projectSnapshot = await getDocs(projectsQuery);
-        
-        if (projectSnapshot.empty) {
-            toast({ variant: 'destructive', title: 'Project Not Found', description: `No project found with address: ${shift.address}` });
-            throw new Error("Project not found");
-        }
-        const projectId = projectSnapshot.docs[0].id;
+      const projectsQuery = query(collection(db, 'projects'), where('address', '==', shift.address));
+      const projectSnapshot = await getDocs(projectsQuery);
 
-        const storagePath = `project_files/${projectId}/${Date.now()}-${file.name}`;
-        const storageRef = ref(storage, storagePath);
-        const uploadTask = uploadBytesResumable(storageRef, file);
-
-        await uploadTask;
-        
-        const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-        
-        await addDoc(collection(db, `projects/${projectId}/files`), {
-            name: `Task Photo - ${tradeTasks[taskIndex].text} - ${format(new Date(), 'yyyy-MM-dd')}`,
-            url: downloadURL,
-            fullPath: storagePath,
-            size: file.size,
-            type: file.type,
-            uploadedAt: serverTimestamp(),
-            uploaderId: userProfile.uid,
-            uploaderName: userProfile.name,
+      if (projectSnapshot.empty) {
+        toast({
+          variant: 'destructive',
+          title: 'Project Not Found',
+          description: `No project found with address: ${shift.address}`,
         });
+        throw new Error('Project not found');
+      }
+      const projectId = projectSnapshot.docs[0].id;
 
-        const newStatuses = { ...taskStatuses };
-        newStatuses[taskIndex] = { status: 'completed' };
-        updateAndStoreTaskStatuses(newStatuses);
+      const storagePath = `project_files/${projectId}/${Date.now()}-${file.name}`;
+      const storageRef = ref(storage, storagePath);
+      const uploadTask = uploadBytesResumable(storageRef, file);
 
-        toast({ title: 'Photo Uploaded', description: 'The task has been marked as complete.' });
+      await uploadTask;
 
+      const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+
+      await addDoc(collection(db, `projects/${projectId}/files`), {
+        name: `Task Photo - ${tradeTasks[taskIndex].text} - ${format(new Date(), 'yyyy-MM-dd')}`,
+        url: downloadURL,
+        fullPath: storagePath,
+        size: file.size,
+        type: file.type,
+        uploadedAt: serverTimestamp(),
+        uploaderId: userProfile.uid,
+        uploaderName: userProfile.name,
+      });
+
+      const newStatuses = { ...taskStatuses };
+      newStatuses[taskIndex] = { status: 'completed' };
+      updateAndStoreTaskStatuses(newStatuses);
+
+      toast({ title: 'Photo Uploaded', description: 'The task has been marked as complete.' });
     } catch (error: any) {
-        console.error("Photo upload failed:", error);
-        toast({ variant: 'destructive', title: 'Upload Failed', description: error.message || 'Could not upload the photo.' });
+      console.error('Photo upload failed:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Upload Failed',
+        description: error.message || 'Could not upload the photo.',
+      });
     } finally {
-        setIsUploadingPhoto(null);
-        if (fileInputRef.current) {
-            fileInputRef.current.value = "";
-        }
+      setIsUploadingPhoto(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
-
 
   const handleUpdateStatus = async (newStatus: ShiftStatus, notes?: string) => {
     if (!isFirebaseConfigured || !db || !user) {
@@ -248,24 +351,34 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
       return;
     }
 
+    // ✅ Prevent changing expired shifts
+    if (isExpired) {
+      toast({
+        variant: 'destructive',
+        title: 'Shift Expired',
+        description: 'This shift is in the past and can no longer be updated.',
+      });
+      return;
+    }
+
     setIsLoading(true);
     try {
       const shiftRef = doc(db, 'shifts', shift.id);
-      
+
       const updateData: { status: ShiftStatus; notes?: any } = { status: newStatus };
       if (notes) {
         updateData.notes = notes;
       } else if (newStatus === 'confirmed') {
         updateData.notes = deleteField();
       }
-      
+
       await updateDoc(shiftRef, updateData as any);
 
       toast({
         title: `Shift status updated`,
         description: `Shift is now marked as ${newStatus}.`,
       });
-      router.refresh(); 
+      router.refresh();
     } catch (error: any) {
       let description = 'Could not update shift status.';
       if (error.code === 'permission-denied') {
@@ -282,21 +395,28 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
       setNote('');
     }
   };
-  
+
   const handleIncompleteSubmit = () => {
-      if (!note.trim()) {
-          toast({ variant: 'destructive', title: 'Note Required', description: 'Please provide a note explaining why the shift is incomplete.' });
-          return;
-      }
-      handleUpdateStatus('incomplete', note.trim());
-  }
+    if (!note.trim()) {
+      toast({
+        variant: 'destructive',
+        title: 'Note Required',
+        description: 'Please provide a note explaining why the shift is incomplete.',
+      });
+      return;
+    }
+    handleUpdateStatus('incomplete', note.trim());
+  };
 
   const renderTaskList = () => {
     if (shift.status !== 'on-site' || tradeTasks.length === 0) return null;
+    if (isExpired) return null; // ✅ no tasks for expired
 
     return (
       <div className="mt-4 p-4 border-t">
-        <h4 className="font-semibold text-sm mb-3 flex items-center gap-2 text-muted-foreground"><ListChecks/> Checklist</h4>
+        <h4 className="font-semibold text-sm mb-3 flex items-center gap-2 text-muted-foreground">
+          <ListChecks /> Checklist
+        </h4>
         <div className="space-y-3">
           {tradeTasks.map((task, index) => {
             const status = taskStatuses[index];
@@ -310,26 +430,55 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
                   className="mt-1"
                 />
                 <div className="flex-grow">
-                    <Label htmlFor={`task-${shift.id}-${index}`} className="text-sm font-normal text-foreground flex-grow cursor-pointer flex items-center justify-between">
-                        <span className={status?.status === 'rejected' ? 'line-through text-muted-foreground' : ''}>{task.text}</span>
-                         <div className="flex items-center gap-1">
-                            {isUploadingPhoto === index ? <Spinner size="sm" /> : (task.photoRequired && <Camera className="h-4 w-4 text-muted-foreground" />)}
-                             {status?.status !== 'rejected' && (
-                                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleOpenRejectDialog(index)} disabled={isLoading || isUploadingPhoto === index}>
-                                    <XCircle className="h-4 w-4 text-destructive/70 hover:text-destructive" />
-                                </Button>
-                             )}
-                         </div>
-                    </Label>
-                     {status?.status === 'rejected' && (
-                        <div className="mt-1 p-2 bg-destructive/10 rounded-md text-xs text-destructive">
-                           <p className="font-semibold flex items-center">Rejected: <span className="italic font-normal ml-1">"{status.note}"</span></p>
-                           <Button variant="link" size="sm" className="h-auto p-0 mt-1 text-destructive" onClick={() => handleUndoReject(index)}><Undo className="mr-1 h-3 w-3" /> Undo</Button>
-                        </div>
-                     )}
+                  <Label
+                    htmlFor={`task-${shift.id}-${index}`}
+                    className="text-sm font-normal text-foreground flex-grow cursor-pointer flex items-center justify-between"
+                  >
+                    <span
+                      className={
+                        status?.status === 'rejected' ? 'line-through text-muted-foreground' : ''
+                      }
+                    >
+                      {task.text}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      {isUploadingPhoto === index ? (
+                        <Spinner size="sm" />
+                      ) : (
+                        task.photoRequired && <Camera className="h-4 w-4 text-muted-foreground" />
+                      )}
+                      {status?.status !== 'rejected' && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => handleOpenRejectDialog(index)}
+                          disabled={isLoading || isUploadingPhoto === index}
+                        >
+                          <XCircle className="h-4 w-4 text-destructive/70 hover:text-destructive" />
+                        </Button>
+                      )}
+                    </div>
+                  </Label>
+                  {status?.status === 'rejected' && (
+                    <div className="mt-1 p-2 bg-destructive/10 rounded-md text-xs text-destructive">
+                      <p className="font-semibold flex items-center">
+                        Rejected:{' '}
+                        <span className="italic font-normal ml-1">"{status.note}"</span>
+                      </p>
+                      <Button
+                        variant="link"
+                        size="sm"
+                        className="h-auto p-0 mt-1 text-destructive"
+                        onClick={() => handleUndoReject(index)}
+                      >
+                        <Undo className="mr-1 h-3 w-3" /> Undo
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
-            )
+            );
           })}
           <input
             type="file"
@@ -338,18 +487,20 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
             ref={fileInputRef}
             onChange={handlePhotoUpload}
             className="hidden"
-           />
+          />
         </div>
       </div>
     );
-  }
+  };
 
   return (
     <>
       <Card className="flex flex-col overflow-hidden transition-all hover:shadow-xl border-border hover:border-primary/40">
         <CardHeader className="flex flex-row items-start justify-between space-y-0 bg-card p-4">
           <div className="flex items-center gap-3">
-            <div className={`flex items-center justify-center rounded-lg w-12 h-12 ${shiftTypeDetails[shift.type].color}`}>
+            <div
+              className={`flex items-center justify-center rounded-lg w-12 h-12 ${shiftTypeDetails[shift.type].color}`}
+            >
               <ShiftIcon className="h-6 w-6 text-white" />
             </div>
             <div>
@@ -357,11 +508,13 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
               <p className="text-sm text-muted-foreground">{format(shiftDate, 'eeee, MMM d')}</p>
             </div>
           </div>
+
           <Badge variant={statusInfo.variant} className={`${statusInfo.className} shrink-0`}>
             <StatusIcon className="mr-1.5 h-3 w-3" />
             {statusInfo.label}
           </Badge>
         </CardHeader>
+
         <CardContent className="p-4 text-left grow flex flex-col justify-center space-y-1">
           <p className="font-semibold text-sm">{shift.task}</p>
           <p className="text-xs text-muted-foreground">{shift.address}</p>
@@ -369,67 +522,118 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
           {shift.manager && <p className="text-xs text-muted-foreground">Manager: {shift.manager}</p>}
           {(shift.status === 'incomplete' || shift.status === 'rejected') && shift.notes && (
             <div className="mt-3 p-3 bg-destructive/10 border-l-4 border-destructive rounded-r-md">
-                <p className="text-sm font-semibold text-destructive">Note:</p>
-                <p className="text-sm text-destructive/90 italic">"{shift.notes}"</p>
+              <p className="text-sm font-semibold text-destructive">Note:</p>
+              <p className="text-sm text-destructive/90 italic">"{shift.notes}"</p>
+            </div>
+          )}
+          {isExpired && (
+            <div className="mt-3 p-3 bg-muted/40 border-l-4 border-muted rounded-r-md">
+              <p className="text-sm font-semibold text-muted-foreground">This shift is in the past.</p>
             </div>
           )}
         </CardContent>
+
         {renderTaskList()}
+
         <CardFooter className="p-2 bg-muted/30 grid grid-cols-1 gap-2">
-          {shift.status === 'pending-confirmation' && (
-            <Button onClick={() => handleUpdateStatus('confirmed')} className="w-full bg-accent text-accent-foreground hover:bg-accent/90" disabled={isLoading}>
-              {isLoading ? <Spinner /> : <><ThumbsUp className="mr-2 h-4 w-4" /> Accept Shift</>}
+          {/* ✅ Do not allow actions for expired shifts */}
+          {!isExpired && shift.status === 'pending-confirmation' && (
+            <Button
+              onClick={() => handleUpdateStatus('confirmed')}
+              className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
+              disabled={isLoading}
+            >
+              {isLoading ? <Spinner /> : (
+                <>
+                  <ThumbsUp className="mr-2 h-4 w-4" /> Accept Shift
+                </>
+              )}
             </Button>
           )}
 
-          {shift.status === 'confirmed' && (
-             <Button onClick={() => handleUpdateStatus('on-site')} className="w-full bg-teal-500 text-white hover:bg-teal-600" disabled={isLoading}>
-                {isLoading ? <Spinner /> : <><HardHat className="mr-2 h-4 w-4" /> On Site</>}
+          {!isExpired && shift.status === 'confirmed' && (
+            <Button
+              onClick={() => handleUpdateStatus('on-site')}
+              className="w-full bg-teal-500 text-white hover:bg-teal-600"
+              disabled={isLoading}
+            >
+              {isLoading ? <Spinner /> : (
+                <>
+                  <HardHat className="mr-2 h-4 w-4" /> On Site
+                </>
+              )}
             </Button>
           )}
 
-          {shift.status === 'on-site' && (
+          {!isExpired && shift.status === 'on-site' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                 <Button onClick={() => handleUpdateStatus('completed')} className="w-full bg-green-500 text-white hover:bg-green-600" disabled={isLoading || !allTasksCompleted}>
-                    {isLoading ? <Spinner /> : <><CheckCircle2 className="mr-2 h-4 w-4" /> Complete</>}
-                </Button>
-                 <Button variant="destructive" onClick={() => setIsNoteDialogOpen(true)} className="w-full bg-amber-600 hover:bg-amber-700" disabled={isLoading}>
-                    {isLoading ? <Spinner /> : <><XCircle className="mr-2 h-4 w-4" /> Incomplete</>}
-                </Button>
+              <Button
+                onClick={() => handleUpdateStatus('completed')}
+                className="w-full bg-green-500 text-white hover:bg-green-600"
+                disabled={isLoading || !allTasksCompleted}
+              >
+                {isLoading ? <Spinner /> : (
+                  <>
+                    <CheckCircle2 className="mr-2 h-4 w-4" /> Complete
+                  </>
+                )}
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => setIsNoteDialogOpen(true)}
+                className="w-full bg-amber-600 hover:bg-amber-700"
+                disabled={isLoading}
+              >
+                {isLoading ? <Spinner /> : (
+                  <>
+                    <XCircle className="mr-2 h-4 w-4" /> Incomplete
+                  </>
+                )}
+              </Button>
             </div>
           )}
 
           {isHistorical && (
             <div className="grid grid-cols-2 gap-2">
-                 <Button variant="outline" onClick={() => handleUpdateStatus('confirmed')} className="w-full" disabled={isLoading}>
-                   {isLoading ? <Spinner /> : <><RotateCcw className="mr-2 h-4 w-4" /> Re-open</>}
-                </Button>
-                {onDismiss && (
-                   <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                           <Button variant="destructive" className="w-full" disabled={isLoading}>
-                                <Trash2 className="mr-2 h-4 w-4" /> Dismiss
-                            </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                            <AlertDialogHeader>
-                                <AlertDialogTitle>Dismiss Shift?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                    This will hide the shift from your view. It will not be deleted. Are you sure?
-                                </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction onClick={() => onDismiss(shift.id)}>Dismiss</AlertDialogAction>
-                            </AlertDialogFooter>
-                        </AlertDialogContent>
-                    </AlertDialog>
+              <Button
+                variant="outline"
+                onClick={() => handleUpdateStatus('confirmed')}
+                className="w-full"
+                disabled={isLoading}
+              >
+                {isLoading ? <Spinner /> : (
+                  <>
+                    <RotateCcw className="mr-2 h-4 w-4" /> Re-open
+                  </>
                 )}
+              </Button>
+
+              {onDismiss && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive" className="w-full" disabled={isLoading}>
+                      <Trash2 className="mr-2 h-4 w-4" /> Dismiss
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Dismiss Shift?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will hide the shift from your view. It will not be deleted. Are you sure?
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => onDismiss(shift.id)}>Dismiss</AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
             </div>
           )}
         </CardFooter>
       </Card>
-      
+
       <Dialog open={isNoteDialogOpen} onOpenChange={setIsNoteDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
@@ -441,9 +645,9 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
           <div className="grid gap-4 py-4">
             <div className="grid w-full gap-1.5">
               <Label htmlFor="note">Note</Label>
-              <Textarea 
-                placeholder="e.g., waiting for materials, client not home, etc." 
-                id="note" 
+              <Textarea
+                placeholder="e.g., waiting for materials, client not home, etc."
+                id="note"
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 rows={4}
@@ -451,28 +655,32 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsNoteDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleIncompleteSubmit} disabled={isLoading} className="bg-amber-600 hover:bg-amber-700">
-                {isLoading ? <Spinner /> : 'Submit Note'}
+            <Button variant="outline" onClick={() => setIsNoteDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleIncompleteSubmit}
+              disabled={isLoading}
+              className="bg-amber-600 hover:bg-amber-700"
+            >
+              {isLoading ? <Spinner /> : 'Submit Note'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-       <Dialog open={isRejectNoteDialogOpen} onOpenChange={setRejectNoteDialogOpen}>
+      <Dialog open={isRejectNoteDialogOpen} onOpenChange={setRejectNoteDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>Reason for Rejection</DialogTitle>
-            <DialogDescription>
-              Please explain why you could not complete this task.
-            </DialogDescription>
+            <DialogDescription>Please explain why you could not complete this task.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid w-full gap-1.5">
               <Label htmlFor="rejection-note">Reason</Label>
-              <Textarea 
-                placeholder="e.g., incorrect materials, access issue..." 
-                id="rejection-note" 
+              <Textarea
+                placeholder="e.g., incorrect materials, access issue..."
+                id="rejection-note"
                 value={rejectionNote}
                 onChange={(e) => setRejectionNote(e.target.value)}
                 rows={4}
@@ -480,9 +688,11 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectNoteDialogOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setRejectNoteDialogOpen(false)}>
+              Cancel
+            </Button>
             <Button onClick={handleRejectSubmit} disabled={isLoading} variant="destructive">
-                {isLoading ? <Spinner /> : 'Submit Reason'}
+              {isLoading ? <Spinner /> : 'Submit Reason'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -490,5 +700,3 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
     </>
   );
 }
-
-    
