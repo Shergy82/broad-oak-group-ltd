@@ -131,12 +131,15 @@ const expiredStatusInfo = {
   icon: AlertTriangle,
 };
 
+const FINAL_STATUSES = new Set(['completed', 'incomplete', 'rejected']);
+
 const LS_SHIFT_TASKS_KEY = 'shiftTaskCompletion_v2';
 
 export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
   const router = useRouter();
   const { user } = useAuth();
   const { toast } = useToast();
+
   const [isLoading, setIsLoading] = useState(false);
   const [isNoteDialogOpen, setIsNoteDialogOpen] = useState(false);
   const [isRejectNoteDialogOpen, setRejectNoteDialogOpen] = useState(false);
@@ -154,16 +157,20 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
   const d = shift.date.toDate();
   const shiftDate = new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
 
-  // ✅ Expired if strictly before today
+  // ✅ Expired ONLY if before today AND NOT final status
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+
   const shiftDay = new Date(shiftDate);
   shiftDay.setHours(0, 0, 0, 0);
-  const isExpired = shiftDay.getTime() < today.getTime();
+
+  const rawStatusLower = String(shift.status || '').toLowerCase();
+  const isFinalStatus = FINAL_STATUSES.has(rawStatusLower);
+  const isExpired = !isFinalStatus && shiftDay.getTime() < today.getTime();
 
   const ShiftIcon = shiftTypeDetails[shift.type].icon;
 
-  // ✅ Override status display if expired
+  // ✅ Override status display if expired (but never for completed/incomplete/rejected)
   const statusInfo = isExpired ? expiredStatusInfo : statusDetails[shift.status];
   const StatusIcon = statusInfo.icon;
 
@@ -335,9 +342,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
       });
     } finally {
       setIsUploadingPhoto(null);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -366,16 +371,13 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
       const shiftRef = doc(db, 'shifts', shift.id);
 
       const updateData: { status: ShiftStatus; notes?: any } = { status: newStatus };
-      if (notes) {
-        updateData.notes = notes;
-      } else if (newStatus === 'confirmed') {
-        updateData.notes = deleteField();
-      }
+      if (notes) updateData.notes = notes;
+      else if (newStatus === 'confirmed') updateData.notes = deleteField();
 
       await updateDoc(shiftRef, updateData as any);
 
       toast({
-        title: `Shift status updated`,
+        title: 'Shift status updated',
         description: `Shift is now marked as ${newStatus}.`,
       });
       router.refresh();
@@ -410,7 +412,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
 
   const renderTaskList = () => {
     if (shift.status !== 'on-site' || tradeTasks.length === 0) return null;
-    if (isExpired) return null; // ✅ no tasks for expired
+    if (isExpired) return null;
 
     return (
       <div className="mt-4 p-4 border-t">
@@ -434,19 +436,11 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
                     htmlFor={`task-${shift.id}-${index}`}
                     className="text-sm font-normal text-foreground flex-grow cursor-pointer flex items-center justify-between"
                   >
-                    <span
-                      className={
-                        status?.status === 'rejected' ? 'line-through text-muted-foreground' : ''
-                      }
-                    >
+                    <span className={status?.status === 'rejected' ? 'line-through text-muted-foreground' : ''}>
                       {task.text}
                     </span>
                     <div className="flex items-center gap-1">
-                      {isUploadingPhoto === index ? (
-                        <Spinner size="sm" />
-                      ) : (
-                        task.photoRequired && <Camera className="h-4 w-4 text-muted-foreground" />
-                      )}
+                      {isUploadingPhoto === index ? <Spinner size="sm" /> : (task.photoRequired && <Camera className="h-4 w-4 text-muted-foreground" />)}
                       {status?.status !== 'rejected' && (
                         <Button
                           variant="ghost"
@@ -460,11 +454,11 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
                       )}
                     </div>
                   </Label>
+
                   {status?.status === 'rejected' && (
                     <div className="mt-1 p-2 bg-destructive/10 rounded-md text-xs text-destructive">
                       <p className="font-semibold flex items-center">
-                        Rejected:{' '}
-                        <span className="italic font-normal ml-1">"{status.note}"</span>
+                        Rejected: <span className="italic font-normal ml-1">"{status.note}"</span>
                       </p>
                       <Button
                         variant="link"
@@ -498,9 +492,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
       <Card className="flex flex-col overflow-hidden transition-all hover:shadow-xl border-border hover:border-primary/40">
         <CardHeader className="flex flex-row items-start justify-between space-y-0 bg-card p-4">
           <div className="flex items-center gap-3">
-            <div
-              className={`flex items-center justify-center rounded-lg w-12 h-12 ${shiftTypeDetails[shift.type].color}`}
-            >
+            <div className={`flex items-center justify-center rounded-lg w-12 h-12 ${shiftTypeDetails[shift.type].color}`}>
               <ShiftIcon className="h-6 w-6 text-white" />
             </div>
             <div>
@@ -520,12 +512,14 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
           <p className="text-xs text-muted-foreground">{shift.address}</p>
           {shift.eNumber && <p className="text-xs text-muted-foreground">E-Number: {shift.eNumber}</p>}
           {shift.manager && <p className="text-xs text-muted-foreground">Manager: {shift.manager}</p>}
+
           {(shift.status === 'incomplete' || shift.status === 'rejected') && shift.notes && (
             <div className="mt-3 p-3 bg-destructive/10 border-l-4 border-destructive rounded-r-md">
               <p className="text-sm font-semibold text-destructive">Note:</p>
               <p className="text-sm text-destructive/90 italic">"{shift.notes}"</p>
             </div>
           )}
+
           {isExpired && (
             <div className="mt-3 p-3 bg-muted/40 border-l-4 border-muted rounded-r-md">
               <p className="text-sm font-semibold text-muted-foreground">This shift is in the past.</p>
@@ -659,7 +653,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
               Cancel
             </Button>
             <Button
-              onClick={handleIncompleteSubmit}
+              onClick={() => handleIncompleteSubmit()}
               disabled={isLoading}
               className="bg-amber-600 hover:bg-amber-700"
             >
