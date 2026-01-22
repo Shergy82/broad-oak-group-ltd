@@ -6,7 +6,6 @@ import admin from "firebase-admin";
 import * as webPush from "web-push";
 import { logger } from "firebase-functions/v2";
 import { defineSecret } from "firebase-functions/params";
-import JSZip from "jszip";
 import { format } from "date-fns";
 
 // Initialize admin SDK only once
@@ -123,72 +122,88 @@ export const sendShiftNotification = onDocumentWritten(
     }
 
     const now = new Date();
+    // Use London time for comparison. new Date() is server time (UTC).
     const todayLondonString = now.toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
     const startOfTodayLondon = new Date(todayLondonString);
 
-    if (!beforeData && afterData) { // CREATE
+    // Case 1: Shift Created
+    if (!beforeData && afterData) {
       const shiftDate = afterData.date.toDate();
-      if (shiftDate < startOfTodayLondon) return;
+      if (shiftDate < startOfTodayLondon) return; // Don't notify for past shifts
+
       if (afterData.userId) {
         await sendNotificationToUser(afterData.userId, {
-          title: "New Shift Assigned",
-          body: `A new shift has been added for ${format(shiftDate, 'dd/MM/yyyy')}`,
+          title: "New Shift Added",
+          body: `New shift added for ${format(shiftDate, 'dd/MM/yyyy')}`,
           data: { url: `/dashboard` },
         }, secrets);
       }
       return;
     }
 
-    if (beforeData && !afterData) { // DELETE
+    // Case 2: Shift Deleted
+    if (beforeData && !afterData) {
       const shiftDate = beforeData.date.toDate();
-      if (shiftDate < startOfTodayLondon) return;
+      if (shiftDate < startOfTodayLondon) return; // Don't notify for past shifts
+
       if (beforeData.userId) {
         await sendNotificationToUser(beforeData.userId, {
           title: "Shift Removed",
-          body: `Your shift for ${format(shiftDate, 'dd/MM/yyyy')} has been removed.`,
+          body: `Your shift has been removed for ${format(shiftDate, 'dd/MM/yyyy')}`,
           data: { url: `/dashboard` },
         }, secrets);
       }
       return;
     }
 
-    if (beforeData && afterData) { // UPDATE
-      const shiftDateAfter = afterData.date.toDate();
-      if (shiftDateAfter < startOfTodayLondon) return;
-
-      const oldUserId = beforeData.userId;
-      const newUserId = afterData.userId;
-
-      if (oldUserId !== newUserId) {
-        if (oldUserId) {
-          await sendNotificationToUser(oldUserId, {
-            title: "Shift Unassigned",
-            body: `Your shift for ${format(beforeData.date.toDate(), 'dd/MM/yyyy')} has been reassigned.`,
-            data: { url: `/dashboard` },
-          }, secrets);
+    // Case 3: Shift Updated
+    if (beforeData && afterData) {
+        const shiftDateAfter = afterData.date.toDate();
+        // Don't notify for updates to shifts that are in the past, unless the date itself was changed from future to past.
+        if (shiftDateAfter < startOfTodayLondon && beforeData.date.toDate() < startOfTodayLondon) {
+             return;
         }
-        if (newUserId) {
-          await sendNotificationToUser(newUserId, {
-            title: "New Shift Assigned",
-            body: `You have been assigned a shift for ${format(shiftDateAfter, 'dd/MM/yyyy')}.`,
-            data: { url: `/dashboard` },
-          }, secrets);
-        }
-      } else if (newUserId) {
-        const hasDateChanged = !beforeData.date.isEqual(afterData.date);
-        const fieldsToCompare = ['task', 'address', 'eNumber', 'type', 'manager', 'notes', 'status'];
-        const hasFieldChanged = fieldsToCompare.some(field => beforeData[field] !== afterData[field]);
 
-        if (hasDateChanged || hasFieldChanged) {
-          await sendNotificationToUser(newUserId, {
-            title: "Shift Updated",
-            body: `Your shift for ${format(shiftDateAfter, 'dd/MM/yyyy')} has been updated.`,
-            data: { url: `/dashboard` },
-          }, secrets);
-        } else {
-          logger.info("Shift updated, but no meaningful fields changed.");
+        const oldUserId = beforeData.userId;
+        const newUserId = afterData.userId;
+
+        // Sub-case 3a: User unassigned/reassigned
+        if (oldUserId !== newUserId) {
+            // Notify old user of removal
+            if (oldUserId) {
+                 await sendNotificationToUser(oldUserId, {
+                    title: "Shift Unassigned",
+                    body: `Your shift for ${format(beforeData.date.toDate(), 'dd/MM/yyyy')} has been removed.`,
+                    data: { url: `/dashboard` },
+                }, secrets);
+            }
+            // Notify new user of assignment
+            if (newUserId) {
+                await sendNotificationToUser(newUserId, {
+                    title: "New Shift Added",
+                    body: `New shift added for ${format(shiftDateAfter, 'dd/MM/yyyy')}`,
+                    data: { url: `/dashboard` },
+                }, secrets);
+            }
+        } 
+        // Sub-case 3b: Shift details updated for the same user
+        else if (newUserId) {
+            const hasDateChanged = !beforeData.date.isEqual(afterData.date);
+            // Per spec: e.g. start/end time, address, role, notes, status, assigned user
+            // My Shift type has: 'type' (am/pm), 'address', 'task', 'notes', 'status'
+            const fieldsToCompare = ['task', 'address', 'type', 'notes', 'status'];
+            const hasMeaningfulFieldChanged = fieldsToCompare.some(field => (beforeData[field] ?? null) !== (afterData[field] || null));
+            
+            if (hasDateChanged || hasMeaningfulFieldChanged) {
+                 await sendNotificationToUser(newUserId, {
+                    title: "Shift Updated",
+                    body: `Your shift has been updated for ${format(shiftDateAfter, 'dd/MM/yyyy')}`,
+                    data: { url: `/dashboard` },
+                }, secrets);
+            } else {
+                 logger.info(`Shift ${event.params.shiftId} updated, but no meaningful fields changed for the user.`);
+            }
         }
-      }
     }
 });
 
