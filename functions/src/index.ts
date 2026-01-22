@@ -1,12 +1,15 @@
 
 import { HttpsError, onCall } from "firebase-functions/v2/https";
-import { onDocumentWritten } from "firebase-functions/v2/firestore";
+import { onDocumentCreated, onDocumentDeleted, onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import admin from "firebase-admin";
 import * as webPush from "web-push";
 import { logger } from "firebase-functions/v2";
 import { defineSecret } from "firebase-functions/params";
-import { format } from "date-fns";
+import { format, isBefore, startOfToday } from "date-fns";
+import { utcToZonedTime } from "date-fns-tz";
+import JSZip from "jszip";
+
 
 // Initialize admin SDK only once
 if (!admin.apps.length) {
@@ -39,176 +42,195 @@ const pushSubscriptionConverter = {
 const europeWest2 = "europe-west2";
 
 /**
- * Sends a push notification to a specific user.
- * @param userId The UID of the user to notify.
- * @param payload The notification payload.
- * @param secrets The VAPID key secrets.
+ * Helper to send notifications to a specific user.
+ * It initializes web-push and checks global notification settings.
  */
-const sendNotificationToUser = async (
-  userId: string,
-  payload: object,
-  secrets: { publicKey: string; privateKey: string; subject: string }
-) => {
-  if (!userId) {
-    logger.warn("sendNotificationToUser called with no userId.");
-    return;
-  }
-
-  // Configure web-push with VAPID keys
-  webPush.setVapidDetails(secrets.subject, secrets.publicKey, secrets.privateKey);
-
-  // Get user's push subscriptions
-  const subscriptionsSnapshot = await db
-    .collection("users")
-    .doc(userId)
-    .collection("pushSubscriptions")
-    .withConverter(pushSubscriptionConverter)
-    .get();
-
-  if (subscriptionsSnapshot.empty) {
-    logger.warn(`User ${userId} has no push subscriptions.`);
-    return;
-  }
-
-  logger.log(`Found ${subscriptionsSnapshot.size} subscriptions for user ${userId}.`);
-
-  // Send notifications and prune any invalid/expired subscriptions
-  const sendPromises = subscriptionsSnapshot.docs.map((subDoc) => {
-    const subscription = subDoc.data();
-    return webPush.sendNotification(subscription, JSON.stringify(payload)).catch((error: any) => {
-      if (error.statusCode === 410 || error.statusCode === 404) {
-        logger.log(`Deleting invalid subscription for user ${userId}.`);
-        return subDoc.ref.delete();
-      }
-      logger.error(`Error sending notification to user ${userId}:`, error);
-      return null;
-    });
-  });
-
-  await Promise.all(sendPromises);
-  logger.log(`Finished sending notifications for user ${userId}.`);
-};
-
-export const getVapidPublicKey = onCall({ region: europeWest2, secrets: [webpushPublicKey] }, (request) => {
-    if (!request.auth) {
-        throw new HttpsError("unauthenticated", "You must be logged in.");
+async function sendNotificationToUser(userId: string, payload: object) {
+    if (!userId) {
+        logger.warn("sendNotificationToUser called with no userId.");
+        return;
     }
+
+    // Check master toggle first
+    const settingsDoc = await db.collection('settings').doc('notifications').get();
+    if (settingsDoc.exists() && settingsDoc.data()?.enabled === false) {
+        logger.log('Global notifications are disabled. Aborting send to user.', { userId });
+        return;
+    }
+
+    // Configure web-push with VAPID keys from function config
     const publicKey = webpushPublicKey.value();
-    if (!publicKey) {
-        logger.error("CRITICAL: WEBPUSH_PUBLIC_KEY not set in function configuration.");
-        throw new HttpsError('not-found', 'VAPID public key is not configured on the server.');
+    const privateKey = webpushPrivateKey.value();
+    const subject = webpushSubject.value();
+
+    if (!publicKey || !privateKey || !subject) {
+        logger.error("CRITICAL: VAPID keys or subject are not configured as secrets.", { hasPk: !!publicKey, hasSk: !!privateKey, hasSub: !!subject });
+        return;
     }
-    return { publicKey };
+    webPush.setVapidDetails(subject, publicKey, privateKey);
+
+    const subscriptionsSnapshot = await db
+        .collection("users")
+        .doc(userId)
+        .collection("pushSubscriptions")
+        .withConverter(pushSubscriptionConverter)
+        .get();
+
+    if (subscriptionsSnapshot.empty) {
+        logger.warn(`User ${userId} has no push subscriptions. Cannot send notification.`);
+        return;
+    }
+
+    logger.log(`Found ${subscriptionsSnapshot.size} subscriptions for user ${userId}.`);
+
+    const sendPromises = subscriptionsSnapshot.docs.map((subDoc) => {
+        const subscription = subDoc.data();
+        return webPush.sendNotification(subscription, JSON.stringify(payload)).catch((error: any) => {
+            if (error.statusCode === 410 || error.statusCode === 404) {
+                logger.log(`Deleting invalid subscription for user ${userId}.`, { endpoint: subscription.endpoint });
+                return subDoc.ref.delete(); // Prune expired subscription
+            }
+            logger.error(`Error sending notification to user ${userId}:`, { error: error.body || error.message });
+            return null;
+        });
+    });
+
+    await Promise.all(sendPromises);
+    logger.log(`Finished sending notifications for user ${userId}.`);
+}
+
+
+function isShiftInPast(shiftDate: Date): boolean {
+    const londonTime = utcToZonedTime(new Date(), 'Europe/London');
+    const startOfTodayLondon = startOfToday(londonTime);
+    return isBefore(shiftDate, startOfTodayLondon);
+}
+
+
+// --- Firestore Triggers for Shifts ---
+
+export const onShiftCreated = onDocumentCreated({ document: "shifts/{shiftId}", region: europeWest2, secrets: [webpushPublicKey, webpushPrivateKey, webpushSubject] }, async (event) => {
+    const shiftData = event.data?.data();
+    if (!shiftData) return;
+    
+    const userId = shiftData.userId;
+    if (!userId) {
+        logger.log("New shift created without a userId. No notification sent.", { shiftId: event.params.shiftId });
+        return;
+    }
+    
+    const shiftDate = shiftData.date.toDate();
+    if (isShiftInPast(shiftDate)) {
+        logger.log("New shift is in the past. No notification sent.", { shiftId: event.params.shiftId });
+        return;
+    }
+
+    const payload = {
+        title: "New shift added",
+        body: `A new shift was added for ${format(shiftDate, 'dd/MM/yyyy')}`,
+        data: { url: `/dashboard` },
+    };
+
+    await sendNotificationToUser(userId, payload);
+    logger.log(`Finished onShiftCreated for shiftId: ${event.params.shiftId}`);
 });
 
-export const sendShiftNotification = onDocumentWritten(
-  {
-    document: "shifts/{shiftId}",
-    region: europeWest2,
-    secrets: [webpushPublicKey, webpushPrivateKey, webpushSubject],
-  },
-  async (event) => {
+
+export const onShiftUpdated = onDocumentUpdated({ document: "shifts/{shiftId}", region: europeWest2, secrets: [webpushPublicKey, webpushPrivateKey, webpushSubject] }, async (event) => {
     const beforeData = event.data?.before.data();
     const afterData = event.data?.after.data();
 
-    const secrets = {
-        publicKey: webpushPublicKey.value(),
-        privateKey: webpushPrivateKey.value(),
-        subject: webpushSubject.value() || "mailto:example@your-project.com",
-    };
-    if (!secrets.publicKey || !secrets.privateKey) {
-      logger.error("CRITICAL: VAPID keys are not configured as secrets.");
-      return;
-    }
-
-    const now = new Date();
-    // Use London time for comparison. new Date() is server time (UTC).
-    const todayLondonString = now.toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
-    const startOfTodayLondon = new Date(todayLondonString);
-
-    // Case 1: Shift Created
-    if (!beforeData && afterData) {
-      const shiftDate = afterData.date.toDate();
-      if (shiftDate < startOfTodayLondon) return; // Don't notify for past shifts
-
-      if (afterData.userId) {
-        await sendNotificationToUser(afterData.userId, {
-          title: "New Shift Added",
-          body: `New shift added for ${format(shiftDate, 'dd/MM/yyyy')}`,
-          data: { url: `/dashboard` },
-        }, secrets);
-      }
-      return;
-    }
-
-    // Case 2: Shift Deleted
-    if (beforeData && !afterData) {
-      const shiftDate = beforeData.date.toDate();
-      if (shiftDate < startOfTodayLondon) return; // Don't notify for past shifts
-
-      if (beforeData.userId) {
-        await sendNotificationToUser(beforeData.userId, {
-          title: "Shift Removed",
-          body: `Your shift has been removed for ${format(shiftDate, 'dd/MM/yyyy')}`,
-          data: { url: `/dashboard` },
-        }, secrets);
-      }
-      return;
-    }
-
-    // Case 3: Shift Updated
-    if (beforeData && afterData) {
-        const shiftDateAfter = afterData.date.toDate();
-        // Don't notify for updates to shifts that are in the past, unless the date itself was changed from future to past.
-        if (shiftDateAfter < startOfTodayLondon && beforeData.date.toDate() < startOfTodayLondon) {
-             return;
+    if (!beforeData || !afterData) return;
+    
+    const shiftId = event.params.shiftId;
+    
+    // --- Check 1: User Reassignment ---
+    if (beforeData.userId !== afterData.userId) {
+        // Notify the OLD user that the shift was removed
+        if (beforeData.userId && !isShiftInPast(beforeData.date.toDate())) {
+            const oldUserPayload = {
+                title: "Shift unassigned",
+                body: `Your shift for ${format(beforeData.date.toDate(), 'dd/MM/yyyy')} has been removed.`,
+                data: { url: `/dashboard` },
+            };
+            await sendNotificationToUser(beforeData.userId, oldUserPayload);
         }
-
-        const oldUserId = beforeData.userId;
-        const newUserId = afterData.userId;
-
-        // Sub-case 3a: User unassigned/reassigned
-        if (oldUserId !== newUserId) {
-            // Notify old user of removal
-            if (oldUserId) {
-                 await sendNotificationToUser(oldUserId, {
-                    title: "Shift Unassigned",
-                    body: `Your shift for ${format(beforeData.date.toDate(), 'dd/MM/yyyy')} has been removed.`,
-                    data: { url: `/dashboard` },
-                }, secrets);
-            }
-            // Notify new user of assignment
-            if (newUserId) {
-                await sendNotificationToUser(newUserId, {
-                    title: "New Shift Added",
-                    body: `New shift added for ${format(shiftDateAfter, 'dd/MM/yyyy')}`,
-                    data: { url: `/dashboard` },
-                }, secrets);
-            }
-        } 
-        // Sub-case 3b: Shift details updated for the same user
-        else if (newUserId) {
-            const hasDateChanged = !beforeData.date.isEqual(afterData.date);
-            // Per spec: e.g. start/end time, address, role, notes, status, assigned user
-            // My Shift type has: 'type' (am/pm), 'address', 'task', 'notes', 'status'
-            const fieldsToCompare = ['task', 'address', 'type', 'notes', 'status'];
-            const hasMeaningfulFieldChanged = fieldsToCompare.some(field => (beforeData[field] ?? null) !== (afterData[field] || null));
-            
-            if (hasDateChanged || hasMeaningfulFieldChanged) {
-                 await sendNotificationToUser(newUserId, {
-                    title: "Shift Updated",
-                    body: `Your shift has been updated for ${format(shiftDateAfter, 'dd/MM/yyyy')}`,
-                    data: { url: `/dashboard` },
-                }, secrets);
-            } else {
-                 logger.info(`Shift ${event.params.shiftId} updated, but no meaningful fields changed for the user.`);
-            }
+        // Notify the NEW user that a shift was added
+        if (afterData.userId && !isShiftInPast(afterData.date.toDate())) {
+             const newUserPayload = {
+                title: "New shift added",
+                body: `A new shift was added for ${format(afterData.date.toDate(), 'dd/MM/yyyy')}`,
+                data: { url: `/dashboard` },
+            };
+            await sendNotificationToUser(afterData.userId, newUserPayload);
         }
+        logger.log(`Shift ${shiftId} was reassigned. Old: ${beforeData.userId}, New: ${afterData.userId}.`);
+        return;
+    }
+
+    // --- Check 2: Meaningful change for the SAME user ---
+    const userId = afterData.userId;
+    if (!userId) return; // No user assigned, nothing to do.
+
+    const afterDate = afterData.date.toDate();
+
+    // Do not notify for updates to shifts that are already in the past
+    if (isShiftInPast(afterDate)) {
+        logger.log(`Shift ${shiftId} was updated, but it is in the past. No notification sent.`);
+        return;
+    }
+    
+    const fieldsToCompare: (keyof typeof afterData)[] = ['task', 'address', 'type', 'notes', 'status', 'date'];
+    const hasMeaningfulChange = fieldsToCompare.some(field => {
+        if (field === 'date') {
+            return !beforeData.date.isEqual(afterData.date);
+        }
+        return (beforeData[field] || null) !== (afterData[field] || null);
+    });
+
+    if (hasMeaningfulChange) {
+        const payload = {
+            title: "Shift updated",
+            body: `Your shift for ${format(afterDate, 'dd/MM/yyyy')} has been updated.`,
+            data: { url: `/dashboard` },
+        };
+        logger.log(`Meaningful change detected for shift ${shiftId}. Sending notification.`);
+        await sendNotificationToUser(userId, payload);
+    } else {
+        logger.log(`Shift ${shiftId} was updated, but no significant fields changed for the user.`);
     }
 });
 
 
-// Stub out other functions to avoid breaking the build, but focus on the requested one.
+export const onShiftDeleted = onDocumentDeleted({ document: "shifts/{shiftId}", region: europeWest2, secrets: [webpushPublicKey, webpushPrivateKey, webpushSubject] }, async (event) => {
+    const deletedData = event.data?.data();
+    if (!deletedData) return;
+    
+    const userId = deletedData.userId;
+    if (!userId) {
+        logger.log("Shift deleted without a userId. No notification sent.", { shiftId: event.params.shiftId });
+        return;
+    }
+
+    const shiftDate = deletedData.date.toDate();
+    if (isShiftInPast(shiftDate)) {
+        logger.log("Deleted shift was in the past. No notification sent.", { shiftId: event.params.shiftId });
+        return;
+    }
+
+    const payload = {
+        title: "Shift removed",
+        body: `Your shift for ${format(shiftDate, 'dd/MM/yyyy')} has been removed.`,
+        data: { url: `/dashboard` },
+    };
+
+    await sendNotificationToUser(userId, payload);
+    logger.log(`Finished onShiftDeleted for shiftId: ${event.params.shiftId}`);
+});
+
+
+// --- Other Callable Functions (Stubs and Existing Logic) ---
+
 export const getNotificationStatus = onCall({ region: europeWest2 }, () => ({ enabled: true }));
 export const setNotificationStatus = onCall({ region: europeWest2 }, () => ({ success: true }));
 export const projectReviewNotifier = onSchedule({ schedule: "every 24 hours", region: europeWest2 }, () => { logger.log("projectReviewNotifier executed."); });
