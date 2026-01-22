@@ -1,20 +1,17 @@
 {
   "name": "functions",
   "scripts": {
-    "lint": "eslint --ext .js,.ts .",
+    "lint": "eslint . --ext .ts",
     "build": "tsc",
-    "build:watch": "tsc --watch",
     "serve": "firebase emulators:start --only functions",
-    "shell": "npm run build && firebase functions:shell",
-    "start": "npm run shell",
-    "deploy": "firebase deploy --only functions",
-    "logs": "firebase functions:log"
+    "deploy": "firebase deploy --only functions"
   },
+  "main": "lib/index.js",
   "engines": {
     "node": "20"
   },
-  "main": "lib/index.js",
   "dependencies": {
+    "date-fns": "^3.6.0",
     "firebase-admin": "12.1.1",
     "firebase-functions": "5.0.1",
     "jszip": "3.10.1",
