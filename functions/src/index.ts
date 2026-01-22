@@ -112,7 +112,6 @@ export const sendShiftNotification = onDocumentWritten(
     const beforeData = event.data?.before.data();
     const afterData = event.data?.after.data();
 
-    // Get VAPID keys from secrets
     const secrets = {
         publicKey: webpushPublicKey.value(),
         privateKey: webpushPrivateKey.value(),
@@ -123,95 +122,73 @@ export const sendShiftNotification = onDocumentWritten(
       return;
     }
 
-    // Determine the start of today in London to filter out past shifts
     const now = new Date();
-    const todayLondonString = now.toLocaleDateString('en-CA', { timeZone: 'Europe/London' }); // YYYY-MM-DD
+    const todayLondonString = now.toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
     const startOfTodayLondon = new Date(todayLondonString);
 
-
-    // --- Handle Shift Creation ---
-    if (!beforeData && afterData) {
+    if (!beforeData && afterData) { // CREATE
       const shiftDate = afterData.date.toDate();
-      if (shiftDate < startOfTodayLondon) {
-        logger.info("Skipping notification for a newly created past shift.");
-        return;
-      }
-
+      if (shiftDate < startOfTodayLondon) return;
       if (afterData.userId) {
-        const payload = {
+        await sendNotificationToUser(afterData.userId, {
           title: "New Shift Assigned",
           body: `A new shift has been added for ${format(shiftDate, 'dd/MM/yyyy')}`,
           data: { url: `/dashboard` },
-        };
-        await sendNotificationToUser(afterData.userId, payload, secrets);
+        }, secrets);
       }
       return;
     }
 
-    // --- Handle Shift Deletion ---
-    if (beforeData && !afterData) {
+    if (beforeData && !afterData) { // DELETE
       const shiftDate = beforeData.date.toDate();
-      if (shiftDate < startOfTodayLondon) {
-        logger.info("Skipping notification for a deleted past shift.");
-        return;
-      }
-      
+      if (shiftDate < startOfTodayLondon) return;
       if (beforeData.userId) {
-        const payload = {
+        await sendNotificationToUser(beforeData.userId, {
           title: "Shift Removed",
           body: `Your shift for ${format(shiftDate, 'dd/MM/yyyy')} has been removed.`,
           data: { url: `/dashboard` },
-        };
-        await sendNotificationToUser(beforeData.userId, payload, secrets);
+        }, secrets);
       }
       return;
     }
 
-    // --- Handle Shift Update ---
-    if (beforeData && afterData) {
-        const shiftDateAfter = afterData.date.toDate();
-        if (shiftDateAfter < startOfTodayLondon) {
-            logger.info("Skipping notification for an update to a past shift.");
-            return;
-        }
+    if (beforeData && afterData) { // UPDATE
+      const shiftDateAfter = afterData.date.toDate();
+      if (shiftDateAfter < startOfTodayLondon) return;
 
-        // --- Check for Reassignment ---
-        if (beforeData.userId && afterData.userId && beforeData.userId !== afterData.userId) {
-            // Notify the old user of removal
-            const oldUserPayload = {
-                title: "Shift Reassigned",
-                body: `Your shift for ${format(beforeData.date.toDate(), 'dd/MM/yyyy')} has been reassigned.`,
-                data: { url: `/dashboard` },
-            };
-            await sendNotificationToUser(beforeData.userId, oldUserPayload, secrets);
+      const oldUserId = beforeData.userId;
+      const newUserId = afterData.userId;
 
-            // Notify the new user of assignment
-            const newUserPayload = {
-                title: "New Shift Assigned",
-                body: `You have been assigned a shift for ${format(shiftDateAfter, 'dd/MM/yyyy')}.`,
-                data: { url: `/dashboard` },
-            };
-            await sendNotificationToUser(afterData.userId, newUserPayload, secrets);
-            return;
+      if (oldUserId !== newUserId) {
+        if (oldUserId) {
+          await sendNotificationToUser(oldUserId, {
+            title: "Shift Unassigned",
+            body: `Your shift for ${format(beforeData.date.toDate(), 'dd/MM/yyyy')} has been reassigned.`,
+            data: { url: `/dashboard` },
+          }, secrets);
         }
-        
-        // --- Check for other meaningful changes for the same user ---
+        if (newUserId) {
+          await sendNotificationToUser(newUserId, {
+            title: "New Shift Assigned",
+            body: `You have been assigned a shift for ${format(shiftDateAfter, 'dd/MM/yyyy')}.`,
+            data: { url: `/dashboard` },
+          }, secrets);
+        }
+      } else if (newUserId) {
         const hasDateChanged = !beforeData.date.isEqual(afterData.date);
         const fieldsToCompare = ['task', 'address', 'eNumber', 'type', 'manager', 'notes', 'status'];
         const hasFieldChanged = fieldsToCompare.some(field => beforeData[field] !== afterData[field]);
-        
+
         if (hasDateChanged || hasFieldChanged) {
-            if (afterData.userId) {
-                const payload = {
-                    title: "Shift Updated",
-                    body: `Your shift for ${format(shiftDateAfter, 'dd/MM/yyyy')} has been updated.`,
-                    data: { url: `/dashboard` },
-                };
-                await sendNotificationToUser(afterData.userId, payload, secrets);
-            }
+          await sendNotificationToUser(newUserId, {
+            title: "Shift Updated",
+            body: `Your shift for ${format(shiftDateAfter, 'dd/MM/yyyy')} has been updated.`,
+            data: { url: `/dashboard` },
+          }, secrets);
         } else {
-            logger.info("Shift updated, but no meaningful fields changed. No notification will be sent.");
+          logger.info("Shift updated, but no meaningful fields changed.");
         }
+      }
     }
 });
 
@@ -228,4 +205,3 @@ export const deleteAllProjects = onCall({ region: europeWest2 }, () => ({ succes
 export const setUserStatus = onCall({ region: europeWest2 }, () => ({ success: true }));
 export const deleteUser = onCall({ region: europeWest2 }, () => ({ success: true }));
 export const zipProjectFiles = onCall({ region: europeWest2 }, () => ({ downloadUrl: "" }));
-
