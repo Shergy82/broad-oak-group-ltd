@@ -14,8 +14,6 @@ if (!admin.apps.length) admin.initializeApp();
 const db = admin.firestore();
 
 // --- Config / secrets ---
-// This is used so notification clicks open your real domain, not relative paths.
-// Set it to your live site, e.g. https://yourapp.web.app
 const APP_BASE_URL = defineString("APP_BASE_URL");
 
 // Optional global kill switch doc: settings/notifications { enabled: true/false }
@@ -124,20 +122,18 @@ async function sendFcmToUser(
 
   const link = absoluteLink(urlPath);
 
-  // NOTE: For web push, best reliability comes from "webpush.fcmOptions.link"
   const message = {
     tokens,
     notification: { title, body },
     data: {
-      url: link, // keep full url in data too (handy for SW)
+      url: link,
       ...Object.fromEntries(
         Object.entries(data).map(([k, v]) => [k, String(v)])
       ),
     },
     webpush: {
-      fcmOptions: { link }, // click opens this
+      fcmOptions: { link },
       notification: {
-        // optional web-only fields
         icon: "/icons/icon-192x192.png",
       },
     },
@@ -149,7 +145,6 @@ async function sendFcmToUser(
   resp.responses.forEach((r, idx) => {
     if (!r.success) {
       const code = (r.error as any)?.code || "";
-      // token issues
       if (
         code.includes("registration-token-not-registered") ||
         code.includes("invalid-argument") ||
@@ -173,6 +168,11 @@ async function sendFcmToUser(
     success: resp.successCount,
     failure: resp.failureCount,
   });
+}
+
+// ✅ CHANGED: central place to send users when action is required
+function pendingGateUrl(): string {
+  return "/dashboard?gate=pending";
 }
 
 // --- Firestore triggers: shifts/{shiftId} ---
@@ -201,12 +201,18 @@ export const onShiftCreated = onDocumentCreated(
       return;
     }
 
+    const shiftId = event.params.shiftId;
+
     await sendFcmToUser(
       userId,
       "New shift added",
       `A new shift was added for ${formatDateUK(shiftDate)}`,
-      `/shift/${event.params.shiftId}`,
-      { shiftId: event.params.shiftId }
+      pendingGateUrl(), // ✅ CHANGED (was /shift/{id})
+      {
+        shiftId, // ✅ include shiftId for the app to highlight / open modal
+        gate: "pending", // ✅ allow UI to force the pending screen
+        event: "created",
+      }
     );
   }
 );
@@ -231,7 +237,7 @@ export const onShiftUpdated = onDocumentUpdated(
             ? `Your shift for ${formatDateUK(d)} has been removed.`
             : "A shift has been removed.",
           "/dashboard",
-          { shiftId }
+          { shiftId, event: "unassigned" }
         );
       }
 
@@ -242,8 +248,8 @@ export const onShiftUpdated = onDocumentUpdated(
             after.userId,
             "New shift added",
             `A new shift was added for ${formatDateUK(d)}`,
-            `/shift/${shiftId}`,
-            { shiftId }
+            pendingGateUrl(), // ✅ CHANGED (was /shift/{id})
+            { shiftId, gate: "pending", event: "assigned" }
           );
         }
       }
@@ -292,12 +298,20 @@ export const onShiftUpdated = onDocumentUpdated(
       return;
     }
 
+    // ✅ CHANGED: if it's pending-confirmation (or becomes pending), force the gate
+    const needsAction =
+      String(after.status || "").toLowerCase() === "pending-confirmation";
+
     await sendFcmToUser(
       userId,
       "Shift updated",
       `Your shift for ${formatDateUK(afterDate)} has been updated.`,
-      `/shift/${shiftId}`,
-      { shiftId }
+      needsAction ? pendingGateUrl() : `/shift/${shiftId}`, // ✅ CHANGED
+      {
+        shiftId,
+        event: "updated",
+        ...(needsAction ? { gate: "pending" } : {}),
+      }
     );
   }
 );
@@ -320,7 +334,7 @@ export const onShiftDeleted = onDocumentDeleted(
         ? `Your shift for ${formatDateUK(d)} has been removed.`
         : "A shift has been removed.",
       "/dashboard",
-      { shiftId: event.params.shiftId }
+      { shiftId: event.params.shiftId, event: "deleted" }
     );
   }
 );

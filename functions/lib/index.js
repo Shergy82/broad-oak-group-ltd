@@ -15,8 +15,6 @@ if (!firebase_admin_1.default.apps.length)
     firebase_admin_1.default.initializeApp();
 const db = firebase_admin_1.default.firestore();
 // --- Config / secrets ---
-// This is used so notification clicks open your real domain, not relative paths.
-// Set it to your live site, e.g. https://yourapp.web.app
 const APP_BASE_URL = (0, params_1.defineString)("APP_BASE_URL");
 // Optional global kill switch doc: settings/notifications { enabled: true/false }
 const europeWest2 = "europe-west2";
@@ -100,15 +98,13 @@ async function sendFcmToUser(userId, title, body, urlPath, data = {}) {
         return;
     }
     const link = absoluteLink(urlPath);
-    // NOTE: For web push, best reliability comes from "webpush.fcmOptions.link"
     const message = {
         tokens,
         notification: { title, body },
         data: Object.assign({ url: link }, Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)]))),
         webpush: {
-            fcmOptions: { link }, // click opens this
+            fcmOptions: { link },
             notification: {
-                // optional web-only fields
                 icon: "/icons/icon-192x192.png",
             },
         },
@@ -119,7 +115,6 @@ async function sendFcmToUser(userId, title, body, urlPath, data = {}) {
         var _a, _b;
         if (!r.success) {
             const code = ((_a = r.error) === null || _a === void 0 ? void 0 : _a.code) || "";
-            // token issues
             if (code.includes("registration-token-not-registered") ||
                 code.includes("invalid-argument") ||
                 code.includes("invalid-registration-token")) {
@@ -140,6 +135,10 @@ async function sendFcmToUser(userId, title, body, urlPath, data = {}) {
         success: resp.successCount,
         failure: resp.failureCount,
     });
+}
+// ✅ CHANGED: central place to send users when action is required
+function pendingGateUrl() {
+    return "/dashboard?gate=pending";
 }
 // --- Firestore triggers: shifts/{shiftId} ---
 exports.onShiftCreated = (0, firestore_1.onDocumentCreated)({ document: "shifts/{shiftId}", region: europeWest2 }, async (event) => {
@@ -163,7 +162,13 @@ exports.onShiftCreated = (0, firestore_1.onDocumentCreated)({ document: "shifts/
         });
         return;
     }
-    await sendFcmToUser(userId, "New shift added", `A new shift was added for ${formatDateUK(shiftDate)}`, `/shift/${event.params.shiftId}`, { shiftId: event.params.shiftId });
+    const shiftId = event.params.shiftId;
+    await sendFcmToUser(userId, "New shift added", `A new shift was added for ${formatDateUK(shiftDate)}`, pendingGateUrl(), // ✅ CHANGED (was /shift/{id})
+    {
+        shiftId, // ✅ include shiftId for the app to highlight / open modal
+        gate: "pending", // ✅ allow UI to force the pending screen
+        event: "created",
+    });
 });
 exports.onShiftUpdated = (0, firestore_1.onDocumentUpdated)({ document: "shifts/{shiftId}", region: europeWest2 }, async (event) => {
     var _a, _b, _c, _d, _e, _f, _g, _h;
@@ -178,12 +183,13 @@ exports.onShiftUpdated = (0, firestore_1.onDocumentUpdated)({ document: "shifts/
             const d = ((_d = (_c = before.date) === null || _c === void 0 ? void 0 : _c.toDate) === null || _d === void 0 ? void 0 : _d.call(_c)) ? before.date.toDate() : null;
             await sendFcmToUser(before.userId, "Shift unassigned", d
                 ? `Your shift for ${formatDateUK(d)} has been removed.`
-                : "A shift has been removed.", "/dashboard", { shiftId });
+                : "A shift has been removed.", "/dashboard", { shiftId, event: "unassigned" });
         }
         if (after.userId) {
             const d = ((_f = (_e = after.date) === null || _e === void 0 ? void 0 : _e.toDate) === null || _f === void 0 ? void 0 : _f.call(_e)) ? after.date.toDate() : null;
             if (d && !isShiftInPast(d)) {
-                await sendFcmToUser(after.userId, "New shift added", `A new shift was added for ${formatDateUK(d)}`, `/shift/${shiftId}`, { shiftId });
+                await sendFcmToUser(after.userId, "New shift added", `A new shift was added for ${formatDateUK(d)}`, pendingGateUrl(), // ✅ CHANGED (was /shift/{id})
+                { shiftId, gate: "pending", event: "assigned" });
             }
         }
         v2_1.logger.log("Shift reassigned", {
@@ -227,7 +233,9 @@ exports.onShiftUpdated = (0, firestore_1.onDocumentUpdated)({ document: "shifts/
         v2_1.logger.log("Shift updated but no meaningful change", { shiftId });
         return;
     }
-    await sendFcmToUser(userId, "Shift updated", `Your shift for ${formatDateUK(afterDate)} has been updated.`, `/shift/${shiftId}`, { shiftId });
+    // ✅ CHANGED: if it's pending-confirmation (or becomes pending), force the gate
+    const needsAction = String(after.status || "").toLowerCase() === "pending-confirmation";
+    await sendFcmToUser(userId, "Shift updated", `Your shift for ${formatDateUK(afterDate)} has been updated.`, needsAction ? pendingGateUrl() : `/shift/${shiftId}`, Object.assign({ shiftId, event: "updated" }, (needsAction ? { gate: "pending" } : {})));
 });
 exports.onShiftDeleted = (0, firestore_1.onDocumentDeleted)({ document: "shifts/{shiftId}", region: europeWest2 }, async (event) => {
     var _a, _b, _c;
@@ -240,7 +248,7 @@ exports.onShiftDeleted = (0, firestore_1.onDocumentDeleted)({ document: "shifts/
     const d = ((_c = (_b = deleted.date) === null || _b === void 0 ? void 0 : _b.toDate) === null || _c === void 0 ? void 0 : _c.call(_b)) ? deleted.date.toDate() : null;
     await sendFcmToUser(userId, "Shift removed", d
         ? `Your shift for ${formatDateUK(d)} has been removed.`
-        : "A shift has been removed.", "/dashboard", { shiftId: event.params.shiftId });
+        : "A shift has been removed.", "/dashboard", { shiftId: event.params.shiftId, event: "deleted" });
 });
 // --- Optional callables (safe) ---
 exports.getNotificationStatus = (0, https_1.onCall)({ region: europeWest2 }, async () => {
