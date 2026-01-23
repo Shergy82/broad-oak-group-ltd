@@ -1,4 +1,4 @@
-const ensureCorrectServiceWorker = useCallback(async (): Promise<ServiceWorkerRegistration> => {
+async function ensureCorrectServiceWorker(): Promise<ServiceWorkerRegistration> {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
     throw new Error('Service workers not supported in this environment.');
   }
@@ -47,8 +47,7 @@ const ensureCorrectServiceWorker = useCallback(async (): Promise<ServiceWorkerRe
 
   if (found2) return found2;
 
-  // If we get here, the registrar didn't register the FCM SW (or old SW still present)
   throw new Error(
     'FCM service worker not found. Ensure /firebase-messaging-sw.js is registered by ServiceWorkerRegistrar, then reload the page.'
   );
-}, []);
+}
