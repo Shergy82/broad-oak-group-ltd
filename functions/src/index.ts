@@ -1,3 +1,4 @@
+// functions/src/index.ts
 import { onCall } from "firebase-functions/v2/https";
 import {
   onDocumentCreated,
@@ -13,16 +14,18 @@ import admin from "firebase-admin";
 if (!admin.apps.length) admin.initializeApp();
 const db = admin.firestore();
 
-// --- Config / secrets ---
+// --- Config / params ---
 const APP_BASE_URL = defineString("APP_BASE_URL");
-
-// Optional global kill switch doc: settings/notifications { enabled: true/false }
 const europeWest2 = "europe-west2";
+
+// --------------------
+// Helpers
+// --------------------
 
 /**
  * Firestore path where we store FCM tokens:
  * users/{uid}/pushTokens/{tokenDocId}
- * { token: string, updatedAt: string, userAgent?: string }
+ * { token: string, updatedAt: Timestamp, userAgent?: string, platform?: string }
  */
 async function getUserFcmTokens(userId: string): Promise<string[]> {
   const snap = await db
@@ -36,9 +39,7 @@ async function getUserFcmTokens(userId: string): Promise<string[]> {
   const tokens: string[] = [];
   for (const doc of snap.docs) {
     const data = doc.data() as any;
-    const t = (data.token || data.fcmToken || doc.id || "")
-      .toString()
-      .trim();
+    const t = (data.token || data.fcmToken || doc.id || "").toString().trim();
     if (t) tokens.push(t);
   }
   return Array.from(new Set(tokens));
@@ -69,7 +70,7 @@ function formatDateUK(d: Date): string {
 
 /**
  * Returns true if the shift is on a day strictly before "today".
- * We compare by UTC day to avoid timezone drift and libraries.
+ * Compare by UTC day to avoid timezone drift.
  */
 function isShiftInPast(shiftDate: Date): boolean {
   const now = new Date();
@@ -92,10 +93,27 @@ function isShiftInPast(shiftDate: Date): boolean {
 function absoluteLink(pathOrUrl: string): string {
   const base = (APP_BASE_URL.value() || "").trim().replace(/\/+$/, "");
   if (!base) return pathOrUrl; // fallback
-  if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://"))
+  if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) {
     return pathOrUrl;
+  }
   const path = pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`;
   return `${base}${path}`;
+}
+
+// Central place to send users when action is required
+function pendingGateUrl(): string {
+  return "/dashboard?gate=pending";
+}
+
+/**
+ * Check user-level preference switch.
+ * If users/{uid}.notificationsEnabled === false => do not send.
+ */
+async function isUserNotificationsEnabled(userId: string): Promise<boolean> {
+  const userDoc = await db.collection("users").doc(userId).get();
+  if (!userDoc.exists) return true; // default allow
+  const enabled = userDoc.data()?.notificationsEnabled;
+  return enabled !== false;
 }
 
 async function sendFcmToUser(
@@ -107,57 +125,45 @@ async function sendFcmToUser(
 ) {
   if (!userId) return;
 
-  // global kill switch
+  // Global kill switch
   const settingsDoc = await db.collection("settings").doc("notifications").get();
   if (settingsDoc.exists && settingsDoc.data()?.enabled === false) {
     logger.log("Global notifications disabled; skipping send", { userId });
     return;
   }
 
+  // User-level switch
+  const userEnabled = await isUserNotificationsEnabled(userId);
+  if (!userEnabled) {
+    logger.log("User notifications disabled; skipping send", { userId });
+    return;
+  }
+
   const tokens = await getUserFcmTokens(userId);
   if (!tokens.length) {
-    logger.warn("No FCM tokens for user; cannot send", { userId });
+    logger.info("No FCM tokens for user; cannot send", { userId });
     return;
   }
 
   const link = absoluteLink(urlPath);
 
-  // ✅ UPDATED: add sound + badge + high urgency for iOS / web push alerting
+  // DATA-ONLY payload (service worker handles notification display)
   const message = {
     tokens,
-
-    // Android + some browsers
-    notification: { title, body },
-
     data: {
+      title,
+      body,
       url: link,
       ...Object.fromEntries(
         Object.entries(data).map(([k, v]) => [k, String(v)])
       ),
     },
-
     webpush: {
-      headers: {
-        Urgency: "high",
-      },
+      headers: { Urgency: "high" },
       fcmOptions: { link },
-      notification: {
-        title,
-        body,
-        icon: "/icons/notification-icon.png",
-        badge: "/icons/icon-96x96.png",
-        requireInteraction: true,
-        sound: "default",
-      },
     },
-
-    // ✅ iOS / APNS hint (safe everywhere)
     apns: {
-      payload: {
-        aps: {
-          sound: "default",
-        },
-      },
+      payload: { aps: { sound: "default" } },
     },
   };
 
@@ -192,12 +198,9 @@ async function sendFcmToUser(
   });
 }
 
-// ✅ central place to send users when action is required
-function pendingGateUrl(): string {
-  return "/dashboard?gate=pending";
-}
-
-// --- Firestore triggers: shifts/{shiftId} ---
+// --------------------
+// Firestore triggers: shifts/{shiftId}
+// --------------------
 
 export const onShiftCreated = onDocumentCreated(
   { document: "shifts/{shiftId}", region: europeWest2 },
@@ -216,6 +219,7 @@ export const onShiftCreated = onDocumentCreated(
     const shiftDate = shift.date?.toDate?.() ? shift.date.toDate() : null;
     if (!shiftDate) return;
 
+    // Only today/future
     if (isShiftInPast(shiftDate)) {
       logger.log("Shift created in past; no notify", {
         shiftId: event.params.shiftId,
@@ -230,11 +234,7 @@ export const onShiftCreated = onDocumentCreated(
       "New shift added",
       `A new shift was added for ${formatDateUK(shiftDate)}`,
       pendingGateUrl(),
-      {
-        shiftId,
-        gate: "pending",
-        event: "created",
-      }
+      { shiftId, gate: "pending", event: "created" }
     );
   }
 );
@@ -291,14 +291,13 @@ export const onShiftUpdated = onDocumentUpdated(
     const afterDate = after.date?.toDate?.() ? after.date.toDate() : null;
     if (!afterDate) return;
 
+    // Only today/future
     if (isShiftInPast(afterDate)) {
       logger.log("Shift updated but in past; no notify", { shiftId });
       return;
     }
 
-    // ✅ NEW: if the shift owner updated their OWN shift (accept/on-site/complete/etc),
-    // do NOT notify them about their own action.
-    // (Your ShiftCard now writes: updatedByUid, updatedByAction, updatedAt)
+    // If the shift owner updated their OWN shift, do NOT notify them about their own action.
     const updatedByUid = String(after.updatedByUid || "").trim();
     if (updatedByUid && updatedByUid === String(userId)) {
       logger.log("Shift updated by assigned user; skipping notify", {
@@ -312,6 +311,7 @@ export const onShiftUpdated = onDocumentUpdated(
       return;
     }
 
+    // Only notify when meaningful fields change
     const fieldsToCompare = [
       "task",
       "address",
@@ -336,7 +336,6 @@ export const onShiftUpdated = onDocumentUpdated(
       return;
     }
 
-    // if it's pending-confirmation (or becomes pending), force the gate
     const needsAction =
       String(after.status || "").toLowerCase() === "pending-confirmation";
 
@@ -368,7 +367,7 @@ export const onShiftDeleted = onDocumentDeleted(
     const status = String(deleted.status || "").toLowerCase();
     const FINAL_STATUSES = new Set(["completed", "incomplete", "rejected"]);
 
-    // ❌ Never notify for history/final shifts
+    // Never notify for history/final shifts
     if (FINAL_STATUSES.has(status)) {
       logger.log("Shift deleted but was historical; no notify", {
         shiftId: event.params.shiftId,
@@ -377,7 +376,7 @@ export const onShiftDeleted = onDocumentDeleted(
       return;
     }
 
-    // ❌ Never notify for past/expired shifts (admin mistakes, cleanup)
+    // Never notify for past/expired shifts
     if (d && isShiftInPast(d)) {
       logger.log("Shift deleted but in past; no notify", {
         shiftId: event.params.shiftId,
@@ -385,7 +384,7 @@ export const onShiftDeleted = onDocumentDeleted(
       return;
     }
 
-    // ❌ Fail-safe: if no date, skip notification
+    // Fail-safe: if no date, skip notification
     if (!d) {
       logger.log("Shift deleted but no date; skipping notify", {
         shiftId: event.params.shiftId,
@@ -393,45 +392,132 @@ export const onShiftDeleted = onDocumentDeleted(
       return;
     }
 
-    // ✅ ONLY future + active shifts reach here
     await sendFcmToUser(
       userId,
       "Shift removed",
       `Your shift for ${formatDateUK(d)} has been removed.`,
       "/dashboard",
-      {
-        shiftId: event.params.shiftId,
-        event: "deleted",
-      }
+      { shiftId: event.params.shiftId, event: "deleted" }
     );
   }
 );
 
-// --- Optional callables (safe) ---
+// --------------------
+// Callables
+// --------------------
 
 export const getNotificationStatus = onCall(
   { region: europeWest2 },
-  async () => {
+  async (req) => {
     const doc = await db.collection("settings").doc("notifications").get();
     const enabled = doc.exists ? doc.data()?.enabled !== false : true;
-    return { enabled };
+
+    const uid = req.auth?.uid || "";
+    if (!uid) return { enabled, hasToken: false, tokenCount: 0 };
+
+    const userEnabled = await isUserNotificationsEnabled(uid);
+    const tokens = await getUserFcmTokens(uid);
+
+    return {
+      enabled,
+      userEnabled,
+      hasToken: tokens.length > 0,
+      tokenCount: tokens.length,
+    };
   }
 );
 
 export const setNotificationStatus = onCall(
   { region: europeWest2 },
   async (req) => {
-    // IMPORTANT: you should lock this down by auth/role. Stub for now.
+    const uid = req.auth?.uid;
+    if (!uid) {
+      logger.info("setNotificationStatus: UNAUTHENTICATED");
+      throw new Error("Unauthenticated");
+    }
+
     const enabled = !!(req.data as any)?.enabled;
-    await db
-      .collection("settings")
-      .doc("notifications")
-      .set({ enabled }, { merge: true });
-    return { success: true, enabled };
+    const tokenRaw = (req.data as any)?.token;
+    const token = typeof tokenRaw === "string" ? tokenRaw.trim() : "";
+    const platformRaw = (req.data as any)?.platform;
+    const platform = typeof platformRaw === "string" ? platformRaw.trim() : null;
+
+    logger.info("setNotificationStatus: ENTER", {
+      uid,
+      enabled,
+      tokenPresent: !!token,
+      tokenLen: token.length,
+      keys: req.data ? Object.keys(req.data) : [],
+      ua: req.rawRequest?.headers?.["user-agent"] || null,
+      platform,
+    });
+
+    // Store user-level enabled switch
+    await db.collection("users").doc(uid).set(
+      {
+        notificationsEnabled: enabled,
+        notificationsUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    const col = db.collection("users").doc(uid).collection("pushTokens");
+
+    if (enabled) {
+      if (!token) {
+        logger.info("setNotificationStatus: MISSING TOKEN", {
+          uid,
+          keys: req.data ? Object.keys(req.data) : [],
+        });
+        throw new Error("Missing token");
+      }
+
+      await col.doc(token).set(
+        {
+          token,
+          platform,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          userAgent:
+            (req.rawRequest?.headers?.["user-agent"] as string | undefined) ||
+            null,
+        },
+        { merge: true }
+      );
+
+      logger.info("setNotificationStatus: SAVED TOKEN", {
+        uid,
+        tokenLen: token.length,
+      });
+
+      return { success: true, enabled: true, debug: { tokenLen: token.length } };
+    }
+
+    // enabled=false => remove one token (if provided) or all
+    if (token) {
+      await col.doc(token).delete().catch(() => {});
+      logger.info("setNotificationStatus: DELETED ONE TOKEN", {
+        uid,
+        tokenLen: token.length,
+      });
+    } else {
+      const snap = await col.get();
+      const batch = db.batch();
+      snap.docs.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+      logger.info("setNotificationStatus: DELETED ALL TOKENS", {
+        uid,
+        count: snap.size,
+      });
+    }
+
+    return { success: true, enabled: false, debug: { tokenProvided: !!token } };
   }
 );
 
-// schedulers kept
+// --------------------
+// Schedulers (kept)
+// --------------------
+
 export const projectReviewNotifier = onSchedule(
   { schedule: "every 24 hours", region: europeWest2 },
   () => {

@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -7,7 +6,15 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth, isFirebaseConfigured, db } from '@/lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import {
+  collection,
+  getDocs,
+  limit,
+  query,
+  updateDoc,
+  where,
+} from 'firebase/firestore';
+
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -21,8 +28,8 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { Spinner } from '@/components/shared/spinner';
 import { UnconfiguredForm } from '@/components/auth/unconfigured-form';
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Terminal } from "lucide-react"
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Terminal } from 'lucide-react';
 import Link from 'next/link';
 
 const formSchema = z.object({
@@ -37,10 +44,7 @@ export function LoginForm() {
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: {
-      email: '',
-      password: '',
-    },
+    defaultValues: { email: '', password: '' },
   });
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
@@ -49,54 +53,87 @@ export function LoginForm() {
     if (!auth || !db) return;
 
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, values.email, values.password);
-      const user = userCredential.user;
+      // 1) Firebase Auth sign-in
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
+        values.email,
+        values.password
+      );
+      const authUser = userCredential.user;
+      const authUid = authUser.uid;
 
-      // Check user status in Firestore
-      const userDocRef = doc(db, 'users', user.uid);
-      const userDoc = await getDoc(userDocRef);
+      // 2) Find the Firestore user doc by email (your data model stores email in user docs)
+      const usersCol = collection(db, 'users');
+      const q = query(
+        usersCol,
+        where('email', '==', values.email.trim().toLowerCase()),
+        limit(1)
+      );
+      const snap = await getDocs(q);
 
-      if (userDoc.exists()) {
-        const userProfile = userDoc.data();
-        if (userProfile.status === 'suspended') {
-            await auth.signOut();
-            setError('Your account has been suspended. Please contact an administrator.');
-            setIsLoading(false);
-            return;
-        }
-        if (userProfile.status === 'pending-approval') {
-            await auth.signOut();
-            setError('Your account is pending approval. You will be able to log in once an administrator approves your account.');
-            setIsLoading(false);
-            return;
-        }
+      if (snap.empty) {
+        // If they can auth but we have no user profile doc, treat as blocked (prevents ghost accounts)
+        await auth.signOut();
+        setError('No user profile found for this account. Please contact an administrator.');
+        return;
       }
+
+      const userDocSnap = snap.docs[0];
+      const userProfile = userDocSnap.data() as any;
+
+      // 3) Status enforcement (from Firestore profile)
+      if (userProfile.status === 'suspended') {
+        await auth.signOut();
+        setError('Your account has been suspended. Please contact an administrator.');
+        return;
+      }
+
+      if (userProfile.status === 'pending-approval') {
+        await auth.signOut();
+        setError(
+          'Your account is pending approval. You will be able to log in once an administrator approves your account.'
+        );
+        return;
+      }
+
+      // 4) ✅ Link Auth UID <-> Firestore user doc (fixes your mismatch permanently)
+      // This lets your backend reliably map auth.uid to your existing user record.
+      await updateDoc(userDocSnap.ref, {
+        authUid,
+        // optional extra field (handy for debugging / future)
+        fireAuthUid: authUid,
+        authLinkedAt: new Date(),
+      });
 
       toast({
         title: 'Login Successful',
-        description: "Welcome back!",
+        description: 'Welcome back!',
       });
+
       // Redirect handled by AuthProvider
-    } catch (error: any) {
+    } catch (err: any) {
       let errorMessage = 'An unexpected error occurred. Please try again.';
-      if (error.code) {
-        switch (error.code) {
+
+      if (err?.code) {
+        switch (err.code) {
           case 'auth/invalid-credential':
             errorMessage = 'Invalid email or password. Please try again.';
             break;
           case 'auth/user-disabled':
-            errorMessage = 'This account has been disabled or suspended. Please contact an administrator.';
+            errorMessage =
+              'This account has been disabled or suspended. Please contact an administrator.';
             break;
           case 'auth/too-many-requests':
             errorMessage = 'Too many login attempts. Please try again later.';
             break;
           default:
-            errorMessage = `Login failed: ${error.message}`;
+            errorMessage = `Login failed: ${err.message}`;
             break;
         }
       }
+
       setError(errorMessage);
-      console.error('Login error:', error);
+      console.error('Login error:', err);
     } finally {
       setIsLoading(false);
     }
@@ -110,12 +147,13 @@ export function LoginForm() {
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
         {error && (
-            <Alert variant="destructive">
-              <Terminal className="h-4 w-4" />
-              <AlertTitle>Login Failed</AlertTitle>
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
+          <Alert variant="destructive">
+            <Terminal className="h-4 w-4" />
+            <AlertTitle>Login Failed</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
+
         <FormField
           control={form.control}
           name="email"
@@ -129,6 +167,7 @@ export function LoginForm() {
             </FormItem>
           )}
         />
+
         <FormField
           control={form.control}
           name="password"
@@ -137,10 +176,10 @@ export function LoginForm() {
               <div className="flex items-center justify-between">
                 <FormLabel>Password</FormLabel>
                 <Link
-                    href="/forgot-password"
-                    className="text-sm font-medium text-primary hover:underline"
+                  href="/forgot-password"
+                  className="text-sm font-medium text-primary hover:underline"
                 >
-                    Forgot password?
+                  Forgot password?
                 </Link>
               </div>
               <FormControl>
@@ -150,10 +189,11 @@ export function LoginForm() {
             </FormItem>
           )}
         />
+
         <div className="pt-2">
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? <Spinner /> : 'Log In'}
-            </Button>
+          <Button type="submit" className="w-full" disabled={isLoading}>
+            {isLoading ? <Spinner /> : 'Log In'}
+          </Button>
         </div>
       </form>
     </Form>

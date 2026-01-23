@@ -52,7 +52,8 @@ export function Header() {
   const { user } = useAuth();
   const { userProfile } = useUserProfile();
   const router = useRouter();
-  const { reset } = usePushNotifications();
+  const { refreshStatus } = usePushNotifications();
+
 
   const handleSignOut = async () => {
     if (auth) {
@@ -148,7 +149,7 @@ export function Header() {
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={reset}>Reset</AlertDialogAction>
+                            <AlertDialogAction onClick={refreshStatus}>Reset</AlertDialogAction>
                         </AlertDialogFooter>
                     </AlertDialogContent>
                 </AlertDialog>

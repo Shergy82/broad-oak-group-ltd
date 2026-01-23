@@ -32,10 +32,10 @@ export function NotificationButton() {
   } = usePushNotifications();
   const [isBlockedDialogOpen, setBlockedDialogOpen] = useState(false);
 
-  if (!isSupported || (!isKeyLoading && !vapidKey)) {
+  if (!isSupported) {
     return null;
   }
-
+  
   const handleToggleSubscription = () => {
     if (permission === 'denied') {
       setBlockedDialogOpen(true);

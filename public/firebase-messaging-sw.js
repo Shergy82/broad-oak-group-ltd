@@ -1,56 +1,67 @@
-/* public/firebase-messaging-sw.js
-   Handles push + click for web push notifications (FCM WebPush).
-*/
+/* public/firebase-messaging-sw.js */
 
-self.addEventListener('push', (event) => {
-  let payload = {};
-  try {
-    payload = event.data ? event.data.json() : {};
-  } catch (e) {
-    try {
-      payload = event.data ? JSON.parse(event.data.text()) : {};
-    } catch {
-      payload = {};
-    }
-  }
+importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js');
 
-  const notification = payload.notification || payload.data?.notification || {};
-  const title = notification.title || payload.title || 'Broad Oak Group';
-  const body = notification.body || payload.body || '';
+// 🔑 Firebase config — MUST match your app config
+firebase.initializeApp({
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID",
+});
 
-  // Prefer full URL if provided; fallback to root
+// ✅ REQUIRED: initialise messaging in the SW
+const messaging = firebase.messaging();
+
+// 🔥 Force immediate activation
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+
+// 📩 Handle background messages
+messaging.onBackgroundMessage((payload) => {
+  console.log('[SW] Background message received:', payload);
+
+  const title =
+    payload.notification?.title ||
+    payload.data?.title ||
+    'Broad Oak Group';
+
+  const body =
+    payload.notification?.body ||
+    payload.data?.body ||
+    '';
+
   const url =
-    (payload.data && (payload.data.url || payload.data.link)) ||
+    payload.data?.url ||
     payload.fcmOptions?.link ||
     '/';
 
-  const options = {
+  self.registration.showNotification(title, {
     body,
     data: { url },
-  };
-
-  event.waitUntil(self.registration.showNotification(title, options));
+    icon: '/logo192.png',
+    badge: '/logo192.png',
+  });
 });
 
+// 🖱️ Notification click
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-
-  const urlToOpen = event.notification?.data?.url || '/';
+  const url = event.notification?.data?.url || '/';
 
   event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // If already open, focus it and navigate
-      for (const client of clientList) {
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientsArr) => {
+      for (const client of clientsArr) {
         if ('focus' in client) {
           client.focus();
-          try {
-            client.navigate(urlToOpen);
-          } catch {}
+          client.navigate(url);
           return;
         }
       }
-      // Otherwise open a new window
-      return clients.openWindow(urlToOpen);
+      return clients.openWindow(url);
     })
   );
 });
