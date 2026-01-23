@@ -98,14 +98,32 @@ async function sendFcmToUser(userId, title, body, urlPath, data = {}) {
         return;
     }
     const link = absoluteLink(urlPath);
+    // ✅ UPDATED: add sound + badge + high urgency for iOS / web push alerting
     const message = {
         tokens,
+        // Android + some browsers
         notification: { title, body },
         data: Object.assign({ url: link }, Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)]))),
         webpush: {
+            headers: {
+                Urgency: "high",
+            },
             fcmOptions: { link },
             notification: {
+                title,
+                body,
                 icon: "/icons/icon-192x192.png",
+                badge: "/icons/icon-96x96.png",
+                requireInteraction: true,
+                sound: "default",
+            },
+        },
+        // ✅ iOS / APNS hint (safe everywhere)
+        apns: {
+            payload: {
+                aps: {
+                    sound: "default",
+                },
             },
         },
     };
@@ -136,7 +154,7 @@ async function sendFcmToUser(userId, title, body, urlPath, data = {}) {
         failure: resp.failureCount,
     });
 }
-// ✅ CHANGED: central place to send users when action is required
+// ✅ central place to send users when action is required
 function pendingGateUrl() {
     return "/dashboard?gate=pending";
 }
@@ -163,10 +181,9 @@ exports.onShiftCreated = (0, firestore_1.onDocumentCreated)({ document: "shifts/
         return;
     }
     const shiftId = event.params.shiftId;
-    await sendFcmToUser(userId, "New shift added", `A new shift was added for ${formatDateUK(shiftDate)}`, pendingGateUrl(), // ✅ CHANGED (was /shift/{id})
-    {
-        shiftId, // ✅ include shiftId for the app to highlight / open modal
-        gate: "pending", // ✅ allow UI to force the pending screen
+    await sendFcmToUser(userId, "New shift added", `A new shift was added for ${formatDateUK(shiftDate)}`, pendingGateUrl(), {
+        shiftId,
+        gate: "pending",
         event: "created",
     });
 });
@@ -188,8 +205,7 @@ exports.onShiftUpdated = (0, firestore_1.onDocumentUpdated)({ document: "shifts/
         if (after.userId) {
             const d = ((_f = (_e = after.date) === null || _e === void 0 ? void 0 : _e.toDate) === null || _f === void 0 ? void 0 : _f.call(_e)) ? after.date.toDate() : null;
             if (d && !isShiftInPast(d)) {
-                await sendFcmToUser(after.userId, "New shift added", `A new shift was added for ${formatDateUK(d)}`, pendingGateUrl(), // ✅ CHANGED (was /shift/{id})
-                { shiftId, gate: "pending", event: "assigned" });
+                await sendFcmToUser(after.userId, "New shift added", `A new shift was added for ${formatDateUK(d)}`, pendingGateUrl(), { shiftId, gate: "pending", event: "assigned" });
             }
         }
         v2_1.logger.log("Shift reassigned", {
@@ -208,6 +224,21 @@ exports.onShiftUpdated = (0, firestore_1.onDocumentUpdated)({ document: "shifts/
         return;
     if (isShiftInPast(afterDate)) {
         v2_1.logger.log("Shift updated but in past; no notify", { shiftId });
+        return;
+    }
+    // ✅ NEW: if the shift owner updated their OWN shift (accept/on-site/complete/etc),
+    // do NOT notify them about their own action.
+    // (Your ShiftCard now writes: updatedByUid, updatedByAction, updatedAt)
+    const updatedByUid = String(after.updatedByUid || "").trim();
+    if (updatedByUid && updatedByUid === String(userId)) {
+        v2_1.logger.log("Shift updated by assigned user; skipping notify", {
+            shiftId,
+            userId,
+            updatedByUid,
+            updatedByAction: String(after.updatedByAction || ""),
+            statusBefore: String(before.status || ""),
+            statusAfter: String(after.status || ""),
+        });
         return;
     }
     const fieldsToCompare = [
@@ -233,7 +264,7 @@ exports.onShiftUpdated = (0, firestore_1.onDocumentUpdated)({ document: "shifts/
         v2_1.logger.log("Shift updated but no meaningful change", { shiftId });
         return;
     }
-    // ✅ CHANGED: if it's pending-confirmation (or becomes pending), force the gate
+    // if it's pending-confirmation (or becomes pending), force the gate
     const needsAction = String(after.status || "").toLowerCase() === "pending-confirmation";
     await sendFcmToUser(userId, "Shift updated", `Your shift for ${formatDateUK(afterDate)} has been updated.`, needsAction ? pendingGateUrl() : `/shift/${shiftId}`, Object.assign({ shiftId, event: "updated" }, (needsAction ? { gate: "pending" } : {})));
 });
@@ -246,9 +277,21 @@ exports.onShiftDeleted = (0, firestore_1.onDocumentDeleted)({ document: "shifts/
     if (!userId)
         return;
     const d = ((_c = (_b = deleted.date) === null || _b === void 0 ? void 0 : _b.toDate) === null || _c === void 0 ? void 0 : _c.call(_b)) ? deleted.date.toDate() : null;
-    await sendFcmToUser(userId, "Shift removed", d
-        ? `Your shift for ${formatDateUK(d)} has been removed.`
-        : "A shift has been removed.", "/dashboard", { shiftId: event.params.shiftId, event: "deleted" });
+    // ✅ do not notify for expired/past shifts
+    if (d && isShiftInPast(d)) {
+        v2_1.logger.log("Shift deleted but in past; no notify", {
+            shiftId: event.params.shiftId,
+        });
+        return;
+    }
+    // ✅ fail-safe - if date missing, skip notify to avoid false alerts
+    if (!d) {
+        v2_1.logger.log("Shift deleted but no date; skipping notify to be safe", {
+            shiftId: event.params.shiftId,
+        });
+        return;
+    }
+    await sendFcmToUser(userId, "Shift removed", `Your shift for ${formatDateUK(d)} has been removed.`, "/dashboard", { shiftId: event.params.shiftId, event: "deleted" });
 });
 // --- Optional callables (safe) ---
 exports.getNotificationStatus = (0, https_1.onCall)({ region: europeWest2 }, async () => {

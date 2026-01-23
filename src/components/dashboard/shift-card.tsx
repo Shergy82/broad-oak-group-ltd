@@ -370,7 +370,20 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
     try {
       const shiftRef = doc(db, 'shifts', shift.id);
 
-      const updateData: { status: ShiftStatus; notes?: any } = { status: newStatus };
+      // ✅ NEW: include who updated the shift + when + what action they took
+      const updateData: {
+        status: ShiftStatus;
+        notes?: any;
+        updatedByUid: string;
+        updatedByAction: string;
+        updatedAt: any;
+      } = {
+        status: newStatus,
+        updatedByUid: user.uid,
+        updatedByAction: String(newStatus),
+        updatedAt: serverTimestamp(),
+      };
+
       if (notes) updateData.notes = notes;
       else if (newStatus === 'confirmed') updateData.notes = deleteField();
 
@@ -436,11 +449,17 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
                     htmlFor={`task-${shift.id}-${index}`}
                     className="text-sm font-normal text-foreground flex-grow cursor-pointer flex items-center justify-between"
                   >
-                    <span className={status?.status === 'rejected' ? 'line-through text-muted-foreground' : ''}>
+                    <span
+                      className={status?.status === 'rejected' ? 'line-through text-muted-foreground' : ''}
+                    >
                       {task.text}
                     </span>
                     <div className="flex items-center gap-1">
-                      {isUploadingPhoto === index ? <Spinner size="sm" /> : (task.photoRequired && <Camera className="h-4 w-4 text-muted-foreground" />)}
+                      {isUploadingPhoto === index ? (
+                        <Spinner size="sm" />
+                      ) : (
+                        task.photoRequired && <Camera className="h-4 w-4 text-muted-foreground" />
+                      )}
                       {status?.status !== 'rejected' && (
                         <Button
                           variant="ghost"
@@ -492,7 +511,9 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
       <Card className="flex flex-col overflow-hidden transition-all hover:shadow-xl border-border hover:border-primary/40">
         <CardHeader className="flex flex-row items-start justify-between space-y-0 bg-card p-4">
           <div className="flex items-center gap-3">
-            <div className={`flex items-center justify-center rounded-lg w-12 h-12 ${shiftTypeDetails[shift.type].color}`}>
+            <div
+              className={`flex items-center justify-center rounded-lg w-12 h-12 ${shiftTypeDetails[shift.type].color}`}
+            >
               <ShiftIcon className="h-6 w-6 text-white" />
             </div>
             <div>
@@ -537,7 +558,9 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
               className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
               disabled={isLoading}
             >
-              {isLoading ? <Spinner /> : (
+              {isLoading ? (
+                <Spinner />
+              ) : (
                 <>
                   <ThumbsUp className="mr-2 h-4 w-4" /> Accept Shift
                 </>
@@ -551,7 +574,9 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
               className="w-full bg-teal-500 text-white hover:bg-teal-600"
               disabled={isLoading}
             >
-              {isLoading ? <Spinner /> : (
+              {isLoading ? (
+                <Spinner />
+              ) : (
                 <>
                   <HardHat className="mr-2 h-4 w-4" /> On Site
                 </>
@@ -566,7 +591,9 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
                 className="w-full bg-green-500 text-white hover:bg-green-600"
                 disabled={isLoading || !allTasksCompleted}
               >
-                {isLoading ? <Spinner /> : (
+                {isLoading ? (
+                  <Spinner />
+                ) : (
                   <>
                     <CheckCircle2 className="mr-2 h-4 w-4" /> Complete
                   </>
@@ -578,7 +605,9 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
                 className="w-full bg-amber-600 hover:bg-amber-700"
                 disabled={isLoading}
               >
-                {isLoading ? <Spinner /> : (
+                {isLoading ? (
+                  <Spinner />
+                ) : (
                   <>
                     <XCircle className="mr-2 h-4 w-4" /> Incomplete
                   </>
@@ -595,7 +624,9 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
                 className="w-full"
                 disabled={isLoading}
               >
-                {isLoading ? <Spinner /> : (
+                {isLoading ? (
+                  <Spinner />
+                ) : (
                   <>
                     <RotateCcw className="mr-2 h-4 w-4" /> Re-open
                   </>

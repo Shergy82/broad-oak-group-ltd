@@ -122,19 +122,41 @@ async function sendFcmToUser(
 
   const link = absoluteLink(urlPath);
 
+  // ✅ UPDATED: add sound + badge + high urgency for iOS / web push alerting
   const message = {
     tokens,
+
+    // Android + some browsers
     notification: { title, body },
+
     data: {
       url: link,
       ...Object.fromEntries(
         Object.entries(data).map(([k, v]) => [k, String(v)])
       ),
     },
+
     webpush: {
+      headers: {
+        Urgency: "high",
+      },
       fcmOptions: { link },
       notification: {
-        icon: "/icons/icon-192x192.png",
+        title,
+        body,
+        icon: "/icons/notification-icon.png",
+        badge: "/icons/icon-96x96.png",
+        requireInteraction: true,
+        sound: "default",
+      },
+    },
+
+    // ✅ iOS / APNS hint (safe everywhere)
+    apns: {
+      payload: {
+        aps: {
+          sound: "default",
+        },
       },
     },
   };
@@ -170,7 +192,7 @@ async function sendFcmToUser(
   });
 }
 
-// ✅ CHANGED: central place to send users when action is required
+// ✅ central place to send users when action is required
 function pendingGateUrl(): string {
   return "/dashboard?gate=pending";
 }
@@ -207,10 +229,10 @@ export const onShiftCreated = onDocumentCreated(
       userId,
       "New shift added",
       `A new shift was added for ${formatDateUK(shiftDate)}`,
-      pendingGateUrl(), // ✅ CHANGED (was /shift/{id})
+      pendingGateUrl(),
       {
-        shiftId, // ✅ include shiftId for the app to highlight / open modal
-        gate: "pending", // ✅ allow UI to force the pending screen
+        shiftId,
+        gate: "pending",
         event: "created",
       }
     );
@@ -248,7 +270,7 @@ export const onShiftUpdated = onDocumentUpdated(
             after.userId,
             "New shift added",
             `A new shift was added for ${formatDateUK(d)}`,
-            pendingGateUrl(), // ✅ CHANGED (was /shift/{id})
+            pendingGateUrl(),
             { shiftId, gate: "pending", event: "assigned" }
           );
         }
@@ -271,6 +293,22 @@ export const onShiftUpdated = onDocumentUpdated(
 
     if (isShiftInPast(afterDate)) {
       logger.log("Shift updated but in past; no notify", { shiftId });
+      return;
+    }
+
+    // ✅ NEW: if the shift owner updated their OWN shift (accept/on-site/complete/etc),
+    // do NOT notify them about their own action.
+    // (Your ShiftCard now writes: updatedByUid, updatedByAction, updatedAt)
+    const updatedByUid = String(after.updatedByUid || "").trim();
+    if (updatedByUid && updatedByUid === String(userId)) {
+      logger.log("Shift updated by assigned user; skipping notify", {
+        shiftId,
+        userId,
+        updatedByUid,
+        updatedByAction: String(after.updatedByAction || ""),
+        statusBefore: String(before.status || ""),
+        statusAfter: String(after.status || ""),
+      });
       return;
     }
 
@@ -298,7 +336,7 @@ export const onShiftUpdated = onDocumentUpdated(
       return;
     }
 
-    // ✅ CHANGED: if it's pending-confirmation (or becomes pending), force the gate
+    // if it's pending-confirmation (or becomes pending), force the gate
     const needsAction =
       String(after.status || "").toLowerCase() === "pending-confirmation";
 
@@ -306,7 +344,7 @@ export const onShiftUpdated = onDocumentUpdated(
       userId,
       "Shift updated",
       `Your shift for ${formatDateUK(afterDate)} has been updated.`,
-      needsAction ? pendingGateUrl() : `/shift/${shiftId}`, // ✅ CHANGED
+      needsAction ? pendingGateUrl() : `/shift/${shiftId}`,
       {
         shiftId,
         event: "updated",
@@ -327,14 +365,44 @@ export const onShiftDeleted = onDocumentDeleted(
 
     const d = deleted.date?.toDate?.() ? deleted.date.toDate() : null;
 
+    const status = String(deleted.status || "").toLowerCase();
+    const FINAL_STATUSES = new Set(["completed", "incomplete", "rejected"]);
+
+    // ❌ Never notify for history/final shifts
+    if (FINAL_STATUSES.has(status)) {
+      logger.log("Shift deleted but was historical; no notify", {
+        shiftId: event.params.shiftId,
+        status,
+      });
+      return;
+    }
+
+    // ❌ Never notify for past/expired shifts (admin mistakes, cleanup)
+    if (d && isShiftInPast(d)) {
+      logger.log("Shift deleted but in past; no notify", {
+        shiftId: event.params.shiftId,
+      });
+      return;
+    }
+
+    // ❌ Fail-safe: if no date, skip notification
+    if (!d) {
+      logger.log("Shift deleted but no date; skipping notify", {
+        shiftId: event.params.shiftId,
+      });
+      return;
+    }
+
+    // ✅ ONLY future + active shifts reach here
     await sendFcmToUser(
       userId,
       "Shift removed",
-      d
-        ? `Your shift for ${formatDateUK(d)} has been removed.`
-        : "A shift has been removed.",
+      `Your shift for ${formatDateUK(d)} has been removed.`,
       "/dashboard",
-      { shiftId: event.params.shiftId, event: "deleted" }
+      {
+        shiftId: event.params.shiftId,
+        event: "deleted",
+      }
     );
   }
 );
