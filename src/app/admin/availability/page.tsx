@@ -806,7 +806,7 @@ export default function AvailabilityPage() {
                 <h3 className={`font-semibold mb-3 flex items-center gap-2 ${color}`}><Icon className="h-4 w-4" /> {title} ({users.length})</h3>
                 <div className="space-y-2">
                     {users.map(({user, shiftLocation, shiftTask}) => {
-                        const roleOrTrade = user.trade || (user.role !== 'user' && user.role);
+                        const roleOrTrade = user.trade ? user.trade : (user.role !== 'user' ? user.role : null);
                         return (
                         <div key={user.uid} className="flex items-center justify-between p-2 bg-muted/50 rounded-md text-sm">
                             <div className="flex flex-col">
@@ -835,7 +835,7 @@ export default function AvailabilityPage() {
                         <ScrollArea className="flex-grow pr-4">
                             <div className="space-y-2">
                                 {fullDay.length > 0 ? fullDay.map(({user}) => {
-                                    const roleOrTrade = user.trade || (user.role !== 'user' && user.role);
+                                    const roleOrTrade = user.trade ? user.trade : (user.role !== 'user' ? user.role : null);
                                     return (
                                         <div key={user.uid} className="flex items-center justify-between p-2 bg-muted/50 rounded-md text-sm">
                                             <div className="flex flex-col">
@@ -1068,4 +1068,3 @@ export default function AvailabilityPage() {
   );
 }
 
-    
