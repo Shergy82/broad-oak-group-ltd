@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useRouter } from 'next/navigation';
@@ -22,7 +21,6 @@ import {
   HelpCircle,
   Fingerprint,
   Building2,
-  RefreshCcw,
   ListChecks,
 } from 'lucide-react';
 import { NotificationButton } from '../shared/notification-button';
@@ -35,25 +33,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { usePushNotifications } from '@/hooks/use-push-notifications';
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-    AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
 
 export function Header() {
   const { user } = useAuth();
   const { userProfile } = useUserProfile();
   const router = useRouter();
-  const { refreshStatus } = usePushNotifications();
-
 
   const handleSignOut = async () => {
     if (auth) {
@@ -130,31 +114,7 @@ export function Header() {
                   <HardHat className="mr-2" />
                   <span>Health & Safety</span>
                 </DropdownMenuItem>
-
                 <DropdownMenuSeparator />
-
-                <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                         <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="cursor-pointer">
-                           <RefreshCcw className="mr-2" />
-                           <span>Reset Notifications</span>
-                        </DropdownMenuItem>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>Reset Notification Subscription?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                                This will remove your old subscription and create a new one. Use this if you're having trouble receiving notifications.
-                            </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={refreshStatus}>Reset</AlertDialogAction>
-                        </AlertDialogFooter>
-                    </AlertDialogContent>
-                </AlertDialog>
-
-
                 <DropdownMenuItem onClick={() => router.push('/help')} className="cursor-pointer">
                   <HelpCircle className="mr-2" />
                   <span>Help & Support</span>
