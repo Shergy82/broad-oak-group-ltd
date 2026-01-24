@@ -62,7 +62,6 @@ interface AvailableUserForDay {
 }
 interface DayData {
     date: Date;
-    isCurrentMonth: boolean;
     availableUsers: AvailableUserForDay[];
 }
 
@@ -294,7 +293,6 @@ export default function AvailabilityPage() {
       from: startOfDay(new Date()),
       to: startOfDay(new Date()),
   });
-  const [currentMonth, setCurrentMonth] = useState(startOfMonth(new Date()));
   const [allShifts, setAllShifts] = useState<Shift[]>([]);
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [unavailability, setUnavailability] = useState<Unavailability[]>([]);
@@ -509,20 +507,13 @@ export default function AvailabilityPage() {
       
   }, [dateRange, allShifts, allUsers, selectedUserIds, unavailability]);
 
-  const monthGridData: DayData[] = useMemo(() => {
+  const monthGridData: Omit<DayData, 'isCurrentMonth'>[] = useMemo(() => {
     if (viewMode !== 'simple') return [];
 
-    const start = startOfMonth(currentMonth);
-    const end = endOfMonth(currentMonth);
-    const monthDays = eachDayOfInterval({ start, end });
-    
-    const startDayOfWeek = getDay(start);
-    const startOffset = startDayOfWeek === 0 ? 6 : startDayOfWeek -1;
-    const paddingDaysStart = Array.from({length: startOffset}, (_, i) => addDays(start, -(startOffset - i)));
-    const daysInGrid = paddingDaysStart.concat(monthDays);
-    const endOffset = 7 - (daysInGrid.length % 7);
-    const paddingDaysEnd = Array.from({length: endOffset === 7 ? 0 : endOffset}, (_, i) => addDays(end, i + 1));
-    const allGridDays = daysInGrid.concat(paddingDaysEnd);
+    const today = startOfToday();
+    const gridStart = startOfWeek(today, { weekStartsOn: 1 });
+    const gridEnd = addDays(gridStart, 34); // 5 weeks
+    const allGridDays = eachDayOfInterval({ start: gridStart, end: gridEnd });
 
     const usersToConsider = allUsers.filter(user => selectedUserIds.has(user.uid));
 
@@ -540,10 +531,10 @@ export default function AvailabilityPage() {
                 if (shift.type === 'pm') availableUsers.push({ user, availability: 'am', shiftLocation: shift.address });
             }
         }
-        return { date: day, isCurrentMonth: day.getMonth() === currentMonth.getMonth(), availableUsers }
+        return { date: day, availableUsers }
     });
 
-  }, [currentMonth, allShifts, allUsers, selectedUserIds, viewMode, unavailability]);
+  }, [allShifts, allUsers, selectedUserIds, viewMode, unavailability]);
   
   const handleOpenDayDetail = (dayData: DayData) => {
     setSelectedDayData(dayData);
@@ -669,21 +660,7 @@ export default function AvailabilityPage() {
     return (
     <div className="md:col-span-3 space-y-4">
         <div className="flex justify-between items-center bg-muted/50 p-2 rounded-lg">
-             <Button variant="outline" size="icon" className="sm:hidden" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}>
-                <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" className="hidden sm:flex" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}>
-                <ChevronLeft className="h-4 w-4 mr-2" /> Previous
-            </Button>
-            
-            <h2 className="text-xl font-semibold tracking-tight text-center">{format(currentMonth, 'MMMM yyyy')}</h2>
-            
-            <Button variant="outline" size="icon" className="sm:hidden" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
-                <ChevronRight className="h-4 w-4" />
-            </Button>
-             <Button variant="outline" className="hidden sm:flex" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
-                Next <ChevronRight className="h-4 w-4 ml-2" />
-            </Button>
+            <h2 className="text-xl font-semibold tracking-tight text-center w-full">5-Week Availability Overview</h2>
         </div>
         <div className="grid grid-cols-7 border-t border-l">
             {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
@@ -694,18 +671,17 @@ export default function AvailabilityPage() {
             ))}
             {monthGridData.map((dayData, index) => {
                 const isPast = isBefore(dayData.date, today);
+                const isTodaysDate = isSameDay(dayData.date, today);
                 return (
                     <div key={index} 
-                      className={cn("relative min-h-[100px] sm:min-h-[120px] border-b border-r p-1 sm:p-2 transition-colors", 
-                        isPast
-                            ? "bg-muted/40"
-                            : dayData.isCurrentMonth
-                                ? "bg-background hover:bg-muted/50 cursor-pointer"
-                                : "bg-muted/20"
+                      className={cn(
+                        "relative min-h-[100px] sm:min-h-[120px] border-b border-r p-1 sm:p-2 transition-colors",
+                        isPast ? "bg-muted/40" : "bg-background hover:bg-muted/50 cursor-pointer",
+                        isTodaysDate && !isPast && "ring-2 ring-primary ring-inset"
                       )} 
-                      onClick={() => !isPast && dayData.isCurrentMonth && handleOpenDayDetail(dayData)}
+                      onClick={() => !isPast && handleOpenDayDetail(dayData as DayData)}
                     >
-                        <span className={`text-sm font-medium ${dayData.isCurrentMonth ? 'text-foreground' : 'text-muted-foreground'}`}>
+                        <span className={`text-sm font-medium ${isTodaysDate ? 'text-primary font-bold' : 'text-foreground'}`}>
                             {format(dayData.date, 'd')}
                         </span>
                         {!isPast && (
@@ -715,7 +691,7 @@ export default function AvailabilityPage() {
                                         <Tooltip key={user.uid}>
                                             <TooltipTrigger asChild>
                                                  <Avatar className={cn("h-6 w-6 border-2", getBorderColor(availability))}>
-                                                    <AvatarFallback className="text-[8px]">{getInitials(user.name)}</AvatarFallback>
+                                                    <AvatarFallback className="text-[10px]">{getInitials(user.name)}</AvatarFallback>
                                                 </Avatar>
                                             </TooltipTrigger>
                                             <TooltipContent>
@@ -729,9 +705,11 @@ export default function AvailabilityPage() {
                                     {dayData.availableUsers.length > 10 && (
                                         <Tooltip>
                                             <TooltipTrigger asChild>
-                                                <Avatar className="h-6 w-6">
-                                                    <AvatarFallback className="text-[8px] bg-muted-foreground text-muted">+{dayData.availableUsers.length - 10}</AvatarFallback>
-                                                </Avatar>
+                                                <div onClick={() => !isPast && handleOpenDayDetail(dayData as DayData)} className="cursor-pointer">
+                                                    <Avatar className="h-6 w-6">
+                                                        <AvatarFallback className="text-[8px] bg-muted-foreground text-muted">+{dayData.availableUsers.length - 10}</AvatarFallback>
+                                                    </Avatar>
+                                                </div>
                                             </TooltipTrigger>
                                             <TooltipContent>
                                                 <p>{dayData.availableUsers.length - 10} more available</p>
