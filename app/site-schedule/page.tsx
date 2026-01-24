@@ -84,6 +84,11 @@ const WeekScheduleView = ({ shifts, weekName, userNameMap }: { shifts: { [key: s
     );
 }
 
+const normalizeAddress = (addr: string | null | undefined): string => {
+    if (!addr) return '';
+    return addr.toLowerCase().replace(/\s+/g, ' ').trim();
+};
+
 
 export default function SiteSchedulePage() {
     const { user, isLoading: isAuthLoading } = useAuth();
@@ -171,7 +176,17 @@ export default function SiteSchedulePage() {
             relevantShifts = allShifts.filter(shift => userShiftAddresses.has(shift.address));
         }
 
-        const uniqueAddresses = Array.from(new Set(relevantShifts.map(shift => shift.address)));
+        const addressMap = new Map<string, string>();
+        relevantShifts.forEach(shift => {
+            if (shift.address) {
+                const normalized = normalizeAddress(shift.address);
+                if (!addressMap.has(normalized)) {
+                    addressMap.set(normalized, shift.address);
+                }
+            }
+        });
+
+        const uniqueAddresses = Array.from(addressMap.values());
         
         const filtered = uniqueAddresses.filter(address => 
             address.toLowerCase().includes(addressSearchTerm.toLowerCase())
@@ -188,8 +203,9 @@ export default function SiteSchedulePage() {
         if (!selectedAddress) {
             return { lastWeekShifts: {}, thisWeekShifts: {}, nextWeekShifts: {}, week3Shifts: {}, week4Shifts: {} };
         }
-
-        const relevantShifts = allShifts.filter(s => s.address === selectedAddress);
+        
+        const normalizedSelectedAddress = normalizeAddress(selectedAddress);
+        const relevantShifts = allShifts.filter(s => normalizeAddress(s.address) === normalizedSelectedAddress);
         
         const groupShifts = (weekStart: Date) => {
             const weekShifts = relevantShifts.filter(s => isSameWeek(getCorrectedLocalDate(s.date), weekStart, { weekStartsOn: 1 }));
