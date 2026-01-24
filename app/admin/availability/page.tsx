@@ -707,7 +707,7 @@ export default function AvailabilityPage() {
                                 <Tooltip key={user.uid}>
                                     <TooltipTrigger>
                                          <Avatar className={cn("h-5 w-5 sm:h-6 sm:w-6 border-2", getBorderColor(availability))}>
-                                            <AvatarFallback className="text-[9px] sm:text-[10px]">{getInitials(user.name)}</AvatarFallback>
+                                            <AvatarFallback className="text-[8px] sm:text-[9px]">{getInitials(user.name)}</AvatarFallback>
                                         </Avatar>
                                     </TooltipTrigger>
                                     <TooltipContent>
@@ -722,7 +722,7 @@ export default function AvailabilityPage() {
                                 <Tooltip>
                                     <TooltipTrigger>
                                         <Avatar className="h-5 w-5 sm:h-6 sm:w-6">
-                                            <AvatarFallback className="text-[9px] sm:text-[10px] bg-muted-foreground text-muted">+{dayData.availableUsers.length - 10}</AvatarFallback>
+                                            <AvatarFallback className="text-[8px] sm:text-[9px] bg-muted-foreground text-muted">+{dayData.availableUsers.length - 10}</AvatarFallback>
                                         </Avatar>
                                     </TooltipTrigger>
                                     <TooltipContent>
