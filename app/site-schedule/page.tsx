@@ -86,7 +86,7 @@ const WeekScheduleView = ({ shifts, weekName, userNameMap }: { shifts: { [key: s
 
 const normalizeAddress = (addr: string | null | undefined): string => {
     if (!addr) return '';
-    return addr.toLowerCase().replace(/\s+/g, ' ').trim();
+    return addr.toLowerCase().replace(/,/g, '').replace(/\s+/g, ' ').trim();
 };
 
 
