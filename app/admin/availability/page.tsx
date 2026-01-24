@@ -668,20 +668,36 @@ export default function AvailabilityPage() {
     return (
     <div className="md:col-span-3 space-y-4">
         <div className="flex justify-between items-center bg-muted/50 p-2 rounded-lg">
-            <Button variant="outline" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}>
-                <ChevronLeft className="h-4 w-4" /> Previous
+             <Button variant="outline" size="icon" className="sm:hidden" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}>
+                <ChevronLeft className="h-4 w-4" />
             </Button>
-            <h2 className="text-xl font-semibold tracking-tight">{format(currentMonth, 'MMMM yyyy')}</h2>
-             <Button variant="outline" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
-                Next <ChevronRight className="h-4 w-4" />
+            <Button variant="outline" className="hidden sm:flex" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}>
+                <ChevronLeft className="h-4 w-4 mr-2" /> Previous
+            </Button>
+            
+            <h2 className="text-xl font-semibold tracking-tight text-center">{format(currentMonth, 'MMMM yyyy')}</h2>
+            
+            <Button variant="outline" size="icon" className="sm:hidden" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
+                <ChevronRight className="h-4 w-4" />
+            </Button>
+             <Button variant="outline" className="hidden sm:flex" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
+                Next <ChevronRight className="h-4 w-4 ml-2" />
             </Button>
         </div>
         <div className="grid grid-cols-7 border-t border-l">
             {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
-                <div key={day} className="p-2 border-b border-r text-center font-semibold text-muted-foreground bg-muted/30">{day}</div>
+                <div key={day} className="p-1 text-center text-xs font-semibold text-muted-foreground bg-muted/30 border-b border-r sm:p-2">
+                    <span className="hidden sm:inline">{day}</span>
+                    <span className="sm:hidden">{day.charAt(0)}</span>
+                </div>
             ))}
             {monthGridData.map((dayData, index) => (
-                <div key={index} className={`relative min-h-[120px] border-b border-r p-2 cursor-pointer transition-colors hover:bg-muted/50 ${dayData.isCurrentMonth ? 'bg-background' : 'bg-muted/20'}`} onClick={() => dayData.isCurrentMonth && handleOpenDayDetail(dayData)}>
+                <div key={index} 
+                  className={cn("relative min-h-[100px] sm:min-h-[120px] border-b border-r p-1 sm:p-2 transition-colors", 
+                    dayData.isCurrentMonth ? "bg-background hover:bg-muted/50 cursor-pointer" : "bg-muted/20"
+                  )} 
+                  onClick={() => dayData.isCurrentMonth && handleOpenDayDetail(dayData)}
+                >
                     <span className={`text-sm font-medium ${dayData.isCurrentMonth ? 'text-foreground' : 'text-muted-foreground'}`}>
                         {format(dayData.date, 'd')}
                     </span>
@@ -690,8 +706,8 @@ export default function AvailabilityPage() {
                             {dayData.availableUsers.slice(0, 10).map(({ user, availability, shiftLocation }) => (
                                 <Tooltip key={user.uid}>
                                     <TooltipTrigger>
-                                         <Avatar className={`h-6 w-6 border-2 ${getBorderColor(availability)}`}>
-                                            <AvatarFallback className="text-[10px]">{getInitials(user.name)}</AvatarFallback>
+                                         <Avatar className={cn("h-5 w-5 sm:h-6 sm:w-6 border-2", getBorderColor(availability))}>
+                                            <AvatarFallback className="text-[9px] sm:text-[10px]">{getInitials(user.name)}</AvatarFallback>
                                         </Avatar>
                                     </TooltipTrigger>
                                     <TooltipContent>
@@ -705,8 +721,8 @@ export default function AvailabilityPage() {
                             {dayData.availableUsers.length > 10 && (
                                 <Tooltip>
                                     <TooltipTrigger>
-                                        <Avatar className="h-6 w-6">
-                                            <AvatarFallback className="text-[10px] bg-muted-foreground text-muted">+{dayData.availableUsers.length - 10}</AvatarFallback>
+                                        <Avatar className="h-5 w-5 sm:h-6 sm:w-6">
+                                            <AvatarFallback className="text-[9px] sm:text-[10px] bg-muted-foreground text-muted">+{dayData.availableUsers.length - 10}</AvatarFallback>
                                         </Avatar>
                                     </TooltipTrigger>
                                     <TooltipContent>
@@ -719,10 +735,10 @@ export default function AvailabilityPage() {
                 </div>
             ))}
         </div>
-        <div className="flex justify-center items-center gap-6 text-xs text-muted-foreground pt-4">
-            <div className="flex items-center gap-2"><div className="h-3 w-3 rounded-full border-2 border-green-500" /><span>Full Day</span></div>
-            <div className="flex items-center gap-2"><div className="h-3 w-3 rounded-full border-2 border-sky-500" /><span>AM Available</span></div>
-            <div className="flex items-center gap-2"><div className="h-3 w-3 rounded-full border-2 border-orange-500" /><span>PM Available</span></div>
+        <div className="flex justify-center items-center gap-2 sm:gap-6 text-xs text-muted-foreground pt-4">
+            <div className="flex items-center gap-1 sm:gap-2"><div className="h-3 w-3 rounded-full border-2 border-green-500" /><span>Full Day</span></div>
+            <div className="flex items-center gap-1 sm:gap-2"><div className="h-3 w-3 rounded-full border-2 border-sky-500" /><span>AM Free</span></div>
+            <div className="flex items-center gap-1 sm:gap-2"><div className="h-3 w-3 rounded-full border-2 border-orange-500" /><span>PM Free</span></div>
         </div>
     </div>
   );
@@ -776,7 +792,7 @@ export default function AvailabilityPage() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex justify-between items-center">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
                 <CardTitle>Operative Availability</CardTitle>
                 <CardDescription>Select a date or a date range to view which operatives are available.</CardDescription>
@@ -787,7 +803,7 @@ export default function AvailabilityPage() {
             </div>
         </div>
       </CardHeader>
-      <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-8">
+      <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-8">
         {viewMode === 'simple' && renderSimpleView()}
 
         {viewMode === 'detailed' && (
@@ -795,16 +811,16 @@ export default function AvailabilityPage() {
                 <div className="col-span-3 space-y-6">
                     <Card className="bg-muted/30">
                         <CardHeader className="py-4">
-                            <div className="flex justify-between items-center">
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                                 <CardTitle className="text-base flex items-center gap-2"><Filter className="h-4 w-4" /> Filters</CardTitle>
-                                <div className="flex gap-2">
-                                     <Button variant="outline" size="sm" onClick={() => setIsUnavailabilityManagerOpen(true)}>
+                                <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                                     <Button variant="outline" size="sm" onClick={() => setIsUnavailabilityManagerOpen(true)} className="w-full">
                                         <CalendarOff className="mr-2 h-4 w-4" />
                                         Manage Unavailability
                                     </Button>
                                     <DropdownMenu>
                                         <DropdownMenuTrigger asChild>
-                                            <Button variant="outline" size="sm" disabled={!dateRange?.from}><Download className="h-4 w-4 mr-2" /> Download Report</Button>
+                                            <Button variant="outline" size="sm" disabled={!dateRange?.from} className="w-full"><Download className="h-4 w-4 mr-2" /> Download Report</Button>
                                         </DropdownMenuTrigger>
                                         <DropdownMenuContent>
                                             <DropdownMenuItem onClick={() => handleDownloadPdf('day')}>Daily Report</DropdownMenuItem>
