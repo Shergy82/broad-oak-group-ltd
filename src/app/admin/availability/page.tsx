@@ -352,13 +352,13 @@ export default function AvailabilityPage() {
         const usersQuery = query(collection(db, 'users'));
         const unsubUsers = onSnapshot(usersQuery, (snapshot) => {
             const fetchedUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
-            setAllUsers(fetchedUsers.sort((a,b) => a.name.localeCompare(b.name)));
+            setAllUsers(fetchedUsers.sort((a,b) => (a.name ?? '').localeCompare(b.name ?? '')));
 
             const allAvailableTrades = [...new Set(fetchedUsers.flatMap(u => u.trade).filter(Boolean))] as string[];
             setAvailableTrades(allAvailableTrades.sort());
             
             if (tradesToSet) {
-                const validStoredTrades = Array.from(tradesToSet).filter(t => allAvailableTrades.includes(t));
+                const validStoredTrades = Array.from(tradesToSet).filter(t => allAvailableTrades.includes(t as string));
                 setSelectedTrades(new Set(validStoredTrades));
             } else {
                 setSelectedTrades(new Set(allAvailableTrades));
@@ -644,7 +644,7 @@ export default function AvailabilityPage() {
         head, body, startY: finalY, headStyles: { fillColor: [6, 95, 212] },
         didParseCell: function (data) {
             if (data.row.index > 0 && data.section === 'body') {
-                if (body[data.row.index][0] === '' && body[data.row.index-1][0] !== '') {
+                if (body[data.row.index][0] === '' && body[data.row.index - 1][0] !== '') {
                    data.cell.styles.borderTopWidth = 1;
                    data.cell.styles.borderTopColor = [220, 220, 220];
                 }
@@ -716,7 +716,7 @@ export default function AvailabilityPage() {
                                 <Tooltip key={user.uid}>
                                     <TooltipTrigger>
                                          <Avatar className={cn("h-6 w-6 border-2", getBorderColor(availability))}>
-                                            <AvatarFallback className="text-[10px]">{getInitials(user.name)}</AvatarFallback>
+                                            <AvatarFallback className="text-[8px]">{getInitials(user.name)}</AvatarFallback>
                                         </Avatar>
                                     </TooltipTrigger>
                                     <TooltipContent>
@@ -731,7 +731,7 @@ export default function AvailabilityPage() {
                                 <Tooltip>
                                     <TooltipTrigger>
                                         <Avatar className="h-6 w-6">
-                                            <AvatarFallback className="text-[10px] bg-muted-foreground text-muted">+{dayData.availableUsers.length - 10}</AvatarFallback>
+                                            <AvatarFallback className="text-[8px] bg-muted-foreground text-muted">+{dayData.availableUsers.length - 10}</AvatarFallback>
                                         </Avatar>
                                     </TooltipTrigger>
                                     <TooltipContent>
@@ -935,3 +935,5 @@ export default function AvailabilityPage() {
     </Card>
   );
 }
+
+    
