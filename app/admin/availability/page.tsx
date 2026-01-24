@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { addDays, format, startOfDay, isSameDay, eachDayOfInterval, isBefore, subMonths, startOfMonth, endOfMonth, getDay, addMonths, startOfWeek, endOfWeek, isWithinInterval } from 'date-fns';
+import { addDays, format, startOfDay, isSameDay, eachDayOfInterval, isBefore, subMonths, startOfMonth, endOfMonth, getDay, addMonths, startOfWeek, endOfWeek, isWithinInterval, startOfToday } from 'date-fns';
 import type { DateRange } from 'react-day-picker';
 import { collection, onSnapshot, query, addDoc, serverTimestamp, Timestamp, doc, deleteDoc, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -656,6 +656,7 @@ export default function AvailabilityPage() {
   };
 
   const renderSimpleView = () => {
+    const today = startOfToday();
     const getBorderColor = (availability: 'full' | 'am' | 'pm') => {
         switch (availability) {
             case 'full': return 'border-green-500';
@@ -691,49 +692,58 @@ export default function AvailabilityPage() {
                     <span className="sm:hidden">{day.charAt(0)}</span>
                 </div>
             ))}
-            {monthGridData.map((dayData, index) => (
-                <div key={index} 
-                  className={cn("relative min-h-[100px] sm:min-h-[120px] border-b border-r p-1 sm:p-2 transition-colors", 
-                    dayData.isCurrentMonth ? "bg-background hover:bg-muted/50 cursor-pointer" : "bg-muted/20"
-                  )} 
-                  onClick={() => dayData.isCurrentMonth && handleOpenDayDetail(dayData)}
-                >
-                    <span className={`text-sm font-medium ${dayData.isCurrentMonth ? 'text-foreground' : 'text-muted-foreground'}`}>
-                        {format(dayData.date, 'd')}
-                    </span>
-                    <div className="mt-2 flex flex-wrap gap-1">
-                        <TooltipProvider>
-                            {dayData.availableUsers.slice(0, 10).map(({ user, availability, shiftLocation }) => (
-                                <Tooltip key={user.uid}>
-                                    <TooltipTrigger>
-                                         <Avatar className={cn("h-5 w-5 sm:h-6 sm:w-6 border-2", getBorderColor(availability))}>
-                                            <AvatarFallback className="text-[8px] sm:text-[9px]">{getInitials(user.name)}</AvatarFallback>
-                                        </Avatar>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                        <p>
-                                            {user.name} - {availability === 'full' ? 'Full Day' : `${availability.toUpperCase()} Available`}
-                                            {availability !== 'full' && shiftLocation && <span className="text-muted-foreground text-xs"> (Busy at {extractLocation(shiftLocation)})</span>}
-                                        </p>
-                                    </TooltipContent>
-                                </Tooltip>
-                            ))}
-                            {dayData.availableUsers.length > 10 && (
-                                <Tooltip>
-                                    <TooltipTrigger>
-                                        <Avatar className="h-5 w-5 sm:h-6 sm:w-6">
-                                            <AvatarFallback className="text-[8px] sm:text-[9px] bg-muted-foreground text-muted">+{dayData.availableUsers.length - 10}</AvatarFallback>
-                                        </Avatar>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                        <p>{dayData.availableUsers.length - 10} more available</p>
-                                    </TooltipContent>
-                                </Tooltip>
-                            )}
-                        </TooltipProvider>
+            {monthGridData.map((dayData, index) => {
+                const isPast = isBefore(dayData.date, today);
+                return (
+                    <div key={index} 
+                      className={cn("relative min-h-[100px] sm:min-h-[120px] border-b border-r p-1 sm:p-2 transition-colors", 
+                        isPast
+                            ? "bg-muted/40"
+                            : dayData.isCurrentMonth
+                                ? "bg-background hover:bg-muted/50 cursor-pointer"
+                                : "bg-muted/20"
+                      )} 
+                      onClick={() => !isPast && dayData.isCurrentMonth && handleOpenDayDetail(dayData)}
+                    >
+                        <span className={`text-sm font-medium ${dayData.isCurrentMonth ? 'text-foreground' : 'text-muted-foreground'}`}>
+                            {format(dayData.date, 'd')}
+                        </span>
+                        {!isPast && (
+                            <div className="mt-2 flex flex-wrap gap-1">
+                                <TooltipProvider>
+                                    {dayData.availableUsers.slice(0, 10).map(({ user, availability, shiftLocation }) => (
+                                        <Tooltip key={user.uid}>
+                                            <TooltipTrigger asChild>
+                                                 <Avatar className={cn("h-6 w-6 border-2", getBorderColor(availability))}>
+                                                    <AvatarFallback className="text-[8px]">{getInitials(user.name)}</AvatarFallback>
+                                                </Avatar>
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                                <p>
+                                                    {user.name} - {availability === 'full' ? 'Full Day' : `${availability.toUpperCase()} Available`}
+                                                    {availability !== 'full' && shiftLocation && <span className="text-muted-foreground text-xs"> (Busy at {extractLocation(shiftLocation)})</span>}
+                                                </p>
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    ))}
+                                    {dayData.availableUsers.length > 10 && (
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <Avatar className="h-6 w-6">
+                                                    <AvatarFallback className="text-[8px] bg-muted-foreground text-muted">+{dayData.availableUsers.length - 10}</AvatarFallback>
+                                                </Avatar>
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                                <p>{dayData.availableUsers.length - 10} more available</p>
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    )}
+                                </TooltipProvider>
+                            </div>
+                        )}
                     </div>
-                </div>
-            ))}
+                )
+            })}
         </div>
         <div className="flex justify-center items-center gap-2 sm:gap-6 text-xs text-muted-foreground pt-4">
             <div className="flex items-center gap-1 sm:gap-2"><div className="h-3 w-3 rounded-full border-2 border-green-500" /><span>Full Day</span></div>
