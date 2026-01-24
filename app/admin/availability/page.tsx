@@ -12,7 +12,7 @@ import { Calendar as CalendarPicker } from '@/components/ui/calendar';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Calendar as CalendarIcon, Users, UserCheck, Filter, ChevronDown, Check, Clock, Sun, Moon, MapPin, X, CheckCircle, XCircle, ChevronLeft, ChevronRight, Download, PlusCircle, Trash2, CalendarOff } from 'lucide-react';
+import { Calendar as CalendarIcon, Users, UserCheck, Filter, ChevronDown, Check, Clock, Sun, Moon, MapPin, X, CheckCircle, XCircle, ChevronLeft, ChevronRight, Download, PlusCircle, Trash2, CalendarOff, Search } from 'lucide-react';
 import { getCorrectedLocalDate } from '@/lib/utils';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -300,6 +300,7 @@ export default function AvailabilityPage() {
   const [unavailability, setUnavailability] = useState<Unavailability[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const [userSearchTerm, setUserSearchTerm] = useState('');
   const [filterBy, setFilterBy] = useState<'role' | 'trade'>('role');
   const [selectedRoles, setSelectedRoles] = useState<Set<Role>>(new Set(ALL_ROLES));
   const [availableTrades, setAvailableTrades] = useState<string[]>([]);
@@ -439,12 +440,30 @@ export default function AvailabilityPage() {
   }
   
   const usersMatchingFilters = useMemo(() => {
-    return allUsers.filter(u => {
-        if (filterBy === 'role') return selectedRoles.size === 0 || selectedRoles.has(u.role as Role);
-        if (filterBy === 'trade') return selectedTrades.size === 0 || (u.trade && selectedTrades.has(u.trade));
+    const lowercasedSearchTerm = userSearchTerm.toLowerCase();
+
+    return allUsers.filter(user => {
+        // Always apply name search filter first
+        if (lowercasedSearchTerm && !user.name?.toLowerCase().includes(lowercasedSearchTerm)) {
+            return false;
+        }
+
+        // In simple view, we only care about the search term.
+        if (viewMode === 'simple') {
+            return true;
+        }
+
+        // In detailed view, apply the other filters.
+        if (filterBy === 'role') {
+            return selectedRoles.size === 0 || selectedRoles.has(user.role as Role);
+        }
+        if (filterBy === 'trade') {
+            return selectedTrades.size === 0 || (user.trade && selectedTrades.has(user.trade));
+        }
+
         return true;
     });
-  }, [allUsers, filterBy, selectedRoles, selectedTrades]);
+  }, [allUsers, userSearchTerm, viewMode, filterBy, selectedRoles, selectedTrades]);
 
 
   useEffect(() => {
@@ -686,6 +705,17 @@ export default function AvailabilityPage() {
         <div className="flex justify-between items-center bg-muted/50 p-2 rounded-lg">
             <h2 className="text-xl font-semibold tracking-tight text-center w-full">5-Week Availability Overview</h2>
         </div>
+        <div className="px-1 pt-2">
+            <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                    placeholder="Search by operative name..."
+                    value={userSearchTerm}
+                    onChange={(e) => setUserSearchTerm(e.target.value)}
+                    className="w-full pl-10"
+                />
+            </div>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-7 border-t border-l">
             <div className="hidden md:grid md:grid-cols-7 col-span-full">
               {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
@@ -878,6 +908,18 @@ export default function AvailabilityPage() {
                         </CardHeader>
                         <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-start pt-6">
                            <div className="space-y-4">
+                                <div className="space-y-2">
+                                    <h4 className="font-medium text-sm">Search by Name</h4>
+                                    <div className="relative">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input
+                                            placeholder="Search by operative name..."
+                                            value={userSearchTerm}
+                                            onChange={(e) => setUserSearchTerm(e.target.value)}
+                                            className="w-full pl-10"
+                                        />
+                                    </div>
+                                </div>
                                 <div className="space-y-2">
                                     <h4 className="font-medium text-sm">Filter By</h4>
                                     <RadioGroup value={filterBy} onValueChange={handleFilterByChange as (value: string) => void} className="flex space-x-4">
