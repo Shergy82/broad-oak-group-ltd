@@ -177,6 +177,7 @@ export default function DashboardPage() {
   if (newShifts.length > 0 && showNewShifts) {
     return (
       <NewShiftsDialog
+        user={user}
         shifts={newShifts}
         onClose={() => {
           if (gatePending) return;

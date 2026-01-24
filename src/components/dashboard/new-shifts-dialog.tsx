@@ -1,10 +1,9 @@
-
 'use client';
 
 import { useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
-import { writeBatch, doc } from 'firebase/firestore';
+import { writeBatch, doc, serverTimestamp } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -14,13 +13,15 @@ import type { Shift } from '@/types';
 import { format } from 'date-fns';
 import { CheckCheck, Gift } from 'lucide-react';
 import { Card, CardContent, CardDescription } from '../ui/card';
+import type { User } from 'firebase/auth';
 
 interface NewShiftsDialogProps {
   shifts: Shift[];
   onClose: () => void;
+  user: User;
 }
 
-export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
+export function NewShiftsDialog({ shifts, onClose, user }: NewShiftsDialogProps) {
   const [isOpen, setIsOpen] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
@@ -30,6 +31,10 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
       toast({ variant: 'destructive', title: 'Database not configured' });
       return;
     }
+    if (!user) {
+      toast({ variant: 'destructive', title: 'Authentication Error', description: 'User not found.' });
+      return;
+    }
     setIsLoading(true);
 
     try {
@@ -37,7 +42,12 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
       
       shiftsToUpdate.forEach(shift => {
         const shiftRef = doc(db, 'shifts', shift.id);
-        batch.update(shiftRef, { status: 'confirmed' });
+        batch.update(shiftRef, { 
+            status: 'confirmed',
+            updatedByUid: user.uid,
+            updatedByAction: 'confirmed',
+            updatedAt: serverTimestamp()
+        });
       });
 
       await batch.commit();
