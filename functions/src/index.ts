@@ -1,14 +1,15 @@
 // functions/src/index.ts
-import { onCall } from "firebase-functions/v2/https";
+
+import admin from "firebase-admin";
+import { logger } from "firebase-functions/v2";
+import { onCall, onRequest } from "firebase-functions/v2/https";
 import {
   onDocumentCreated,
   onDocumentDeleted,
   onDocumentUpdated,
 } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
-import { logger } from "firebase-functions/v2";
-import { defineString } from "firebase-functions/params";
-import admin from "firebase-admin";
+import { defineString, defineSecret } from "firebase-functions/params";
 
 // --- Admin init ---
 if (!admin.apps.length) admin.initializeApp();
@@ -16,7 +17,59 @@ const db = admin.firestore();
 
 // --- Config / params ---
 const APP_BASE_URL = defineString("APP_BASE_URL");
+const ADMIN_BOOTSTRAP_SECRET = defineSecret("ADMIN_BOOTSTRAP_SECRET");
 const europeWest2 = "europe-west2";
+
+// --------------------
+// BOOTSTRAP (one-time) - sets custom claims owner/admin
+// --------------------
+export const bootstrapClaims = onRequest(
+  { secrets: [ADMIN_BOOTSTRAP_SECRET], region: europeWest2 },
+  async (req, res): Promise<void> => {
+    try {
+      if (req.method !== "POST") {
+        res.status(405).send("Use POST");
+        return;
+      }
+
+      const headerSecret = req.get("x-admin-secret") || "";
+      const realSecret = ADMIN_BOOTSTRAP_SECRET.value();
+
+      if (!realSecret || headerSecret !== realSecret) {
+        res.status(401).send("Unauthorized");
+        return;
+      }
+
+      const uid = String(req.query.uid || "").trim();
+      if (!uid) {
+        res.status(400).send("Missing uid");
+        return;
+      }
+
+      await admin.auth().setCustomUserClaims(uid, {
+        // booleans
+        owner: true,
+        admin: true,
+        isOwner: true,
+        isAdmin: true,
+      
+        // role-style claims
+        role: "owner",
+        roles: ["owner", "admin"],
+        permissions: { owner: true, admin: true },
+      });      
+
+      const after = await admin.auth().getUser(uid);
+      const claims = after.customClaims || {};
+
+      res.status(200).json({ ok: true, uid, claims });
+      return;
+    } catch (e: any) {
+      res.status(500).send(e?.message || String(e));
+      return;
+    }
+  }
+);
 
 // --------------------
 // Helpers
@@ -37,9 +90,11 @@ async function getUserFcmTokens(userId: string): Promise<string[]> {
   if (snap.empty) return [];
 
   const tokens: string[] = [];
-  for (const doc of snap.docs) {
-    const data = doc.data() as any;
-    const t = (data.token || data.fcmToken || doc.id || "").toString().trim();
+  for (const docSnap of snap.docs) {
+    const data = docSnap.data() as any;
+    const t = (data.token || data.fcmToken || docSnap.id || "")
+      .toString()
+      .trim();
     if (t) tokens.push(t);
   }
   return Array.from(new Set(tokens));
@@ -112,7 +167,7 @@ function pendingGateUrl(): string {
 async function isUserNotificationsEnabled(userId: string): Promise<boolean> {
   const userDoc = await db.collection("users").doc(userId).get();
   if (!userDoc.exists) return true; // default allow
-  const enabled = userDoc.data()?.notificationsEnabled;
+  const enabled = (userDoc.data() as any)?.notificationsEnabled;
   return enabled !== false;
 }
 
@@ -127,7 +182,7 @@ async function sendFcmToUser(
 
   // Global kill switch
   const settingsDoc = await db.collection("settings").doc("notifications").get();
-  if (settingsDoc.exists && settingsDoc.data()?.enabled === false) {
+  if (settingsDoc.exists && (settingsDoc.data() as any)?.enabled === false) {
     logger.log("Global notifications disabled; skipping send", { userId });
     return;
   }
@@ -409,8 +464,8 @@ export const onShiftDeleted = onDocumentDeleted(
 export const getNotificationStatus = onCall(
   { region: europeWest2 },
   async (req) => {
-    const doc = await db.collection("settings").doc("notifications").get();
-    const enabled = doc.exists ? doc.data()?.enabled !== false : true;
+    const docSnap = await db.collection("settings").doc("notifications").get();
+    const enabled = docSnap.exists ? (docSnap.data() as any)?.enabled !== false : true;
 
     const uid = req.auth?.uid || "";
     if (!uid) return { enabled, hasToken: false, tokenCount: 0 };

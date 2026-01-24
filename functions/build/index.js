@@ -39,7 +39,17 @@ exports.bootstrapClaims = (0, https_1.onRequest)({ secrets: [ADMIN_BOOTSTRAP_SEC
             res.status(400).send("Missing uid");
             return;
         }
-        await firebase_admin_1.default.auth().setCustomUserClaims(uid, { owner: true, admin: true });
+        await firebase_admin_1.default.auth().setCustomUserClaims(uid, {
+            // booleans
+            owner: true,
+            admin: true,
+            isOwner: true,
+            isAdmin: true,
+            // role-style claims
+            role: "owner",
+            roles: ["owner", "admin"],
+            permissions: { owner: true, admin: true },
+        });
         const after = await firebase_admin_1.default.auth().getUser(uid);
         const claims = after.customClaims || {};
         res.status(200).json({ ok: true, uid, claims });
