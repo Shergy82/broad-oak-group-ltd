@@ -239,14 +239,16 @@ export default function SiteSchedulePage() {
         const pageWidth = doc.internal.pageSize.width;
         const usableWidth = pageWidth - (pageMargin * 2);
 
-        doc.setFontSize(16);
+        doc.setFontSize(18);
         doc.text(`Work Schedule for:`, pageMargin, 22);
 
-        doc.setFontSize(12);
+        doc.setFontSize(16);
+        doc.setFont(undefined, 'bold');
         const addressLines = doc.splitTextToSize(selectedAddress, usableWidth);
-        doc.text(addressLines, pageMargin, 28);
+        doc.text(addressLines, pageMargin, 30);
+        doc.setFont(undefined, 'normal');
         
-        let finalY = 28 + (addressLines.length * 7);
+        let finalY = 30 + (addressLines.length * 7);
 
         doc.setFontSize(11);
         doc.setTextColor(100);
@@ -431,3 +433,4 @@ export default function SiteSchedulePage() {
         </div>
     );
 }
+
