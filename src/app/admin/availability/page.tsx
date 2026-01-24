@@ -46,6 +46,7 @@ interface DayAvailability {
     date: Date;
     type: 'full' | 'am' | 'pm' | 'busy';
     shiftLocation?: string;
+    shiftTask?: string;
     isUnavailable?: boolean;
 }
 
@@ -59,6 +60,7 @@ interface AvailableUserForDay {
     user: UserProfile;
     availability: 'full' | 'am' | 'pm';
     shiftLocation?: string;
+    shiftTask?: string;
 }
 interface DayData {
     date: Date;
@@ -480,8 +482,8 @@ export default function AvailabilityPage() {
             if (shiftsOnDay.length === 0) return { date: day, type: 'full' };
             if (shiftsOnDay.length === 1) {
                 const shift = shiftsOnDay[0];
-                if (shift.type === 'am') return { date: day, type: 'pm', shiftLocation: shift.address };
-                if (shift.type === 'pm') return { date: day, type: 'am', shiftLocation: shift.address };
+                if (shift.type === 'am') return { date: day, type: 'pm', shiftLocation: shift.address, shiftTask: shift.task };
+                if (shift.type === 'pm') return { date: day, type: 'am', shiftLocation: shift.address, shiftTask: shift.task };
             }
             return { date: day, type: 'busy' };
         });
@@ -549,8 +551,8 @@ export default function AvailabilityPage() {
             if (shiftsOnDay.length === 0) availableUsers.push({ user, availability: 'full' });
             else if (shiftsOnDay.length === 1) {
                 const shift = shiftsOnDay[0];
-                if (shift.type === 'am') availableUsers.push({ user, availability: 'pm', shiftLocation: shift.address });
-                if (shift.type === 'pm') availableUsers.push({ user, availability: 'am', shiftLocation: shift.address });
+                if (shift.type === 'am') availableUsers.push({ user, availability: 'pm', shiftLocation: shift.address, shiftTask: shift.task });
+                if (shift.type === 'pm') availableUsers.push({ user, availability: 'am', shiftLocation: shift.address, shiftTask: shift.task });
             }
         }
         return { date: day, availableUsers }
@@ -716,17 +718,17 @@ export default function AvailabilityPage() {
                         {!isPast && (
                             <div className="mt-2 flex flex-wrap gap-1">
                                 <TooltipProvider>
-                                    {dayData.availableUsers.slice(0, 10).map(({ user, availability, shiftLocation }) => (
+                                    {dayData.availableUsers.slice(0, 10).map(({ user, availability, shiftLocation, shiftTask }) => (
                                         <Tooltip key={user.uid}>
                                             <TooltipTrigger asChild>
                                                  <Avatar className={cn("h-6 w-6 border-2", getBorderColor(availability))}>
-                                                    <AvatarFallback className="text-[9px]">{getInitials(user.name)}</AvatarFallback>
+                                                    <AvatarFallback className="text-[10px]">{getInitials(user.name)}</AvatarFallback>
                                                 </Avatar>
                                             </TooltipTrigger>
                                             <TooltipContent>
                                                 <p>
                                                     {user.name} - {availability === 'full' ? 'Full Day' : `${availability.toUpperCase()} Available`}
-                                                    {availability !== 'full' && shiftLocation && <span className="text-muted-foreground text-xs"> (Busy at {extractLocation(shiftLocation)})</span>}
+                                                    {availability !== 'full' && shiftLocation && <span className="text-muted-foreground text-xs"> (Busy: {shiftTask} at {extractLocation(shiftLocation)})</span>}
                                                 </p>
                                             </TooltipContent>
                                         </Tooltip>
@@ -773,13 +775,13 @@ export default function AvailabilityPage() {
             <div>
                 <h3 className={`font-semibold mb-3 flex items-center gap-2 ${color}`}><Icon className="h-4 w-4" /> {title} ({users.length})</h3>
                 <div className="space-y-2">
-                    {users.map(({user, shiftLocation}) => (
+                    {users.map(({user, shiftLocation, shiftTask}) => (
                         <div key={user.uid} className="flex items-center justify-between p-2 bg-muted/50 rounded-md text-sm">
                             <div className="flex flex-col">
                                 <span>{user.name}</span>
                                 <Badge variant="outline" className="text-xs w-fit mt-1 capitalize">{user.trade || user.role}</Badge>
                             </div>
-                            {shiftLocation && <span className="text-xs text-muted-foreground truncate max-w-[150px]">Busy at {extractLocation(shiftLocation)}</span>}
+                            {shiftLocation && <span className="text-xs text-muted-foreground truncate max-w-[150px]">Busy: {shiftTask} at {extractLocation(shiftLocation)}</span>}
                         </div>
                     ))}
                 </div>
@@ -962,7 +964,7 @@ export default function AvailabilityPage() {
                                                                     {d.type === 'full' && <span>All Day</span>}
                                                                     {d.type === 'am' && <span>AM Free</span>}
                                                                     {d.type === 'pm' && <span>PM Free</span>}
-                                                                    {d.shiftLocation && <span className="text-muted-foreground text-[10px] truncate">(Busy at {extractLocation(d.shiftLocation)})</span>}
+                                                                    {d.shiftTask && d.shiftLocation && <span className="text-muted-foreground text-[10px] truncate">(Busy: {d.shiftTask} at {extractLocation(d.shiftLocation)})</span>}
                                                                 </div>
                                                             ))}</div>
                                                         </div>
@@ -1018,5 +1020,3 @@ export default function AvailabilityPage() {
     </Card>
   );
 }
-
-    
