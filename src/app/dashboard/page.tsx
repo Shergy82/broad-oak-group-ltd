@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
@@ -56,6 +57,7 @@ export default function DashboardPage() {
     }
     setShowAnnouncements(false);
   };
+
 
   useEffect(() => {
     if (!isAuthLoading && !user) {
@@ -177,7 +179,6 @@ export default function DashboardPage() {
   if (newShifts.length > 0 && showNewShifts) {
     return (
       <NewShiftsDialog
-        user={user}
         shifts={newShifts}
         onClose={() => {
           if (gatePending) return;

@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState } from 'react';
@@ -13,15 +14,15 @@ import type { Shift } from '@/types';
 import { format } from 'date-fns';
 import { CheckCheck, Gift } from 'lucide-react';
 import { Card, CardContent, CardDescription } from '../ui/card';
-import type { User } from 'firebase/auth';
+import { useAuth } from '@/hooks/use-auth';
 
 interface NewShiftsDialogProps {
   shifts: Shift[];
   onClose: () => void;
-  user: User;
 }
 
-export function NewShiftsDialog({ shifts, onClose, user }: NewShiftsDialogProps) {
+export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
+  const { user } = useAuth();
   const [isOpen, setIsOpen] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
