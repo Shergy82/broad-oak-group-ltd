@@ -350,7 +350,7 @@ export default function AvailabilityPage() {
         const usersQuery = query(collection(db, 'users'));
         const unsubUsers = onSnapshot(usersQuery, (snapshot) => {
             const fetchedUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
-            setAllUsers(fetchedUsers.sort((a,b) => a.name.localeCompare(b.name)));
+            setAllUsers(fetchedUsers.sort((a,b) => (a.name || '').localeCompare(b.name || '')));
 
             const allAvailableTrades = [...new Set(fetchedUsers.flatMap(u => u.trade).filter(Boolean))] as string[];
             setAvailableTrades(allAvailableTrades.sort());
@@ -507,6 +507,28 @@ export default function AvailabilityPage() {
       
   }, [dateRange, allShifts, allUsers, selectedUserIds, unavailability]);
 
+  const { fullyAvailable, partiallyAvailable, unavailable } = useMemo(() => {
+    const data: {
+      fullyAvailable: AvailableUser[];
+      partiallyAvailable: AvailableUser[];
+      unavailable: AvailableUser[];
+    } = {
+      fullyAvailable: [],
+      partiallyAvailable: [],
+      unavailable: [],
+    };
+    for (const user of availableUsers) {
+      if (user.availability === 'full') {
+        data.fullyAvailable.push(user);
+      } else if (user.availability === 'partial') {
+        data.partiallyAvailable.push(user);
+      } else if (user.availability === 'unavailable') {
+        data.unavailable.push(user);
+      }
+    }
+    return data;
+  }, [availableUsers]);
+
   const monthGridData: Omit<DayData, 'isCurrentMonth'>[] = useMemo(() => {
     if (viewMode !== 'simple') return [];
 
@@ -662,28 +684,35 @@ export default function AvailabilityPage() {
         <div className="flex justify-between items-center bg-muted/50 p-2 rounded-lg">
             <h2 className="text-xl font-semibold tracking-tight text-center w-full">5-Week Availability Overview</h2>
         </div>
-        <div className="grid grid-cols-7 border-t border-l">
-            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
-                <div key={day} className="p-1 text-center text-xs font-semibold text-muted-foreground bg-muted/30 border-b border-r sm:p-2">
-                    <span className="hidden sm:inline">{day}</span>
-                    <span className="sm:hidden">{day.charAt(0)}</span>
-                </div>
-            ))}
+        <div className="grid grid-cols-1 md:grid-cols-7 border-t border-l">
+            <div className="hidden md:grid md:grid-cols-7 col-span-full">
+              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
+                  <div key={day} className="p-1 text-center text-xs font-semibold text-muted-foreground bg-muted/30 border-b border-r sm:p-2">
+                      <span className="hidden sm:inline">{day}</span>
+                      <span className="sm:hidden">{day.charAt(0)}</span>
+                  </div>
+              ))}
+            </div>
             {monthGridData.map((dayData, index) => {
                 const isPast = isBefore(dayData.date, today);
                 const isTodaysDate = isSameDay(dayData.date, today);
                 return (
                     <div key={index} 
                       className={cn(
-                        "relative min-h-[100px] sm:min-h-[120px] border-b border-r p-1 sm:p-2 transition-colors",
+                        "relative min-h-[120px] border-b border-r p-2 transition-colors",
                         isPast ? "bg-muted/40" : "bg-background hover:bg-muted/50 cursor-pointer",
                         isTodaysDate && !isPast && "ring-2 ring-primary ring-inset"
                       )} 
                       onClick={() => !isPast && handleOpenDayDetail(dayData as DayData)}
                     >
-                        <span className={`text-sm font-medium ${isTodaysDate ? 'text-primary font-bold' : 'text-foreground'}`}>
-                            {format(dayData.date, 'd')}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className={cn('md:hidden text-xs font-semibold w-8 text-center rounded-full p-1', isTodaysDate ? 'bg-primary/20 text-primary' : 'bg-muted text-muted-foreground' )}>
+                            {format(dayData.date, 'E')}
+                          </span>
+                          <span className={`text-sm font-medium ${isTodaysDate ? 'text-primary font-bold' : 'text-foreground'}`}>
+                              {format(dayData.date, 'd')}
+                          </span>
+                        </div>
                         {!isPast && (
                             <div className="mt-2 flex flex-wrap gap-1">
                                 <TooltipProvider>
@@ -691,7 +720,7 @@ export default function AvailabilityPage() {
                                         <Tooltip key={user.uid}>
                                             <TooltipTrigger asChild>
                                                  <Avatar className={cn("h-6 w-6 border-2", getBorderColor(availability))}>
-                                                    <AvatarFallback className="text-[10px]">{getInitials(user.name)}</AvatarFallback>
+                                                    <AvatarFallback className="text-[9px]">{getInitials(user.name)}</AvatarFallback>
                                                 </Avatar>
                                             </TooltipTrigger>
                                             <TooltipContent>
@@ -705,7 +734,7 @@ export default function AvailabilityPage() {
                                     {dayData.availableUsers.length > 10 && (
                                         <Tooltip>
                                             <TooltipTrigger asChild>
-                                                <div onClick={() => !isPast && handleOpenDayDetail(dayData as DayData)} className="cursor-pointer">
+                                                <div onClick={(e) => { e.stopPropagation(); if (!isPast) handleOpenDayDetail(dayData as DayData); }} className="cursor-pointer">
                                                     <Avatar className="h-6 w-6">
                                                         <AvatarFallback className="text-[8px] bg-muted-foreground text-muted">+{dayData.availableUsers.length - 10}</AvatarFallback>
                                                     </Avatar>
@@ -740,9 +769,9 @@ export default function AvailabilityPage() {
     const pmAvailable = selectedDayData.availableUsers.filter(u => u.availability === 'pm');
 
     const renderUserList = (users: AvailableUserForDay[], title: string, Icon: React.ElementType, color: string) => (
-        users.length > 0 && (
+        users.length > 0 ? (
             <div>
-                <h3 className={`font-semibold mb-2 flex items-center gap-2 ${color}`}><Icon className="h-4 w-4" /> {title} ({users.length})</h3>
+                <h3 className={`font-semibold mb-3 flex items-center gap-2 ${color}`}><Icon className="h-4 w-4" /> {title} ({users.length})</h3>
                 <div className="space-y-2">
                     {users.map(({user, shiftLocation}) => (
                         <div key={user.uid} className="flex items-center justify-between p-2 bg-muted/50 rounded-md text-sm">
@@ -755,23 +784,48 @@ export default function AvailabilityPage() {
                     ))}
                 </div>
             </div>
-        )
+        ) : null
     )
 
     return (
         <Dialog open={isDayDetailOpen} onOpenChange={setIsDayDetailOpen}>
-            <DialogContent className="max-w-md">
+            <DialogContent className="max-w-5xl h-[80vh] flex flex-col">
                 <DialogHeader>
                     <DialogTitle>Available Operatives</DialogTitle>
                     <DialogDescription>{format(selectedDayData.date, 'PPPP')}</DialogDescription>
                 </DialogHeader>
-                <ScrollArea className="max-h-[60vh] -mx-4 px-4">
-                    <div className="space-y-6 py-4">
-                        {renderUserList(fullDay, "Fully Available", CheckCircle, 'text-green-600')}
-                        {renderUserList(amAvailable, "AM Available", Sun, 'text-sky-600')}
-                        {renderUserList(pmAvailable, "PM Available", Moon, 'text-orange-600')}
+                <div className="grid md:grid-cols-2 gap-x-6 flex-grow overflow-hidden">
+                    {/* Fully Available Column */}
+                    <div className="flex flex-col overflow-hidden">
+                        <h3 className="font-semibold text-lg flex items-center gap-2 text-green-600 mb-3 shrink-0"><CheckCircle className="h-5 w-5" /> Fully Available ({fullDay.length})</h3>
+                        <ScrollArea className="flex-grow pr-4">
+                            <div className="space-y-2">
+                                {fullDay.length > 0 ? fullDay.map(({user}) => (
+                                    <div key={user.uid} className="flex items-center justify-between p-2 bg-muted/50 rounded-md text-sm">
+                                        <div className="flex flex-col">
+                                            <span>{user.name}</span>
+                                            <Badge variant="outline" className="text-xs w-fit mt-1 capitalize">{user.trade || user.role}</Badge>
+                                        </div>
+                                    </div>
+                                )) : <p className="text-sm text-muted-foreground text-center p-4">No operatives fully available.</p>}
+                            </div>
+                        </ScrollArea>
                     </div>
-                </ScrollArea>
+
+                    {/* Semi-Available Column */}
+                     <div className="flex flex-col overflow-hidden">
+                        <h3 className="font-semibold text-lg flex items-center gap-2 text-blue-600 mb-3 shrink-0"><Users className="h-5 w-5" /> Semi-Available ({amAvailable.length + pmAvailable.length})</h3>
+                         <ScrollArea className="flex-grow pr-4">
+                            <div className="space-y-4">
+                                {renderUserList(amAvailable, "AM Available", Sun, 'text-sky-600')}
+                                {renderUserList(pmAvailable, "PM Available", Moon, 'text-orange-600')}
+                                {(amAvailable.length === 0 && pmAvailable.length === 0) && (
+                                    <p className="text-sm text-muted-foreground text-center p-4">No operatives semi-available.</p>
+                                )}
+                            </div>
+                        </ScrollArea>
+                    </div>
+                </div>
             </DialogContent>
         </Dialog>
     )
@@ -871,32 +925,82 @@ export default function AvailabilityPage() {
                             <div className="flex justify-center">
                                 <CalendarPicker mode="range" selected={dateRange} onSelect={setDateRange} className="rounded-md border" defaultMonth={dateRange?.from} numberOfMonths={1} />
                             </div>
+                            
+                            {/* NEW DETAILED VIEW LAYOUT */}
                             <div>
-                                <h3 className="text-lg font-semibold flex items-center gap-2 mb-3"><UserCheck className="text-green-600 h-5 w-5"/>Available Operatives ({availableUsers.filter(u => u.availability !== 'unavailable').length})<span className="text-sm font-normal text-muted-foreground ml-2">{selectedPeriodText()}</span></h3>
+                                <h3 className="text-lg font-semibold flex items-center gap-2 mb-3"><UserCheck className="text-green-600 h-5 w-5"/>Available Operatives ({fullyAvailable.length + partiallyAvailable.length})<span className="text-sm font-normal text-muted-foreground ml-2">{selectedPeriodText()}</span></h3>
                                 {availableUsers.length > 0 ? (
-                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                                    {availableUsers.map(({ user, availability, dayStates }) => (
-                                        <div key={user.uid} className={cn("flex items-start gap-3 p-3 border rounded-md", availability === 'unavailable' ? 'bg-destructive/10' : 'bg-muted/50')}>
-                                            <Avatar className="h-8 w-8"><AvatarFallback>{getInitials(user.name)}</AvatarFallback></Avatar>
-                                            <div className="flex-1">
-                                            <p className="text-sm font-medium">{user.name}</p>
-                                            {availability === 'full' && (<Badge variant="outline" className="mt-1 border-green-500/50 bg-green-500/10 text-green-700">Fully Available</Badge>)}
-                                            {availability === 'unavailable' && (<Badge variant="destructive" className="mt-1">Unavailable</Badge>)}
-                                            {availability === 'partial' && (
-                                                <div className="text-xs mt-1 space-y-2">
-                                                    <Badge variant="outline" className="border-blue-500/50 bg-blue-500/10 text-blue-700">Partially Available</Badge>
-                                                    <div className="space-y-1 pt-1">{dayStates.filter(d => d.type !== 'busy').map(d => (<div key={d.date.toISOString()} className="flex items-center gap-2"><CheckCircle className="h-3.5 w-3.5 text-green-600" /><span className="font-medium">{format(d.date, 'EEE, dd MMM')}:</span>{d.type === 'full' && <span>All Day</span>}{d.type === 'am' && <span>AM Free</span>}{d.type === 'pm' && <span>PM Free</span>}{d.shiftLocation && <span className="text-muted-foreground text-[10px] truncate">(Busy at {extractLocation(d.shiftLocation)})</span>}</div>))}</div>
-                                                    <div className="space-y-1 pt-1">{dayStates.filter(d => d.type === 'busy').map(d => (<div key={d.date.toISOString()} className="flex items-center gap-2 text-muted-foreground"><XCircle className="h-3.5 w-3.5 text-destructive" /><span className="font-medium">{format(d.date, 'EEE, dd MMM')}:</span><span>Unavailable</span></div>))}</div>
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                        {/* Column 1: Fully Available */}
+                                        <div className="space-y-4">
+                                            <h4 className="font-semibold text-md">Fully Available ({fullyAvailable.length})</h4>
+                                            {fullyAvailable.length > 0 ? fullyAvailable.map(({ user }) => (
+                                                <div key={user.uid} className="flex items-start gap-3 p-3 border rounded-md bg-muted/50">
+                                                    <Avatar className="h-8 w-8"><AvatarFallback>{getInitials(user.name)}</AvatarFallback></Avatar>
+                                                    <div className="flex-1">
+                                                        <p className="text-sm font-medium">{user.name}</p>
+                                                        <Badge variant="outline" className="mt-1 border-green-500/50 bg-green-500/10 text-green-700">Fully Available</Badge>
+                                                    </div>
                                                 </div>
-                                            )}
-                                            </div>
+                                            )) : <p className="text-sm text-muted-foreground p-4 text-center border-dashed border rounded-lg">No one is fully available.</p>}
                                         </div>
-                                    ))}
+
+                                        {/* Column 2: Partially Available */}
+                                        <div className="space-y-4">
+                                            <h4 className="font-semibold text-md">Partially Available ({partiallyAvailable.length})</h4>
+                                            {partiallyAvailable.length > 0 ? partiallyAvailable.map(({ user, dayStates }) => (
+                                                <div key={user.uid} className="flex items-start gap-3 p-3 border rounded-md bg-muted/50">
+                                                    <Avatar className="h-8 w-8"><AvatarFallback>{getInitials(user.name)}</AvatarFallback></Avatar>
+                                                    <div className="flex-1">
+                                                        <p className="text-sm font-medium">{user.name}</p>
+                                                        <div className="text-xs mt-1 space-y-2">
+                                                            <Badge variant="outline" className="border-blue-500/50 bg-blue-500/10 text-blue-700">Partially Available</Badge>
+                                                            <div className="space-y-1 pt-1">{dayStates.filter(d => d.type !== 'busy' && !d.isUnavailable).map(d => (
+                                                                <div key={d.date.toISOString()} className="flex items-center gap-2">
+                                                                    <CheckCircle className="h-3.5 w-3.5 text-green-600" />
+                                                                    <span className="font-medium">{format(d.date, 'EEE, dd MMM')}:</span>
+                                                                    {d.type === 'full' && <span>All Day</span>}
+                                                                    {d.type === 'am' && <span>AM Free</span>}
+                                                                    {d.type === 'pm' && <span>PM Free</span>}
+                                                                    {d.shiftLocation && <span className="text-muted-foreground text-[10px] truncate">(Busy at {extractLocation(d.shiftLocation)})</span>}
+                                                                </div>
+                                                            ))}</div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )) : <p className="text-sm text-muted-foreground p-4 text-center border-dashed border rounded-lg">No one is partially available.</p>}
+                                        </div>
                                     </div>
                                 ) : (
                                     <Alert className="border-dashed"><Users className="h-4 w-4" /><AlertTitle>No Operatives Available</AlertTitle><AlertDescription>No users match the current date and filter criteria. Try adjusting your filters.</AlertDescription></Alert>
                                 )}
                             </div>
+
+                            {/* Unavailable Users Section */}
+                            {unavailable.length > 0 && (
+                                <div className="mt-6">
+                                    <h3 className="text-lg font-semibold flex items-center gap-2 mb-3"><XCircle className="h-5 w-5 text-destructive"/>Unavailable ({unavailable.length})</h3>
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                        {unavailable.map(({ user, dayStates }) => (
+                                            <div key={user.uid} className="flex items-start gap-3 p-3 border rounded-md bg-destructive/10">
+                                                <Avatar className="h-8 w-8"><AvatarFallback>{getInitials(user.name)}</AvatarFallback></Avatar>
+                                                <div className="flex-1">
+                                                    <p className="text-sm font-medium">{user.name}</p>
+                                                    <Badge variant="destructive" className="mt-1">Unavailable</Badge>
+                                                    <div className="text-xs mt-1 space-y-2">
+                                                        <div className="space-y-1 pt-1">{dayStates.filter(d => d.isUnavailable).map(d => (
+                                                            <div key={d.date.toISOString()} className="flex items-center gap-2 text-muted-foreground">
+                                                                <span className="font-medium">{format(d.date, 'EEE, dd MMM')}</span>
+                                                            </div>
+                                                        ))}</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
                         </div>
                     )}
                 </div>
@@ -914,3 +1018,5 @@ export default function AvailabilityPage() {
     </Card>
   );
 }
+
+    
