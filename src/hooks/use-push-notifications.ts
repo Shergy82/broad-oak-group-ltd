@@ -7,11 +7,34 @@ import { functions } from '@/lib/firebase';
 
 type Permission = NotificationPermission | 'default';
 
+const LS_PUSH_ENABLED_KEY = 'push_enabled'; // persists the user's bell choice
+
+function readPushEnabled(): boolean {
+  try {
+    if (typeof window === 'undefined') return false;
+    const v = window.localStorage.getItem(LS_PUSH_ENABLED_KEY);
+    return v === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function writePushEnabled(val: boolean) {
+  try {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(LS_PUSH_ENABLED_KEY, String(val));
+  } catch {
+    // ignore
+  }
+}
+
 export function usePushNotifications() {
   const [isSupported, setIsSupported] = useState(false);
   const [permission, setPermission] = useState<Permission>('default');
   const [isSubscribing, setIsSubscribing] = useState(false);
-  const [isSubscribed, setIsSubscribed] = useState(false);
+
+  // ✅ Restore the user's last choice immediately (avoids "reset" feeling)
+  const [isSubscribed, setIsSubscribed] = useState<boolean>(() => readPushEnabled());
 
   // UI expects these
   const [isKeyLoading] = useState(false);
@@ -21,7 +44,7 @@ export function usePushNotifications() {
     return process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY || null;
   }, []);
 
-  // 🔍 Initial capability check
+  // 🔍 Initial capability check + permission sync
   useEffect(() => {
     (async () => {
       const supported = await isMessagingSupported();
@@ -30,6 +53,16 @@ export function usePushNotifications() {
 
       if (typeof window !== 'undefined' && 'Notification' in window) {
         setPermission(Notification.permission);
+      }
+
+      // If user previously enabled but permission is no longer granted, reflect that in UI
+      // (We do not auto-prompt here — only user action should prompt.)
+      const enabled = readPushEnabled();
+      if (enabled && typeof window !== 'undefined' && 'Notification' in window) {
+        if (Notification.permission !== 'granted') {
+          setIsSubscribed(false);
+          writePushEnabled(false);
+        }
       }
     })();
   }, []);
@@ -58,6 +91,9 @@ export function usePushNotifications() {
       setPermission(perm);
 
       if (perm !== 'granted') {
+        // User did not grant; ensure we don't "remember" enabled
+        setIsSubscribed(false);
+        writePushEnabled(false);
         throw new Error('Notification permission not granted');
       }
 
@@ -100,7 +136,10 @@ export function usePushNotifications() {
       });
 
       console.log('✅ Token sent to backend');
+
+      // ✅ Persist the user's choice
       setIsSubscribed(true);
+      writePushEnabled(true);
     } catch (err) {
       console.error('❌ PUSH SUBSCRIBE FAILED:', err);
     } finally {
@@ -109,10 +148,15 @@ export function usePushNotifications() {
     }
   }, [isSupported, vapidKey]);
 
-  // 🔕 UNSUBSCRIBE (UI-only for now)
+  // 🔕 UNSUBSCRIBE (UI + persist choice)
   const unsubscribe = useCallback(async () => {
     console.log('[Push] Unsubscribe clicked');
     setIsSubscribed(false);
+    writePushEnabled(false);
+
+    // If/when you add backend disable, do it here (optional):
+    // const setNotificationStatus = httpsCallable(functions, 'setNotificationStatus');
+    // await setNotificationStatus({ enabled: false, platform: 'web' });
   }, []);
 
   return {

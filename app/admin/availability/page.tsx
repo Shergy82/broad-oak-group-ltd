@@ -305,7 +305,15 @@ export default function AvailabilityPage() {
   const [availableTrades, setAvailableTrades] = useState<string[]>([]);
   const [selectedTrades, setSelectedTrades] = useState<Set<string>>(new Set());
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
-  const [viewMode, setViewMode] = useState<'detailed' | 'simple'>('detailed');
+  const [viewMode, setViewMode] = useState<'detailed' | 'simple'>(() => {
+    try {
+      if (typeof window === 'undefined') return 'detailed';
+      const saved = window.localStorage.getItem(LS_VIEW_KEY);
+      return saved === 'simple' || saved === 'detailed' ? saved : 'detailed';
+    } catch {
+      return 'detailed';
+    }
+  });  
   
   const [isDayDetailOpen, setIsDayDetailOpen] = useState(false);
   const [selectedDayData, setSelectedDayData] = useState<DayData | null>(null);
@@ -333,10 +341,7 @@ export default function AvailabilityPage() {
 
         const savedTrades = localStorage.getItem(LS_TRADES_KEY);
         const tradesToSet = savedTrades ? new Set(JSON.parse(savedTrades)) : null;
-
-        const savedViewMode = localStorage.getItem(LS_VIEW_KEY);
-        if (savedViewMode) setViewMode(savedViewMode as 'detailed' | 'simple');
-        
+       
         const shiftsQuery = query(collection(db, 'shifts'));
         const unsubShifts = onSnapshot(shiftsQuery, (snapshot) => {
             setAllShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
