@@ -1,21 +1,19 @@
+
 'use client';
 
 import { useState } from 'react';
 import { usePushNotifications } from '@/hooks/use-push-notifications';
 import { Button } from '../ui/button';
-import { Bell, BellOff, XCircle, Settings, RefreshCcw } from 'lucide-react';
+import { Bell, BellOff, XCircle, Settings } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import { Spinner } from './spinner';
 import {
   AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 
 export function NotificationButton() {
@@ -23,13 +21,11 @@ export function NotificationButton() {
     isSupported,
     isSubscribed,
     isSubscribing,
-    isKeyLoading,
-    vapidKey,
     permission,
     subscribe,
     unsubscribe,
-    reset,
   } = usePushNotifications();
+
   const [isBlockedDialogOpen, setBlockedDialogOpen] = useState(false);
 
   if (!isSupported) {
@@ -47,14 +43,13 @@ export function NotificationButton() {
   };
 
   const getIcon = () => {
-    if (isKeyLoading || isSubscribing) return <Spinner />;
+    if (isSubscribing) return <Spinner />;
     if (permission === 'denied') return <XCircle className="h-5 w-5 text-destructive" />;
-    if (isSubscribed) return <Bell className="h-5 w-5 text-accent" />;
+    if (isSubscribed) return <Bell className="h-5 w-5 text-green-600" />;
     return <BellOff className="h-5 w-5 text-muted-foreground" />;
   };
 
   const getTooltipContent = () => {
-    if (isKeyLoading) return 'Loading settings...';
     if (isSubscribing) return 'Updating subscription...';
     if (permission === 'denied') return 'Notifications blocked by browser';
     if (isSubscribed) return 'Unsubscribe from notifications';
@@ -70,7 +65,7 @@ export function NotificationButton() {
               variant="ghost"
               size="icon"
               onClick={handleToggleSubscription}
-              disabled={isKeyLoading || isSubscribing}
+              disabled={isSubscribing}
             >
               {getIcon()}
             </Button>
@@ -103,10 +98,7 @@ export function NotificationButton() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Close</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { setBlockedDialogOpen(false); reset(); }}>
-                <RefreshCcw className="mr-2 h-4 w-4" /> Try Resetting
-            </AlertDialogAction>
+            <Button variant="outline" onClick={() => setBlockedDialogOpen(false)}>Close</Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
