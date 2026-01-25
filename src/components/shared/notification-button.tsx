@@ -4,14 +4,13 @@
 import { useState } from 'react';
 import { usePushNotifications } from '@/hooks/use-push-notifications';
 import { Button } from '../ui/button';
-import { Bell, BellOff, XCircle, Settings } from 'lucide-react';
+import { Bell, BellOff, XCircle, Settings, AlertTriangle } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import { Spinner } from './spinner';
 import {
   AlertDialog,
   AlertDialogContent,
   AlertDialogDescription,
-  AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
@@ -21,6 +20,8 @@ export function NotificationButton() {
     isSupported,
     isSubscribed,
     isSubscribing,
+    isKeyLoading,
+    vapidKey,
     permission,
     subscribe,
     unsubscribe,
@@ -31,27 +32,46 @@ export function NotificationButton() {
   if (!isSupported) {
     return null;
   }
-  
+
+  const vapidMissing = !isKeyLoading && !vapidKey;
+
   const handleToggleSubscription = () => {
+    console.log('--- Bell Clicked ---');
+    console.log('Current State:', {
+      isSubscribed,
+      permission,
+      isSubscribing,
+      isKeyLoading,
+      vapidKeyPresent: !!vapidKey,
+    });
+    
     if (permission === 'denied') {
+      console.log('Action: Opening "denied" dialog.');
       setBlockedDialogOpen(true);
-    } else if (isSubscribed) {
+      return;
+    }
+
+    if (isSubscribed) {
+      console.log('Action: Calling unsubscribe()');
       unsubscribe();
     } else {
+      console.log('Action: Calling subscribe()');
       subscribe();
     }
   };
 
   const getIcon = () => {
-    if (isSubscribing) return <Spinner />;
+    if (isKeyLoading || isSubscribing) return <Spinner />;
     if (permission === 'denied') return <XCircle className="h-5 w-5 text-destructive" />;
+    if (vapidMissing) return <AlertTriangle className="h-5 w-5 text-destructive" />;
     if (isSubscribed) return <Bell className="h-5 w-5 text-green-600" />;
     return <BellOff className="h-5 w-5 text-muted-foreground" />;
   };
 
   const getTooltipContent = () => {
-    if (isSubscribing) return 'Updating subscription...';
-    if (permission === 'denied') return 'Notifications blocked by browser';
+    if (isKeyLoading) return 'Loading notification settings...';
+    if (permission === 'denied') return 'Notifications blocked in browser settings';
+    if (vapidMissing) return 'VAPID key missing from backend (cannot subscribe)';
     if (isSubscribed) return 'Unsubscribe from notifications';
     return 'Subscribe to notifications';
   };
@@ -65,7 +85,8 @@ export function NotificationButton() {
               variant="ghost"
               size="icon"
               onClick={handleToggleSubscription}
-              disabled={isSubscribing}
+              disabled={isKeyLoading || isSubscribing || vapidMissing}
+              aria-label="Notifications"
             >
               {getIcon()}
             </Button>
@@ -86,20 +107,17 @@ export function NotificationButton() {
             <AlertDialogDescription className="pt-2">
               <p>You have previously blocked notifications for this site.</p>
               <p className="mt-2">
-                To receive notifications about your shifts, you need to manually enable them in your browser's settings.
+                To receive notifications about your shifts, you need to manually enable them in your browser&apos;s settings.
               </p>
               <p className="mt-4 text-sm font-semibold">How to fix this:</p>
               <ul className="list-decimal pl-5 mt-2 space-y-1 text-muted-foreground text-sm">
-                <li>Go to your browser's settings page (e.g., Chrome, Firefox, Safari).</li>
-                <li>Find the "Site Settings" or "Permissions" section.</li>
-                <li>Look for this website and change the "Notifications" permission to "Allow".</li>
-                <li>Refresh this page after changing the setting.</li>
+                <li>Go to your browser&apos;s settings page (Chrome / Edge / Safari).</li>
+                <li>Find “Site settings” / “Permissions”.</li>
+                <li>Find this website and change Notifications from Block to Allow.</li>
+                <li>Refresh the page.</li>
               </ul>
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <Button variant="outline" onClick={() => setBlockedDialogOpen(false)}>Close</Button>
-          </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </>

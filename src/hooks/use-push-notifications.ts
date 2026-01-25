@@ -1,117 +1,166 @@
+
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
-import { functions, httpsCallable, app } from '@/lib/firebase';
-import { getMessaging, getToken, deleteToken } from 'firebase/messaging';
+import { db, functions, httpsCallable, isFirebaseConfigured } from '@/lib/firebase';
+import { getMessaging, getToken, isSupported as isFirebaseMessagingSupported } from "firebase/messaging";
 
-interface UsePushNotificationsReturn {
-  isSupported: boolean;
-  isSubscribed: boolean;
-  isSubscribing: boolean;
-  permission: NotificationPermission;
-  subscribe: () => Promise<void>;
-  unsubscribe: () => Promise<void>;
-}
+type Permission = NotificationPermission | 'default';
 
-export function usePushNotifications(): UsePushNotificationsReturn {
+export function usePushNotifications() {
   const { toast } = useToast();
   const { user } = useAuth();
-  
-  const [permission, setPermission] = useState<NotificationPermission>('default');
-  const [isSubscribed, setIsSubscribed] = useState(false);
+
+  const [isSupported, setIsSupported] = useState(false);
+  const [permission, setPermission] = useState<Permission>('default');
   const [isSubscribing, setIsSubscribing] = useState(false);
-
-  const isSupported = typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window;
-  const vapidKey = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY?.trim() || '';
-
-  const getSubscriptionStatus = useCallback(async () => {
-    if (!isSupported) return;
-    try {
-      const registration = await navigator.serviceWorker.ready;
-      const subscription = await registration.pushManager.getSubscription();
-      setIsSubscribed(!!subscription);
-    } catch (e) {
-        console.error("Could not get subscription status", e);
-        setIsSubscribed(false);
-    }
-  }, [isSupported]);
+  const [isSubscribed, setIsSubscribed] = useState(false);
+  const [isKeyLoading, setIsKeyLoading] = useState(true);
+  const [vapidKey, setVapidKey] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isSupported) {
-      setPermission(Notification.permission);
-      getSubscriptionStatus();
-    }
-  }, [isSupported, getSubscriptionStatus]);
-
-  const subscribe = useCallback(async () => {
-    if (!isSupported || !user || !vapidKey || !app || !functions) {
-      toast({ title: "Cannot Subscribe", description: "Required services are not ready.", variant: "destructive" });
-      return;
-    }
-    
-    setIsSubscribing(true);
-    try {
-      const currentPermission = await Notification.requestPermission();
-      setPermission(currentPermission);
-      if (currentPermission !== 'granted') {
-        toast({ title: 'Permission Denied', description: 'Notifications are blocked in browser settings.', variant: 'destructive' });
-        setIsSubscribing(false);
+    async function checkSupport() {
+      console.log('[Push] Checking for push notification support...');
+      if (!isFirebaseConfigured || typeof window === 'undefined') {
+        console.log('[Push] Firebase not configured or not in a browser env.');
+        setIsSupported(false);
+        setIsKeyLoading(false);
         return;
       }
       
-      const messaging = getMessaging(app);
-      const token = await getToken(messaging, { vapidKey });
+      const supported = await isFirebaseMessagingSupported();
+      setIsSupported(supported);
+      console.log('[Push] Browser support:', supported);
 
-      if (token) {
-        const setStatus = httpsCallable(functions, 'setNotificationStatus');
-        await setStatus({ enabled: true, token });
-        setIsSubscribed(true);
-        toast({ title: 'Subscribed!', description: 'You will now receive notifications.' });
-      } else {
-        throw new Error('Failed to acquire a push token.');
+      if (supported && 'Notification' in window) {
+        setPermission(Notification.permission);
+        console.log('[Push] Initial notification permission state:', Notification.permission);
       }
-    } catch (error: any) {
-      console.error('Error subscribing:', error);
-      toast({ title: 'Subscription Failed', description: error.message || 'An unknown error occurred.', variant: 'destructive' });
-      setIsSubscribed(false);
+    }
+    checkSupport();
+  }, []);
+
+  useEffect(() => {
+    async function fetchVapidKey() {
+      if (!isSupported) {
+        setIsKeyLoading(false);
+        return;
+      }
+      console.log('[Push] Fetching VAPID key...');
+      setIsKeyLoading(true);
+      if (!functions) {
+          console.error('[Push] Firebase Functions is not available.');
+          setIsKeyLoading(false);
+          return;
+      }
+      try {
+        const getVapidPublicKey = httpsCallable<{ }, { publicKey: string }>(functions, 'getVapidPublicKey');
+        const result = await getVapidPublicKey();
+        const key = result.data.publicKey;
+        if (key) {
+          setVapidKey(key);
+          console.log('[Push] VAPID key loaded successfully.');
+        } else {
+          console.error('[Push] VAPID public key is missing from server response.');
+        }
+      } catch (error) {
+        console.error('[Push] Failed to fetch VAPID public key:', error);
+      } finally {
+        setIsKeyLoading(false);
+      }
+    }
+    fetchVapidKey();
+  }, [isSupported]);
+  
+  const subscribe = useCallback(async () => {
+    console.log('[Push] Subscribe process started...');
+    setIsSubscribing(true);
+
+    if (!isSupported || !user || !vapidKey) {
+      const reason = !isSupported ? 'Push not supported' : !user ? 'User not logged in' : 'VAPID key not loaded';
+      console.error('[Push] Pre-condition for subscribe failed:', reason);
+      toast({ title: 'Cannot Subscribe', description: reason, variant: 'destructive' });
+      setIsSubscribing(false);
+      return;
+    }
+
+    try {
+      const perm = await Notification.requestPermission();
+      console.log('[Push] Notification permission request result:', perm);
+      setPermission(perm);
+      if (perm !== 'granted') {
+        throw new Error('Notification permission was not granted.');
+      }
+      
+      const messaging = getMessaging();
+      console.log('[Push] Firebase Messaging instance obtained.');
+
+      console.log('[Push] Requesting FCM token with VAPID key...');
+      const fcmToken = await getToken(messaging, { vapidKey });
+
+      if (!fcmToken) {
+        throw new Error('Failed to retrieve FCM token from Firebase.');
+      }
+      console.log('[Push] FCM Token received:', fcmToken);
+
+      console.log('[Push] Calling backend function "setNotificationStatus"...');
+      const setNotificationStatus = httpsCallable(functions, 'setNotificationStatus');
+      await setNotificationStatus({ enabled: true, token: fcmToken });
+      
+      console.log('[Push] Backend call successful. Updating state to subscribed.');
+      setIsSubscribed(true);
+      toast({ title: 'Subscribed!', description: 'You will now receive notifications.' });
+    } catch (err: any) {
+      console.error('[Push] Subscribe failed:', err);
+      toast({
+        title: 'Subscription Failed',
+        description: err.message || 'An unexpected error occurred.',
+        variant: 'destructive',
+      });
     } finally {
       setIsSubscribing(false);
+      console.log('[Push] Subscribe process finished.');
     }
-  }, [isSupported, user, vapidKey, app, functions, toast]);
+  }, [isSupported, user, vapidKey, toast]);
 
   const unsubscribe = useCallback(async () => {
-    if (!isSupported || !user || !app || !functions) return;
-
+    console.log('[Push] Unsubscribe process started...');
     setIsSubscribing(true);
+    if (!user || !functions) {
+      setIsSubscribing(false);
+      return;
+    }
+
     try {
-      const messaging = getMessaging(app);
-      
-      // Delete token from browser client
-      await deleteToken(messaging);
+      const setNotificationStatus = httpsCallable(functions, 'setNotificationStatus');
+      console.log('[Push] Calling backend to unsubscribe all tokens...');
+      await setNotificationStatus({ enabled: false });
 
-      // Tell backend to disable for this user (and clean up any tokens)
-      const setStatus = httpsCallable(functions, 'setNotificationStatus');
-      await setStatus({ enabled: false });
-
+      console.log('[Push] Backend call successful. Updating state to unsubscribed.');
       setIsSubscribed(false);
-      toast({ title: 'Unsubscribed', description: 'You will no longer receive push notifications.' });
-    } catch (error: any) {
-      console.error('Error unsubscribing:', error);
-      toast({ title: 'Unsubscribe Failed', description: error.message || 'An unknown error occurred.', variant: 'destructive' });
-      // Re-check status in case of failure.
-      getSubscriptionStatus();
+      toast({ title: 'Unsubscribed', description: 'You will no longer receive notifications.' });
+    } catch (err: any) {
+      console.error('[Push] Unsubscribe failed:', err);
+       toast({
+        title: 'Unsubscribe Failed',
+        description: err.message || 'An unexpected error occurred.',
+        variant: 'destructive',
+      });
     } finally {
       setIsSubscribing(false);
+      console.log('[Push] Unsubscribe process finished.');
     }
-  }, [isSupported, user, app, functions, toast, getSubscriptionStatus]);
+  }, [user, toast]);
 
   return {
     isSupported,
     isSubscribed,
     isSubscribing,
     permission,
+    isKeyLoading,
+    vapidKey,
     subscribe,
     unsubscribe,
   };
