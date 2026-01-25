@@ -118,8 +118,10 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     }
 
     const envKey =
-      typeof process !== 'undefined' ? (process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? '').trim() : '';
-
+  typeof process !== 'undefined'
+    ? (process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY ?? '').trim()
+    : '';
+    
     if (envKey) {
       setVapidKey(envKey);
       setIsKeyLoading(false);
