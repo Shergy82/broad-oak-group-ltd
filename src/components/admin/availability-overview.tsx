@@ -237,45 +237,55 @@ export function AvailabilityOverview() {
         ) : (
             <div className="w-full space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <Button
-                        variant={activeTab === 'working-today' ? 'default' : 'outline'}
+                    
+                    <Card
+                        className={cn(
+                            "cursor-pointer transition-colors hover:bg-muted",
+                            activeTab === 'working-today' && "ring-2 ring-primary bg-muted"
+                        )}
                         onClick={() => handleTabClick('working-today')}
-                        className="justify-start p-4 h-auto text-left"
                     >
-                        <div className="flex items-center gap-3">
-                            <HardHat />
+                        <CardContent className="p-4 flex items-center gap-4">
+                            <HardHat className="h-8 w-8 text-muted-foreground" />
                             <div className="flex flex-col">
                                 <span className="font-semibold">Working Today</span>
                                 <span className="text-2xl font-bold">{workingTodayCount}</span>
                             </div>
-                        </div>
-                    </Button>
-                     <Button
-                        variant={activeTab === 'fully-available' ? 'default' : 'outline'}
+                        </CardContent>
+                    </Card>
+
+                    <Card
+                        className={cn(
+                            "cursor-pointer transition-colors hover:bg-muted",
+                            activeTab === 'fully-available' && "ring-2 ring-primary bg-muted"
+                        )}
                         onClick={() => handleTabClick('fully-available')}
-                        className="justify-start p-4 h-auto text-left"
                     >
-                         <div className="flex items-center gap-3">
-                            <Sun />
+                         <CardContent className="p-4 flex items-center gap-4">
+                            <Sun className="h-8 w-8 text-muted-foreground" />
                             <div className="flex flex-col">
                                 <span className="font-semibold">Fully Available</span>
                                 <span className="text-2xl font-bold">{fullyAvailableCount}</span>
                             </div>
-                        </div>
-                    </Button>
-                    <Button
-                        variant={activeTab === 'semi-available' ? 'default' : 'outline'}
+                        </CardContent>
+                    </Card>
+
+                    <Card
+                        className={cn(
+                            "cursor-pointer transition-colors hover:bg-muted",
+                            activeTab === 'semi-available' && "ring-2 ring-primary bg-muted"
+                        )}
                         onClick={() => handleTabClick('semi-available')}
-                        className="justify-start p-4 h-auto text-left"
                     >
-                         <div className="flex items-center gap-3">
-                            <Moon />
+                        <CardContent className="p-4 flex items-center gap-4">
+                            <Moon className="h-8 w-8 text-muted-foreground" />
                              <div className="flex flex-col">
                                 <span className="font-semibold">Semi-Available</span>
                                 <span className="text-2xl font-bold">{semiAvailableCount}</span>
                             </div>
-                        </div>
-                    </Button>
+                        </CardContent>
+                    </Card>
+
                 </div>
                 
                 <div className="pt-4 transition-all duration-300 ease-in-out">
