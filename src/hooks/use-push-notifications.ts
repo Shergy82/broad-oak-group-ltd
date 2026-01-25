@@ -1,13 +1,16 @@
+
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getMessaging, getToken, isSupported as isMessagingSupported } from 'firebase/messaging';
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '@/lib/firebase';
+import { useToast } from './use-toast';
+import { useAuth } from './use-auth';
 
 type Permission = NotificationPermission | 'default';
 
-const LS_PUSH_ENABLED_KEY = 'push_enabled'; // persists the user's bell choice
+const LS_PUSH_ENABLED_KEY = 'push_enabled'; // persists the user's choice
 
 function readPushEnabled(): boolean {
   try {
@@ -29,134 +32,101 @@ function writePushEnabled(val: boolean) {
 }
 
 export function usePushNotifications() {
+  const { toast } = useToast();
+  const { user } = useAuth();
   const [isSupported, setIsSupported] = useState(false);
   const [permission, setPermission] = useState<Permission>('default');
   const [isSubscribing, setIsSubscribing] = useState(false);
-
-  // ✅ Restore the user's last choice immediately (avoids "reset" feeling)
   const [isSubscribed, setIsSubscribed] = useState<boolean>(() => readPushEnabled());
+  const [isKeyLoading, setIsKeyLoading] = useState(false); // VAPID key is now from env, so no loading needed.
+  const [currentToken, setCurrentToken] = useState<string | null>(null);
 
-  // UI expects these
-  const [isKeyLoading] = useState(false);
-
-  // NOTE: In Next.js, this is replaced at build time.
   const vapidKey = useMemo(() => {
     return process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY || null;
   }, []);
 
-  // 🔍 Initial capability check + permission sync
   useEffect(() => {
     (async () => {
       const supported = await isMessagingSupported();
-      console.log('[Push] isSupported():', supported);
       setIsSupported(supported);
-
-      if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (supported && typeof window !== 'undefined' && 'Notification' in window) {
         setPermission(Notification.permission);
-      }
-
-      // If user previously enabled but permission is no longer granted, reflect that in UI
-      // (We do not auto-prompt here — only user action should prompt.)
-      const enabled = readPushEnabled();
-      if (enabled && typeof window !== 'undefined' && 'Notification' in window) {
-        if (Notification.permission !== 'granted') {
+        if (readPushEnabled() && Notification.permission !== 'granted') {
           setIsSubscribed(false);
           writePushEnabled(false);
         }
       }
     })();
   }, []);
-
-  // 🔔 SUBSCRIBE
-  const subscribe = useCallback(async () => {
-    console.log('──────── PUSH SUBSCRIBE START ────────');
-    setIsSubscribing(true);
+  
+  const getAndSendToken = useCallback(async (enabled: boolean) => {
+    if (!isSupported || !vapidKey) return;
 
     try {
-      if (!isSupported) {
-        throw new Error('Push not supported in this browser');
-      }
-
-      if (typeof window === 'undefined') {
-        throw new Error('No window (client-only)');
-      }
-
-      if (!('serviceWorker' in navigator)) {
-        throw new Error('Service workers not supported');
-      }
-
-      // Permission
-      const perm = await Notification.requestPermission();
-      console.log('[Push] Notification permission:', perm);
-      setPermission(perm);
-
-      if (perm !== 'granted') {
-        // User did not grant; ensure we don't "remember" enabled
-        setIsSubscribed(false);
-        writePushEnabled(false);
-        throw new Error('Notification permission not granted');
-      }
-
-      // Ensure SW is controlling the page
-      const registration = await navigator.serviceWorker.ready;
-      console.log('[Push] Service worker ready:', registration);
-
-      // VAPID check (definitive)
-      console.log('[Push] VAPID key present:', !!vapidKey, vapidKey ? vapidKey.slice(0, 10) : null);
-
-      if (!vapidKey) {
-        throw new Error('Missing NEXT_PUBLIC_FIREBASE_VAPID_KEY');
-      }
-
       const messaging = getMessaging();
-      console.log('[Push] Messaging instance created');
-
-      console.log('[Push] Requesting FCM token…');
-
-      // IMPORTANT: Do NOT pass serviceWorkerRegistration here.
       const token = await getToken(messaging, { vapidKey });
 
-      console.log('[Push] getToken() result:', token);
-
-      if (!token) {
-        console.error('🔥🔥🔥 NO TOKEN RETURNED 🔥🔥🔥');
-        throw new Error('FCM token is null or empty');
+      if (token) {
+        setCurrentToken(token);
+        const setNotificationStatus = httpsCallable(functions, 'setNotificationStatus');
+        await setNotificationStatus({ enabled, token, platform: 'web' });
+      } else if (enabled) {
+        throw new Error('Failed to get FCM token.');
       }
-
-      console.log('✅ TOKEN CONFIRMED:', token);
-
-      // Send token to backend
-      const setNotificationStatus = httpsCallable(functions, 'setNotificationStatus');
-      console.log('[Push] Sending token to backend…');
-
-      await setNotificationStatus({
-        enabled: true,
-        token,
-        platform: 'web',
-      });
-
-      console.log('✅ Token sent to backend');
-
-      // ✅ Persist the user's choice
-      setIsSubscribed(true);
-      writePushEnabled(true);
-    } catch (err) {
-      console.error('❌ PUSH SUBSCRIBE FAILED:', err);
-    } finally {
-      setIsSubscribing(false);
-      console.log('──────── PUSH SUBSCRIBE END ────────');
+    } catch (error) {
+       console.error('An error occurred while getting token:', error);
+       throw error;
     }
   }, [isSupported, vapidKey]);
 
-  // 🔕 UNSUBSCRIBE (UI + persist choice)
+
+  const subscribe = useCallback(async () => {
+    setIsSubscribing(true);
+    try {
+      const perm = await Notification.requestPermission();
+      setPermission(perm);
+      if (perm !== 'granted') {
+        throw new Error('Notification permission not granted.');
+      }
+      await getAndSendToken(true);
+      setIsSubscribed(true);
+      writePushEnabled(true);
+      toast({ title: 'Subscribed', description: 'Push notifications are enabled.' });
+    } catch (err: any) {
+      console.error('Error subscribing:', err);
+      toast({ title: 'Subscription Failed', description: err.message, variant: 'destructive' });
+      setIsSubscribed(false);
+      writePushEnabled(false);
+    } finally {
+      setIsSubscribing(false);
+    }
+  }, [getAndSendToken, toast]);
+
+
   const unsubscribe = useCallback(async () => {
-    console.log('[Push] Unsubscribe clicked');
+    setIsSubscribing(true);
+    try {
+      if (currentToken) {
+        const setNotificationStatus = httpsCallable(functions, 'setNotificationStatus');
+        await setNotificationStatus({ enabled: false, token: currentToken });
+      }
+      setIsSubscribed(false);
+      writePushEnabled(false);
+      toast({ title: 'Unsubscribed', description: 'Push notifications disabled.' });
+    } catch (err: any) {
+      console.error('Error unsubscribing:', err);
+      toast({ title: 'Unsubscribe Failed', description: err.message, variant: 'destructive' });
+    } finally {
+      setIsSubscribing(false);
+    }
+  }, [currentToken, toast]);
+
+  const reset = useCallback(() => {
     setIsSubscribed(false);
     writePushEnabled(false);
-
-    // If/when you add backend disable, do it here (optional):
-    // const setNotificationStatus = httpsCallable(functions, 'setNotificationStatus');
-    // await setNotificationStatus({ enabled: false, platform: 'web' });
+    if(typeof window !== 'undefined' && 'Notification' in window) {
+      setPermission(Notification.permission);
+    }
   }, []);
 
   return {
@@ -168,5 +138,6 @@ export function usePushNotifications() {
     permission,
     subscribe,
     unsubscribe,
+    reset,
   };
 }
