@@ -87,23 +87,25 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     setIsSubscribing(true);
     try {
       const messaging = getMessaging(app);
-      const token = await getToken(messaging, { vapidKey }).catch(() => null);
-
+      
+      // Delete token from browser client
       await deleteToken(messaging);
 
+      // Tell backend to disable for this user (and clean up any tokens)
       const setStatus = httpsCallable(functions, 'setNotificationStatus');
-      await setStatus({ enabled: false, token: token });
+      await setStatus({ enabled: false });
 
       setIsSubscribed(false);
       toast({ title: 'Unsubscribed', description: 'You will no longer receive push notifications.' });
     } catch (error: any) {
       console.error('Error unsubscribing:', error);
       toast({ title: 'Unsubscribe Failed', description: error.message || 'An unknown error occurred.', variant: 'destructive' });
+      // Re-check status in case of failure.
       getSubscriptionStatus();
     } finally {
       setIsSubscribing(false);
     }
-  }, [isSupported, user, app, functions, toast, getSubscriptionStatus, vapidKey]);
+  }, [isSupported, user, app, functions, toast, getSubscriptionStatus]);
 
   return {
     isSupported,

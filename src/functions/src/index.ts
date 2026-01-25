@@ -48,58 +48,52 @@ function createSafeDocId(input: string): string {
 export const setNotificationStatus = onCall({ region: europeWest2, cors: true }, async (req) => {
     const uid = req.auth?.uid;
     if (!uid) {
-        throw new HttpsError("unauthenticated", "User must be logged in.");
+        logger.error("setNotificationStatus called without authentication.");
+        throw new HttpsError("unauthenticated", "You must be logged in to modify notification settings.");
     }
 
+    const { enabled, token } = req.data;
+    
     try {
-        const enabled = !!req.data?.enabled;
-        const token = (req.data?.token || "").trim();
-
         const userRef = db.collection("users").doc(uid);
         const pushTokensCollection = userRef.collection("pushTokens");
 
-        await userRef.set({ notificationsEnabled: enabled }, { merge: true });
+        await userRef.set({ notificationsEnabled: !!enabled }, { merge: true });
 
         if (enabled) {
-            if (!token) {
-                throw new HttpsError("invalid-argument", "A token is required to enable notifications.");
+            const cleanToken = typeof token === 'string' ? token.trim() : '';
+            if (!cleanToken) {
+                throw new HttpsError("invalid-argument", "A valid token is required to subscribe.");
             }
-            
-            const docId = createSafeDocId(token);
-            const tokenDocRef = pushTokensCollection.doc(docId);
-
-            await tokenDocRef.set({
-                token: token,
+            const docId = createSafeDocId(cleanToken);
+            await pushTokensCollection.doc(docId).set({
+                token: cleanToken,
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                platform: req.data?.platform || "web",
-                userAgent: req.rawRequest?.headers?.["user-agent"] || null,
             }, { merge: true });
-            
-            logger.info("Successfully subscribed user to push notifications.", { uid });
-        } else if (token) {
-            // If a token is provided on unsubscribe, remove just that one.
-            const docId = createSafeDocId(token);
-            await pushTokensCollection.doc(docId).delete().catch(() => {});
-             logger.info("Successfully unsubscribed a specific token.", { uid });
-        }
-        else if (!enabled && !token) {
+            logger.info(`User ${uid} subscribed.`);
+            return { success: true, message: "Subscribed successfully." };
+        } else {
+            // Unsubscribe: Delete ALL tokens for this user.
             const snapshot = await pushTokensCollection.get();
             if (!snapshot.empty) {
                 const batch = db.batch();
-                snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+                snapshot.docs.forEach(doc => batch.delete(doc.ref));
                 await batch.commit();
-                logger.info("Successfully unsubscribed all tokens for user.", { uid });
             }
+            logger.info(`User ${uid} unsubscribed all tokens.`);
+            return { success: true, message: "Unsubscribed successfully." };
         }
-        
-        return { success: true };
-
     } catch (error: any) {
-      logger.error("Error in setNotificationStatus function:", { uid: uid, errorMessage: error.message });
-      throw new HttpsError("internal", "An unexpected error occurred while setting notification status.");
+        logger.error("Error in setNotificationStatus:", { uid, message: error.message });
+        throw new HttpsError("internal", "An unexpected error occurred.");
     }
 });
 
+
+export const getVapidPublicKey = onCall({ region: europeWest2, cors: true }, () => {
+    logger.info("getVapidPublicKey called, returning key from environment variables.");
+    return { publicKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY || "" };
+});
 
 export const deleteProjectAndFiles = onCall({ region: europeWest2, timeoutSeconds: 540, cors: true }, async (req) => {
     const uid = req.auth?.uid;
