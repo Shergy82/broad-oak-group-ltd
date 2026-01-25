@@ -20,7 +20,6 @@ export function NotificationButton() {
     isSupported,
     isSubscribed,
     isSubscribing,
-    isKeyLoading,
     vapidKey,
     permission,
     subscribe,
@@ -33,7 +32,7 @@ export function NotificationButton() {
     return null;
   }
 
-  const vapidMissing = !isKeyLoading && !vapidKey;
+  const vapidMissing = !vapidKey;
 
   const handleToggleSubscription = () => {
     console.log('--- Bell Clicked ---');
@@ -41,7 +40,6 @@ export function NotificationButton() {
       isSubscribed,
       permission,
       isSubscribing,
-      isKeyLoading,
       vapidKeyPresent: !!vapidKey,
     });
     
@@ -61,7 +59,7 @@ export function NotificationButton() {
   };
 
   const getIcon = () => {
-    if (isKeyLoading || isSubscribing) return <Spinner />;
+    if (isSubscribing) return <Spinner />;
     if (permission === 'denied') return <XCircle className="h-5 w-5 text-destructive" />;
     if (vapidMissing) return <AlertTriangle className="h-5 w-5 text-destructive" />;
     if (isSubscribed) return <Bell className="h-5 w-5 text-green-600" />;
@@ -69,9 +67,8 @@ export function NotificationButton() {
   };
 
   const getTooltipContent = () => {
-    if (isKeyLoading) return 'Loading notification settings...';
     if (permission === 'denied') return 'Notifications blocked in browser settings';
-    if (vapidMissing) return 'VAPID key missing from backend (cannot subscribe)';
+    if (vapidMissing) return 'VAPID key not configured (cannot subscribe)';
     if (isSubscribed) return 'Unsubscribe from notifications';
     return 'Subscribe to notifications';
   };
@@ -85,7 +82,7 @@ export function NotificationButton() {
               variant="ghost"
               size="icon"
               onClick={handleToggleSubscription}
-              disabled={isKeyLoading || isSubscribing || vapidMissing}
+              disabled={isSubscribing || vapidMissing}
               aria-label="Notifications"
             >
               {getIcon()}

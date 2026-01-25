@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
-import { db, functions, httpsCallable, isFirebaseConfigured } from '@/lib/firebase';
+import { db, functions, httpsCallable, isFirebaseConfigured, firebaseConfig } from '@/lib/firebase';
 import { getMessaging, getToken, isSupported as isFirebaseMessagingSupported } from "firebase/messaging";
 
 type Permission = NotificationPermission | 'default';
@@ -17,8 +17,8 @@ export function usePushNotifications() {
   const [permission, setPermission] = useState<Permission>('default');
   const [isSubscribing, setIsSubscribing] = useState(false);
   const [isSubscribed, setIsSubscribed] = useState(false);
-  const [isKeyLoading, setIsKeyLoading] = useState(true);
-  const [vapidKey, setVapidKey] = useState<string | null>(null);
+  
+  const vapidKey = firebaseConfig.vapidKey;
 
   useEffect(() => {
     async function checkSupport() {
@@ -26,7 +26,6 @@ export function usePushNotifications() {
       if (!isFirebaseConfigured || typeof window === 'undefined') {
         console.log('[Push] Firebase not configured or not in a browser env.');
         setIsSupported(false);
-        setIsKeyLoading(false);
         return;
       }
       
@@ -42,44 +41,12 @@ export function usePushNotifications() {
     checkSupport();
   }, []);
 
-  useEffect(() => {
-    async function fetchVapidKey() {
-      if (!isSupported) {
-        setIsKeyLoading(false);
-        return;
-      }
-      console.log('[Push] Fetching VAPID key...');
-      setIsKeyLoading(true);
-
-      try {
-        const response = await fetch('/api/vapid-key');
-        if (!response.ok) {
-          throw new Error('Failed to fetch VAPID key from API route.');
-        }
-        const data = await response.json();
-        const key = data.publicKey;
-        
-        if (key) {
-          setVapidKey(key);
-          console.log('[Push] VAPID key loaded successfully.');
-        } else {
-          console.error('[Push] VAPID public key is missing from server response.');
-        }
-      } catch (error) {
-        console.error('[Push] Failed to fetch VAPID public key:', error);
-      } finally {
-        setIsKeyLoading(false);
-      }
-    }
-    fetchVapidKey();
-  }, [isSupported]);
-  
   const subscribe = useCallback(async () => {
     console.log('[Push] Subscribe process started...');
     setIsSubscribing(true);
 
     if (!isSupported || !user || !vapidKey) {
-      const reason = !isSupported ? 'Push not supported' : !user ? 'User not logged in' : 'VAPID key not loaded';
+      const reason = !isSupported ? 'Push not supported' : !user ? 'User not logged in' : 'VAPID key not configured';
       console.error('[Push] Pre-condition for subscribe failed:', reason);
       toast({ title: 'Cannot Subscribe', description: reason, variant: 'destructive' });
       setIsSubscribing(false);
@@ -159,7 +126,7 @@ export function usePushNotifications() {
     isSubscribed,
     isSubscribing,
     permission,
-    isKeyLoading,
+    isKeyLoading: false, 
     vapidKey,
     subscribe,
     unsubscribe,
