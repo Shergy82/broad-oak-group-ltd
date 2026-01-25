@@ -2,7 +2,8 @@
   "projects": {
     "default": "the-final-project-5e248",
     "old": "group-build-29768421-feed1",
-    "new": "the-final-project-5e248"
+    "new": "the-final-project-5e248",
+    "final": "the-final-project-5e248"
   },
   "targets": {},
   "etags": {}

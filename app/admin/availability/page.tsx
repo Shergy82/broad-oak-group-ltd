@@ -359,8 +359,8 @@ export default function AvailabilityPage() {
             setAvailableTrades(allAvailableTrades.sort());
             
             if (tradesToSet) {
-                const validStoredTrades = Array.from(tradesToSet).filter(t => allAvailableTrades.includes(t));
-                setSelectedTrades(new Set(validStoredTrades));
+                const validStoredTrades = Array.from(tradesToSet).filter(t => allAvailableTrades.includes(t as string));
+                setSelectedTrades(new Set(validStoredTrades as string[]));
             } else {
                 setSelectedTrades(new Set(allAvailableTrades));
             }
@@ -679,8 +679,7 @@ export default function AvailabilityPage() {
         didParseCell: function (data) {
             if (data.row.index > 0 && data.section === 'body') {
                 if (body[data.row.index][0] === '' && body[data.row.index-1][0] !== '') {
-                   data.cell.styles.borderTopWidth = 1;
-                   data.cell.styles.borderTopColor = [220, 220, 220];
+                   data.cell.styles.lineWidth = 1;
                 }
             }
         }

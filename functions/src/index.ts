@@ -461,7 +461,7 @@ export const onShiftDeleted = onDocumentDeleted(
 // Callables
 // --------------------
 
-export const getNotificationStatus = onCall(
+export const getNotificationStatusV2 = onCall(
   { region: europeWest2 },
   async (req) => {
     const docSnap = await db.collection("settings").doc("notifications").get();
@@ -482,7 +482,7 @@ export const getNotificationStatus = onCall(
   }
 );
 
-export const setNotificationStatus = onCall(
+export const setNotificationStatusV2 = onCall(
   { region: europeWest2 },
   async (req) => {
     const uid = req.auth?.uid;

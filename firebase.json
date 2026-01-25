@@ -11,14 +11,16 @@
     ],
     "alwaysDeployFromSource": true
   },
-  "functions": {
-    "source": "functions"
+  "hosting": {
+    "site": "the-final-project-5e248",
+    "public": "out",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ]
   },
-  "firestore": {
-    "rules": "firestore.rules",
-    "indexes": "firestore.indexes.json"
-  },
-  "storage": {
-    "rules": "storage.rules"
-  }
+  "functions": { "source": "functions" },
+  "firestore": { "rules": "firestore.rules", "indexes": "firestore.indexes.json" },
+  "storage": { "rules": "storage.rules" }
 }

@@ -259,10 +259,10 @@ export default function SiteSchedulePage() {
         doc.text(`Work Schedule for:`, pageMargin, 22);
 
         doc.setFontSize(16);
-        doc.setFont(undefined, 'bold');
+        doc.setFont("helvetica", "bold");
         const addressLines = doc.splitTextToSize(selectedAddress, usableWidth);
         doc.text(addressLines, pageMargin, 30);
-        doc.setFont(undefined, 'normal');
+        doc.setFont("helvetica", "normal");
         
         let finalY = 30 + (addressLines.length * 7);
 
