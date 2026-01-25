@@ -50,15 +50,15 @@ export function usePushNotifications() {
       }
       console.log('[Push] Fetching VAPID key...');
       setIsKeyLoading(true);
-      if (!functions) {
-          console.error('[Push] Firebase Functions is not available.');
-          setIsKeyLoading(false);
-          return;
-      }
+
       try {
-        const getVapidPublicKey = httpsCallable<{ }, { publicKey: string }>(functions, 'getVapidPublicKey');
-        const result = await getVapidPublicKey();
-        const key = result.data.publicKey;
+        const response = await fetch('/api/vapid-key');
+        if (!response.ok) {
+          throw new Error('Failed to fetch VAPID key from API route.');
+        }
+        const data = await response.json();
+        const key = data.publicKey;
+        
         if (key) {
           setVapidKey(key);
           console.log('[Push] VAPID key loaded successfully.');
