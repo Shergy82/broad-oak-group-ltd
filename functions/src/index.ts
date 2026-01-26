@@ -1,6 +1,7 @@
 
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 
+import cors from "cors";
 import * as admin from "firebase-admin";
 import * as webPush from "web-push";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
@@ -8,6 +9,7 @@ import { onDocumentWritten } from "firebase-functions/v2/firestore";
 admin.initializeApp();
 const db = admin.firestore();
 const europeWest2 = "europe-west2";
+const corsHandler = cors({ origin: true });
 
 // Define a converter for the PushSubscription type for type safety.
 const pushSubscriptionConverter = {
@@ -30,36 +32,51 @@ const pushSubscriptionConverter = {
 };
 
 // Callable function for the client to update their notification subscription status.
-export const setNotificationStatus = onCall({ region: europeWest2 }, async (req) => {
-    const uid = req.auth?.uid;
-    if (!uid) {
-        throw new HttpsError("unauthenticated", "You must be logged in.");
+export const setNotificationStatus = onRequest({ region: europeWest2 }, (req, res) => {
+  return corsHandler(req, res, async () => {
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
     }
 
-    const enabled = !!req.data.enabled;
-    const subscription = req.data.subscription as webPush.PushSubscription | undefined;
+    try {
+      const auth = req.get("Authorization") || "";
+      const m = auth.match(/^Bearer\s+(.+)$/i);
+      if (!m) {
+        res.status(401).json({ error: "Missing Authorization: Bearer <token>" });
+        return;
+      }
 
-    const userSubscriptionsRef = db.collection("users").doc(uid).collection("pushSubscriptions");
+      const decoded = await admin.auth().verifyIdToken(m[1]);
+      const uid = decoded.uid;
 
-    if (enabled) {
+      const enabled = !!req.body?.enabled;
+      const subscription = req.body?.subscription;
+
+      const userSubscriptionsRef = db.collection("users").doc(uid).collection("pushSubscriptions");
+
+      if (enabled) {
         if (!subscription || !subscription.endpoint) {
-            throw new HttpsError("invalid-argument", "A valid subscription object is required to subscribe.");
+          res.status(400).json({ error: "A valid subscription object is required to subscribe." });
+          return;
         }
-        // Use the endpoint as a reliable, unique identifier for the document.
-        const subscriptionDocRef = userSubscriptionsRef.doc(Buffer.from(subscription.endpoint).toString('base64'));
-        await subscriptionDocRef.set(pushSubscriptionConverter.toFirestore(subscription));
-    } else {
-        // Unsubscribe: delete all subscriptions for the user
-        const snapshot = await userSubscriptionsRef.get();
-        if (!snapshot.empty) {
-            const batch = db.batch();
-            snapshot.docs.forEach(doc => batch.delete(doc.ref));
-            await batch.commit();
+        const docId = Buffer.from(subscription.endpoint).toString("base64");
+        await userSubscriptionsRef.doc(docId).set({ endpoint: subscription.endpoint, keys: subscription.keys });
+      } else {
+        const snap = await userSubscriptionsRef.get();
+        if (!snap.empty) {
+          const batch = db.batch();
+          snap.docs.forEach((d) => batch.delete(d.ref));
+          await batch.commit();
         }
-    }
-    return { success: true };
-});
+      }
 
+      res.json({ success: true });
+    } catch (e) {
+      res.status(400).json({ error: e?.message || "Unknown error" });
+    }
+  });
+});
 
 // Firestore trigger that sends notifications on shift changes.
 export const onShiftWrite = onDocumentWritten({ document: "shifts/{shiftId}", region: "europe-west2" }, async (event) => {
