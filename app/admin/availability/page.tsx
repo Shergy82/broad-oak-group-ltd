@@ -677,9 +677,11 @@ export default function AvailabilityPage() {
     autoTable(doc, {
         head, body, startY: finalY, headStyles: { fillColor: [6, 95, 212] },
         didParseCell: function (data) {
-            if (data.row.index > 0 && data.section === 'body') {
-                if (body[data.row.index][0] === '' && body[data.row.index-1][0] !== '') {
-                   data.cell.styles.lineWidth = 1;
+            // Draw a separator line before a new user's block of shifts
+            if (data.row.index > 0 && body[data.row.index][0] !== '') {
+                if (data.cell.styles) {
+                    data.cell.styles.lineWidth = { top: 0.1 };
+                    data.cell.styles.lineColor = [220, 220, 220];
                 }
             }
         }
