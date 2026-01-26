@@ -1,5 +1,5 @@
 
-import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
 
 import cors from "cors";
 import * as admin from "firebase-admin";
