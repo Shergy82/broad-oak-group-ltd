@@ -1,5 +1,5 @@
 
-import * as functions from "firebase-functions/v2/https";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
 
 import * as admin from "firebase-admin";
 import * as webPush from "web-push";
@@ -7,6 +7,7 @@ import { onDocumentWritten } from "firebase-functions/v2/firestore";
 
 admin.initializeApp();
 const db = admin.firestore();
+const europeWest2 = "europe-west2";
 
 // Define a converter for the PushSubscription type for type safety.
 const pushSubscriptionConverter = {
