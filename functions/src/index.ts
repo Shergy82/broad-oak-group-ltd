@@ -28,17 +28,6 @@ const pushSubscriptionConverter = {
     }
 };
 
-// Callable function for the client to get the VAPID public key.
-export const getVapidPublicKey = functions.https.onCall({ region: "europe-west2" }, () => {
-    const publicKey = process.env.VAPID_PUBLIC_KEY;
-    if (!publicKey) {
-        console.error("CRITICAL: VAPID_PUBLIC_KEY is not set in function environment.");
-        throw new functions.https.HttpsError('not-found', 'VAPID public key is not configured on the server.');
-    }
-    return { publicKey };
-});
-
-
 // Callable function for the client to update their notification subscription status.
 export const setNotificationStatus = functions.https.onCall({ region: "europe-west2" }, async (req) => {
     const uid = req.auth?.uid;

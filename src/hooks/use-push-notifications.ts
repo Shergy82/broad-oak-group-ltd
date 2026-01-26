@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
-import { functions, httpsCallable, isFirebaseConfigured } from '@/lib/firebase';
+import { firebaseConfig, functions, httpsCallable, isFirebaseConfigured } from '@/lib/firebase';
 import { getMessaging, getToken, isSupported as isFirebaseMessagingSupported } from "firebase/messaging";
 
 type Permission = NotificationPermission | 'default';
@@ -34,22 +34,16 @@ export function usePushNotifications() {
       if (supported) {
         setPermission(Notification.permission);
         
-        // Fetch VAPID key from backend
-        try {
-            const getVapidPublicKey = httpsCallable<{ }, { publicKey: string }>(functions, 'getVapidPublicKey');
-            const result = await getVapidPublicKey();
-            const key = result.data.publicKey;
-            if (key) {
-              setVapidKey(key);
-            } else {
-              throw new Error('VAPID public key is missing from server response.');
-            }
-        } catch (error) {
-            console.error('Failed to fetch VAPID public key:', error);
-            toast({ variant: 'destructive', title: 'Config Error', description: 'Could not fetch notification configuration.' });
-        } finally {
-            setIsKeyLoading(false);
+        // Directly get VAPID key from the imported config
+        const key = firebaseConfig.vapidKey;
+        if (key) {
+          setVapidKey(key);
+        } else {
+          console.error('VAPID public key is not configured in src/lib/firebase.ts.');
+          toast({ variant: 'destructive', title: 'Config Error', description: 'VAPID key is missing.' });
         }
+        setIsKeyLoading(false);
+
       } else {
         setIsKeyLoading(false);
       }
