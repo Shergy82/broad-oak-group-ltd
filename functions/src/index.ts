@@ -73,8 +73,8 @@ export const setNotificationStatus = onRequest({ region: europeWest2 }, (req, re
 
       res.json({ success: true });
     } catch (e) {
-      res.status(400).json({ error: e?.message || "Unknown error" });
-    }
+      res.status(400).json({ error: (e as any)?.message || "Unknown error" });
+}
   });
 });
 
