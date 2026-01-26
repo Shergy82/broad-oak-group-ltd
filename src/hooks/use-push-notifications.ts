@@ -4,17 +4,27 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
-import { firebaseConfig, functions, httpsCallable, isFirebaseConfigured } from '@/lib/firebase';
-import { getMessaging, getToken, isSupported as isFirebaseMessagingSupported } from "firebase/messaging";
+import { db, functions, httpsCallable, firebaseConfig, isFirebaseConfigured } from '@/lib/firebase';
+import { isSupported as isFirebaseMessagingSupported } from "firebase/messaging";
+import { collection, getDocs, deleteDoc } from 'firebase/firestore';
 
-type Permission = NotificationPermission | 'default';
+
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
 
 export function usePushNotifications() {
   const { toast } = useToast();
   const { user } = useAuth();
 
   const [isSupported, setIsSupported] = useState(false);
-  const [permission, setPermission] = useState<Permission>('default');
+  const [permission, setPermission] = useState<NotificationPermission>('default');
   const [isSubscribing, setIsSubscribing] = useState(false);
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isKeyLoading, setIsKeyLoading] = useState(true);
@@ -34,13 +44,11 @@ export function usePushNotifications() {
       if (supported) {
         setPermission(Notification.permission);
         
-        // Directly get VAPID key from the imported config
         const key = firebaseConfig.vapidKey;
         if (key) {
           setVapidKey(key);
         } else {
           console.error('VAPID public key is not configured in src/lib/firebase.ts.');
-          toast({ variant: 'destructive', title: 'Config Error', description: 'VAPID key is missing.' });
         }
         setIsKeyLoading(false);
 
@@ -49,10 +57,9 @@ export function usePushNotifications() {
       }
     }
     checkSupportAndKey();
-  }, [toast]);
+  }, []);
   
   useEffect(() => {
-    // Check initial subscription state
     (async () => {
         if(isSupported && user) {
             const reg = await navigator.serviceWorker.ready;
@@ -66,7 +73,7 @@ export function usePushNotifications() {
     setIsSubscribing(true);
 
     if (!isSupported || !user || !vapidKey) {
-      toast({ title: 'Cannot Subscribe', variant: 'destructive' });
+      toast({ title: 'Cannot Subscribe', description: 'Push notifications are not fully configured or supported.', variant: 'destructive' });
       setIsSubscribing(false);
       return;
     }
@@ -76,13 +83,14 @@ export function usePushNotifications() {
       setPermission(perm);
       if (perm !== 'granted') throw new Error('Permission not granted.');
       
-      const messaging = getMessaging();
-      const fcmToken = await getToken(messaging, { vapidKey });
+      const swRegistration = await navigator.serviceWorker.ready;
+      const appServerKey = urlBase64ToUint8Array(vapidKey);
+      
+      const subscription = await swRegistration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: appServerKey,
+      });
 
-      if (!fcmToken) throw new Error('Failed to retrieve FCM token.');
-
-      const reg = await navigator.serviceWorker.ready;
-      const subscription = await reg.pushManager.getSubscription();
       if (!subscription) throw new Error('Failed to get browser subscription.');
       
       const setNotificationStatus = httpsCallable(functions, 'setNotificationStatus');
@@ -91,7 +99,7 @@ export function usePushNotifications() {
       setIsSubscribed(true);
       toast({ title: 'Subscribed!', description: 'You will now receive notifications.' });
     } catch (err: any) {
-      toast({
+       toast({
         title: 'Subscription Failed',
         description: err.message || 'An unexpected error occurred.',
         variant: 'destructive',
