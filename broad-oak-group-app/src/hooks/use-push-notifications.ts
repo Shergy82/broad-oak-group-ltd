@@ -141,7 +141,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
 
       const subscription = await swRegistration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: appServerKey.buffer,
+        applicationServerKey: appServerKey,
       });
 
       const subsCol = collection(db, 'users', user.uid, 'pushSubscriptions');

@@ -151,7 +151,7 @@ export default function AdminPageContent() {
                             <TableHeader><TableRow><TableHead>Operative</TableHead><TableHead>Date</TableHead><TableHead>Task</TableHead><TableHead>Changes</TableHead></TableRow></TableHeader>
                             <TableBody>
                                 {sortedUpdate.map(({old, new: newShift}, index) => (
-                                    <TableRow key={index}><TableCell>{userNameMap.get(newShift.userId) || newShift.userId}</TableCell><TableCell>{format(newShift.date, 'dd/MM/yy')}</TableCell><TableCell>{newShift.task}</TableCell><TableCell className="text-xs">Manager: {old.manager} -> {newShift.manager}</TableCell></TableRow>
+                                    <TableRow key={index}><TableCell>{userNameMap.get(newShift.userId) || newShift.userId}</TableCell><TableCell>{format(newShift.date, 'dd/MM/yy')}</TableCell><TableCell>{newShift.task}</TableCell><TableCell className="text-xs">Manager: {old.manager} {'->'} {newShift.manager}</TableCell></TableRow>
                                 ))}
                             </TableBody>
                         </Table>
@@ -219,7 +219,7 @@ export default function AdminPageContent() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <FileUploader onImportComplete={handleImportComplete} onFileSelect={handleFileSelection} />
+            <FileUploader userProfile={userProfile} onImportComplete={handleImportComplete} onFileSelect={handleFileSelection} />
           </CardContent>
         </Card>
       )}

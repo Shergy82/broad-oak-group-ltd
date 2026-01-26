@@ -223,22 +223,37 @@ export default function Dashboard({ userShifts, loading }: { userShifts: Shift[]
                                      <div className="space-y-4">
                                         <h4 className="text-md font-semibold flex items-center text-sky-600 dark:text-sky-400"><Sunrise className="mr-2 h-4 w-4" /> AM</h4>
                                         {amShifts.length > 0 
-                                            ? amShifts.map(shift => <ShiftCard key={shift.id} shift={shift} />) 
+                                            ? amShifts.map(shift => <ShiftCard key={shift.id} shift={shift} userProfile={userProfile} />) 
                                             : <p className="text-muted-foreground text-xs p-4 text-center border border-dashed rounded-lg">No AM shifts.</p>}
                                     </div>
                                      <div className="space-y-4">
                                         <h4 className="text-md font-semibold flex items-center text-orange-600 dark:text-orange-400"><Sunset className="mr-2 h-4 w-4" /> PM</h4>
                                         {pmShifts.length > 0 
-                                            ? pmShifts.map(shift => <ShiftCard key={shift.id} shift={shift} />) 
+                                            ? pmShifts.map(shift => (
+                                            <ShiftCard
+                                            key={shift.id}
+                                            shift={shift}
+                                            userProfile={userProfile}
+                                          />
+                                        )) 
                                             : <p className="text-muted-foreground text-xs p-4 text-center border border-dashed rounded-lg">No PM shifts.</p>}
                                     </div>
                                 </div>
                             )}
                             {allDayShifts.length > 0 && (
                                 <div>
-                                    <h4 className="text-md font-semibold mb-3 flex items-center text-indigo-600 dark:text-indigo-400"><Clock className="mr-2 h-4 w-4" /> All Day</h4>
+                                    <h4 className="text-md font-semibold mb-3 flex items-center text-indigo-600 dark:text-indigo-400">
+					<Clock className="mr-2 h-4 w-4" /> All Day
+				    </h4>
+
                                     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                                        {allDayShifts.map(shift => <ShiftCard key={shift.id} shift={shift} />)}
+                                        {allDayShifts.map(shift => (
+					 <ShiftCard
+					   key={shift.id}
+					   shift={shift}
+					   userProfile={userProfile}
+					 />
+					))}
                                     </div>
                                 </div>
                             )}
@@ -289,13 +304,29 @@ export default function Dashboard({ userShifts, loading }: { userShifts: Shift[]
                   <div className="space-y-4">
                       <h3 className="flex items-center text-lg md:text-xl font-semibold text-sky-600 dark:text-sky-400"><Sunrise className="mr-2 h-5 w-5" /> AM Shifts</h3>
                       {todayAmShifts.length > 0 
-                          ? todayAmShifts.map(shift => <ShiftCard key={shift.id} shift={shift} />)
-                          : <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">No AM shifts scheduled.</p>}
+                          ? todayAmShifts.map(shift => (
+			     <ShiftCard
+			       key={shift.id}
+			       shift={shift}
+			       userProfile={userProfile}
+			 />
+			))
+		      : (
+                           <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+			     No AM shifts scheduled.
+			   </p>
+			 )}
                   </div>
                   <div className="space-y-4">
                       <h3 className="flex items-center text-lg md:text-xl font-semibold text-orange-600 dark:text-orange-400"><Sunset className="mr-2 h-5 w-5" /> PM Shifts</h3>
                       {todayPmShifts.length > 0
-                          ? todayPmShifts.map(shift => <ShiftCard key={shift.id} shift={shift} />)
+                          ? todayPmShifts.map(shift => (
+			    <ShiftCard
+			     key={shift.id}
+			     shift={shift}
+			     userProfile={userProfile}
+			 />
+			))
                           : <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">No PM shifts scheduled.</p>}
                   </div>
               </div>
@@ -303,7 +334,13 @@ export default function Dashboard({ userShifts, loading }: { userShifts: Shift[]
                   <Card>
                       <CardHeader><CardTitle className="flex items-center text-indigo-600 dark:text-indigo-400"><Clock className="mr-2 h-5 w-5" /> All Day</CardTitle></CardHeader>
                       <CardContent className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                          {todayAllDayShifts.map(shift => <ShiftCard key={shift.id} shift={shift} />)}
+                          {todayAllDayShifts.map(shift => (
+			   <ShiftCard
+			    key={shift.id}
+			    shift={shift}
+			    userProfile={userProfile}
+			 />
+			))}
                       </CardContent>
                   </Card>
               )}
@@ -337,7 +374,12 @@ export default function Dashboard({ userShifts, loading }: { userShifts: Shift[]
             </h3>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {historicalShifts.map(shift => (
-                    <ShiftCard key={shift.id} shift={shift} onDismiss={handleDismissShift} />
+                    <ShiftCard
+		      key={shift.id}
+		      shift={shift}
+		      userProfile={userProfile}
+                      onDismiss={handleDismissShift}
+		 /> 
                 ))}
             </div>
         </div>

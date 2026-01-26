@@ -288,7 +288,7 @@ export function FileUploader({ onImportComplete, onFileSelect }: FileUploaderPro
                   type: 'all-day',
                   date,
                   address: '',
-                  bNumber: '',
+                  eNumber: '',
                   manager: '',
                   contract: sheetName, // ✅ fix for App Hosting build
                 });
