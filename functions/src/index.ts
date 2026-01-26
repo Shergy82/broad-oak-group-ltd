@@ -1,5 +1,6 @@
 
 import * as functions from "firebase-functions/v2/https";
+
 import * as admin from "firebase-admin";
 import * as webPush from "web-push";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
@@ -28,10 +29,10 @@ const pushSubscriptionConverter = {
 };
 
 // Callable function for the client to update their notification subscription status.
-export const setNotificationStatus = functions.https.onCall({ region: "europe-west2" }, async (req) => {
+export const setNotificationStatus = onCall({ region: europeWest2 }, async (req) => {
     const uid = req.auth?.uid;
     if (!uid) {
-        throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
+        throw new HttpsError("unauthenticated", "You must be logged in.");
     }
 
     const enabled = !!req.data.enabled;
@@ -41,7 +42,7 @@ export const setNotificationStatus = functions.https.onCall({ region: "europe-we
 
     if (enabled) {
         if (!subscription || !subscription.endpoint) {
-            throw new functions.https.HttpsError("invalid-argument", "A valid subscription object is required to subscribe.");
+            throw new HttpsError("invalid-argument", "A valid subscription object is required to subscribe.");
         }
         // Use the endpoint as a reliable, unique identifier for the document.
         const subscriptionDocRef = userSubscriptionsRef.doc(Buffer.from(subscription.endpoint).toString('base64'));
