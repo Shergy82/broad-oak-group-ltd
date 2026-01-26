@@ -1,5 +1,4 @@
 
-'use server';
 import * as functions from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import * as webPush from "web-push";
