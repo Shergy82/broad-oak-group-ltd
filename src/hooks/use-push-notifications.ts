@@ -123,7 +123,7 @@ export function usePushNotifications() {
             await sub.unsubscribe();
         }
 
-      const setNotificationStatus = httpsCallable(functions, 'setNotificationStatus');
+      const setNotificationStatus = httpsCallable('setNotificationStatus');
       await setNotificationStatus({ enabled: false });
 
       setIsSubscribed(false);

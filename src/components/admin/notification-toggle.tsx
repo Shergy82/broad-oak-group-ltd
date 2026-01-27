@@ -50,7 +50,7 @@ export function NotificationToggle() {
     setIsLoading(true);
 
     try {
-      const setNotificationStatus = httpsCallable<{ enabled: boolean }, { success: boolean }>(functions, 'setNotificationStatus');
+      const setNotificationStatus = httpsCallable<{ enabled: boolean }, { success: boolean }>('setNotificationStatus');
       await setNotificationStatus({ enabled: checked });
       
       setIsEnabled(checked);
