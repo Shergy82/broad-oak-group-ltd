@@ -1,9 +1,8 @@
 'use client';
 
+import { db, functions, httpsCallable } from '@/lib/firebase';
 import { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot, query, doc, updateDoc } from 'firebase/firestore';
-import { db, functions } from '@/lib/firebase';
-import { httpsCallable } from 'firebase/functions';
 import type { UserProfile } from '@/types';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { useToast } from '@/hooks/use-toast';
