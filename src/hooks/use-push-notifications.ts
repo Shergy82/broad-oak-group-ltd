@@ -93,7 +93,7 @@ export function usePushNotifications() {
 
       if (!subscription) throw new Error('Failed to get browser subscription.');
       
-      const setNotificationStatus = httpsCallable('setNotificationStatus');
+      const setNotificationStatus = httpsCallable(functions, 'setNotificationStatus');
       await setNotificationStatus({ enabled: true, subscription: subscription.toJSON() });
       
       setIsSubscribed(true);
@@ -123,7 +123,7 @@ export function usePushNotifications() {
             await sub.unsubscribe();
         }
 
-      const setNotificationStatus = httpsCallable('setNotificationStatus');
+      const setNotificationStatus = httpsCallable(functions, 'setNotificationStatus');
       await setNotificationStatus({ enabled: false });
 
       setIsSubscribed(false);
