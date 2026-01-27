@@ -21,10 +21,17 @@ export function ServiceWorkerRegistrar() {
 
     (async () => {
       try {
+        // Use deploy marker to bust SW cache between deployments
+        let swUrl = SW_URL;
+        try {
+          const marker = await fetch('/__deploy_marker__.txt', { cache: 'no-store' }).then((r) => r.text());
+          swUrl = `${SW_URL}?v=${encodeURIComponent(marker.trim())}`;
+        } catch {
+          // ignore, fall back to plain SW_URL
+        }
+
         // 1) Unregister any non-FCM service worker (e.g. /service-worker.js)
         const regs = await navigator.serviceWorker.getRegistrations();
-
-        let hasFcmReg = false;
 
         await Promise.all(
           regs.map(async (reg) => {
@@ -34,10 +41,7 @@ export function ServiceWorkerRegistrar() {
               (reg as any)?.installing?.scriptURL ||
               '';
 
-            if (isFcmSw(scriptURL)) {
-              hasFcmReg = true;
-              return;
-            }
+            if (isFcmSw(scriptURL)) return;
 
             try {
               await reg.unregister();
@@ -47,10 +51,8 @@ export function ServiceWorkerRegistrar() {
           })
         );
 
-        // 2) Register the correct one if missing
-        if (!hasFcmReg) {
-          await navigator.serviceWorker.register(SW_URL, { scope: SW_SCOPE });
-        }
+        // 2) Always (re)register with versioned URL so the browser updates it on deploy
+        await navigator.serviceWorker.register(swUrl, { scope: SW_SCOPE });
 
         // 3) Wait until ready
         const readyReg = await navigator.serviceWorker.ready;
