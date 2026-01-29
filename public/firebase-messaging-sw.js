@@ -1,4 +1,5 @@
 /* public/firebase-messaging-sw.js */
+
 importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js');
 
@@ -13,13 +14,22 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
-self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+// ✅ do NOT call clients.claim() unless we're the active worker
+self.addEventListener('install', () => {
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil((async () => {
+    // only active SW can claim
+    await self.clients.claim();
+  })());
+});
 
 messaging.onBackgroundMessage((payload) => {
   const title = payload.notification?.title || payload.data?.title || 'Broad Oak Group';
   const body  = payload.notification?.body  || payload.data?.body  || '';
-  const url   = payload.data?.url || payload.fcmOptions?.link || '/';
+  const url   = payload.data?.url || payload.fcmOptions?.link || '/dashboard';
 
   self.registration.showNotification(title, {
     body,
@@ -31,7 +41,7 @@ messaging.onBackgroundMessage((payload) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const url = event.notification?.data?.url || '/';
+  const url = event.notification?.data?.url || '/dashboard';
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((arr) => {
       for (const c of arr) {
