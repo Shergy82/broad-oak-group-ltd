@@ -4,8 +4,9 @@
 import { useCallback, useEffect, useState, useMemo } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
-import { functions, httpsCallable } from '@/lib/firebase';
+import { functions } from '@/lib/firebase';
 import type { PushSubscriptionPayload, VapidKeyResponse, SetStatusRequest, GenericResponse } from '@/types';
+import { getAuth, getIdToken } from 'firebase/auth';
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -55,11 +56,13 @@ export function usePushNotifications() {
     const fetchKey = async () => {
       setIsKeyLoading(true);
       try {
-        const getVapidPublicKey = httpsCallable<void, VapidKeyResponse>(functions, 'getVapidPublicKey');
-        const result = await getVapidPublicKey();
-        const key = result.data.publicKey;
-        if (!key) throw new Error('VAPID public key from server is empty.');
-        setVapidKey(key);
+        const response = await fetch('https://europe-west2-the-final-project-5e248.cloudfunctions.net/getVapidPublicKey');
+        const data: VapidKeyResponse | {ok: false, message: string} = await response.json();
+        
+        if (!response.ok || !('publicKey' in data) || !data.publicKey) {
+          throw new Error((data as any).message || 'VAPID public key from server is empty.');
+        }
+        setVapidKey(data.publicKey);
       } catch (error: any) {
         console.error('Failed to fetch VAPID public key:', error);
         toast({
@@ -98,8 +101,22 @@ export function usePushNotifications() {
         applicationServerKey,
       });
 
-      const setNotificationStatus = httpsCallable<SetStatusRequest, GenericResponse>(functions, 'setNotificationStatus');
-      await setNotificationStatus({ status: 'subscribed', subscription: subscription.toJSON() });
+      const auth = getAuth();
+      const idToken = await getIdToken(auth.currentUser!);
+
+      const response = await fetch('https://europe-west2-the-final-project-5e248.cloudfunctions.net/setNotificationStatus', {
+          method: 'POST',
+          headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${idToken}`
+          },
+          body: JSON.stringify({ status: 'subscribed', subscription: subscription.toJSON() } as SetStatusRequest)
+      });
+      
+      if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.message || 'Failed to save subscription on server.');
+      }
 
       setIsSubscribed(true);
       toast({ title: 'Subscribed!', description: 'You will now receive notifications.' });
@@ -124,8 +141,18 @@ export function usePushNotifications() {
 
       if (subscription) {
         await subscription.unsubscribe();
-        const setNotificationStatus = httpsCallable<SetStatusRequest, GenericResponse>(functions, 'setNotificationStatus');
-        await setNotificationStatus({ status: 'unsubscribed', endpoint: subscription.endpoint });
+        
+        const auth = getAuth();
+        const idToken = await getIdToken(auth.currentUser!);
+
+        await fetch('https://europe-west2-the-final-project-5e248.cloudfunctions.net/setNotificationStatus', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${idToken}`
+            },
+            body: JSON.stringify({ status: 'unsubscribed', endpoint: subscription.endpoint } as SetStatusRequest)
+        });
       }
       
       setIsSubscribed(false);

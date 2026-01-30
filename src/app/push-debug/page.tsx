@@ -8,8 +8,9 @@ import { Spinner } from '@/components/shared/spinner';
 import { useToast } from '@/hooks/use-toast';
 import { useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
-import { httpsCallable, functions } from '@/lib/firebase';
+import { functions } from '@/lib/firebase';
 import type { GenericResponse } from '@/types';
+import { getAuth, getIdToken } from 'firebase/auth';
 
 export default function PushDebugPage() {
   const { user } = useAuth();
@@ -34,17 +35,26 @@ export default function PushDebugPage() {
     }
     setIsSending(true);
     try {
-      const sendTestNotification = httpsCallable<void, GenericResponse>(functions, 'sendTestNotification');
-      const result = await sendTestNotification();
-
-      if (result.data.ok) {
-        toast({
-          title: 'Test Notification Sent',
-          description: result.data.message || 'A test notification has been dispatched from the server.',
+        const auth = getAuth();
+        const idToken = await getIdToken(auth.currentUser!);
+        
+        const response = await fetch('https://europe-west2-the-final-project-5e248.cloudfunctions.net/sendTestNotification', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${idToken}`
+            }
         });
-      } else {
-        throw new Error(result.data.message || 'Failed to send test notification');
-      }
+        
+        const result = await response.json();
+
+        if (response.ok && result.ok) {
+            toast({
+            title: 'Test Notification Sent',
+            description: result.message || 'A test notification has been dispatched from the server.',
+            });
+        } else {
+            throw new Error(result.message || 'Failed to send test notification');
+        }
     } catch (error: any) {
       toast({
         title: 'Test Failed',
