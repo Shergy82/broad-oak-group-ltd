@@ -121,7 +121,6 @@ export interface FunctionLog {
 
 // --- PUSH NOTIFICATION TYPES ---
 
-// The raw subscription object from the browser's PushManager
 export type PushSubscriptionPayload = {
   endpoint: string;
   expirationTime?: number | null;
@@ -131,19 +130,16 @@ export type PushSubscriptionPayload = {
   };
 };
 
-// Request/Response for getVapidPublicKey callable
 export interface VapidKeyResponse {
   publicKey: string;
 }
 
-// Request for setNotificationStatus callable
 export interface SetStatusRequest {
   status: 'subscribed' | 'unsubscribed';
   subscription?: PushSubscriptionPayload;
   endpoint?: string;
 }
 
-// Generic response from callables
 export interface GenericResponse {
   ok: boolean;
   message?: string;

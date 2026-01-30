@@ -8,6 +8,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: "Broad Oak Group",
   description: "Broad Oak Group internal portal for scheduling, projects and site management.",
+  manifest: "/manifest.json",
   openGraph: {
     title: "Broad Oak Group",
     description: "Broad Oak Group internal portal for scheduling, projects and site management.",
@@ -47,7 +48,6 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-        <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#ffffff" />
       </head>
       <body className="font-body antialiased h-full">
