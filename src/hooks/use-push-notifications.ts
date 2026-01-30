@@ -35,7 +35,10 @@ export function usePushNotifications() {
 
   useEffect(() => {
     async function fetchVapidKey() {
-      if (!functions) return;
+      if (!functions) {
+          setIsKeyLoading(false);
+          return;
+      };
       try {
         const getVapidPublicKey = httpsCallable<{ }, { publicKey: string }>(functions, 'getVapidPublicKey');
         const result = await getVapidPublicKey();
@@ -55,13 +58,19 @@ export function usePushNotifications() {
   }, []);
   
   useEffect(() => {
-    (async () => {
+    const checkSubscription = async () => {
         if(isSupported && user) {
-            const reg = await navigator.serviceWorker.ready;
-            const sub = await reg.pushManager.getSubscription();
-            setIsSubscribed(!!sub);
+            try {
+                const reg = await navigator.serviceWorker.ready;
+                const sub = await reg.pushManager.getSubscription();
+                setIsSubscribed(!!sub);
+            } catch (e) {
+                console.error("Error checking for push subscription:", e);
+                setIsSubscribed(false);
+            }
         }
-    })();
+    };
+    checkSubscription();
   }, [isSupported, user]);
 
   const subscribe = useCallback(async () => {
@@ -114,7 +123,7 @@ export function usePushNotifications() {
         await setNotificationStatus({ enabled: false, subscription: sub.toJSON() });
         await sub.unsubscribe();
       } else {
-        // If no local subscription, still tell backend to disable notifications
+        // If no local subscription, still tell backend to disable notifications for the user
         await setNotificationStatus({ enabled: false });
       }
 

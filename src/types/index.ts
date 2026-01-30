@@ -31,6 +31,8 @@ export interface UserProfile {
   employmentType?: 'direct' | 'subbie';
   operativeId?: string;
   trade?: string;
+  notificationsEnabled?: boolean;
+  notificationsUpdatedAt?: Timestamp;
 }
 
 export interface Unavailability {
@@ -104,15 +106,4 @@ export interface Trade {
   id: string;
   name: string;
   tasks: TradeTask[];
-}
-
-export interface FunctionLog {
-  id: string;
-  timestamp: Timestamp;
-  functionName: string;
-  shiftId?: string;
-  userId?: string;
-  level: 'info' | 'warn' | 'error';
-  message: string;
-  payload?: any;
 }

@@ -1,51 +1,64 @@
 
-// This service worker handles incoming push notifications.
+// This file must be in the /public directory
 
-// Note: This file does NOT import the Firebase SDK. It's a standard service worker.
+// Give the service worker access to Firebase Messaging.
+importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js');
 
-self.addEventListener('push', function(event) {
-  console.log('[Service Worker] Push Received.');
+// Initialize the Firebase app in the service worker with your project's sender ID.
+// This is the same config from your web app.
+const firebaseConfig = {
+  apiKey: "AIzaSyBEF3PmL0FyLmZTDXxx9qzeaolZXNt5Sn8",
+  authDomain: "the-final-project-5e248.firebaseapp.com",
+  projectId: "the-final-project-5e248",
+  storageBucket: "the-final-project-5e248.appspot.com",
+  messagingSenderId: "1075347108969",
+  appId: "1:1075347108969:web:2e259a194a49d91bfcdef8",
+};
+
+firebase.initializeApp(firebaseConfig);
+
+const messaging = firebase.messaging();
+
+/**
+ * The onBackgroundMessage handler is triggered when the app is in the background
+ * or closed, and a notification is received.
+ */
+messaging.onBackgroundMessage((payload) => {
+  console.log('[firebase-messaging-sw.js] Received background message ', payload);
   
-  let data = {};
-  try {
-    if (event.data) {
-      data = event.data.json();
-    }
-  } catch (e) {
-    console.error('[Service Worker] Failed to parse push data:', e);
-  }
-
-  const title = data.title || 'Broad Oak Group';
-  const options = {
-    body: data.body || 'You have a new update.',
-    icon: '/icon-192.png', // Main icon for the notification
-    badge: '/icon-72.png', // Small icon, often shown on the status bar (Android)
-    data: {
-      url: data.url || '/' // URL to open when the notification is clicked
-    }
+  const notificationTitle = payload.notification?.title || 'New Notification';
+  const notificationOptions = {
+    body: payload.notification?.body || 'Something happened',
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
+    data: payload.data || { url: '/' } // Pass along the data object
   };
 
-  event.waitUntil(self.registration.showNotification(title, options));
+  self.registration.showNotification(notificationTitle, notificationOptions);
 });
 
-self.addEventListener('notificationclick', function(event) {
+/**
+ * This event is triggered when a user clicks on a notification.
+ */
+self.addEventListener('notificationclick', (event) => {
   console.log('[Service Worker] Notification click Received.');
-
   event.notification.close();
 
-  // This looks at the `data.url` passed in the options object above.
-  const urlToOpen = event.notification.data.url || '/';
+  const urlToOpen = event.notification.data?.url || '/';
 
   event.waitUntil(
     clients.matchAll({
-      type: 'window'
-    }).then(function(clientList) {
-      for (let i = 0; i < clientList.length; i++) {
-        const client = clientList[i];
+      type: 'window',
+      includeUncontrolled: true
+    }).then((clientList) => {
+      // If a window for the app is already open, focus it.
+      for (const client of clientList) {
         if (client.url === urlToOpen && 'focus' in client) {
           return client.focus();
         }
       }
+      // Otherwise, open a new window.
       if (clients.openWindow) {
         return clients.openWindow(urlToOpen);
       }
