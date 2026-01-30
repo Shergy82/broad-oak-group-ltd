@@ -10,10 +10,23 @@ function getDb() {
 }
 
 function configureWebPush() {
-  const pub = process.env.WEBPUSH_PUBLIC_KEY || "";
-  const priv = process.env.WEBPUSH_PRIVATE_KEY || "";
-  const subj = process.env.WEBPUSH_SUBJECT || "mailto:example@example.com";
-  if (!pub || !priv) throw new Error("Missing WEBPUSH_PUBLIC_KEY/WEBPUSH_PRIVATE_KEY");
+  const pub =
+    process.env.WEBPUSH_PUBLIC_KEY ||
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ||
+    "";
+
+  const priv =
+    process.env.WEBPUSH_PRIVATE_KEY ||
+    process.env.NEXT_PUBLIC_VAPID_PRIVATE_KEY ||
+    "";
+
+  const subj =
+    process.env.WEBPUSH_SUBJECT || "mailto:example@example.com";
+
+  if (!pub || !priv) {
+    throw new Error("Missing WEBPUSH/VAPID keys");
+  }
+
   webPush.setVapidDetails(subj, pub, priv);
 }
 
@@ -22,7 +35,11 @@ export async function GET() {
     configureWebPush();
     const db = getDb();
 
-    const snap = await db.collectionGroup("pushSubscriptions").limit(1).get();
+    const snap = await db
+      .collectionGroup("pushSubscriptions")
+      .limit(1)
+      .get();
+
     if (snap.empty) {
       return NextResponse.json(
         { ok: false, error: "No push subscriptions found in Firestore" },
