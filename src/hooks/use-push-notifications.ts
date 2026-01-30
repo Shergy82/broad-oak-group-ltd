@@ -17,7 +17,6 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
     return outputArray;
 }
 
-
 export function usePushNotifications() {
   const { toast } = useToast();
   const { user } = useAuth();
@@ -36,7 +35,6 @@ export function usePushNotifications() {
     }
   }, []);
 
-  // Fetch VAPID key
   useEffect(() => {
     async function fetchKey() {
       if (!functions) {
@@ -44,8 +42,8 @@ export function usePushNotifications() {
           return;
       };
       try {
-        const getVapidPublicKey = httpsCallable<{ }, { publicKey: string }>(functions, 'getVapidPublicKey');
-        const result = await getVapidPublicKey();
+        const getVapidPublicKeyFn = httpsCallable<{ }, { publicKey: string }>(functions, 'getVapidPublicKey');
+        const result = await getVapidPublicKeyFn();
         setVapidKey(result.data.publicKey);
       } catch (error) {
         console.error("Failed to fetch VAPID public key:", error);
@@ -53,10 +51,9 @@ export function usePushNotifications() {
         setIsKeyLoading(false);
       }
     }
-    fetchKey();
-  }, []);
+    if(isSupported) fetchKey();
+  }, [isSupported]);
 
-  // Check subscription status
   useEffect(() => {
     async function checkSubscription() {
       if (!isSupported || !user) return;
@@ -65,8 +62,7 @@ export function usePushNotifications() {
           const subscription = await registration.pushManager.getSubscription();
           setIsSubscribed(!!subscription);
       } catch (e) {
-        // This can happen if the service worker is not yet ready, which is not a critical error.
-        // It will be re-checked on subsequent renders.
+        console.error("Error checking push subscription status", e);
       }
     }
     checkSubscription();
@@ -92,8 +88,8 @@ export function usePushNotifications() {
         applicationServerKey,
       });
 
-      const managePushSubscription = httpsCallable(functions, 'managePushSubscription');
-      await managePushSubscription({ subscription: subscription.toJSON(), state: 'subscribe' });
+      const setNotificationStatusFn = httpsCallable(functions, 'setNotificationStatus');
+      await setNotificationStatusFn({ subscription: subscription.toJSON(), state: 'subscribe' });
 
       setIsSubscribed(true);
       toast({ title: 'Subscribed!', description: 'You will now receive notifications.' });
@@ -111,8 +107,8 @@ export function usePushNotifications() {
       const registration = await navigator.serviceWorker.ready;
       const subscription = await registration.pushManager.getSubscription();
       if (subscription) {
-        const managePushSubscription = httpsCallable(functions, 'managePushSubscription');
-        await managePushSubscription({ subscription: subscription.toJSON(), state: 'unsubscribe' });
+        const setNotificationStatusFn = httpsCallable(functions, 'setNotificationStatus');
+        await setNotificationStatusFn({ subscription: subscription.toJSON(), state: 'unsubscribe' });
         await subscription.unsubscribe();
       }
       setIsSubscribed(false);
