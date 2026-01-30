@@ -48,6 +48,12 @@ export const setNotificationStatus = onCall({ region: europeWest2 }, async (req)
     const enabled = !!req.data?.enabled;
     const subscription = req.data?.subscription;
 
+    // Update the user document with their notification preference
+    await db.collection("users").doc(uid).set({
+        notificationsEnabled: enabled,
+        notificationsUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+
     const userSubscriptionsRef = db.collection("users").doc(uid).collection("pushSubscriptions");
 
     if (enabled) {
