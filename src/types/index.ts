@@ -1,4 +1,3 @@
-
 import type { Timestamp } from 'firebase/firestore';
 
 export type ShiftStatus = 'pending-confirmation' | 'confirmed' | 'on-site' | 'completed' | 'incomplete' | 'rejected';
@@ -6,7 +5,7 @@ export type ShiftStatus = 'pending-confirmation' | 'confirmed' | 'on-site' | 'co
 export interface Shift {
   id: string;
   userId: string;
-  userName?: string; // Add the user's name directly to the shift
+  userName?: string;
   date: Timestamp;
   type: 'am' | 'pm' | 'all-day';
   status: ShiftStatus;
@@ -14,9 +13,12 @@ export interface Shift {
   task: string;
   eNumber?: string;
   manager?: string;
-  contract?: string; // Added contract field
+  contract?: string;
   notes?: string;
   createdAt: Timestamp;
+  updatedAt?: Timestamp;
+  updatedByUid?: string;
+  updatedByAction?: string;
   confirmedAt?: Timestamp;
 }
 
@@ -31,6 +33,8 @@ export interface UserProfile {
   employmentType?: 'direct' | 'subbie';
   operativeId?: string;
   trade?: string;
+  notificationsEnabled?: boolean;
+  notificationsUpdatedAt?: Timestamp;
 }
 
 export interface Unavailability {
@@ -44,7 +48,7 @@ export interface Unavailability {
 }
 
 export interface Project {
-  id: string; // Firestore document ID
+  id: string;
   address: string;
   eNumber?: string;
   council?: string;
@@ -59,9 +63,9 @@ export interface ProjectFile {
   id: string;
   name: string;
   url: string;
-  fullPath: string; // Full path in Firebase Storage for deletion
-  size?: number; // Optional size in bytes
-  type?: string; // Optional MIME type
+  fullPath: string;
+  size?: number;
+  type?: string;
   uploadedAt: Timestamp;
   uploaderId: string;
   uploaderName: string;
@@ -71,9 +75,9 @@ export interface HealthAndSafetyFile {
   id: string;
   name: string;
   url: string;
-  fullPath: string; // Full path in Firebase Storage for deletion
-  size?: number; // Optional size in bytes
-  type?: string; // Optional MIME type
+  fullPath: string;
+  size?: number;
+  type?: string;
   uploadedAt: Timestamp;
   uploaderId: string;
   uploaderName: string;
@@ -90,9 +94,9 @@ export interface Announcement {
 }
 
 export interface Acknowledgement {
-    id: string; // This will be the user's UID
-    userName: string;
-    acknowledgedAt: Timestamp;
+  id: string;
+  userName: string;
+  acknowledgedAt: Timestamp;
 }
 
 export interface TradeTask {
@@ -104,4 +108,43 @@ export interface Trade {
   id: string;
   name: string;
   tasks: TradeTask[];
+}
+
+export interface FunctionLog {
+  id: string;
+  functionName: string;
+  message: string;
+  level: 'log' | 'warn' | 'error' | 'info';
+  timestamp: Timestamp;
+  data?: { [key: string]: any };
+}
+
+// --- PUSH NOTIFICATION TYPES ---
+
+// The raw subscription object from the browser's PushManager
+export type PushSubscriptionPayload = {
+  endpoint: string;
+  expirationTime?: number | null;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+};
+
+// Request/Response for getVapidPublicKey callable
+export interface VapidKeyResponse {
+  publicKey: string;
+}
+
+// Request for setNotificationStatus callable
+export interface SetStatusRequest {
+  status: 'subscribed' | 'unsubscribed';
+  subscription?: PushSubscriptionPayload;
+  endpoint?: string;
+}
+
+// Generic response from callables
+export interface GenericResponse {
+  ok: boolean;
+  message?: string;
 }

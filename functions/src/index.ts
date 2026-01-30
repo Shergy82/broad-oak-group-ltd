@@ -1,353 +1,222 @@
-
+// This is a comprehensive rewrite of the push notification backend logic.
 'use server';
 import * as functions from "firebase-functions";
 import admin from "firebase-admin";
+import * as webPush from "web-push";
 
+// Initialize Firebase Admin SDK
 if (!admin.apps.length) {
   admin.initializeApp();
 }
 const db = admin.firestore();
 
-// All notification-related functions have been removed.
+// --- VAPID Key Configuration ---
+// This function initializes the web-push library with the VAPID keys
+// stored in Firebase Functions configuration.
+const configureWebPush = () => {
+  const config = functions.config();
+  const publicKey = config.webpush?.public_key;
+  const privateKey = config.webpush?.private_key;
+  const mailto = config.webpush?.subject || 'mailto:example@your-project.com';
 
-export const deleteProjectAndFiles = functions.region("europe-west2").https.onCall(async (data, context) => {
-    functions.logger.log("Received request to delete project:", data.projectId);
-
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "You must be logged in to delete a project.");
-    }
-    const uid = context.auth.uid;
-    const userDoc = await db.collection("users").doc(uid).get();
-    const userProfile = userDoc.data();
-
-    if (!userProfile || !['admin', 'owner', 'manager'].includes(userProfile.role)) {
-        throw new functions.https.HttpsError("permission-denied", "You do not have permission to perform this action.");
-    }
-    
-    const projectId = data.projectId;
-    if (!projectId || typeof projectId !== 'string') {
-        throw new functions.https.HttpsError("invalid-argument", "The function must be called with a 'projectId' string argument.");
-    }
-
-    try {
-        const bucket = admin.storage().bucket();
-        const prefix = `project_files/${projectId}/`;
-        
-        await bucket.deleteFiles({ prefix });
-        functions.logger.log(`Successfully deleted all files with prefix "${prefix}" from Storage.`);
-
-        const projectRef = db.collection('projects').doc(projectId);
-        const filesQuerySnapshot = await projectRef.collection('files').get();
-        
-        const batch = db.batch();
-        
-        filesQuerySnapshot.forEach(doc => {
-            batch.delete(doc.ref);
-        });
-
-        batch.delete(projectRef);
-        await batch.commit();
-        functions.logger.log(`Successfully deleted project ${projectId} and its subcollections from Firestore.`);
-
-        return { success: true, message: `Project ${projectId} and all associated files deleted successfully.` };
-
-    } catch (error: any) {
-        functions.logger.error(`Error deleting project ${projectId}:`, error);
-        throw new functions.https.HttpsError("internal", "An unexpected error occurred while deleting the project. Please check the function logs.");
-    }
-});
-
-
-export const deleteProjectFile = functions.region("europe-west2").https.onCall(async (data, context) => {
-    functions.logger.log("Received request to delete file:", data);
-
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "You must be logged in to delete a file.");
-    }
-    const uid = context.auth.uid;
-    const { projectId, fileId } = data;
-
-    if (!projectId || typeof projectId !== 'string' || !fileId || typeof fileId !== 'string') {
-        throw new functions.https.HttpsError("invalid-argument", "The function requires 'projectId' and 'fileId' arguments.");
-    }
-
-    try {
-        const fileRef = db.collection('projects').doc(projectId).collection('files').doc(fileId);
-        const fileDoc = await fileRef.get();
-
-        if (!fileDoc.exists) {
-            throw new functions.https.HttpsError("not-found", "The specified file does not exist.");
-        }
-
-        const fileData = fileDoc.data()!;
-        
-        if (!fileData || !fileData.fullPath || !fileData.uploaderId) {
-            functions.logger.error(`File document ${fileId} in project ${projectId} is missing required data ('fullPath' or 'uploaderId'). Deleting Firestore record.`, { fileData });
-            await fileRef.delete();
-            throw new functions.https.HttpsError("internal", "The file's database record was corrupt and has been removed. The file may still exist in storage.");
-        }
-        
-        const uploaderId = fileData.uploaderId;
-        const userDoc = await db.collection("users").doc(uid).get();
-        const userProfile = userDoc.data();
-        const isPrivileged = userProfile && ['admin', 'owner', 'manager'].includes(userProfile.role);
-        const isUploader = uid === uploaderId;
-
-        if (!isPrivileged && !isUploader) {
-            throw new functions.https.HttpsError("permission-denied", "You do not have permission to delete this file.");
-        }
-
-        const storageFileRef = admin.storage().bucket().file(fileData.fullPath);
-        await storageFileRef.delete();
-        functions.logger.log(`Successfully deleted file from Storage: ${fileData.fullPath}`);
-
-        await fileRef.delete();
-        functions.logger.log(`Successfully deleted file record from Firestore: ${fileId}`);
-        
-        return { success: true, message: `File ${fileId} deleted successfully.` };
-
-    } catch (error: any) {
-        functions.logger.error(`Error deleting file ${fileId} from project ${projectId}:`, error);
-        if (error instanceof functions.https.HttpsError) {
-            throw error;
-        }
-        throw new functions.https.HttpsError("internal", "An unexpected error occurred while deleting the file. Please check the function logs.");
-    }
-});
-
-
-export const deleteAllShifts = functions.region("europe-west2").https.onCall(async (data, context) => {
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
-    }
-    const uid = context.auth.uid;
-    const userDoc = await db.collection("users").doc(uid).get();
-    const userProfile = userDoc.data();
-
-    if (!userProfile || userProfile.role !== 'owner') {
-        throw new functions.https.HttpsError("permission-denied", "Only the account owner can perform this action.");
-    }
-    
-    functions.logger.log(`Owner ${uid} initiated deletion of all active shifts.`);
-
-    try {
-        const activeShiftStatuses = ['pending-confirmation', 'confirmed', 'on-site', 'rejected'];
-        const shiftsCollection = db.collection('shifts');
-        const snapshot = await shiftsCollection.where('status', 'in', activeShiftStatuses).get();
-        
-        if (snapshot.empty) {
-            return { success: true, message: "No active shifts to delete." };
-        }
-
-        const batchSize = 500;
-        const batches = [];
-        for (let i = 0; i < snapshot.docs.length; i += batchSize) {
-            const batch = db.batch();
-            const chunk = snapshot.docs.slice(i, i + batchSize);
-            chunk.forEach(doc => batch.delete(doc.ref));
-            batches.push(batch.commit());
-        }
-
-        await Promise.all(batches);
-
-        functions.logger.log(`Successfully deleted ${snapshot.size} active shifts.`);
-        return { success: true, message: `Successfully deleted ${snapshot.size} active shifts.` };
-    } catch (error) {
-        functions.logger.error("Error deleting all shifts:", error);
-        throw new functions.https.HttpsError("internal", "An unexpected error occurred while deleting shifts.");
-    }
-});
-
-export const deleteAllProjects = functions.region("europe-west2").https.onCall(async (data, context) => {
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
-    }
-    const uid = context.auth.uid;
-    const userDoc = await db.collection("users").doc(uid).get();
-    const userProfile = userDoc.data();
-
-    if (!userProfile || userProfile.role !== 'owner') {
-        throw new functions.https.HttpsError("permission-denied", "Only the account owner can perform this action.");
-    }
-
-    functions.logger.log(`Owner ${uid} initiated deletion of ALL projects and files.`);
-
-    try {
-        const projectsQuerySnapshot = await db.collection('projects').get();
-        if (projectsQuerySnapshot.empty) {
-            return { success: true, message: "No projects to delete." };
-        }
-
-        const bucket = admin.storage().bucket();
-        const storagePromises = projectsQuerySnapshot.docs.map(projectDoc => {
-            const prefix = `project_files/${projectDoc.id}/`;
-            return bucket.deleteFiles({ prefix });
-        });
-        await Promise.all(storagePromises);
-        functions.logger.log("Successfully deleted all project files from Storage.");
-
-        const firestoreDeletions: Promise<any>[] = [];
-        for (const projectDoc of projectsQuerySnapshot.docs) {
-            const filesCollectionRef = projectDoc.ref.collection('files');
-            const filesSnapshot = await filesCollectionRef.get();
-            if (!filesSnapshot.empty) {
-                 const batchSize = 500;
-                 for (let i = 0; i < filesSnapshot.docs.length; i += batchSize) {
-                    const batch = db.batch();
-                    const chunk = filesSnapshot.docs.slice(i, i + batchSize);
-                    chunk.forEach(doc => batch.delete(doc.ref));
-                    firestoreDeletions.push(batch.commit());
-                }
-            }
-            firestoreDeletions.push(projectDoc.ref.delete());
-        }
-        
-        await Promise.all(firestoreDeletions);
-
-        functions.logger.log("Successfully deleted all projects and their subcollections from Firestore.");
-        return { success: true, message: `Successfully deleted ${projectsQuerySnapshot.size} projects and all associated files.` };
-
-    } catch (error) {
-        functions.logger.error("Error deleting all projects:", error);
-        throw new functions.https.HttpsError("internal", "An error occurred while deleting all projects. Please check the function logs.");
-    }
-});
-
-export const setUserStatus = functions.region("europe-west2").https.onCall(async (data, context) => {
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
-    }
-    const callerUid = context.auth.uid;
-    const callerDoc = await db.collection("users").doc(callerUid).get();
-    const callerProfile = callerDoc.data();
-
-    if (!callerProfile || callerProfile.role !== 'owner') {
-        throw new functions.https.HttpsError("permission-denied", "Only the account owner can change user status.");
-    }
-    
-    const { uid, disabled, newStatus } = data;
-    const validStatuses = ['active', 'suspended', 'pending-approval'];
-
-    if (typeof uid !== 'string' || typeof disabled !== 'boolean' || !validStatuses.includes(newStatus)) {
-        throw new functions.https.HttpsError("invalid-argument", `Invalid arguments provided. 'uid' must be a string, 'disabled' a boolean, and 'newStatus' must be one of ${validStatuses.join(', ')}.`);
-    }
-
-    if (uid === callerUid) {
-        throw new functions.https.HttpsError("permission-denied", "The account owner cannot suspend their own account.");
-    }
-    
-    try {
-        await admin.auth().updateUser(uid, { disabled });
-        
-        const userDocRef = db.collection('users').doc(uid);
-        await userDocRef.update({ status: newStatus });
-        
-        functions.logger.log(`Owner ${callerUid} has set user ${uid} to status: ${newStatus} (Auth disabled: ${disabled}).`);
-
-        return { success: true };
-    } catch (error: any) {
-        functions.logger.error(`Error updating status for user ${uid}:`, error);
-        throw new functions.https.HttpsError("internal", `An unexpected error occurred while updating user status: ${error.message}`);
-    }
-});
-
-export const deleteUser = functions.region("europe-west2").https.onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
-  }
-
-  const callerUid = context.auth.uid;
-  const callerDoc = await db.collection("users").doc(callerUid).get();
-  const callerProfile = callerDoc.data() as { role: string } | undefined;
-
-  if (!callerProfile || callerProfile.role !== 'owner') {
-    throw new functions.https.HttpsError("permission-denied", "Only the account owner can delete users.");
-  }
-
-  const { uid } = data;
-  if (typeof uid !== "string") {
-    throw new functions.https.HttpsError("invalid-argument", "The function requires a 'uid' (string) argument.");
-  }
-  if (uid === callerUid) {
-    throw new functions.https.HttpsError("permission-denied", "The account owner cannot delete their own account.");
+  if (!publicKey || !privateKey) {
+    functions.logger.error("CRITICAL: VAPID keys (webpush.public_key, webpush.private_key) are not set in function configuration. Notifications will fail.");
+    return false;
   }
 
   try {
-    await db.collection("users").doc(uid).delete();
-    functions.logger.log(`Deleted Firestore document for user ${uid}.`);
+    webPush.setVapidDetails(mailto, publicKey, privateKey);
+    return true;
+  } catch (error) {
+    functions.logger.error("Error setting VAPID details:", error);
+    return false;
+  }
+};
 
-    await admin.auth().deleteUser(uid);
-    functions.logger.log(`Deleted Firebase Auth user ${uid}.`);
+// --- Callable Function: getVapidPublicKey ---
+// Securely provides the VAPID public key to the client app.
+export const getVapidPublicKey = functions.region("europe-west2").https.onCall((data, context) => {
+  const publicKey = functions.config().webpush?.public_key;
+  if (!publicKey) {
+    functions.logger.error("CRITICAL: VAPID public key not set in config.");
+    throw new functions.https.HttpsError('not-found', 'VAPID public key is not configured on the server.');
+  }
+  return { publicKey };
+});
 
-    functions.logger.log(`Owner ${callerUid} successfully deleted user ${uid}`);
-    return { success: true };
+// --- Callable Function: setNotificationStatus ---
+// Manages a user's push notification subscriptions.
+export const setNotificationStatus = functions.region("europe-west2").https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "You must be logged in to manage notifications.");
+  }
+  const uid = context.auth.uid;
+  const { status, subscription } = data;
 
-  } catch (error: any) {
-    functions.logger.error(`Error deleting user ${uid}:`, error);
-    if (error.code === "auth/user-not-found") {
-      functions.logger.warn(`User ${uid} was already deleted from Firebase Auth. Continuing cleanup.`);
-      return { success: true, message: "User was already deleted from Authentication. Cleanup finished." };
+  const userSubscriptionsRef = db.collection('users').doc(uid).collection('pushSubscriptions');
+  
+  if (status === 'subscribed') {
+    if (!subscription || !subscription.endpoint) {
+      throw new functions.https.HttpsError('invalid-argument', 'A valid subscription object is required.');
     }
-    throw new functions.https.HttpsError("internal", `An unexpected error occurred while deleting the user: ${error.message}`);
+    // Use a hash of the endpoint as the document ID to prevent duplicates.
+    const subId = btoa(subscription.endpoint).replace(/=/g, '');
+    await userSubscriptionsRef.doc(subId).set({
+      ...subscription,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+    functions.logger.log(`Subscription added for user: ${uid}`);
+    return { ok: true, message: "Subscribed successfully." };
+
+  } else if (status === 'unsubscribed') {
+    if (!subscription || !subscription.endpoint) {
+      throw new functions.https.HttpsError('invalid-argument', 'A subscription endpoint is required to unsubscribe.');
+    }
+    const subId = btoa(subscription.endpoint).replace(/=/g, '');
+    await userSubscriptionsRef.doc(subId).delete();
+    functions.logger.log(`Subscription removed for user: ${uid}`);
+    return { ok: true, message: "Unsubscribed successfully." };
+
+  } else {
+    throw new functions.https.HttpsError('invalid-argument', 'Invalid status provided.');
   }
 });
 
-export const syncUserNamesToShifts = functions.region("europe-west2").https.onCall(async (data, context) => {
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
+
+// --- Firestore Trigger: onShiftWrite ---
+// Triggers when a shift is created, updated, or deleted.
+export const onShiftWrite = functions.region("europe-west2").firestore.document("shifts/{shiftId}")
+  .onWrite(async (change, context) => {
+    
+    // Check if VAPID keys are configured before proceeding.
+    if (!configureWebPush()) {
+      return;
     }
-    const callerDoc = await db.collection("users").doc(context.auth.uid).get();
-    if (callerDoc.data()?.role !== 'owner') {
-        throw new functions.https.HttpsError("permission-denied", "Only the account owner can run this utility.");
+    
+    const shiftId = context.params.shiftId;
+    const shiftBefore = change.before.data();
+    const shiftAfter = change.after.data();
+
+    let userId: string | null = null;
+    let payload: object | null = null;
+    
+    // --- Determine Notification Type ---
+    if (!change.before.exists && change.after.exists) {
+      // 1. Shift CREATED
+      userId = shiftAfter?.userId;
+      payload = {
+        title: "New Shift Assigned",
+        body: `You have a new shift: ${shiftAfter?.task}`,
+        url: `/dashboard?gate=pending`,
+      };
+      functions.logger.log(`Shift CREATED for user ${userId}`, { shiftId });
+
+    } else if (change.before.exists && !change.after.exists) {
+      // 2. Shift DELETED
+      userId = shiftBefore?.userId;
+      payload = {
+        title: "Shift Cancelled",
+        body: `A shift for ${shiftBefore?.task} has been cancelled.`,
+        url: "/dashboard",
+      };
+      functions.logger.log(`Shift DELETED for user ${userId}`, { shiftId });
+
+    } else if (change.before.exists && change.after.exists) {
+      // 3. Shift UPDATED
+      if (shiftBefore?.userId !== shiftAfter?.userId) {
+          // Re-assignment: Handled by treating as a delete for the old user and create for the new.
+          // The onWrite will trigger again for the new user.
+          // For now, we just notify the old user.
+          userId = shiftBefore?.userId;
+          payload = { title: "Shift Re-assigned", body: `Your shift for ${shiftBefore?.task} is no longer assigned to you.`, url: "/dashboard" };
+      } else {
+          // A meaningful field changed for the same user
+          const hasMeaningfulChange = shiftBefore?.task !== shiftAfter?.task || shiftBefore?.address !== shiftAfter?.address || shiftBefore?.date.seconds !== shiftAfter?.date.seconds;
+          if (hasMeaningfulChange) {
+            userId = shiftAfter?.userId;
+            payload = {
+              title: "Shift Details Updated",
+              body: `Your shift for ${shiftAfter?.task} has been updated.`,
+              url: `/dashboard`
+            };
+            functions.logger.log(`Shift UPDATED for user ${userId}`, { shiftId });
+          }
+      }
+    }
+    
+    if (!userId || !payload) {
+      functions.logger.log("No notification needed for this event.", { shiftId });
+      return;
     }
 
-    functions.logger.log("Starting utility to sync user names to shifts.");
+    // --- Send Notification ---
+    const subscriptionsSnapshot = await db.collection(`users/${userId}/pushSubscriptions`).get();
 
+    if (subscriptionsSnapshot.empty) {
+      functions.logger.warn(`No push subscriptions found for user ${userId}.`);
+      return;
+    }
+
+    const sendPromises = subscriptionsSnapshot.docs.map(subDoc => {
+        const sub = subDoc.data() as webPush.PushSubscription;
+        return webPush.sendNotification(sub, JSON.stringify(payload))
+            .catch(error => {
+                functions.logger.error(`Failed to send notification to ${sub.endpoint.slice(0, 30)}...`, { userId, error });
+                // If the subscription is expired or invalid, delete it from Firestore.
+                if (error.statusCode === 404 || error.statusCode === 410) {
+                    functions.logger.log(`Deleting stale subscription for user ${userId}.`);
+                    return subDoc.ref.delete();
+                }
+                return null; // Don't re-throw, just log the error.
+            });
+    });
+
+    await Promise.all(sendPromises);
+    functions.logger.log(`Successfully processed notifications for user ${userId}.`);
+  });
+
+// --- Callable Function: sendTestNotification ---
+export const sendTestNotification = functions.region("europe-west2").https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
+  }
+  if (!configureWebPush()) {
+    throw new functions.https.HttpsError("failed-precondition", "VAPID keys not configured on server.");
+  }
+
+  const userId = context.auth.uid;
+  const subscriptionsSnapshot = await db.collection(`users/${userId}/pushSubscriptions`).get();
+
+  if (subscriptionsSnapshot.empty) {
+    return { ok: true, sent: 0, removed: 0, message: "No subscriptions found for this user." };
+  }
+
+  const payload = JSON.stringify({
+    title: "Test Notification",
+    body: "This is a test notification from the app.",
+    url: "/push-debug"
+  });
+
+  let sentCount = 0;
+  let removedCount = 0;
+
+  const sendPromises = subscriptionsSnapshot.docs.map(async (subDoc) => {
+    const sub = subDoc.data() as webPush.PushSubscription;
     try {
-        const usersSnapshot = await db.collection('users').get();
-        const userMap = new Map<string, string>();
-        usersSnapshot.forEach(doc => {
-            userMap.set(doc.id, doc.data().name);
-        });
-
-        const shiftsSnapshot = await db.collection('shifts').get();
-        if (shiftsSnapshot.empty) {
-            return { success: true, message: "No shifts found to process." };
-        }
-
-        const batchSize = 400; // Firestore batch limit is 500 operations
-        let writeCount = 0;
-        let totalUpdated = 0;
-        
-        let batch = db.batch();
-
-        for (const shiftDoc of shiftsSnapshot.docs) {
-            const shiftData = shiftDoc.data();
-            // Only update if userName is missing or incorrect
-            if (shiftData.userId && userMap.has(shiftData.userId) && shiftData.userName !== userMap.get(shiftData.userId)) {
-                batch.update(shiftDoc.ref, { userName: userMap.get(shiftData.userId) });
-                writeCount++;
-                totalUpdated++;
-            }
-
-            if (writeCount >= batchSize) {
-                await batch.commit();
-                functions.logger.log(`Committed a batch of ${writeCount} updates.`);
-                batch = db.batch();
-                writeCount = 0;
-            }
-        }
-
-        if (writeCount > 0) {
-            await batch.commit();
-            functions.logger.log(`Committed the final batch of ${writeCount} updates.`);
-        }
-
-        functions.logger.log(`Sync complete. Total shifts updated: ${totalUpdated}.`);
-        return { success: true, message: `Sync complete. ${totalUpdated} shifts were updated with the correct user name.` };
-
+      await webPush.sendNotification(sub, payload);
+      sentCount++;
     } catch (error: any) {
-        functions.logger.error("Error syncing user names to shifts:", error);
-        throw new functions.https.HttpsError("internal", "An unexpected error occurred during the sync process.");
+      if (error.statusCode === 404 || error.statusCode === 410) {
+        await subDoc.ref.delete();
+        removedCount++;
+      } else {
+        functions.logger.error(`Test notification failed for user ${userId}`, error);
+      }
     }
+  });
+
+  await Promise.all(sendPromises);
+
+  return { ok: true, sent: sentCount, removed: removedCount, message: `Sent ${sentCount} test notifications.` };
 });

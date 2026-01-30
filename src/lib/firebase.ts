@@ -25,31 +25,40 @@ export const isFirebaseConfigured =
   !!firebaseConfig.messagingSenderId &&
   !!firebaseConfig.appId;
 
-let _app: FirebaseApp;
-let _auth: Auth;
-let _db: Firestore;
-let _storage: FirebaseStorage;
-let _functions: Functions;
+let app: FirebaseApp;
+let auth: Auth;
+let db: Firestore;
+let storage: FirebaseStorage;
+let functions: Functions;
 
-if (!isFirebaseConfigured) {
-  throw new Error(
-    "Firebase is not configured. Check NEXT_PUBLIC_FIREBASE_* env vars."
-  );
+// This check ensures we only initialize Firebase once.
+if (!getApps().length) {
+  if (isFirebaseConfigured) {
+    app = initializeApp(firebaseConfig);
+  } else {
+    // In a real app, you might want to show a more user-friendly error
+    // or have a fallback experience if Firebase isn't configured.
+    console.error("Firebase is not configured. Check your .env.local file.");
+    // We'll create dummy objects to prevent the app from crashing.
+    app = {} as FirebaseApp;
+  }
+} else {
+  app = getApp();
 }
 
-_app = getApps().length ? getApp() : initializeApp(firebaseConfig);
-_auth = getAuth(_app);
-_db = getFirestore(_app);
-_storage = getStorage(_app);
+if (isFirebaseConfigured) {
+  auth = getAuth(app);
+  db = getFirestore(app);
+  storage = getStorage(app);
+  // Ensure your functions are deployed to the same region.
+  functions = getFunctions(app, "europe-west2");
+} else {
+  auth = {} as Auth;
+  db = {} as Firestore;
+  storage = {} as FirebaseStorage;
+  functions = {} as Functions;
+}
 
-// ✅ MUST match your deployed callable region
-_functions = getFunctions(_app, "europe-west2");
-
-export const app = _app;
-export const auth = _auth;
-export const db = _db;
-export const storage = _storage;
-export const functions = _functions;
-
-// Re-export under the same name you were using
+// Re-export httpsCallable for use in other parts of the app.
 export const httpsCallable = _httpsCallable;
+export { app, auth, db, storage, functions };
