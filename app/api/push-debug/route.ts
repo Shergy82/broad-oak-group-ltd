@@ -4,12 +4,12 @@ import webPush from "web-push";
 
 export const dynamic = "force-dynamic";
 
-function initAdmin() {
+function getDb() {
   if (admin.apps.length === 0) admin.initializeApp();
   return admin.firestore();
 }
 
-function initWebPush() {
+function configureWebPush() {
   const pub = process.env.WEBPUSH_PUBLIC_KEY || "";
   const priv = process.env.WEBPUSH_PRIVATE_KEY || "";
   const subj = process.env.WEBPUSH_SUBJECT || "mailto:example@example.com";
@@ -19,8 +19,8 @@ function initWebPush() {
 
 export async function GET() {
   try {
-    initWebPush();
-    const db = initAdmin();
+    configureWebPush();
+    const db = getDb();
 
     const snap = await db.collectionGroup("pushSubscriptions").limit(1).get();
     if (snap.empty) {
@@ -29,29 +29,6 @@ export async function GET() {
         { status: 404, headers: { "cache-control": "no-store" } }
       );
     }
-
-    const sub = snap.docs[0].data() as any;
-
-    await webPush.sendNotification(
-      sub,
-      JSON.stringify({
-        title: "Test push",
-        body: "If you see this, web-push + VAPID is working.",
-        url: "/",
-      })
-    );
-
-    return NextResponse.json(
-      { ok: true, sentTo: snap.docs[0].ref.path },
-      { headers: { "cache-control": "no-store" } }
-    );
-  } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || String(e) },
-      { status: 500, headers: { "cache-control": "no-store" } }
-    );
-  }
-}
 
     const sub = snap.docs[0].data() as any;
 
