@@ -98,25 +98,30 @@ export function usePushNotifications() {
     } finally {
       setIsSubscribing(false);
     }
-  }, [isSupported, user, vapidKey, toast, functions]);
+  }, [isSupported, user, vapidKey, toast]);
 
   const unsubscribe = useCallback(async () => {
-    if (!user || !functions) return;
+    if (!isSupported || !user || !functions) return;
     setIsSubscribing(true);
 
     try {
       const reg = await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.getSubscription();
+      const setNotificationStatus = httpsCallable(functions, 'setNotificationStatus');
+
       if (sub) {
-          await sub.unsubscribe();
+        // Tell backend to remove this specific subscription
+        await setNotificationStatus({ enabled: false, subscription: sub.toJSON() });
+        await sub.unsubscribe();
+      } else {
+        // If no local subscription, still tell backend to disable notifications
+        await setNotificationStatus({ enabled: false });
       }
 
-      const setNotificationStatus = httpsCallable(functions, 'setNotificationStatus');
-      await setNotificationStatus({ enabled: false });
-
       setIsSubscribed(false);
-      toast({ title: 'Unsubscribed', description: 'You will no longer receive notifications.' });
+      toast({ title: 'Unsubscribed', description: 'Push notifications have been disabled.' });
     } catch (err: any) {
+      console.error('Error unsubscribing:', err);
       toast({
         title: 'Unsubscribe Failed',
         description: err.message || 'An unexpected error occurred.',
@@ -125,7 +130,7 @@ export function usePushNotifications() {
     } finally {
       setIsSubscribing(false);
     }
-  }, [user, toast, functions]);
+  }, [isSupported, user, toast]);
 
   return {
     isSupported,
