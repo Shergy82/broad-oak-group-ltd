@@ -1,14 +1,18 @@
+
 "use client";
 
 import { usePushNotifications } from '@/hooks/use-push-notifications';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Spinner } from '@/components/shared/spinner';
-import { httpsCallable, functions } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { useState } from 'react';
+import { useAuth } from '@/hooks/use-auth';
+
+const functionsBaseUrl = `https://europe-west2-${process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID}.cloudfunctions.net`;
 
 export default function PushDebugPage() {
+  const { user } = useAuth();
   const {
     isSupported,
     isSubscribed,
@@ -24,13 +28,27 @@ export default function PushDebugPage() {
   const [isSending, setIsSending] = useState(false);
 
   const handleSendTest = async () => {
+    if (!user) {
+        toast({ title: "Not Authenticated", variant: 'destructive' });
+        return;
+    }
     setIsSending(true);
     try {
-      const sendTest = httpsCallable(functions, 'sendTestNotification');
-      const result = await sendTest();
+      const idToken = await user.getIdToken();
+      const response = await fetch(`${functionsBaseUrl}/sendTestNotification`, {
+          method: 'POST',
+          headers: {
+              'Authorization': `Bearer ${idToken}`
+          }
+      });
+      const result = await response.json();
+      if (!response.ok) {
+          throw new Error(result.error || 'Failed to send test notification');
+      }
+
       toast({
         title: 'Test Sent',
-        description: (result.data as any).message || 'Test notification sent from backend.',
+        description: result.message || 'Test notification sent from backend.',
       });
     } catch (error: any) {
       toast({
@@ -61,10 +79,10 @@ export default function PushDebugPage() {
           
           <div className="grid grid-cols-2 gap-4">
             <Button onClick={subscribe} disabled={!isSupported || isSubscribed || isSubscribing || permission === 'denied'}>
-              {isSubscribing && isSubscribed === false ? <Spinner /> : 'Subscribe'}
+              {isSubscribing && !isSubscribed ? <Spinner /> : 'Subscribe'}
             </Button>
             <Button onClick={unsubscribe} disabled={!isSubscribed || isSubscribing} variant="outline">
-              {isSubscribing && isSubscribed === true ? <Spinner /> : 'Unsubscribe'}
+              {isSubscribing && isSubscribed ? <Spinner /> : 'Unsubscribe'}
             </Button>
           </div>
 
