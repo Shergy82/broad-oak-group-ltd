@@ -105,3 +105,14 @@ export interface Trade {
   name: string;
   tasks: TradeTask[];
 }
+
+export interface FunctionLog {
+  id: string;
+  timestamp: Timestamp;
+  functionName: string;
+  shiftId?: string;
+  userId?: string;
+  level: 'info' | 'warn' | 'error';
+  message: string;
+  payload?: any;
+}

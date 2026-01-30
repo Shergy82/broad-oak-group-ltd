@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useRouter } from 'next/navigation';
@@ -22,6 +23,7 @@ import {
   Fingerprint,
   Building2,
   ListChecks,
+  BellRing,
 } from 'lucide-react';
 import { NotificationButton } from '../shared/notification-button';
 import {
@@ -150,6 +152,10 @@ export function Header() {
                     <DropdownMenuItem onClick={() => router.push('/admin/tasks')} className="cursor-pointer">
                         <ListChecks className="mr-2" />
                         <span>Tasks</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => router.push('/admin/notification-logs')} className="cursor-pointer">
+                        <BellRing className="mr-2" />
+                        <span>Notification Logs</span>
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => router.push('/admin/users')} className="cursor-pointer">
                       <UserCog className="mr-2" />

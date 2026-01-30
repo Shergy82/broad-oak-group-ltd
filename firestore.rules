@@ -1,3 +1,4 @@
+
 rules_version = '2';
 
 service cloud.firestore {
@@ -84,6 +85,12 @@ service cloud.firestore {
     match /unavailability/{id} {
       allow read: if signedIn();
       allow write: if isPrivilegedUser(request.auth.uid);
+    }
+
+    // ---- FUNCTION LOGS (for diagnostics) ----
+    match /function_logs/{logId} {
+      allow read: if isPrivilegedUser(request.auth.uid);
+      allow write: if false; // Only functions can write logs
     }
   }
 }

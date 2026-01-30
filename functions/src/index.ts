@@ -3,6 +3,8 @@
 import * as functions from "firebase-functions";
 import admin from "firebase-admin";
 import * as webPush from "web-push";
+import { onDocumentCreated } from 'firebase-functions/v2/firestore';
+
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -27,6 +29,21 @@ const pushSubscriptionConverter = {
     }
 };
 
+async function logToFirestore(level: 'info' | 'warn' | 'error', functionName: string, message: string, context: any = {}) {
+    try {
+        await db.collection('function_logs').add({
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            level,
+            functionName,
+            message,
+            ...context
+        });
+    } catch (e) {
+        functions.logger.error("FATAL: Could not write to function_logs collection:", e);
+    }
+}
+
+
 export const getVapidPublicKey = functions.region("europe-west2").https.onCall((data, context) => {
     const publicKey = functions.config().webpush?.public_key;
     if (!publicKey) {
@@ -37,20 +54,19 @@ export const getVapidPublicKey = functions.region("europe-west2").https.onCall((
 });
 
 export const getNotificationStatus = functions.region("europe-west2").https.onCall(async (data, context) => {
-    // 1. Authentication check
     if (!context.auth) {
         throw new functions.https.HttpsError("unauthenticated", "You must be logged in to perform this action.");
     }
-
-    // 2. Authorization check
     const uid = context.auth.uid;
     const userDoc = await db.collection("users").doc(uid).get();
+    if (!userDoc.exists) {
+         throw new functions.https.HttpsError("not-found", "User profile not found.");
+    }
     const userProfile = userDoc.data();
-    if (!userProfile || userProfile.role !== 'owner') {
+    if (userProfile?.role !== 'owner') {
         throw new functions.https.HttpsError("permission-denied", "Only the account owner can view notification settings.");
     }
     
-    // 3. Execution
     try {
         const settingsRef = db.collection('settings').doc('notifications');
         const docSnap = await settingsRef.get();
@@ -66,17 +82,14 @@ export const getNotificationStatus = functions.region("europe-west2").https.onCa
 
 
 export const setNotificationStatus = functions.region("europe-west2").https.onCall(async (data, context) => {
-    // 1. Authentication check
     if (!context.auth) {
         throw new functions.https.HttpsError("unauthenticated", "You must be logged in to perform this action.");
     }
 
-    // 2. Authorization check
     const uid = context.auth.uid;
     const enabled = !!data?.enabled;
     const subscription = data?.subscription;
 
-    // Update the user document with their notification preference
     await db.collection("users").doc(uid).set({
         notificationsEnabled: enabled,
         notificationsUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -88,7 +101,6 @@ export const setNotificationStatus = functions.region("europe-west2").https.onCa
         if (!subscription || !subscription.endpoint) {
           throw new functions.https.HttpsError("invalid-argument", "A valid subscription object is required to subscribe.");
         }
-        // Use a hash of the endpoint as the document ID for idempotency
         const docId = Buffer.from(subscription.endpoint).toString("base64").replace(/=/g, "");
         await userSubscriptionsRef.doc(docId).set({
           endpoint: subscription.endpoint,
@@ -107,12 +119,15 @@ export const setNotificationStatus = functions.region("europe-west2").https.onCa
     return { success: true };
 });
 
-export const onShiftWrite = functions.region("europe-west2").firestore.document("shifts/{shiftId}")
-  .onWrite(async (change) => {
-    // Global notification kill switch
+export const onShiftCreatedForNotification = onDocumentCreated("shifts/{shiftId}", async (event) => {
+    const shiftId = event.params.shiftId;
+    const functionName = 'onShiftCreatedForNotification';
+    
+    await logToFirestore('info', functionName, 'Function triggered.', { shiftId });
+
     const settingsDoc = await db.collection('settings').doc('notifications').get();
     if (settingsDoc.exists && settingsDoc.data()?.enabled === false) {
-      console.log('Global notifications are disabled. Aborting.');
+      await logToFirestore('warn', functionName, 'Global notifications are disabled. Aborting.', { shiftId });
       return;
     }
 
@@ -120,68 +135,73 @@ export const onShiftWrite = functions.region("europe-west2").firestore.document(
     const privateKey = functions.config().webpush?.private_key;
 
     if (!publicKey || !privateKey) {
-        console.error("CRITICAL: VAPID keys are not configured.");
+        await logToFirestore('error', functionName, 'CRITICAL: VAPID keys are not configured in functions environment.', { shiftId });
         return;
     }
+    await logToFirestore('info', functionName, 'VAPID keys loaded from config.', { shiftId, publicKeyPresent: !!publicKey, privateKeyPresent: !!privateKey });
 
     webPush.setVapidDetails("mailto:example@your-project.com", publicKey, privateKey);
 
-    const beforeData = change.before.data();
-    const afterData = change.after.data();
-
-    let userId: string | null = null;
-    let payload: object | null = null;
-
-    if (change.after.exists && !change.before.exists) { // CREATE
-        userId = afterData?.userId;
-        payload = {
-            title: "New Shift Assigned",
-            body: `You have a new shift: ${afterData?.task} at ${afterData?.address}.`,
-            url: `/dashboard?gate=pending`,
-        };
-    } else if (!change.after.exists && change.before.exists) { // DELETE
-        userId = beforeData?.userId;
-        payload = {
-            title: "Shift Cancelled",
-            body: `Your shift for ${beforeData?.task} at ${beforeData?.address} has been cancelled.`,
-            url: `/dashboard`,
-        };
-    } else if (change.after.exists && change.before.exists) { // UPDATE
-        if (beforeData?.userId !== afterData?.userId) {
-            // Re-assignment logic can be added here if needed
-        } else if (beforeData?.task !== afterData?.task || beforeData?.address !== afterData?.address || !beforeData?.date.isEqual(afterData?.date)) {
-            userId = afterData?.userId;
-            payload = {
-                title: "Your Shift Has Been Updated",
-                body: `The details for one of your shifts have changed.`,
-                url: `/dashboard`,
-            };
-        }
+    const shiftData = event.data?.data();
+    if (!shiftData) {
+        await logToFirestore('warn', functionName, 'No data in created shift document.', { shiftId });
+        return;
     }
 
-    if (!userId || !payload) {
+    const { userId, task, address } = shiftData;
+
+    if (!userId) {
+        await logToFirestore('warn', functionName, 'Shift created without a userId.', { shiftId });
         return;
     }
     
-    // Check user-level notification preference
+    await logToFirestore('info', functionName, 'Processing notification for user.', { shiftId, userId });
+
     const userDoc = await db.collection('users').doc(userId).get();
     if (userDoc.exists && userDoc.data()?.notificationsEnabled === false) {
-        console.log(`User ${userId} has disabled notifications. Aborting send.`);
+        await logToFirestore('info', functionName, 'User has disabled notifications. Aborting.', { shiftId, userId });
         return;
     }
 
     const subscriptionsSnapshot = await db.collection("users").doc(userId).collection("pushSubscriptions").withConverter(pushSubscriptionConverter).get();
-    if (subscriptionsSnapshot.empty) return;
+    if (subscriptionsSnapshot.empty) {
+        await logToFirestore('warn', functionName, 'User has no push subscriptions.', { shiftId, userId });
+        return;
+    }
+    
+    await logToFirestore('info', functionName, `Found ${subscriptionsSnapshot.size} subscriptions for user.`, { shiftId, userId });
 
-    const sendPromises = subscriptionsSnapshot.docs.map((subDoc) => {
+    const payload = JSON.stringify({
+        title: "New Shift Assigned",
+        body: `You have a new shift: ${task} at ${address}.`,
+        data: { url: `/dashboard` },
+    });
+
+    const sendPromises = subscriptionsSnapshot.docs.map(async (subDoc) => {
         const subscription = subDoc.data();
-        return webPush.sendNotification(subscription, JSON.stringify(payload)).catch((error: any) => {
-            if (error.statusCode === 410 || error.statusCode === 404) {
-                return subDoc.ref.delete();
+        await logToFirestore('info', functionName, 'Attempting to send notification.', { shiftId, userId, endpoint: subscription.endpoint });
+        try {
+            await webPush.sendNotification(subscription, payload);
+            await logToFirestore('info', functionName, 'Successfully sent notification.', { shiftId, userId, endpoint: subscription.endpoint });
+        } catch (error: any) {
+            await logToFirestore('error', functionName, 'web-push.sendNotification failed.', { 
+                shiftId, 
+                userId, 
+                endpoint: subscription.endpoint, 
+                error: {
+                    message: error.message,
+                    statusCode: error.statusCode,
+                    body: error.body
+                }
+            });
+
+            if (error.statusCode === 404 || error.statusCode === 410) {
+                await logToFirestore('info', functionName, 'Subscription is stale, deleting.', { shiftId, userId, endpoint: subscription.endpoint });
+                await subDoc.ref.delete();
             }
-            return null;
-        });
+        }
     });
 
     await Promise.all(sendPromises);
+    await logToFirestore('info', functionName, 'Finished processing all subscriptions for shift.', { shiftId, userId });
 });

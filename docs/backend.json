@@ -71,6 +71,37 @@
         }
       },
       "required": ["userId", "userName", "startDate", "endDate", "reason", "createdAt"]
+    },
+    "FunctionLog": {
+      "title": "Function Log",
+      "description": "A log entry from a Cloud Function for diagnostic purposes.",
+      "type": "object",
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "functionName": {
+          "type": "string"
+        },
+        "shiftId": {
+          "type": "string"
+        },
+        "userId": {
+          "type": "string"
+        },
+        "level": {
+          "type": "string",
+          "enum": ["info", "warn", "error"]
+        },
+        "message": {
+          "type": "string"
+        },
+        "payload": {
+          "type": "object"
+        }
+      },
+      "required": ["timestamp", "functionName", "level", "message"]
     }
   },
   "auth": {
@@ -88,6 +119,12 @@
             "$ref": "#/entities/Unavailability"
         },
         "description": "Stores unavailability records for all users."
+    },
+    "/function_logs/{logId}": {
+        "schema": {
+            "$ref": "#/entities/FunctionLog"
+        },
+        "description": "Stores diagnostic logs from backend Cloud Functions."
     }
   }
 }
