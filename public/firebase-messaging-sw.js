@@ -1,58 +1,61 @@
-// This service worker is essential for receiving and displaying push notifications,
-// especially when the app is in the background or closed.
+// This file MUST be in the /public folder
 
-// This event is triggered when a push message is received.
-self.addEventListener('push', (event) => {
-  console.log('[Service Worker] Push Received.');
-  if (!event.data) {
-    console.error('[Service Worker] Push event but no data');
-    return;
-  }
+// We need to import the firebase app and messaging modules
+// but since this is a service worker, we have to use importScripts
+importScripts('https://www.gstatic.com/firebasejs/9.15.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/9.15.0/firebase-messaging-compat.js');
 
-  let payload;
-  try {
-    payload = event.data.json();
-  } catch (e) {
-    console.error('[Service Worker] Could not parse push data as JSON.', e);
-    // If it's not JSON, maybe it's just a string.
-    payload = { body: event.data.text() };
-  }
+// Your web app's Firebase configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyBEF3PmL0FyLmZTDXxx9qzeaolZXNt5Sn8",
+  authDomain: "the-final-project-5e248.firebaseapp.com",
+  projectId: "the-final-project-5e248",
+  storageBucket: "the-final-project-5e248.appspot.com",
+  messagingSenderId: "1075347108969",
+  appId: "1:1075347108969:web:2e259a194a49d91bfcdef8"
+};
 
-  const title = payload.title || 'New Notification';
-  const options = {
-    body: payload.body || 'You have a new message.',
-    icon: payload.icon || '/icon-192.png', // Default icon
-    badge: payload.badge || '/badge-72.png', // A smaller icon for the notification tray
+
+// Initialize Firebase
+const app = firebase.initializeApp(firebaseConfig);
+const messaging = firebase.messaging();
+
+// This is the magic that listens for messages when the app is in the background
+messaging.onBackgroundMessage((payload) => {
+  console.log('[firebase-messaging-sw.js] Received background message ', payload);
+
+  // Customize notification here
+  const notificationTitle = payload.data.title || 'New Notification';
+  const notificationOptions = {
+    body: payload.data.body || 'Something happened!',
+    icon: '/icon-192.png',
     data: {
-      url: payload.url || '/', // The URL to open when the notification is clicked
-    },
+        url: payload.data.url || '/'
+    }
   };
 
-  event.waitUntil(self.registration.showNotification(title, options));
+  self.registration.showNotification(notificationTitle, notificationOptions);
 });
 
-// This event is triggered when a user clicks on a notification.
+
+// When a notification is clicked, open the app
 self.addEventListener('notificationclick', (event) => {
-  console.log('[Service Worker] Notification click Received.');
   event.notification.close(); // Close the notification
 
   const urlToOpen = event.notification.data.url || '/';
 
-  // This looks for an existing window/tab with the same URL and focuses it.
-  // If not found, it opens a new window/tab.
   event.waitUntil(
     clients.matchAll({
       type: 'window',
-      includeUncontrolled: true,
+      includeUncontrolled: true
     }).then((clientList) => {
-      for (let i = 0; i < clientList.length; i++) {
-        const client = clientList[i];
-        // Check if the client's URL is the one we want to open.
-        // The URL might have extra query params, so we check if it starts with the base URL.
+      // If a window for this app is already open, focus it
+      for (const client of clientList) {
         if (client.url === urlToOpen && 'focus' in client) {
           return client.focus();
         }
       }
+      // Otherwise, open a new window
       if (clients.openWindow) {
         return clients.openWindow(urlToOpen);
       }

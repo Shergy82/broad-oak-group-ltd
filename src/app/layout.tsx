@@ -1,36 +1,38 @@
-'use client';
+import type { Metadata } from "next";
+import { Providers } from "@/components/providers";
+import "./globals.css";
 
-import './globals.css';
-import type { Metadata } from 'next';
+const siteUrl = `https://${process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID}.web.app`;
 
 export const metadata: Metadata = {
-  title: 'BROAD OAK GROUP',
-  description: 'Live schedule and project management for Broad Oak Group operatives.',
-  metadataBase: new URL('https://group-build-29768421-feed1.web.app'),
+  metadataBase: new URL(siteUrl),
+  title: "Broad Oak Group",
+  description: "Broad Oak Group internal portal for scheduling, projects and site management.",
   openGraph: {
-    title: 'BROAD OAK GROUP',
-    description: 'Live schedule and project management for Broad Oak Group operatives.',
+    title: "Broad Oak Group",
+    description: "Broad Oak Group internal portal for scheduling, projects and site management.",
     url: '/',
-    siteName: 'BROAD OAK GROUP',
+    siteName: 'Broad Oak Group',
     images: [
       {
-        url: '/icons/notification-banner.png',
-        width: 1200,
-        height: 630,
-        alt: 'Broad Oak Group',
+        url: '/icon-512.png', // Relative to metadataBase
+        width: 512,
+        height: 512,
+        alt: 'Broad Oak Group Logo',
       },
     ],
+    locale: 'en_GB',
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'BROAD OAK GROUP',
-    description: 'Live schedule and project management for Broad Oak Group operatives.',
-    images: ['/icons/notification-banner.png'],
+    title: "Broad Oak Group",
+    description: "Broad Oak Group internal portal for scheduling, projects and site management.",
+    images: [`/icon-512.png`],
   },
   icons: {
-    icon: '/favicon.ico',
-    apple: '/favicon.ico',
+    icon: '/icon-192.png',
+    apple: '/icon-192.png',
   },
 };
 
@@ -44,14 +46,15 @@ export default function RootLayout({
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap"
-          rel="stylesheet"
-        />
+        <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#ffffff" />
       </head>
-      <body className="font-body antialiased h-full">{children}</body>
+      <body className="font-body antialiased h-full">
+        <Providers>
+          {children}
+        </Providers>
+      </body>
     </html>
   );
 }

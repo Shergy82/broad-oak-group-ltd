@@ -4,9 +4,8 @@
 import { useCallback, useEffect, useState, useMemo } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
+import { functions, httpsCallable } from '@/lib/firebase';
 import type { PushSubscriptionPayload, VapidKeyResponse, SetStatusRequest, GenericResponse } from '@/types';
-
-const functionsBaseUrl = `https://europe-west2-${process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID}.cloudfunctions.net`;
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -48,7 +47,7 @@ export function usePushNotifications() {
   }, [isSupported]);
 
   useEffect(() => {
-    if (!isSupported) {
+    if (!isSupported || !functions) {
       setIsKeyLoading(false);
       return;
     }
@@ -56,14 +55,11 @@ export function usePushNotifications() {
     const fetchKey = async () => {
       setIsKeyLoading(true);
       try {
-        const response = await fetch(`${functionsBaseUrl}/getVapidPublicKey`);
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Failed to fetch VAPID key');
-        }
-        const data: VapidKeyResponse = await response.json();
-        if (!data.publicKey) throw new Error('VAPID public key from server is empty.');
-        setVapidKey(data.publicKey);
+        const getVapidPublicKey = httpsCallable<void, VapidKeyResponse>(functions, 'getVapidPublicKey');
+        const result = await getVapidPublicKey();
+        const key = result.data.publicKey;
+        if (!key) throw new Error('VAPID public key from server is empty.');
+        setVapidKey(key);
       } catch (error: any) {
         console.error('Failed to fetch VAPID public key:', error);
         toast({
@@ -79,8 +75,8 @@ export function usePushNotifications() {
   }, [isSupported, toast]);
   
   const subscribe = useCallback(async () => {
-    if (!isSupported || !user || !vapidKey) {
-      toast({ title: 'Cannot Subscribe', variant: 'destructive' });
+    if (!isSupported || !user || !vapidKey || !functions) {
+      toast({ title: 'Cannot Subscribe', description: 'Required services are not ready.', variant: 'destructive' });
       return;
     }
     
@@ -102,17 +98,8 @@ export function usePushNotifications() {
         applicationServerKey,
       });
 
-      const idToken = await user.getIdToken();
-      const response = await fetch(`${functionsBaseUrl}/setNotificationStatus`, {
-          method: 'POST',
-          headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${idToken}`
-          },
-          body: JSON.stringify({ status: 'subscribed', subscription: subscription.toJSON() } as SetStatusRequest)
-      });
-      
-      if (!response.ok) throw new Error('Failed to save subscription on the server.');
+      const setNotificationStatus = httpsCallable<SetStatusRequest, GenericResponse>(functions, 'setNotificationStatus');
+      await setNotificationStatus({ status: 'subscribed', subscription: subscription.toJSON() });
 
       setIsSubscribed(true);
       toast({ title: 'Subscribed!', description: 'You will now receive notifications.' });
@@ -129,23 +116,16 @@ export function usePushNotifications() {
   }, [isSupported, user, vapidKey, toast]);
 
   const unsubscribe = useCallback(async () => {
-    if (!isSupported || !user) return;
+    if (!isSupported || !user || !functions) return;
     setIsSubscribing(true);
     try {
       const registration = await navigator.serviceWorker.ready;
       const subscription = await registration.pushManager.getSubscription();
 
       if (subscription) {
-        const idToken = await user.getIdToken();
-        await fetch(`${functionsBaseUrl}/setNotificationStatus`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${idToken}`
-            },
-            body: JSON.stringify({ status: 'unsubscribed', subscription: subscription.toJSON() } as SetStatusRequest)
-        });
         await subscription.unsubscribe();
+        const setNotificationStatus = httpsCallable<SetStatusRequest, GenericResponse>(functions, 'setNotificationStatus');
+        await setNotificationStatus({ status: 'unsubscribed', endpoint: subscription.endpoint });
       }
       
       setIsSubscribed(false);
