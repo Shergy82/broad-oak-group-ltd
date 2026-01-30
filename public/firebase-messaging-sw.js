@@ -1,43 +1,61 @@
-/* public/firebase-messaging-sw.js */
-importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js');
 
-firebase.initializeApp({
-  apiKey: "AIzaSyBEF3PmL0FyLmZTDXxx9qzeaolZXNt5Sn8",
-  authDomain: "the-final-project-5e248.firebaseapp.com",
-  projectId: "the-final-project-5e248",
-  storageBucket: "the-final-project-5e248.firebasestorage.app",
-  messagingSenderId: "1075347108969",
-  appId: "1:1075347108969:web:2e259a194a49d91bfcdef8",
-});
+// This service worker can be customized!
+// See https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API/Using_Service_Workers
 
-const messaging = firebase.messaging();
+self.addEventListener('push', (event) => {
+  console.log('[Service Worker] Push Received.');
 
-self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+  try {
+    const data = event.data.json();
+    console.log(`[Service Worker] Push had this data:`, data);
 
-messaging.onBackgroundMessage((payload) => {
-  const title = payload.notification?.title || payload.data?.title || 'Broad Oak Group';
-  const body  = payload.notification?.body  || payload.data?.body  || '';
-  const url   = payload.data?.url || payload.fcmOptions?.link || '/';
+    const title = data.title || 'New Notification';
+    const options = {
+      body: data.body || 'Something happened.',
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+      data: {
+        url: data.url || '/'
+      }
+    };
 
-  self.registration.showNotification(title, {
-    body,
-    data: { url },
-    icon: '/logo192.png',
-    badge: '/logo192.png',
-  });
+    event.waitUntil(self.registration.showNotification(title, options));
+  } catch (e) {
+    console.error('[Service Worker] Error parsing push data:', e);
+    // Fallback for when data is just a string
+    const title = 'New Notification';
+    const options = {
+      body: event.data.text(),
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+    };
+    event.waitUntil(self.registration.showNotification(title, options));
+  }
 });
 
 self.addEventListener('notificationclick', (event) => {
+  console.log('[Service Worker] Notification click Received.');
+
   event.notification.close();
-  const url = event.notification?.data?.url || '/';
+
+  const urlToOpen = event.notification.data.url || '/';
+
   event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((arr) => {
-      for (const c of arr) {
-        if ('focus' in c) return c.focus().then(() => c.navigate(url));
+    clients.matchAll({
+      type: 'window',
+      includeUncontrolled: true
+    }).then((clientList) => {
+      // If a window is already open, focus it.
+      for (const client of clientList) {
+        // You might want to be more specific with the URL check
+        if (client.url === urlToOpen && 'focus' in client) {
+          return client.focus();
+        }
       }
-      return clients.openWindow(url);
+      // Otherwise, open a new window.
+      if (clients.openWindow) {
+        return clients.openWindow(urlToOpen);
+      }
     })
   );
 });

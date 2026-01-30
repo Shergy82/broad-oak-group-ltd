@@ -1,6 +1,6 @@
 
 import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
-
+import * as functions from "firebase-functions";
 import cors from "cors";
 import * as admin from "firebase-admin";
 import * as webPush from "web-push";
@@ -31,51 +31,46 @@ const pushSubscriptionConverter = {
     }
 };
 
+export const getVapidPublicKey = onCall({ region: europeWest2 }, (req) => {
+  if (!functions.config().webpush?.public_key) {
+    throw new HttpsError('not-found', 'VAPID public key is not configured on the server.');
+  }
+  return { publicKey: functions.config().webpush.public_key };
+});
+
+
 // Callable function for the client to update their notification subscription status.
-export const setNotificationStatus = onRequest({ region: europeWest2 }, (req, res) => {
-  return corsHandler(req, res, async () => {
-    if (req.method === "OPTIONS") {
-      res.status(204).send("");
-      return;
+export const setNotificationStatus = onCall({ region: europeWest2 }, async (req) => {
+    if (!req.auth) {
+        throw new HttpsError("unauthenticated", "You must be logged in to perform this action.");
     }
+    const uid = req.auth.uid;
+    const enabled = !!req.data?.enabled;
+    const subscription = req.data?.subscription;
 
-    try {
-      const auth = req.get("Authorization") || "";
-      const m = auth.match(/^Bearer\s+(.+)$/i);
-      if (!m) {
-        res.status(401).json({ error: "Missing Authorization: Bearer <token>" });
-        return;
-      }
+    const userSubscriptionsRef = db.collection("users").doc(uid).collection("pushSubscriptions");
 
-      const decoded = await admin.auth().verifyIdToken(m[1]);
-      const uid = decoded.uid;
-
-      const enabled = !!req.body?.enabled;
-      const subscription = req.body?.subscription;
-
-      const userSubscriptionsRef = db.collection("users").doc(uid).collection("pushSubscriptions");
-
-      if (enabled) {
+    if (enabled) {
         if (!subscription || !subscription.endpoint) {
-          res.status(400).json({ error: "A valid subscription object is required to subscribe." });
-          return;
+          throw new HttpsError("invalid-argument", "A valid subscription object is required to subscribe.");
         }
-        const docId = Buffer.from(subscription.endpoint).toString("base64");
-        await userSubscriptionsRef.doc(docId).set({ endpoint: subscription.endpoint, keys: subscription.keys });
-      } else {
+        // Use a hash of the endpoint as the document ID for idempotency
+        const docId = Buffer.from(subscription.endpoint).toString("base64").replace(/=/g, "");
+        await userSubscriptionsRef.doc(docId).set({
+          endpoint: subscription.endpoint,
+          keys: subscription.keys,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          userAgent: req.rawRequest.headers['user-agent'] || ''
+        });
+    } else {
         const snap = await userSubscriptionsRef.get();
         if (!snap.empty) {
-          const batch = db.batch();
-          snap.docs.forEach((d) => batch.delete(d.ref));
-          await batch.commit();
+            const batch = db.batch();
+            snap.docs.forEach((d) => batch.delete(d.ref));
+            await batch.commit();
         }
-      }
-
-      res.json({ success: true });
-    } catch (e) {
-      res.status(400).json({ error: (e as any)?.message || "Unknown error" });
-}
-  });
+    }
+    return { success: true };
 });
 
 // Firestore trigger that sends notifications on shift changes.
@@ -89,11 +84,11 @@ export const onShiftWrite = onDocumentWritten({ document: "shifts/{shiftId}", re
       return;
     }
 
-    const publicKey = process.env.VAPID_PUBLIC_KEY;
-    const privateKey = process.env.VAPID_PRIVATE_KEY;
+    const publicKey = functions.config().webpush?.public_key;
+    const privateKey = functions.config().webpush?.private_key;
 
     if (!publicKey || !privateKey) {
-        console.error("CRITICAL: VAPID keys are not configured in environment.");
+        console.error("CRITICAL: VAPID keys are not configured. Run `firebase functions:config:set webpush.public_key='...' webpush.private_key='...'` and redeploy functions.");
         return;
     }
 
@@ -110,17 +105,16 @@ export const onShiftWrite = onDocumentWritten({ document: "shifts/{shiftId}", re
         payload = {
             title: "New Shift Assigned",
             body: `You have a new shift: ${afterData?.task} at ${afterData?.address}.`,
-            data: { url: `/dashboard` },
+            url: `/dashboard?gate=pending`,
         };
     } else if (!event.data?.after.exists && event.data?.before.exists) { // DELETE
         userId = beforeData?.userId;
         payload = {
             title: "Shift Cancelled",
             body: `Your shift for ${beforeData?.task} at ${beforeData?.address} has been cancelled.`,
-            data: { url: `/dashboard` },
+            url: `/dashboard`,
         };
     } else if (event.data?.after.exists && event.data?.before.exists) { // UPDATE
-        // Determine if there's a meaningful change that warrants a notification
         if (beforeData?.userId !== afterData?.userId) {
             // Re-assignment logic can be added here if needed
         } else if (beforeData?.task !== afterData?.task || beforeData?.address !== afterData?.address || !beforeData?.date.isEqual(afterData?.date)) {
@@ -128,7 +122,7 @@ export const onShiftWrite = onDocumentWritten({ document: "shifts/{shiftId}", re
             payload = {
                 title: "Your Shift Has Been Updated",
                 body: `The details for one of your shifts have changed.`,
-                data: { url: `/dashboard` },
+                url: `/dashboard`,
             };
         }
     }
