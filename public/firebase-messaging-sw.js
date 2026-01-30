@@ -1,61 +1,54 @@
 
-// This service worker can be customized!
-// See https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API/Using_Service_Workers
+// This service worker handles receiving push notifications.
 
 self.addEventListener('push', (event) => {
-  console.log('[Service Worker] Push Received.');
-
-  try {
-    const data = event.data.json();
-    console.log(`[Service Worker] Push had this data:`, data);
-
-    const title = data.title || 'New Notification';
-    const options = {
-      body: data.body || 'Something happened.',
-      icon: '/icon-192.png',
-      badge: '/icon-192.png',
-      data: {
-        url: data.url || '/'
-      }
-    };
-
-    event.waitUntil(self.registration.showNotification(title, options));
-  } catch (e) {
-    console.error('[Service Worker] Error parsing push data:', e);
-    // Fallback for when data is just a string
-    const title = 'New Notification';
-    const options = {
-      body: event.data.text(),
-      icon: '/icon-192.png',
-      badge: '/icon-192.png',
-    };
-    event.waitUntil(self.registration.showNotification(title, options));
+  if (!event.data) {
+    console.error('Push event but no data');
+    return;
   }
+
+  const data = event.data.json();
+
+  const title = data.title || 'New Notification';
+  const options = {
+    body: data.body || 'Something has happened!',
+    icon: '/icon-192.png', // Main icon
+    badge: '/icon-192.png', // Small monochrome icon for notification bar
+    data: {
+      url: data.url || '/',
+    },
+  };
+
+  const notificationPromise = self.registration.showNotification(title, options);
+  event.waitUntil(notificationPromise);
 });
 
 self.addEventListener('notificationclick', (event) => {
-  console.log('[Service Worker] Notification click Received.');
-
+  // Close the notification pop-up
   event.notification.close();
 
-  const urlToOpen = event.notification.data.url || '/';
+  const urlToOpen = event.notification.data.url;
 
-  event.waitUntil(
-    clients.matchAll({
-      type: 'window',
-      includeUncontrolled: true
-    }).then((clientList) => {
-      // If a window is already open, focus it.
-      for (const client of clientList) {
-        // You might want to be more specific with the URL check
-        if (client.url === urlToOpen && 'focus' in client) {
-          return client.focus();
+  // Open the app/url.
+  const promiseChain = clients.matchAll({
+    type: 'window',
+    includeUncontrolled: true
+  }).then((windowClients) => {
+    let matchingClient = null;
+    for (let i = 0; i < windowClients.length; i++) {
+        const windowClient = windowClients[i];
+        if (windowClient.url === urlToOpen) {
+            matchingClient = windowClient;
+            break;
         }
-      }
-      // Otherwise, open a new window.
-      if (clients.openWindow) {
+    }
+
+    if (matchingClient) {
+        return matchingClient.focus();
+    } else {
         return clients.openWindow(urlToOpen);
-      }
-    })
-  );
+    }
+  });
+
+  event.waitUntil(promiseChain);
 });
