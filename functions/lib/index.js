@@ -1,438 +1,192 @@
 "use strict";
-// functions/src/index.ts
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.pendingShiftNotifier = exports.projectReviewNotifier = exports.setNotificationStatus = exports.getNotificationStatus = exports.onShiftDeleted = exports.onShiftUpdated = exports.onShiftCreated = exports.bootstrapClaims = void 0;
-const firebase_admin_1 = __importDefault(require("firebase-admin"));
-const v2_1 = require("firebase-functions/v2");
+exports.onShiftWrite = exports.setNotificationStatus = void 0;
+// functions/src/index.ts
+const admin = __importStar(require("firebase-admin"));
+const cors_1 = __importDefault(require("cors"));
+const webPush = __importStar(require("web-push"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
-const scheduler_1 = require("firebase-functions/v2/scheduler");
-const params_1 = require("firebase-functions/params");
-// --- Admin init ---
-if (!firebase_admin_1.default.apps.length)
-    firebase_admin_1.default.initializeApp();
-const db = firebase_admin_1.default.firestore();
-// --- Config / params ---
-const APP_BASE_URL = (0, params_1.defineString)("APP_BASE_URL");
-const ADMIN_BOOTSTRAP_SECRET = (0, params_1.defineSecret)("ADMIN_BOOTSTRAP_SECRET");
+if (!admin.apps.length)
+    admin.initializeApp();
+const db = admin.firestore();
 const europeWest2 = "europe-west2";
-// --------------------
-// BOOTSTRAP (one-time) - sets custom claims owner/admin
-// --------------------
-exports.bootstrapClaims = (0, https_1.onRequest)({ secrets: [ADMIN_BOOTSTRAP_SECRET], region: europeWest2 }, async (req, res) => {
-    try {
-        if (req.method !== "POST") {
-            res.status(405).send("Use POST");
+const corsHandler = (0, cors_1.default)({ origin: true });
+// ----------------------------
+// setNotificationStatus (HTTP)
+// Auth: Authorization: Bearer <Firebase ID token>
+// Body: { enabled: boolean, subscription?: { endpoint, keys } }
+// ALSO accepts callable-style body: { data: { enabled, subscription } }
+// Stores subs at: users/{uid}/pushSubscriptions/{urlSafeBase64(endpoint)}
+// ----------------------------
+exports.setNotificationStatus = (0, https_1.onRequest)({ region: europeWest2 }, (req, res) => {
+    return corsHandler(req, res, async () => {
+        if (req.method === "OPTIONS") {
+            res.status(204).send("");
             return;
         }
-        const headerSecret = req.get("x-admin-secret") || "";
-        const realSecret = ADMIN_BOOTSTRAP_SECRET.value();
-        if (!realSecret || headerSecret !== realSecret) {
-            res.status(401).send("Unauthorized");
-            return;
+        try {
+            // ---- Auth ----
+            const auth = req.get("Authorization") || "";
+            const m = auth.match(/^Bearer\s+(.+)$/i);
+            if (!m) {
+                res.status(401).json({ data: null, error: "Missing Authorization: Bearer <token>" });
+                return;
+            }
+            const decoded = await admin.auth().verifyIdToken(m[1]);
+            const uid = decoded.uid;
+            // ---- Body ----
+            // Support BOTH:
+            //   HTTP style:      { enabled, subscription }
+            //   Callable style:  { data: { enabled, subscription } }
+            const body = (req.body && typeof req.body === "object") ? req.body : {};
+            const payload = (body.data && typeof body.data === "object") ? body.data : body;
+            const enabledRaw = payload.enabled;
+            if (typeof enabledRaw !== "boolean") {
+                res.status(400).json({ data: null, error: "Body must include { enabled: boolean }" });
+                return;
+            }
+            const enabled = enabledRaw;
+            const subscription = payload.subscription;
+            const subsRef = db.collection("users").doc(uid).collection("pushSubscriptions");
+            if (enabled) {
+                if (!subscription || !subscription.endpoint || !subscription.keys) {
+                    res.status(400).json({ data: null, error: "Valid subscription is required." });
+                    return;
+                }
+                // URL-safe doc id (avoids '/' '+' '=' issues in doc IDs)
+                const docId = Buffer.from(String(subscription.endpoint))
+                    .toString("base64")
+                    .replace(/\+/g, "-")
+                    .replace(/\//g, "_")
+                    .replace(/=+$/g, "");
+                await subsRef.doc(docId).set({
+                    endpoint: subscription.endpoint,
+                    keys: subscription.keys,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                }, { merge: true });
+                // IMPORTANT: frontend expects { data: ... }
+                res.json({ data: { success: true, enabled: true } });
+                return;
+            }
+            // enabled === false -> delete all subs for user
+            const snap = await subsRef.get();
+            if (!snap.empty) {
+                const batch = db.batch();
+                snap.docs.forEach((d) => batch.delete(d.ref));
+                await batch.commit();
+            }
+            res.json({ data: { success: true, enabled: false } });
         }
-        const uid = String(req.query.uid || "").trim();
-        if (!uid) {
-            res.status(400).send("Missing uid");
-            return;
+        catch (e) {
+            res.status(400).json({ data: null, error: (e === null || e === void 0 ? void 0 : e.message) || "Unknown error" });
         }
-        await firebase_admin_1.default.auth().setCustomUserClaims(uid, { owner: true, admin: true });
-        const after = await firebase_admin_1.default.auth().getUser(uid);
-        const claims = after.customClaims || {};
-        res.status(200).json({ ok: true, uid, claims });
-        return;
-    }
-    catch (e) {
-        res.status(500).send((e === null || e === void 0 ? void 0 : e.message) || String(e));
-        return;
-    }
+    });
 });
-// --------------------
-// Helpers
-// --------------------
-/**
- * Firestore path where we store FCM tokens:
- * users/{uid}/pushTokens/{tokenDocId}
- * { token: string, updatedAt: Timestamp, userAgent?: string, platform?: string }
- */
-async function getUserFcmTokens(userId) {
-    const snap = await db
-        .collection("users")
-        .doc(userId)
-        .collection("pushTokens")
-        .get();
-    if (snap.empty)
-        return [];
-    const tokens = [];
-    for (const docSnap of snap.docs) {
-        const data = docSnap.data();
-        const t = (data.token || data.fcmToken || docSnap.id || "")
-            .toString()
-            .trim();
-        if (t)
-            tokens.push(t);
-    }
-    return Array.from(new Set(tokens));
-}
-async function pruneInvalidTokens(userId, invalidTokens) {
-    if (!invalidTokens.length)
-        return;
-    const col = db.collection("users").doc(userId).collection("pushTokens");
-    const snap = await col.get();
-    const batch = db.batch();
-    for (const d of snap.docs) {
-        const data = d.data();
-        const t = (data.token || data.fcmToken || d.id || "").toString().trim();
-        if (invalidTokens.includes(t))
-            batch.delete(d.ref);
-    }
-    await batch.commit();
-    v2_1.logger.log("Pruned invalid tokens", { userId, count: invalidTokens.length });
-}
-function formatDateUK(d) {
-    const dd = String(d.getUTCDate()).padStart(2, "0");
-    const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-    const yyyy = String(d.getUTCFullYear());
-    return `${dd}/${mm}/${yyyy}`;
-}
-/**
- * Returns true if the shift is on a day strictly before "today".
- * Compare by UTC day to avoid timezone drift.
- */
-function isShiftInPast(shiftDate) {
-    const now = new Date();
-    const startOfTodayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-    const shiftDayUtc = new Date(Date.UTC(shiftDate.getUTCFullYear(), shiftDate.getUTCMonth(), shiftDate.getUTCDate()));
-    return shiftDayUtc < startOfTodayUtc;
-}
-function absoluteLink(pathOrUrl) {
-    const base = (APP_BASE_URL.value() || "").trim().replace(/\/+$/, "");
-    if (!base)
-        return pathOrUrl; // fallback
-    if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) {
-        return pathOrUrl;
-    }
-    const path = pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`;
-    return `${base}${path}`;
-}
-// Central place to send users when action is required
-function pendingGateUrl() {
-    return "/dashboard?gate=pending";
-}
-/**
- * Check user-level preference switch.
- * If users/{uid}.notificationsEnabled === false => do not send.
- */
-async function isUserNotificationsEnabled(userId) {
-    var _a;
-    const userDoc = await db.collection("users").doc(userId).get();
-    if (!userDoc.exists)
-        return true; // default allow
-    const enabled = (_a = userDoc.data()) === null || _a === void 0 ? void 0 : _a.notificationsEnabled;
-    return enabled !== false;
-}
-async function sendFcmToUser(userId, title, body, urlPath, data = {}) {
-    var _a;
-    if (!userId)
-        return;
-    // Global kill switch
+// ----------------------------
+// onShiftWrite -> send Web Push
+// Requires env: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY
+// ----------------------------
+exports.onShiftWrite = (0, firestore_1.onDocumentWritten)({ document: "shifts/{shiftId}", region: europeWest2 }, async (event) => {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j;
     const settingsDoc = await db.collection("settings").doc("notifications").get();
-    if (settingsDoc.exists && ((_a = settingsDoc.data()) === null || _a === void 0 ? void 0 : _a.enabled) === false) {
-        v2_1.logger.log("Global notifications disabled; skipping send", { userId });
+    if (settingsDoc.exists && ((_a = settingsDoc.data()) === null || _a === void 0 ? void 0 : _a.enabled) === false)
+        return;
+    const publicKey = process.env.VAPID_PUBLIC_KEY;
+    const privateKey = process.env.VAPID_PRIVATE_KEY;
+    if (!publicKey || !privateKey) {
+        console.error("Missing VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY");
         return;
     }
-    // User-level switch
-    const userEnabled = await isUserNotificationsEnabled(userId);
-    if (!userEnabled) {
-        v2_1.logger.log("User notifications disabled; skipping send", { userId });
-        return;
+    webPush.setVapidDetails("mailto:notifications@broadoakgroup.com", publicKey, privateKey);
+    const beforeData = (_b = event.data) === null || _b === void 0 ? void 0 : _b.before.data();
+    const afterData = (_c = event.data) === null || _c === void 0 ? void 0 : _c.after.data();
+    let userId = null;
+    let payload = null;
+    if (((_d = event.data) === null || _d === void 0 ? void 0 : _d.after.exists) && !((_e = event.data) === null || _e === void 0 ? void 0 : _e.before.exists)) {
+        userId = (afterData === null || afterData === void 0 ? void 0 : afterData.userId) || null;
+        payload = {
+            title: "New Shift Assigned",
+            body: `You have a new shift: ${afterData === null || afterData === void 0 ? void 0 : afterData.task} at ${afterData === null || afterData === void 0 ? void 0 : afterData.address}.`,
+            data: { url: "/dashboard" },
+        };
     }
-    const tokens = await getUserFcmTokens(userId);
-    if (!tokens.length) {
-        v2_1.logger.info("No FCM tokens for user; cannot send", { userId });
-        return;
+    else if (!((_f = event.data) === null || _f === void 0 ? void 0 : _f.after.exists) && ((_g = event.data) === null || _g === void 0 ? void 0 : _g.before.exists)) {
+        userId = (beforeData === null || beforeData === void 0 ? void 0 : beforeData.userId) || null;
+        payload = {
+            title: "Shift Cancelled",
+            body: `Your shift for ${beforeData === null || beforeData === void 0 ? void 0 : beforeData.task} at ${beforeData === null || beforeData === void 0 ? void 0 : beforeData.address} has been cancelled.`,
+            data: { url: "/dashboard" },
+        };
     }
-    const link = absoluteLink(urlPath);
-    // DATA-ONLY payload (service worker handles notification display)
-    const message = {
-        tokens,
-        data: Object.assign({ title,
-            body, url: link }, Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)]))),
-        webpush: {
-            headers: { Urgency: "high" },
-            fcmOptions: { link },
-        },
-        apns: {
-            payload: { aps: { sound: "default" } },
-        },
-    };
-    const resp = await firebase_admin_1.default.messaging().sendEachForMulticast(message);
-    const invalid = [];
-    resp.responses.forEach((r, idx) => {
-        var _a, _b;
-        if (!r.success) {
-            const code = ((_a = r.error) === null || _a === void 0 ? void 0 : _a.code) || "";
-            if (code.includes("registration-token-not-registered") ||
-                code.includes("invalid-argument") ||
-                code.includes("invalid-registration-token")) {
-                invalid.push(tokens[idx]);
+    else if (((_h = event.data) === null || _h === void 0 ? void 0 : _h.after.exists) && ((_j = event.data) === null || _j === void 0 ? void 0 : _j.before.exists)) {
+        const changed = (beforeData === null || beforeData === void 0 ? void 0 : beforeData.task) !== (afterData === null || afterData === void 0 ? void 0 : afterData.task) ||
+            (beforeData === null || beforeData === void 0 ? void 0 : beforeData.address) !== (afterData === null || afterData === void 0 ? void 0 : afterData.address) ||
+            ((beforeData === null || beforeData === void 0 ? void 0 : beforeData.date) && (afterData === null || afterData === void 0 ? void 0 : afterData.date) && !beforeData.date.isEqual(afterData.date));
+        if (changed) {
+            userId = (afterData === null || afterData === void 0 ? void 0 : afterData.userId) || null;
+            payload = {
+                title: "Your Shift Has Been Updated",
+                body: "The details for one of your shifts have changed.",
+                data: { url: "/dashboard" },
+            };
+        }
+    }
+    if (!userId || !payload)
+        return;
+    const subsSnap = await db.collection("users").doc(userId).collection("pushSubscriptions").get();
+    if (subsSnap.empty)
+        return;
+    await Promise.all(subsSnap.docs.map(async (d) => {
+        const sub = d.data();
+        try {
+            await webPush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, JSON.stringify(payload));
+        }
+        catch (err) {
+            const code = err === null || err === void 0 ? void 0 : err.statusCode;
+            if (code === 404 || code === 410) {
+                await d.ref.delete(); // prune dead subscription
             }
-            v2_1.logger.error("FCM send failed", {
-                userId,
-                code,
-                msg: (_b = r.error) === null || _b === void 0 ? void 0 : _b.message,
-            });
-        }
-    });
-    if (invalid.length)
-        await pruneInvalidTokens(userId, invalid);
-    v2_1.logger.log("FCM send complete", {
-        userId,
-        tokens: tokens.length,
-        success: resp.successCount,
-        failure: resp.failureCount,
-    });
-}
-// --------------------
-// Firestore triggers: shifts/{shiftId}
-// --------------------
-exports.onShiftCreated = (0, firestore_1.onDocumentCreated)({ document: "shifts/{shiftId}", region: europeWest2 }, async (event) => {
-    var _a, _b, _c;
-    const shift = (_a = event.data) === null || _a === void 0 ? void 0 : _a.data();
-    if (!shift)
-        return;
-    const userId = shift.userId;
-    if (!userId) {
-        v2_1.logger.log("Shift created without userId; no notify", {
-            shiftId: event.params.shiftId,
-        });
-        return;
-    }
-    const shiftDate = ((_c = (_b = shift.date) === null || _b === void 0 ? void 0 : _b.toDate) === null || _c === void 0 ? void 0 : _c.call(_b)) ? shift.date.toDate() : null;
-    if (!shiftDate)
-        return;
-    // Only today/future
-    if (isShiftInPast(shiftDate)) {
-        v2_1.logger.log("Shift created in past; no notify", {
-            shiftId: event.params.shiftId,
-        });
-        return;
-    }
-    const shiftId = event.params.shiftId;
-    await sendFcmToUser(userId, "New shift added", `A new shift was added for ${formatDateUK(shiftDate)}`, pendingGateUrl(), { shiftId, gate: "pending", event: "created" });
-});
-exports.onShiftUpdated = (0, firestore_1.onDocumentUpdated)({ document: "shifts/{shiftId}", region: europeWest2 }, async (event) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h;
-    const before = (_a = event.data) === null || _a === void 0 ? void 0 : _a.before.data();
-    const after = (_b = event.data) === null || _b === void 0 ? void 0 : _b.after.data();
-    if (!before || !after)
-        return;
-    const shiftId = event.params.shiftId;
-    // 1) reassignment
-    if (before.userId !== after.userId) {
-        if (before.userId) {
-            const d = ((_d = (_c = before.date) === null || _c === void 0 ? void 0 : _c.toDate) === null || _d === void 0 ? void 0 : _d.call(_c)) ? before.date.toDate() : null;
-            await sendFcmToUser(before.userId, "Shift unassigned", d
-                ? `Your shift for ${formatDateUK(d)} has been removed.`
-                : "A shift has been removed.", "/dashboard", { shiftId, event: "unassigned" });
-        }
-        if (after.userId) {
-            const d = ((_f = (_e = after.date) === null || _e === void 0 ? void 0 : _e.toDate) === null || _f === void 0 ? void 0 : _f.call(_e)) ? after.date.toDate() : null;
-            if (d && !isShiftInPast(d)) {
-                await sendFcmToUser(after.userId, "New shift added", `A new shift was added for ${formatDateUK(d)}`, pendingGateUrl(), { shiftId, gate: "pending", event: "assigned" });
+            else {
+                console.error("web-push send failed:", err);
             }
         }
-        v2_1.logger.log("Shift reassigned", {
-            shiftId,
-            from: before.userId,
-            to: after.userId,
-        });
-        return;
-    }
-    // 2) meaningful change for same user
-    const userId = after.userId;
-    if (!userId)
-        return;
-    const afterDate = ((_h = (_g = after.date) === null || _g === void 0 ? void 0 : _g.toDate) === null || _h === void 0 ? void 0 : _h.call(_g)) ? after.date.toDate() : null;
-    if (!afterDate)
-        return;
-    // Only today/future
-    if (isShiftInPast(afterDate)) {
-        v2_1.logger.log("Shift updated but in past; no notify", { shiftId });
-        return;
-    }
-    // If the shift owner updated their OWN shift, do NOT notify them about their own action.
-    const updatedByUid = String(after.updatedByUid || "").trim();
-    if (updatedByUid && updatedByUid === String(userId)) {
-        v2_1.logger.log("Shift updated by assigned user; skipping notify", {
-            shiftId,
-            userId,
-            updatedByUid,
-            updatedByAction: String(after.updatedByAction || ""),
-            statusBefore: String(before.status || ""),
-            statusAfter: String(after.status || ""),
-        });
-        return;
-    }
-    // Only notify when meaningful fields change
-    const fieldsToCompare = [
-        "task",
-        "address",
-        "type",
-        "notes",
-        "status",
-        "date",
-    ];
-    const changed = fieldsToCompare.some((field) => {
-        var _a, _b;
-        if (field === "date") {
-            const b = before.date;
-            const a = after.date;
-            if ((b === null || b === void 0 ? void 0 : b.isEqual) && a)
-                return !b.isEqual(a);
-            return String(b) !== String(a);
-        }
-        return ((_a = before[field]) !== null && _a !== void 0 ? _a : null) !== ((_b = after[field]) !== null && _b !== void 0 ? _b : null);
-    });
-    if (!changed) {
-        v2_1.logger.log("Shift updated but no meaningful change", { shiftId });
-        return;
-    }
-    const needsAction = String(after.status || "").toLowerCase() === "pending-confirmation";
-    await sendFcmToUser(userId, "Shift updated", `Your shift for ${formatDateUK(afterDate)} has been updated.`, needsAction ? pendingGateUrl() : `/shift/${shiftId}`, Object.assign({ shiftId, event: "updated" }, (needsAction ? { gate: "pending" } : {})));
-});
-exports.onShiftDeleted = (0, firestore_1.onDocumentDeleted)({ document: "shifts/{shiftId}", region: europeWest2 }, async (event) => {
-    var _a, _b, _c;
-    const deleted = (_a = event.data) === null || _a === void 0 ? void 0 : _a.data();
-    if (!deleted)
-        return;
-    const userId = deleted.userId;
-    if (!userId)
-        return;
-    const d = ((_c = (_b = deleted.date) === null || _b === void 0 ? void 0 : _b.toDate) === null || _c === void 0 ? void 0 : _c.call(_b)) ? deleted.date.toDate() : null;
-    const status = String(deleted.status || "").toLowerCase();
-    const FINAL_STATUSES = new Set(["completed", "incomplete", "rejected"]);
-    // Never notify for history/final shifts
-    if (FINAL_STATUSES.has(status)) {
-        v2_1.logger.log("Shift deleted but was historical; no notify", {
-            shiftId: event.params.shiftId,
-            status,
-        });
-        return;
-    }
-    // Never notify for past/expired shifts
-    if (d && isShiftInPast(d)) {
-        v2_1.logger.log("Shift deleted but in past; no notify", {
-            shiftId: event.params.shiftId,
-        });
-        return;
-    }
-    // Fail-safe: if no date, skip notification
-    if (!d) {
-        v2_1.logger.log("Shift deleted but no date; skipping notify", {
-            shiftId: event.params.shiftId,
-        });
-        return;
-    }
-    await sendFcmToUser(userId, "Shift removed", `Your shift for ${formatDateUK(d)} has been removed.`, "/dashboard", { shiftId: event.params.shiftId, event: "deleted" });
-});
-// --------------------
-// Callables
-// --------------------
-exports.getNotificationStatus = (0, https_1.onCall)({ region: europeWest2 }, async (req) => {
-    var _a, _b;
-    const docSnap = await db.collection("settings").doc("notifications").get();
-    const enabled = docSnap.exists ? ((_a = docSnap.data()) === null || _a === void 0 ? void 0 : _a.enabled) !== false : true;
-    const uid = ((_b = req.auth) === null || _b === void 0 ? void 0 : _b.uid) || "";
-    if (!uid)
-        return { enabled, hasToken: false, tokenCount: 0 };
-    const userEnabled = await isUserNotificationsEnabled(uid);
-    const tokens = await getUserFcmTokens(uid);
-    return {
-        enabled,
-        userEnabled,
-        hasToken: tokens.length > 0,
-        tokenCount: tokens.length,
-    };
-});
-exports.setNotificationStatus = (0, https_1.onCall)({ region: europeWest2 }, async (req) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h;
-    const uid = (_a = req.auth) === null || _a === void 0 ? void 0 : _a.uid;
-    if (!uid) {
-        v2_1.logger.info("setNotificationStatus: UNAUTHENTICATED");
-        throw new Error("Unauthenticated");
-    }
-    const enabled = !!((_b = req.data) === null || _b === void 0 ? void 0 : _b.enabled);
-    const tokenRaw = (_c = req.data) === null || _c === void 0 ? void 0 : _c.token;
-    const token = typeof tokenRaw === "string" ? tokenRaw.trim() : "";
-    const platformRaw = (_d = req.data) === null || _d === void 0 ? void 0 : _d.platform;
-    const platform = typeof platformRaw === "string" ? platformRaw.trim() : null;
-    v2_1.logger.info("setNotificationStatus: ENTER", {
-        uid,
-        enabled,
-        tokenPresent: !!token,
-        tokenLen: token.length,
-        keys: req.data ? Object.keys(req.data) : [],
-        ua: ((_f = (_e = req.rawRequest) === null || _e === void 0 ? void 0 : _e.headers) === null || _f === void 0 ? void 0 : _f["user-agent"]) || null,
-        platform,
-    });
-    // Store user-level enabled switch
-    await db.collection("users").doc(uid).set({
-        notificationsEnabled: enabled,
-        notificationsUpdatedAt: firebase_admin_1.default.firestore.FieldValue.serverTimestamp(),
-    }, { merge: true });
-    const col = db.collection("users").doc(uid).collection("pushTokens");
-    if (enabled) {
-        if (!token) {
-            v2_1.logger.info("setNotificationStatus: MISSING TOKEN", {
-                uid,
-                keys: req.data ? Object.keys(req.data) : [],
-            });
-            throw new Error("Missing token");
-        }
-        await col.doc(token).set({
-            token,
-            platform,
-            updatedAt: firebase_admin_1.default.firestore.FieldValue.serverTimestamp(),
-            userAgent: ((_h = (_g = req.rawRequest) === null || _g === void 0 ? void 0 : _g.headers) === null || _h === void 0 ? void 0 : _h["user-agent"]) ||
-                null,
-        }, { merge: true });
-        v2_1.logger.info("setNotificationStatus: SAVED TOKEN", {
-            uid,
-            tokenLen: token.length,
-        });
-        return { success: true, enabled: true, debug: { tokenLen: token.length } };
-    }
-    // enabled=false => remove one token (if provided) or all
-    if (token) {
-        await col.doc(token).delete().catch(() => { });
-        v2_1.logger.info("setNotificationStatus: DELETED ONE TOKEN", {
-            uid,
-            tokenLen: token.length,
-        });
-    }
-    else {
-        const snap = await col.get();
-        const batch = db.batch();
-        snap.docs.forEach((d) => batch.delete(d.ref));
-        await batch.commit();
-        v2_1.logger.info("setNotificationStatus: DELETED ALL TOKENS", {
-            uid,
-            count: snap.size,
-        });
-    }
-    return { success: true, enabled: false, debug: { tokenProvided: !!token } };
-});
-// --------------------
-// Schedulers (kept)
-// --------------------
-exports.projectReviewNotifier = (0, scheduler_1.onSchedule)({ schedule: "every 24 hours", region: europeWest2 }, () => {
-    v2_1.logger.log("projectReviewNotifier executed.");
-});
-exports.pendingShiftNotifier = (0, scheduler_1.onSchedule)({ schedule: "every 1 hours", region: europeWest2 }, () => {
-    v2_1.logger.log("pendingShiftNotifier executed.");
+    }));
 });
 //# sourceMappingURL=index.js.map

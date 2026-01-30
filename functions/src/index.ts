@@ -1,37 +1,24 @@
-
-import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
-
-import cors from "cors";
+// functions/src/index.ts
 import * as admin from "firebase-admin";
+import cors from "cors";
 import * as webPush from "web-push";
+
+import { onRequest } from "firebase-functions/v2/https";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
 
-admin.initializeApp();
+if (!admin.apps.length) admin.initializeApp();
 const db = admin.firestore();
+
 const europeWest2 = "europe-west2";
 const corsHandler = cors({ origin: true });
 
-// Define a converter for the PushSubscription type for type safety.
-const pushSubscriptionConverter = {
-    toFirestore(subscription: webPush.PushSubscription): admin.firestore.DocumentData {
-        return { endpoint: subscription.endpoint, keys: subscription.keys };
-    },
-    fromFirestore(snapshot: admin.firestore.QueryDocumentSnapshot): webPush.PushSubscription {
-        const data = snapshot.data();
-        if (!data.endpoint || !data.keys || !data.keys.p256dh || !data.keys.auth) {
-            throw new Error("Invalid PushSubscription data from Firestore.");
-        }
-        return {
-            endpoint: data.endpoint,
-            keys: {
-                p256dh: data.keys.p256dh,
-                auth: data.keys.auth
-            }
-        };
-    }
-};
-
-// Callable function for the client to update their notification subscription status.
+// ----------------------------
+// setNotificationStatus (HTTP)
+// Auth: Authorization: Bearer <Firebase ID token>
+// Body: { enabled: boolean, subscription?: { endpoint, keys } }
+// ALSO accepts callable-style body: { data: { enabled, subscription } }
+// Stores subs at: users/{uid}/pushSubscriptions/{urlSafeBase64(endpoint)}
+// ----------------------------
 export const setNotificationStatus = onRequest({ region: europeWest2 }, (req, res) => {
   return corsHandler(req, res, async () => {
     if (req.method === "OPTIONS") {
@@ -40,126 +27,153 @@ export const setNotificationStatus = onRequest({ region: europeWest2 }, (req, re
     }
 
     try {
+      // ---- Auth ----
       const auth = req.get("Authorization") || "";
       const m = auth.match(/^Bearer\s+(.+)$/i);
       if (!m) {
-        res.status(401).json({ error: "Missing Authorization: Bearer <token>" });
+        res.status(401).json({ data: null, error: "Missing Authorization: Bearer <token>" });
         return;
       }
 
       const decoded = await admin.auth().verifyIdToken(m[1]);
       const uid = decoded.uid;
 
-      const enabled = !!req.body?.enabled;
-      const subscription = req.body?.subscription;
+      // ---- Body ----
+      // Support BOTH:
+      //   HTTP style:      { enabled, subscription }
+      //   Callable style:  { data: { enabled, subscription } }
+      const body = (req.body && typeof req.body === "object") ? req.body : {};
+      const payload = (body.data && typeof body.data === "object") ? body.data : body;
 
-      const userSubscriptionsRef = db.collection("users").doc(uid).collection("pushSubscriptions");
+      const enabledRaw = (payload as any).enabled;
+      if (typeof enabledRaw !== "boolean") {
+        res.status(400).json({ data: null, error: "Body must include { enabled: boolean }" });
+        return;
+      }
+      const enabled = enabledRaw as boolean;
+      const subscription = (payload as any).subscription;
+
+      const subsRef = db.collection("users").doc(uid).collection("pushSubscriptions");
 
       if (enabled) {
-        if (!subscription || !subscription.endpoint) {
-          res.status(400).json({ error: "A valid subscription object is required to subscribe." });
+        if (!subscription || !subscription.endpoint || !subscription.keys) {
+          res.status(400).json({ data: null, error: "Valid subscription is required." });
           return;
         }
-        const docId = Buffer.from(subscription.endpoint).toString("base64");
-        await userSubscriptionsRef.doc(docId).set({ endpoint: subscription.endpoint, keys: subscription.keys });
-      } else {
-        const snap = await userSubscriptionsRef.get();
-        if (!snap.empty) {
-          const batch = db.batch();
-          snap.docs.forEach((d) => batch.delete(d.ref));
-          await batch.commit();
-        }
+
+        // URL-safe doc id (avoids '/' '+' '=' issues in doc IDs)
+        const docId = Buffer.from(String(subscription.endpoint))
+          .toString("base64")
+          .replace(/\+/g, "-")
+          .replace(/\//g, "_")
+          .replace(/=+$/g, "");
+
+        await subsRef.doc(docId).set(
+          {
+            endpoint: subscription.endpoint,
+            keys: subscription.keys,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+
+        // IMPORTANT: frontend expects { data: ... }
+        res.json({ data: { success: true, enabled: true } });
+        return;
       }
 
-      res.json({ success: true });
-    } catch (e) {
-      res.status(400).json({ error: (e as any)?.message || "Unknown error" });
-}
+      // enabled === false -> delete all subs for user
+      const snap = await subsRef.get();
+      if (!snap.empty) {
+        const batch = db.batch();
+        snap.docs.forEach((d) => batch.delete(d.ref));
+        await batch.commit();
+      }
+
+      res.json({ data: { success: true, enabled: false } });
+    } catch (e: any) {
+      res.status(400).json({ data: null, error: e?.message || "Unknown error" });
+    }
   });
 });
 
-// Firestore trigger that sends notifications on shift changes.
-export const onShiftWrite = onDocumentWritten({ document: "shifts/{shiftId}", region: "europe-west2" }, async (event) => {
-    const shiftId = event.params.shiftId;
-    
-    // Global notification kill switch
-    const settingsDoc = await db.collection('settings').doc('notifications').get();
-    if (settingsDoc.exists && settingsDoc.data()?.enabled === false) {
-      console.log('Global notifications are disabled. Aborting.');
-      return;
-    }
+// ----------------------------
+// onShiftWrite -> send Web Push
+// Requires env: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY
+// ----------------------------
+export const onShiftWrite = onDocumentWritten(
+  { document: "shifts/{shiftId}", region: europeWest2 },
+  async (event) => {
+    const settingsDoc = await db.collection("settings").doc("notifications").get();
+    if (settingsDoc.exists && settingsDoc.data()?.enabled === false) return;
 
     const publicKey = process.env.VAPID_PUBLIC_KEY;
     const privateKey = process.env.VAPID_PRIVATE_KEY;
-
     if (!publicKey || !privateKey) {
-        console.error("CRITICAL: VAPID keys are not configured in environment.");
-        return;
+      console.error("Missing VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY");
+      return;
     }
 
-    webPush.setVapidDetails("mailto:example@your-project.com", publicKey, privateKey);
+    webPush.setVapidDetails("mailto:notifications@broadoakgroup.com", publicKey, privateKey);
 
     const beforeData = event.data?.before.data();
     const afterData = event.data?.after.data();
 
     let userId: string | null = null;
-    let payload: object | null = null;
+    let payload: any | null = null;
 
-    if (event.data?.after.exists && !event.data?.before.exists) { // CREATE
-        userId = afterData?.userId;
+    if (event.data?.after.exists && !event.data?.before.exists) {
+      userId = afterData?.userId || null;
+      payload = {
+        title: "New Shift Assigned",
+        body: `You have a new shift: ${afterData?.task} at ${afterData?.address}.`,
+        data: { url: "/dashboard" },
+      };
+    } else if (!event.data?.after.exists && event.data?.before.exists) {
+      userId = beforeData?.userId || null;
+      payload = {
+        title: "Shift Cancelled",
+        body: `Your shift for ${beforeData?.task} at ${beforeData?.address} has been cancelled.`,
+        data: { url: "/dashboard" },
+      };
+    } else if (event.data?.after.exists && event.data?.before.exists) {
+      const changed =
+        beforeData?.task !== afterData?.task ||
+        beforeData?.address !== afterData?.address ||
+        (beforeData?.date && afterData?.date && !beforeData.date.isEqual(afterData.date));
+
+      if (changed) {
+        userId = afterData?.userId || null;
         payload = {
-            title: "New Shift Assigned",
-            body: `You have a new shift: ${afterData?.task} at ${afterData?.address}.`,
-            data: { url: `/dashboard` },
+          title: "Your Shift Has Been Updated",
+          body: "The details for one of your shifts have changed.",
+          data: { url: "/dashboard" },
         };
-    } else if (!event.data?.after.exists && event.data?.before.exists) { // DELETE
-        userId = beforeData?.userId;
-        payload = {
-            title: "Shift Cancelled",
-            body: `Your shift for ${beforeData?.task} at ${beforeData?.address} has been cancelled.`,
-            data: { url: `/dashboard` },
-        };
-    } else if (event.data?.after.exists && event.data?.before.exists) { // UPDATE
-        // Determine if there's a meaningful change that warrants a notification
-        if (beforeData?.userId !== afterData?.userId) {
-            // Re-assignment logic can be added here if needed
-        } else if (beforeData?.task !== afterData?.task || beforeData?.address !== afterData?.address || !beforeData?.date.isEqual(afterData?.date)) {
-            userId = afterData?.userId;
-            payload = {
-                title: "Your Shift Has Been Updated",
-                body: `The details for one of your shifts have changed.`,
-                data: { url: `/dashboard` },
-            };
+      }
+    }
+
+    if (!userId || !payload) return;
+
+    const subsSnap = await db.collection("users").doc(userId).collection("pushSubscriptions").get();
+    if (subsSnap.empty) return;
+
+    await Promise.all(
+      subsSnap.docs.map(async (d) => {
+        const sub = d.data() as any;
+        try {
+          await webPush.sendNotification(
+            { endpoint: sub.endpoint, keys: sub.keys },
+            JSON.stringify(payload)
+          );
+        } catch (err: any) {
+          const code = err?.statusCode;
+          if (code === 404 || code === 410) {
+            await d.ref.delete(); // prune dead subscription
+          } else {
+            console.error("web-push send failed:", err);
+          }
         }
-    }
-
-    if (!userId || !payload) {
-        console.log("No notification necessary for this event.");
-        return;
-    }
-
-    const subscriptionsSnapshot = await db
-      .collection("users")
-      .doc(userId)
-      .collection("pushSubscriptions")
-      .withConverter(pushSubscriptionConverter)
-      .get();
-
-    if (subscriptionsSnapshot.empty) {
-      console.warn(`User ${userId} has no push subscriptions.`);
-      return;
-    }
-
-    const sendPromises = subscriptionsSnapshot.docs.map((subDoc) => {
-        const subscription = subDoc.data();
-        return webPush.sendNotification(subscription, JSON.stringify(payload)).catch((error: any) => {
-            console.error(`Error sending notification to user ${userId}:`, error);
-            if (error.statusCode === 410 || error.statusCode === 404) {
-                return subDoc.ref.delete(); // Prune expired/invalid subscription
-            }
-            return null;
-        });
-    });
-
-    await Promise.all(sendPromises);
-});
+      })
+    );
+  }
+);
