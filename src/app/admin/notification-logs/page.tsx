@@ -107,5 +107,5 @@ export default function NotificationLogsPage() {
                 )}
             </CardContent>
         </Card>
-    )
+    );
 }
