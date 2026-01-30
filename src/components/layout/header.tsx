@@ -24,7 +24,6 @@ import {
   Building2,
   ListChecks,
 } from 'lucide-react';
-import { NotificationButton } from '../shared/notification-button';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -64,7 +63,6 @@ export function Header() {
       <div className="flex w-full items-center justify-end gap-2 md:gap-4">
         {user && (
           <>
-            <NotificationButton />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="secondary" size="icon" className="rounded-full">

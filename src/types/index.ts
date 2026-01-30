@@ -31,8 +31,6 @@ export interface UserProfile {
   employmentType?: 'direct' | 'subbie';
   operativeId?: string;
   trade?: string;
-  notificationsEnabled?: boolean;
-  notificationsUpdatedAt?: Timestamp;
 }
 
 export interface Unavailability {

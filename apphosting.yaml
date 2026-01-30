@@ -43,11 +43,3 @@ env:
     availability:
       - BUILD
       - RUNTIME
-
-  # ✅ FIXED: this name MUST match what your app reads:
-  # process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY
-  - variable: NEXT_PUBLIC_FIREBASE_VAPID_KEY
-    value: "BLBYf-_fl0DuyhjHQhdBlBzPK8mUc7jrr5rfJYqfN_fPIx1qlSaKxEb2na8rhNIurBuZrSOV7NdK1J0aNEWpHNc"
-    availability:
-      - BUILD
-      - RUNTIME

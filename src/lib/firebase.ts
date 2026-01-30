@@ -15,7 +15,6 @@ export const firebaseConfig = {
   storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ?? "",
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ?? "",
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID ?? "",
-  vapidKey: "BLBYf-_fl0DuyhjHQhdBlBzPK8mUc7jrr5rfJYqfN_fPIx1qlSaKxEb2na8rhNIurBuZrSOV7NdK1J0aNEWpHNc",
 };
 
 export const isFirebaseConfigured =

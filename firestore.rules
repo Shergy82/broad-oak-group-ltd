@@ -30,10 +30,6 @@ service cloud.firestore {
       allow delete: if role(request.auth.uid) == 'owner';
 
       allow list: if isPrivilegedUser(request.auth.uid);
-
-      match /pushSubscriptions/{subscriptionId} {
-        allow read, write, delete: if signedIn() && request.auth.uid == userId;
-      }
     }
 
     // ---- SHIFTS ----
