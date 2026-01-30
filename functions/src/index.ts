@@ -2,166 +2,158 @@
 import * as functions from 'firebase-functions';
 import admin from 'firebase-admin';
 import * as webPush from 'web-push';
+import cors from 'cors';
 
 admin.initializeApp();
 const db = admin.firestore();
+const corsHandler = cors({ origin: true });
 
-const pushSubscriptionConverter = {
-    toFirestore(subscription: webPush.PushSubscription): admin.firestore.DocumentData {
-        return { endpoint: subscription.endpoint, keys: subscription.keys };
-    },
-    fromFirestore(snapshot: admin.firestore.QueryDocumentSnapshot): webPush.PushSubscription {
-        const data = snapshot.data();
-        if (!data.endpoint || !data.keys || !data.keys.p256dh || !data.keys.auth) {
-            throw new Error("Invalid PushSubscription data from Firestore.");
-        }
-        return {
-            endpoint: data.endpoint,
-            keys: { p256dh: data.keys.p256dh, auth: data.keys.auth }
-        };
-    }
-};
 
+// VAPID keys must be set in Functions config via Firebase CLI
+// e.g., firebase functions:config:set webpush.public_key="..." webpush.private_key="..."
+const VAPID_PUBLIC_KEY = functions.config().webpush?.public_key;
+const VAPID_PRIVATE_KEY = functions.config().webpush?.private_key;
+
+if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+    webPush.setVapidDetails(
+        'mailto:example@your-project.com',
+        VAPID_PUBLIC_KEY,
+        VAPID_PRIVATE_KEY
+    );
+}
+
+/**
+ * Returns the VAPID public key to the client.
+ */
 export const getVapidPublicKey = functions.region("europe-west2").https.onCall((data, context) => {
-    const publicKey = functions.config().webpush?.public_key;
-    if (!publicKey) {
-        functions.logger.error("CRITICAL: VAPID public key (webpush.public_key) not set in function configuration.");
-        throw new functions.https.HttpsError('not-found', 'VAPID public key is not configured on the server.');
+    if (!VAPID_PUBLIC_KEY) {
+        functions.logger.error("CRITICAL: VAPID public key is not configured in function config.");
+        throw new functions.https.HttpsError('failed-precondition', 'The application is not configured for push notifications.');
     }
-    return { publicKey };
+    return { publicKey: VAPID_PUBLIC_KEY };
 });
 
-
-export const setNotificationStatus = functions.region("europe-west2").https.onCall(async (data, context) => {
+/**
+ * Manages user push subscriptions.
+ */
+export const managePushSubscription = functions.region("europe-west2").https.onCall(async (data, context) => {
     if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
+        throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated to manage subscriptions.');
     }
+
+    const { subscription, state } = data;
     const uid = context.auth.uid;
-    const { enabled, subscription } = data;
+    const subsCollection = db.collection('users').doc(uid).collection('pushSubscriptions');
+    const userDocRef = db.collection('users').doc(uid);
 
-    const userRef = db.collection("users").doc(uid);
-    await userRef.set({ 
-        notificationsEnabled: !!enabled,
-        notificationsUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    }, { merge: true });
+    if (state === 'subscribe') {
+        if (!subscription || !subscription.endpoint) {
+            throw new functions.https.HttpsError('invalid-argument', 'A valid subscription object must be provided.');
+        }
+        await subsCollection.doc(subscription.endpoint).set(subscription);
+        await userDocRef.set({ notificationsEnabled: true, notificationsUpdatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+        return { success: true, message: "Subscribed successfully." };
 
-    const subsRef = userRef.collection("pushSubscriptions");
+    } else if (state === 'unsubscribe') {
+        if (!subscription || !subscription.endpoint) {
+            throw new functions.https.HttpsError('invalid-argument', 'A valid subscription object must be provided to unsubscribe.');
+        }
+        await subsCollection.doc(subscription.endpoint).delete();
+        
+        const remainingSubs = await subsCollection.limit(1).get();
+        if (remainingSubs.empty) {
+             await userDocRef.set({ notificationsEnabled: false, notificationsUpdatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+        }
+        return { success: true, message: "Unsubscribed successfully." };
 
-    if (enabled && subscription?.endpoint) {
-        const subId = Buffer.from(subscription.endpoint).toString("base64").replace(/=/g, "");
-        await subsRef.doc(subId).set({
-            ...subscription,
-            createdAt: admin.firestore.FieldValue.serverTimestamp()
-        });
-    } else if (!enabled && subscription?.endpoint) {
-        const subId = Buffer.from(subscription.endpoint).toString("base64").replace(/=/g, "");
-        await subsRef.doc(subId).delete().catch(() => {});
+    } else {
+        throw new functions.https.HttpsError('invalid-argument', 'Invalid state provided. Must be "subscribe" or "unsubscribe".');
     }
-
-    return { success: true };
 });
 
+
+/**
+ * Firestore trigger that sends notifications when a shift is written.
+ */
 export const onShiftWrite = functions.region("europe-west2").firestore.document("shifts/{shiftId}")
-  .onWrite(async (change, context) => {
-    const shiftId = context.params.shiftId;
-    
-    const beforeData = change.before.data();
-    const afterData = change.after.data();
-
-    let userId: string | null = null;
-    let payload: { notification: { title: string; body: string; }; data: { url: string; }; } | null = null;
-    let logMessage: string = "";
-
-    // Case 1: Shift Created
-    if (!beforeData && afterData) {
-        userId = afterData.userId;
-        payload = {
-            notification: {
-                title: "New Shift Assigned",
-                body: `You have a new shift: ${afterData.task} at ${afterData.address}.`
-            },
-            data: { url: "/dashboard?gate=pending" }
-        };
-        logMessage = `Shift created: ${shiftId} for user ${userId}`;
-    }
-    // Case 2: Shift Updated
-    else if (beforeData && afterData) {
-        const meaningfulChange = beforeData.task !== afterData.task || beforeData.address !== afterData.address || !beforeData.date.isEqual(afterData.date);
-        
-        if (afterData.userId !== beforeData.userId) {
-            userId = afterData.userId;
-            payload = {
-                notification: {
-                    title: "New Shift Assigned",
-                    body: `A shift was re-assigned to you: ${afterData.task} at ${afterData.address}.`
-                },
-                data: { url: "/dashboard?gate=pending" }
-            };
-            logMessage = `Shift ${shiftId} re-assigned to user ${userId}`;
-        } else if (meaningfulChange) {
-            userId = afterData.userId;
-            payload = {
-                notification: {
-                    title: "Shift Updated",
-                    body: `Your shift for ${afterData.task} has been updated.`
-                },
-                data: { url: "/dashboard" }
-            };
-            logMessage = `Shift updated: ${shiftId} for user ${userId}`;
-        } else {
-             functions.logger.info(`Shift write event for ${shiftId}, but no meaningful change detected.`);
-             return; // No meaningful change, so no notification.
+    .onWrite(async (change, context) => {
+        if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+            functions.logger.error("VAPID keys not configured. Cannot send notifications.");
+            return;
         }
-    }
-    else { // Shift deleted
-        functions.logger.info(`Shift deleted: ${shiftId}. No notification sent.`);
-        return;
-    }
-
-    if (!userId || !payload) {
-      functions.logger.info(`No user or payload for shift ${shiftId}. Aborting.`);
-      return;
-    }
     
-    functions.logger.info(logMessage);
+        const shiftId = context.params.shiftId;
+        const beforeData = change.before.data();
+        const afterData = change.after.data();
 
-    try {
+        let userId: string | null = null;
+        let title: string = '';
+        let body: string = '';
+        let url: string = '/dashboard';
+
+        if (!afterData) { // DELETED
+             userId = beforeData?.userId;
+             title = 'Shift Cancelled';
+             body = `Your shift for ${beforeData?.task} at ${beforeData?.address} was cancelled.`;
+        } else if (!beforeData) { // CREATED
+            userId = afterData.userId;
+            title = 'New Shift Assigned';
+            body = `New shift: ${afterData.task} at ${afterData.address}.`;
+            url = '/dashboard?gate=pending';
+        } else { // UPDATED
+            if (beforeData.userId !== afterData.userId) {
+                // Re-assigned to a new user
+                userId = afterData.userId;
+                title = 'New Shift Assigned';
+                body = `A shift was re-assigned to you: ${afterData.task} at ${afterData.address}.`;
+                url = '/dashboard?gate=pending';
+            } else {
+                // Check for meaningful changes for the same user
+                const dateChanged = !beforeData.date.isEqual(afterData.date);
+                const taskChanged = beforeData.task !== afterData.task;
+                const addressChanged = beforeData.address !== afterData.address;
+                const typeChanged = beforeData.type !== afterData.type;
+
+                if (dateChanged || taskChanged || addressChanged || typeChanged) {
+                    userId = afterData.userId;
+                    title = 'Shift Updated';
+                    body = `Details for your shift "${afterData.task}" have been updated.`;
+                }
+            }
+        }
+
+        if (!userId) {
+            functions.logger.log(`No notification needed for shift write: ${shiftId}`);
+            return;
+        }
+        
         const userDoc = await db.collection('users').doc(userId).get();
-        if (userDoc.data()?.notificationsEnabled === false) {
-            functions.logger.info(`User ${userId} has notifications disabled.`);
+        if (!userDoc.exists || userDoc.data()?.notificationsEnabled === false) {
+            functions.logger.log(`User ${userId} has notifications disabled.`);
             return;
         }
-
-        const publicKey = functions.config().webpush?.public_key;
-        const privateKey = functions.config().webpush?.private_key;
-        if (!publicKey || !privateKey) {
-            functions.logger.error("VAPID keys not configured.");
-            return;
-        }
-
-        webPush.setVapidDetails("mailto:example@example.com", publicKey, privateKey);
         
-        const subscriptionsSnapshot = await db.collection("users").doc(userId).collection("pushSubscriptions").withConverter(pushSubscriptionConverter).get();
-        if (subscriptionsSnapshot.empty) {
-            functions.logger.warn(`No subscriptions found for user ${userId}.`);
+        const subsSnapshot = await db.collection('users').doc(userId).collection('pushSubscriptions').get();
+        if (subsSnapshot.empty) {
+            functions.logger.log(`No push subscriptions for user ${userId}.`);
             return;
         }
 
-        const sendPromises = subscriptionsSnapshot.docs.map(subDoc => {
-            const sub = subDoc.data();
-            return webPush.sendNotification(sub, JSON.stringify(payload))
-                .catch(error => {
-                    functions.logger.error(`Failed to send notification to ${sub.endpoint.slice(0,50)}...`, error);
+        const payload = JSON.stringify({ title, body, url });
+        const promises: Promise<any>[] = [];
+
+        subsSnapshot.forEach(subDoc => {
+            const sub = subDoc.data() as webPush.PushSubscription;
+            promises.push(
+                webPush.sendNotification(sub, payload).catch(error => {
+                    functions.logger.error(`Failed to send to ${sub.endpoint.slice(0, 50)}...`, { statusCode: error.statusCode });
                     if (error.statusCode === 404 || error.statusCode === 410) {
-                        return subDoc.ref.delete(); // Prune stale subscription
+                        return subDoc.ref.delete();
                     }
-                });
+                })
+            );
         });
 
-        await Promise.all(sendPromises);
-        functions.logger.info(`Successfully processed notifications for shift ${shiftId}`);
-
-    } catch (error) {
-        functions.logger.error(`Error sending notification for user ${userId}:`, error);
-    }
-});
+        await Promise.all(promises);
+        functions.logger.info(`Successfully processed notifications for shift ${shiftId} for user ${userId}`);
+    });

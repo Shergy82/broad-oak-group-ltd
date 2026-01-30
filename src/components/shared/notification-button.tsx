@@ -20,6 +20,7 @@ export function NotificationButton() {
     isSupported,
     isSubscribed,
     isSubscribing,
+    isKeyLoading,
     vapidKey,
     permission,
     subscribe,
@@ -32,34 +33,23 @@ export function NotificationButton() {
     return null;
   }
 
-  const vapidMissing = !vapidKey;
+  const vapidMissing = !isKeyLoading && !vapidKey;
 
   const handleToggleSubscription = () => {
-    console.log('--- Bell Clicked ---');
-    console.log('Current State:', {
-      isSubscribed,
-      permission,
-      isSubscribing,
-      vapidKeyPresent: !!vapidKey,
-    });
-    
     if (permission === 'denied') {
-      console.log('Action: Opening "denied" dialog.');
       setBlockedDialogOpen(true);
       return;
     }
 
     if (isSubscribed) {
-      console.log('Action: Calling unsubscribe()');
       unsubscribe();
     } else {
-      console.log('Action: Calling subscribe()');
       subscribe();
     }
   };
 
   const getIcon = () => {
-    if (isSubscribing) return <Spinner />;
+    if (isKeyLoading || isSubscribing) return <Spinner />;
     if (permission === 'denied') return <XCircle className="h-5 w-5 text-destructive" />;
     if (vapidMissing) return <AlertTriangle className="h-5 w-5 text-destructive" />;
     if (isSubscribed) return <Bell className="h-5 w-5 text-green-600" />;
@@ -67,6 +57,7 @@ export function NotificationButton() {
   };
 
   const getTooltipContent = () => {
+    if (isKeyLoading) return 'Loading notification settings...';
     if (permission === 'denied') return 'Notifications blocked in browser settings';
     if (vapidMissing) return 'VAPID key not configured (cannot subscribe)';
     if (isSubscribed) return 'Unsubscribe from notifications';
@@ -82,7 +73,7 @@ export function NotificationButton() {
               variant="ghost"
               size="icon"
               onClick={handleToggleSubscription}
-              disabled={isSubscribing || vapidMissing}
+              disabled={isKeyLoading || isSubscribing || vapidMissing}
               aria-label="Notifications"
             >
               {getIcon()}

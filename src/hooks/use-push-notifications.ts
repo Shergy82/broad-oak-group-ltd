@@ -7,18 +7,21 @@ import { useAuth } from '@/hooks/use-auth';
 import { functions, httpsCallable } from '@/lib/firebase';
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
-  return outputArray;
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
 }
+
 
 export function usePushNotifications() {
   const { toast } = useToast();
   const { user } = useAuth();
-
+  
   const [isSupported, setIsSupported] = useState(false);
   const [permission, setPermission] = useState<NotificationPermission>('default');
   const [isSubscribing, setIsSubscribing] = useState(false);
@@ -33,8 +36,9 @@ export function usePushNotifications() {
     }
   }, []);
 
+  // Fetch VAPID key
   useEffect(() => {
-    async function fetchVapidKey() {
+    async function fetchKey() {
       if (!functions) {
           setIsKeyLoading(false);
           return;
@@ -42,113 +46,83 @@ export function usePushNotifications() {
       try {
         const getVapidPublicKey = httpsCallable<{ }, { publicKey: string }>(functions, 'getVapidPublicKey');
         const result = await getVapidPublicKey();
-        const key = result.data.publicKey;
-        if (key) {
-          setVapidKey(key);
-        } else {
-          throw new Error('VAPID public key is missing from server response.');
-        }
-      } catch (error: any) {
-        console.error('Failed to fetch VAPID public key:', error);
+        setVapidKey(result.data.publicKey);
+      } catch (error) {
+        console.error("Failed to fetch VAPID public key:", error);
       } finally {
         setIsKeyLoading(false);
       }
     }
-    fetchVapidKey();
+    fetchKey();
   }, []);
-  
+
+  // Check subscription status
   useEffect(() => {
-    const checkSubscription = async () => {
-        if(isSupported && user) {
-            try {
-                const reg = await navigator.serviceWorker.ready;
-                const sub = await reg.pushManager.getSubscription();
-                setIsSubscribed(!!sub);
-            } catch (e) {
-                console.error("Error checking for push subscription:", e);
-                setIsSubscribed(false);
-            }
-        }
-    };
+    async function checkSubscription() {
+      if (!isSupported || !user) return;
+      try {
+          const registration = await navigator.serviceWorker.ready;
+          const subscription = await registration.pushManager.getSubscription();
+          setIsSubscribed(!!subscription);
+      } catch (e) {
+        // This can happen if the service worker is not yet ready, which is not a critical error.
+        // It will be re-checked on subsequent renders.
+      }
+    }
     checkSubscription();
   }, [isSupported, user]);
 
   const subscribe = useCallback(async () => {
     if (!isSupported || !user || !vapidKey || !functions) {
-      toast({ title: 'Cannot Subscribe', description: 'System not ready or not logged in.', variant: 'destructive' });
+      toast({ title: 'Cannot Subscribe', description: 'System not ready.', variant: 'destructive' });
       return;
     }
     setIsSubscribing(true);
-
     try {
-      const perm = await Notification.requestPermission();
-      setPermission(perm);
-      if (perm !== 'granted') throw new Error('Permission not granted.');
+      const permissionResult = await Notification.requestPermission();
+      setPermission(permissionResult);
+      if (permissionResult !== 'granted') {
+        throw new Error('Permission not granted for notifications.');
+      }
       
-      const swRegistration = await navigator.serviceWorker.ready;
-      const appServerKey = urlBase64ToUint8Array(vapidKey);
-      
-      const subscription = await swRegistration.pushManager.subscribe({
+      const registration = await navigator.serviceWorker.ready;
+      const applicationServerKey = urlBase64ToUint8Array(vapidKey);
+      const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: appServerKey,
+        applicationServerKey,
       });
 
-      const setNotificationStatus = httpsCallable(functions, 'setNotificationStatus');
-      await setNotificationStatus({ enabled: true, subscription: subscription.toJSON() });
-      
+      const managePushSubscription = httpsCallable(functions, 'managePushSubscription');
+      await managePushSubscription({ subscription: subscription.toJSON(), state: 'subscribe' });
+
       setIsSubscribed(true);
       toast({ title: 'Subscribed!', description: 'You will now receive notifications.' });
-    } catch (err: any) {
-       toast({
-        title: 'Subscription Failed',
-        description: err.message || 'An unexpected error occurred.',
-        variant: 'destructive',
-      });
+    } catch (error: any) {
+      toast({ title: 'Subscription Failed', description: error.message, variant: 'destructive' });
     } finally {
       setIsSubscribing(false);
     }
   }, [isSupported, user, vapidKey, toast]);
-
+  
   const unsubscribe = useCallback(async () => {
     if (!isSupported || !user || !functions) return;
     setIsSubscribing(true);
-
     try {
-      const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.getSubscription();
-      const setNotificationStatus = httpsCallable(functions, 'setNotificationStatus');
-
-      if (sub) {
-        // Tell backend to remove this specific subscription
-        await setNotificationStatus({ enabled: false, subscription: sub.toJSON() });
-        await sub.unsubscribe();
-      } else {
-        // If no local subscription, still tell backend to disable notifications for the user
-        await setNotificationStatus({ enabled: false });
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      if (subscription) {
+        const managePushSubscription = httpsCallable(functions, 'managePushSubscription');
+        await managePushSubscription({ subscription: subscription.toJSON(), state: 'unsubscribe' });
+        await subscription.unsubscribe();
       }
-
       setIsSubscribed(false);
-      toast({ title: 'Unsubscribed', description: 'Push notifications have been disabled.' });
-    } catch (err: any) {
-      console.error('Error unsubscribing:', err);
-      toast({
-        title: 'Unsubscribe Failed',
-        description: err.message || 'An unexpected error occurred.',
-        variant: 'destructive',
-      });
+      toast({ title: 'Unsubscribed', description: 'Push notifications disabled.' });
+    } catch (error: any) {
+      toast({ title: 'Unsubscribe Failed', description: error.message, variant: 'destructive' });
     } finally {
       setIsSubscribing(false);
     }
   }, [isSupported, user, toast]);
 
-  return {
-    isSupported,
-    isSubscribed,
-    isSubscribing,
-    permission,
-    isKeyLoading,
-    vapidKey,
-    subscribe,
-    unsubscribe,
-  };
+  return { isSupported, isSubscribed, isSubscribing, permission, isKeyLoading, vapidKey, subscribe, unsubscribe };
 }

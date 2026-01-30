@@ -21,7 +21,6 @@ service cloud.firestore {
     match /users/{userId} {
       allow create: if signedIn() && request.auth.uid == userId;
 
-      // 🔑 Allow user to read their own doc EVEN IF it doesn't exist yet
       allow read: if signedIn() &&
         (request.auth.uid == userId || isPrivilegedUser(request.auth.uid));
 
@@ -30,13 +29,11 @@ service cloud.firestore {
 
       allow delete: if role(request.auth.uid) == 'owner';
 
-      // 🔑 Allow listing users only for privileged users (schedule needs this)
       allow list: if isPrivilegedUser(request.auth.uid);
-    }
 
-    // ---- PUSH SUBSCRIPTIONS (FCM) ----
-    match /users/{userId}/pushSubscriptions/{subscriptionId} {
-      allow read, write, delete: if signedIn() && request.auth.uid == userId;
+      match /pushSubscriptions/{subscriptionId} {
+        allow read, write, delete: if signedIn() && request.auth.uid == userId;
+      }
     }
 
     // ---- SHIFTS ----
@@ -85,12 +82,6 @@ service cloud.firestore {
     match /unavailability/{id} {
       allow read: if signedIn();
       allow write: if isPrivilegedUser(request.auth.uid);
-    }
-
-    // ---- FUNCTION LOGS (for diagnostics) ----
-    match /function_logs/{logId} {
-      allow read: if isPrivilegedUser(request.auth.uid);
-      allow write: if false; // Only functions can write logs
     }
   }
 }
