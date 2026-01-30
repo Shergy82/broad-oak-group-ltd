@@ -1,25 +1,37 @@
-import { Header } from "@/components/landing/header";
-import { Hero } from "@/components/landing/hero";
-import { Features } from "@/components/landing/features";
-import { HeadlineOptimizer } from "@/components/landing/headline-optimizer";
-import { Testimonials } from "@/components/landing/testimonials";
-import { Faq } from "@/components/landing/faq";
-import { Contact } from "@/components/landing/contact";
-import { Footer } from "@/components/landing/footer";
 
-export default function Home() {
+'use client';
+
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/hooks/use-auth';
+import { Spinner } from '@/components/shared/spinner';
+import { useUserProfile } from '@/hooks/use-user-profile';
+
+export default function RootPage() {
+  const { user, isLoading: isAuthLoading } = useAuth();
+  const { userProfile, loading: isProfileLoading } = useUserProfile();
+  const router = useRouter();
+
+  const isLoading = isAuthLoading || isProfileLoading;
+
+  useEffect(() => {
+    if (!isLoading) {
+      if (user && userProfile) {
+        const isPrivileged = ['admin', 'owner', 'manager'].includes(userProfile.role);
+        if (isPrivileged) {
+          router.replace('/admin/control-panel');
+        } else {
+          router.replace('/dashboard');
+        }
+      } else if (!user) {
+        router.replace('/login');
+      }
+    }
+  }, [user, userProfile, isLoading, router]);
+
   return (
-    <div className="flex flex-col min-h-screen">
-      <Header />
-      <main className="flex-grow">
-        <Hero />
-        <Features />
-        <HeadlineOptimizer />
-        <Testimonials />
-        <Faq />
-        <Contact />
-      </main>
-      <Footer />
+    <div className="flex h-screen w-full items-center justify-center">
+      <Spinner size="lg" />
     </div>
   );
 }

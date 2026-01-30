@@ -4,10 +4,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
-import { db, functions, httpsCallable, firebaseConfig, isFirebaseConfigured } from '@/lib/firebase';
-import { isSupported as isFirebaseMessagingSupported } from "firebase/messaging";
-import { collection, getDocs, deleteDoc } from 'firebase/firestore';
-
+import { functions, httpsCallable } from '@/lib/firebase';
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -17,7 +14,6 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
   return outputArray;
 }
-
 
 export function usePushNotifications() {
   const { toast } = useToast();
@@ -31,32 +27,31 @@ export function usePushNotifications() {
   const [vapidKey, setVapidKey] = useState<string | null>(null);
 
   useEffect(() => {
-    async function checkSupportAndKey() {
-      if (!isFirebaseConfigured || typeof window === 'undefined') {
-        setIsSupported(false);
-        setIsKeyLoading(false);
-        return;
-      }
-      
-      const supported = await isFirebaseMessagingSupported();
-      setIsSupported(supported);
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window) {
+      setIsSupported(true);
+      setPermission(Notification.permission);
+    }
+  }, []);
 
-      if (supported) {
-        setPermission(Notification.permission);
-        
-        const key = firebaseConfig.vapidKey;
+  useEffect(() => {
+    async function fetchVapidKey() {
+      if (!functions) return;
+      try {
+        const getVapidPublicKey = httpsCallable<{ }, { publicKey: string }>(functions, 'getVapidPublicKey');
+        const result = await getVapidPublicKey();
+        const key = result.data.publicKey;
         if (key) {
           setVapidKey(key);
         } else {
-          console.error('VAPID public key is not configured in src/lib/firebase.ts.');
+          throw new Error('VAPID public key is missing from server response.');
         }
-        setIsKeyLoading(false);
-
-      } else {
+      } catch (error: any) {
+        console.error('Failed to fetch VAPID public key:', error);
+      } finally {
         setIsKeyLoading(false);
       }
     }
-    checkSupportAndKey();
+    fetchVapidKey();
   }, []);
   
   useEffect(() => {
@@ -70,13 +65,11 @@ export function usePushNotifications() {
   }, [isSupported, user]);
 
   const subscribe = useCallback(async () => {
-    setIsSubscribing(true);
-
-    if (!isSupported || !user || !vapidKey) {
-      toast({ title: 'Cannot Subscribe', description: 'Push notifications are not fully configured or supported.', variant: 'destructive' });
-      setIsSubscribing(false);
+    if (!isSupported || !user || !vapidKey || !functions) {
+      toast({ title: 'Cannot Subscribe', description: 'System not ready or not logged in.', variant: 'destructive' });
       return;
     }
+    setIsSubscribing(true);
 
     try {
       const perm = await Notification.requestPermission();
@@ -91,8 +84,6 @@ export function usePushNotifications() {
         applicationServerKey: appServerKey,
       });
 
-      if (!subscription) throw new Error('Failed to get browser subscription.');
-      
       const setNotificationStatus = httpsCallable(functions, 'setNotificationStatus');
       await setNotificationStatus({ enabled: true, subscription: subscription.toJSON() });
       
@@ -107,21 +98,18 @@ export function usePushNotifications() {
     } finally {
       setIsSubscribing(false);
     }
-  }, [isSupported, user, vapidKey, toast]);
+  }, [isSupported, user, vapidKey, toast, functions]);
 
   const unsubscribe = useCallback(async () => {
+    if (!user || !functions) return;
     setIsSubscribing(true);
-    if (!user || !functions) {
-      setIsSubscribing(false);
-      return;
-    }
 
     try {
-        const reg = await navigator.serviceWorker.ready;
-        const sub = await reg.pushManager.getSubscription();
-        if (sub) {
-            await sub.unsubscribe();
-        }
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+          await sub.unsubscribe();
+      }
 
       const setNotificationStatus = httpsCallable(functions, 'setNotificationStatus');
       await setNotificationStatus({ enabled: false });
@@ -137,7 +125,7 @@ export function usePushNotifications() {
     } finally {
       setIsSubscribing(false);
     }
-  }, [user, toast]);
+  }, [user, toast, functions]);
 
   return {
     isSupported,
