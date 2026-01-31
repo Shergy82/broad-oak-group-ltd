@@ -69,9 +69,10 @@ export function ServiceWorkerRegistrar() {
       }
     };
 
-    // run after page load (matches your old behavior)
-    if (document.readyState === 'complete') run();
-    else window.addEventListener('load', run);
+    // run immediately
+    run();
+    // plus a fallback after load
+    window.addEventListener('load', run);
 
     return () => {
       cancelled = true;
