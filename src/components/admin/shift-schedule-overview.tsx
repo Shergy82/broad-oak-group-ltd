@@ -86,47 +86,30 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '../ui/dropdown-menu';
+} from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useAuth } from '@/hooks/use-auth';
 import { EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
-import { Dialog, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from '../ui/dialog';
-import { Input } from '../ui/input';
-import { Label } from '../ui/label';
-import { Spinner } from '../shared/spinner';
+import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Spinner } from '@/components/shared/spinner';
 
 const getStatusBadge = (shift: Shift) => {
   const baseProps = { className: 'capitalize' };
-
   switch (shift.status) {
     case 'pending-confirmation':
-      return (
-        <Badge variant="secondary" {...baseProps}>
-          Pending
-        </Badge>
-      );
+      return <Badge variant="secondary" {...baseProps}>Pending</Badge>;
     case 'confirmed':
       return <Badge {...baseProps}>Confirmed</Badge>;
     case 'on-site':
-      return (
-        <Badge {...baseProps} className="bg-teal-500 hover:bg-teal-600">
-          <HardHat className="mr-1.5 h-3 w-3" />
-          On Site
-        </Badge>
-      );
+      return <Badge {...baseProps} className="bg-teal-500 hover:bg-teal-600"><HardHat className="mr-1.5 h-3 w-3" />On Site</Badge>;
     case 'completed':
-      return (
-        <Badge {...baseProps} className="bg-green-600 hover:bg-green-700 text-white">
-          Completed
-        </Badge>
-      );
+      return <Badge {...baseProps} className="bg-green-600 hover:bg-green-700 text-white">Completed</Badge>;
     case 'rejected':
       return (
         <div className="flex items-center gap-1 justify-end">
-          <Badge variant="destructive" {...baseProps}>
-            <ThumbsDown className="mr-1.5 h-3 w-3" />
-            Rejected
-          </Badge>
+          <Badge variant="destructive" {...baseProps}><ThumbsDown className="mr-1.5 h-3 w-3" />Rejected</Badge>
           {shift.notes && (
             <Popover>
               <PopoverTrigger asChild>
@@ -147,13 +130,7 @@ const getStatusBadge = (shift: Shift) => {
     case 'incomplete':
       return (
         <div className="flex items-center gap-1 justify-end">
-          <Badge
-            variant="destructive"
-            {...baseProps}
-            className="bg-amber-600 hover:bg-amber-700 text-white border-amber-600"
-          >
-            Incomplete
-          </Badge>
+          <Badge variant="destructive" {...baseProps} className="bg-amber-600 hover:bg-amber-700 text-white border-amber-600">Incomplete</Badge>
           {shift.notes && (
             <Popover>
               <PopoverTrigger asChild>
@@ -172,13 +149,9 @@ const getStatusBadge = (shift: Shift) => {
         </div>
       );
     default:
-      return (
-        <Badge variant="outline" {...baseProps}>
-          Unknown
-        </Badge>
-      );
+      return <Badge variant="outline" {...baseProps}>Unknown</Badge>;
   }
-};
+}
 
 interface ShiftScheduleOverviewProps {
   userProfile: UserProfile;
@@ -191,101 +164,64 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [selectedShift, setSelectedShift] = useState<Shift | null>(null);
-
   const [isDeleting, setIsDeleting] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string>('all');
   const [selectedArchiveWeek, setSelectedArchiveWeek] = useState<string>('0');
   const [activeTab, setActiveTab] = useState('today');
-  
   const [isConfirmDeleteAllOpen, setIsConfirmDeleteAllOpen] = useState(false);
   const [password, setPassword] = useState('');
   const [reauthError, setReauthError] = useState<string | null>(null);
   const [isReauthenticating, setIsReauthenticating] = useState(false);
-
-
   const { toast } = useToast();
   const router = useRouter();
-
+  
   const isOwner = userProfile.role === 'owner';
 
   useEffect(() => {
     if (!db) {
       setLoading(false);
-      setError('Firebase is not configured.');
+      setError("Firebase is not configured.");
       return;
     }
 
-    // ✅ USERS (safe mapping + safe sort so one bad doc can't break everything)
     const usersQuery = query(collection(db, 'users'));
-    const unsubscribeUsers = onSnapshot(
-      usersQuery,
-      (snapshot) => {
-        const fetchedUsers = snapshot.docs.map((d) => {
-          const data = d.data() as any;
-
-          return {
-            uid: d.id,
-            ...data,
-            name:
-              typeof data?.name === 'string' && data.name.trim()
-                ? data.name.trim()
-                : typeof data?.email === 'string' && data.email.trim()
-                  ? data.email.trim()
-                  : '(No name)',
-          } as UserProfile;
-        });
-
-        fetchedUsers.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-
-        console.log('Users loaded:', fetchedUsers.length);
-        setUsers(fetchedUsers);
-      },
-      (err) => {
-        console.error('Error fetching users: ', err);
-        setError('Could not fetch user data.');
-        setLoading(false);
-      }
-    );
+    const unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
+      const fetchedUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
+      fetchedUsers.sort((a, b) => a.name.localeCompare(b.name));
+      setUsers(fetchedUsers);
+    }, (err) => {
+      console.error("Error fetching users: ", err);
+      setError("Could not fetch user data.");
+      setLoading(false);
+    });
 
     const projectsQuery = query(collection(db, 'projects'));
-    const unsubscribeProjects = onSnapshot(
-      projectsQuery,
-      (snapshot) => {
-        setProjects(snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as Project)));
-      },
-      (err) => {
-        console.error('Error fetching projects: ', err);
-        setError('Could not fetch project data.');
-      }
-    );
+    const unsubscribeProjects = onSnapshot(projectsQuery, (snapshot) => {
+        setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project)));
+    }, (err) => {
+        console.error("Error fetching projects: ", err);
+        setError("Could not fetch project data.");
+    });
+
 
     const shiftsQuery = query(collection(db, 'shifts'));
-    const unsubscribeShifts = onSnapshot(
-      shiftsQuery,
-      (snapshot) => {
-        const fetchedShifts = snapshot.docs.map(
-          (d) => ({ id: d.id, ...d.data() } as Shift)
-        );
-        setShifts(fetchedShifts);
-        setLoading(false);
-      },
-      (err) => {
-        console.error('Error fetching shifts: ', err);
-        let errorMessage = 'Failed to fetch schedule. Please try again later.';
-        if (err.code === 'permission-denied') {
-          errorMessage =
-            "You don't have permission to view the full schedule. This is because your project's Firestore security rules are too restrictive. Please open the `firestore.rules` file in your project, copy its contents, and paste them into the 'Rules' tab of your Cloud Firestore database in the Firebase Console.";
-        } else if (err.code === 'failed-precondition') {
-          errorMessage =
-            'Could not fetch schedule. This is likely due to a missing database index. Please check the browser console for a link to create the required index in Firebase.';
-        }
-        setError(errorMessage);
-        setLoading(false);
+    const unsubscribeShifts = onSnapshot(shiftsQuery, (snapshot) => {
+      const fetchedShifts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift));
+      setShifts(fetchedShifts);
+      setLoading(false);
+    }, (err) => {
+      console.error("Error fetching shifts: ", err);
+      let errorMessage = 'Failed to fetch schedule. Please try again later.';
+      if (err.code === 'permission-denied') {
+        errorMessage = "You don't have permission to view the full schedule. This is because your project's Firestore security rules are too restrictive. Please open the `firestore.rules` file in your project, copy its contents, and paste them into the 'Rules' tab of your Cloud Firestore database in the Firebase Console.";
+      } else if (err.code === 'failed-precondition') {
+        errorMessage = 'Could not fetch schedule. This is likely due to a missing database index. Please check the browser console for a link to create the required index in Firebase.';
       }
-    );
+      setError(errorMessage);
+      setLoading(false);
+    });
 
     return () => {
       unsubscribeUsers();
@@ -298,80 +234,75 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     const d = date.toDate();
     return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
   };
-
+  
   const filteredShifts = useMemo(() => {
-    if (selectedUserId === 'all' || activeTab === 'archive') return shifts;
-    return shifts.filter((shift) => shift.userId === selectedUserId);
+    if (selectedUserId === 'all' || activeTab !== 'archive') {
+      return shifts;
+    }
+    return shifts.filter(shift => shift.userId === selectedUserId);
   }, [shifts, selectedUserId, activeTab]);
 
-  const { todayShifts, thisWeekShifts, nextWeekShifts, week3Shifts, week4Shifts, archiveShifts } =
-    useMemo(() => {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+  const { todayShifts, thisWeekShifts, nextWeekShifts, week3Shifts, week4Shifts, archiveShifts } = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-      const baseShifts = activeTab === 'archive' ? shifts : filteredShifts;
+    const baseShifts = activeTab === 'archive' ? shifts : filteredShifts;
 
-      const todayShifts = baseShifts.filter((s) => isToday(getCorrectedLocalDate(s.date)));
-
-      const thisWeekShifts = baseShifts.filter((s) =>
+    const todayShifts = baseShifts.filter(s => isToday(getCorrectedLocalDate(s.date)));
+    
+    const thisWeekShifts = baseShifts.filter(s => 
         isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 })
-      );
+    );
 
-      const nextWeekShifts = baseShifts.filter((s) => {
+    const nextWeekShifts = baseShifts.filter(s => {
         const shiftDate = getCorrectedLocalDate(s.date);
         const startOfNextWeek = addDays(startOfWeek(today, { weekStartsOn: 1 }), 7);
         return isSameWeek(shiftDate, startOfNextWeek, { weekStartsOn: 1 });
-      });
+    });
 
-      const week3Shifts = baseShifts.filter((s) => {
+    const week3Shifts = baseShifts.filter(s => {
         const shiftDate = getCorrectedLocalDate(s.date);
         const startOfWeek3 = addDays(startOfWeek(today, { weekStartsOn: 1 }), 14);
         return isSameWeek(shiftDate, startOfWeek3, { weekStartsOn: 1 });
-      });
-
-      const week4Shifts = baseShifts.filter((s) => {
+    });
+    
+    const week4Shifts = baseShifts.filter(s => {
         const shiftDate = getCorrectedLocalDate(s.date);
         const startOfWeek4 = addDays(startOfWeek(today, { weekStartsOn: 1 }), 21);
         return isSameWeek(shiftDate, startOfWeek4, { weekStartsOn: 1 });
-      });
-
-      const sixWeeksAgo = startOfWeek(subWeeks(today, 5), { weekStartsOn: 1 });
-      const historicalShifts = shifts.filter((s) => {
+    });
+    
+    // Archive logic
+    const sixWeeksAgo = startOfWeek(subWeeks(today, 5), { weekStartsOn: 1 });
+    const historicalShifts = shifts.filter(s => {
         const shiftDate = getCorrectedLocalDate(s.date);
-        return (
-          shiftDate >= sixWeeksAgo &&
-          shiftDate < startOfWeek(today, { weekStartsOn: 1 }) &&
-          ['completed', 'incomplete'].includes(s.status)
-        );
-      });
+        return shiftDate >= sixWeeksAgo && shiftDate < startOfWeek(today, {weekStartsOn: 1}) && ['completed', 'incomplete'].includes(s.status);
+    });
+    
+    const selectedArchiveDate = startOfWeek(subWeeks(today, parseInt(selectedArchiveWeek)), { weekStartsOn: 1 });
 
-      const selectedArchiveDate = startOfWeek(subWeeks(today, parseInt(selectedArchiveWeek)), {
-        weekStartsOn: 1,
-      });
+    const archiveShifts = historicalShifts.filter(s => 
+        isSameWeek(getCorrectedLocalDate(s.date), selectedArchiveDate, { weekStartsOn: 1 }) &&
+        (selectedUserId === 'all' || s.userId === selectedUserId)
+    );
 
-      const archiveShifts = historicalShifts.filter(
-        (s) =>
-          isSameWeek(getCorrectedLocalDate(s.date), selectedArchiveDate, { weekStartsOn: 1 }) &&
-          (selectedUserId === 'all' || s.userId === selectedUserId)
-      );
-
-      return { todayShifts, thisWeekShifts, nextWeekShifts, week3Shifts, week4Shifts, archiveShifts };
-    }, [filteredShifts, shifts, selectedUserId, selectedArchiveWeek, activeTab]);
+    return { todayShifts, thisWeekShifts, nextWeekShifts, week3Shifts, week4Shifts, archiveShifts };
+  }, [filteredShifts, shifts, selectedUserId, selectedArchiveWeek, activeTab]);
 
   const userNameMap = useMemo(() => {
     const map = new Map<string, string>();
-    users.forEach((user) => map.set(user.uid, user.name));
+    users.forEach(user => map.set(user.uid, user.name));
     return map;
   }, [users]);
 
   const archiveWeekOptions = useMemo(() => {
-    const options: { value: string; label: string }[] = [];
+    const options = [];
     const today = new Date();
     for (let i = 0; i < 6; i++) {
       const weekStart = startOfWeek(subWeeks(today, i), { weekStartsOn: 1 });
       options.push({
         value: i.toString(),
-        label: `w/c ${format(weekStart, 'dd/MM/yy')}`,
+        label: `w/c ${format(weekStart, 'dd/MM/yy')}`
       });
     }
     return options;
@@ -381,20 +312,20 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     setSelectedShift(null);
     setIsFormOpen(true);
   };
-
+  
   const handleEditShift = (shift: Shift) => {
     setSelectedShift(shift);
     setIsFormOpen(true);
   };
-
+  
   const handleDeleteShift = async (shift: Shift) => {
     if (!db) return;
     try {
-      await deleteDoc(doc(db, 'shifts', shift.id));
-      toast({ title: 'Success', description: 'Shift has been deleted.' });
+        await deleteDoc(doc(db, 'shifts', shift.id));
+        toast({ title: 'Success', description: 'Shift has been deleted.' });
     } catch (error) {
-      console.error('Error deleting shift:', error);
-      toast({ variant: 'destructive', title: 'Error', description: 'Could not delete the shift.' });
+        console.error("Error deleting shift:", error);
+        toast({ variant: 'destructive', title: 'Error', description: 'Could not delete the shift.' });
     }
   };
 
@@ -406,23 +337,18 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     const generationDate = new Date();
     const pageContentMargin = 14;
     const pageHeight = doc.internal.pageSize.height;
-
-    const selectedUser = users.find((u) => u.uid === selectedUserId);
+    
+    const selectedUser = users.find(u => u.uid === selectedUserId);
     const title = selectedUser ? `Team Shift Schedule for ${selectedUser.name}` : 'Team Shift Schedule';
 
     const addPageNumbers = () => {
-      const pageCount = doc.internal.pages.length - 1;
-      for (let i = 1; i <= pageCount; i++) {
-        doc.setPage(i);
-        doc.setFontSize(10);
-        doc.setTextColor(150);
-        doc.text(
-          `Page ${i} of ${pageCount}`,
-          doc.internal.pageSize.width - pageContentMargin,
-          pageHeight - 10,
-          { align: 'right' }
-        );
-      }
+        const pageCount = (doc.internal as any).pages.length - 1;
+        for (let i = 1; i <= pageCount; i++) {
+            doc.setPage(i);
+            doc.setFontSize(10);
+            doc.setTextColor(150);
+            doc.text(`Page ${i} of ${pageCount}`, doc.internal.pageSize.width - pageContentMargin, pageHeight - 10, { align: 'right' });
+        }
     };
 
     doc.setFontSize(18);
@@ -432,134 +358,128 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     doc.text(`Generated on: ${format(generationDate, 'PPP p')}`, pageContentMargin, 28);
 
     let finalY = 35;
-
+    
     const today = new Date();
 
-    const allThisWeekShifts = shifts.filter((s) =>
-      isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 })
-    );
-    const allNextWeekShifts = shifts.filter((s) => {
-      const shiftDate = getCorrectedLocalDate(s.date);
-      const startOfNextWeek = addDays(today, 7);
-      return isSameWeek(shiftDate, startOfNextWeek, { weekStartsOn: 1 });
+    const allThisWeekShifts = shifts.filter(s => isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 }));
+    const allNextWeekShifts = shifts.filter(s => {
+        const shiftDate = getCorrectedLocalDate(s.date);
+        const startOfNextWeek = addDays(today, 7);
+        return isSameWeek(shiftDate, startOfNextWeek, { weekStartsOn: 1 });
     });
 
     const generateTablesForPeriod = (periodTitle: string, shiftsForPeriod: Shift[]) => {
-      if (shiftsForPeriod.length === 0) return;
+        if (shiftsForPeriod.length === 0) return;
+        
+        const periodFilteredShifts = selectedUserId === 'all'
+            ? shiftsForPeriod
+            : shiftsForPeriod.filter(s => s.userId === selectedUserId);
 
-      const periodFilteredShifts =
-        selectedUserId === 'all' ? shiftsForPeriod : shiftsForPeriod.filter((s) => s.userId === selectedUserId);
+        if (periodFilteredShifts.length === 0) return;
 
-      if (periodFilteredShifts.length === 0) return;
-
-      if (finalY > 40) finalY += 8;
-      doc.setFontSize(16);
-      doc.text(periodTitle, pageContentMargin, finalY);
-      finalY += 10;
-
-      const shiftsByUser = new Map<string, Shift[]>();
-      periodFilteredShifts.forEach((shift) => {
-        if (!shiftsByUser.has(shift.userId)) shiftsByUser.set(shift.userId, []);
-        shiftsByUser.get(shift.userId)!.push(shift);
-      });
-
-      const usersToIterate = selectedUser
-        ? [selectedUser]
-        : [...users]
-            .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
-            .filter((u) => shiftsByUser.has(u.uid));
-
-      for (const user of usersToIterate) {
-        const userShifts = shiftsByUser.get(user.uid) || [];
-        if (userShifts.length === 0) continue;
-
-        userShifts.sort((a, b) => getCorrectedLocalDate(a.date).getTime() - getCorrectedLocalDate(b.date).getTime());
-
-        const head = [['Date', 'Type', 'Task & Address', 'Status']];
-        const body = userShifts.map((shift) => {
-          const shiftDate = getCorrectedLocalDate(shift.date);
-          const statusText = shift.status.replace(/-/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
-          const taskAndAddress = `${shift.task}\n${shift.address}`;
-          return {
-            date: format(shiftDate, 'EEE, dd MMM'),
-            type: shift.type === 'all-day' ? 'All Day' : shift.type.toUpperCase(),
-            task: taskAndAddress,
-            status: statusText,
-            notes:
-              (shift.status === 'incomplete' || shift.status === 'rejected') && shift.notes
-                ? `Note: ${shift.notes}`
-                : null,
-          };
+        if (finalY > 40) {
+            finalY += 8;
+        }
+        doc.setFontSize(16);
+        doc.text(periodTitle, pageContentMargin, finalY);
+        finalY += 10;
+        
+        const shiftsByUser = new Map<string, Shift[]>();
+        periodFilteredShifts.forEach(shift => {
+            if (!shiftsByUser.has(shift.userId)) {
+                shiftsByUser.set(shift.userId, []);
+            }
+            shiftsByUser.get(shift.userId)!.push(shift);
         });
 
-        let tableStartY = (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 15 : finalY;
+        const usersToIterate = selectedUser ? [selectedUser] : [...users].sort((a, b) => (a.name || '').localeCompare(b.name || '')).filter(u => shiftsByUser.has(u.uid));
+        
+        for (const user of usersToIterate) {
+            const userShifts = shiftsByUser.get(user.uid) || [];
+            if (userShifts.length === 0) continue;
 
-        const estimatedHeight = 15 + (body.length + 1) * 12;
-        if (tableStartY + estimatedHeight > pageHeight - 20) {
-          doc.addPage();
-          tableStartY = 20;
-          finalY = 20;
-        }
-
-        if (selectedUserId === 'all') {
-          doc.setFontSize(12);
-          doc.setFont(doc.getFont().fontName, 'bold');
-          doc.text(user.name, pageContentMargin, tableStartY - 5);
-          tableStartY += 2;
-        }
-
-        autoTable(doc, {
-          head,
-          body: body.map((row) => [row.date, row.type, row.task, row.status]),
-          startY: tableStartY,
-          headStyles: { fillColor: [6, 95, 212] },
-          didDrawPage: (data) => {
-            finalY = data.cursor?.y || 0;
-          },
-          didParseCell: (data) => {
-            if (data.row.index >= 0 && data.section === 'body' && data.column.dataKey === 2) {
-              const rowData = body[data.row.index];
-              if (rowData?.notes) data.cell.text = [rowData.task, rowData.notes];
+            userShifts.sort((a, b) => getCorrectedLocalDate(a.date).getTime() - getCorrectedLocalDate(b.date).getTime());
+            
+            const head = [['Date', 'Type', 'Task & Address', 'Status']];
+            const body = userShifts.map(shift => {
+                const shiftDate = getCorrectedLocalDate(shift.date);
+                const statusText = shift.status.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                let taskAndAddress = `${shift.task}\n${shift.address}`;
+                const rowData = {
+                    date: format(shiftDate, 'EEE, dd MMM'),
+                    type: shift.type === 'all-day' ? 'All Day' : shift.type.toUpperCase(),
+                    task: taskAndAddress,
+                    status: statusText,
+                    notes: ((shift.status === 'incomplete' || shift.status === 'rejected') && shift.notes) ? `Note: ${shift.notes}` : null,
+                };
+                return rowData;
+            });
+            
+            let tableStartY = (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 15 : finalY;
+            
+            const estimatedHeight = 15 + (body.length + 1) * 12;
+            if (tableStartY + estimatedHeight > pageHeight - 20) {
+                doc.addPage();
+                tableStartY = 20;
+                finalY = 20;
             }
-          },
-          willDrawCell: (data) => {
-            if (data.row.index >= 0 && data.section === 'body' && data.column.dataKey === 2) {
-              const rowData = body[data.row.index];
-              if (rowData?.notes) {
-                const textLines = doc.splitTextToSize(rowData.task, data.cell.contentWidth);
-                const textHeight = textLines.length * (doc.getLineHeight() / doc.internal.scaleFactor);
-                const noteStartY = data.cell.y + textHeight + 1;
-
-                const noteLines = doc.splitTextToSize(rowData.notes, data.cell.contentWidth);
-                const noteHeight = noteLines.length * (doc.getLineHeight() / doc.internal.scaleFactor);
-
-                doc.setFillColor(255, 252, 204);
-                doc.rect(
-                  data.cell.x,
-                  noteStartY - (doc.getLineHeight() / doc.internal.scaleFactor) * 0.75,
-                  data.cell.width,
-                  noteHeight + 2,
-                  'F'
-                );
-              }
+            
+            if (selectedUserId === 'all') {
+                doc.setFontSize(12);
+                doc.setFont(doc.getFont().fontName, 'bold');
+                doc.text(user.name, pageContentMargin, tableStartY - 5);
+                tableStartY += 2; 
             }
-          },
-        });
 
-        finalY = (doc as any).lastAutoTable.finalY;
-      }
+            autoTable(doc, {
+                head,
+                body: body.map(row => [row.date, row.type, row.task, row.status]),
+                startY: tableStartY,
+                headStyles: { fillColor: [6, 95, 212] },
+                didDrawPage: (data: any) => {
+                    finalY = data.cursor?.y || 0;
+                },
+                didParseCell: (data) => {
+                    if (data.row.index >= 0 && data.section === 'body' && data.column.dataKey === 2) {
+                        const rowData = body[data.row.index];
+                        if (rowData?.notes) {
+                            (data.cell.text as any) = [rowData.task, rowData.notes];
+                        }
+                    }
+                },
+                willDrawCell: (data) => {
+                    if (data.row.index >= 0 && data.section === 'body' && data.column.dataKey === 2) {
+                        const rowData = body[data.row.index];
+                        if (rowData?.notes) {
+                            const textLines = doc.splitTextToSize(rowData.task, data.cell.contentWidth);
+                            const textHeight = textLines.length * (doc.getLineHeight() / doc.internal.scaleFactor);
+                            const noteStartY = data.cell.y + textHeight + 1;
+                            
+                            const noteLines = doc.splitTextToSize(rowData.notes, data.cell.contentWidth);
+                            const noteHeight = noteLines.length * (doc.getLineHeight() / doc.internal.scaleFactor);
+
+                            doc.setFillColor(255, 252, 204);
+                            doc.rect( data.cell.x, noteStartY - (doc.getLineHeight() / doc.internal.scaleFactor) * 0.75, data.cell.width, noteHeight + 2, 'F');
+                        }
+                    }
+                },
+            });
+            finalY = (doc as any).lastAutoTable.finalY;
+        }
     };
 
-    if (period === 'this' || period === 'both') generateTablesForPeriod("This Week's Shifts", allThisWeekShifts);
-    if (period === 'next' || period === 'both') generateTablesForPeriod("Next Week's Shifts", allNextWeekShifts);
-
-    if (
-      allThisWeekShifts.filter((s) => selectedUserId === 'all' || s.userId === selectedUserId).length === 0 &&
-      allNextWeekShifts.filter((s) => selectedUserId === 'all' || s.userId === selectedUserId).length === 0
-    ) {
-      doc.text('No shifts scheduled for these periods.', pageContentMargin, finalY);
+    if (period === 'this' || period === 'both') {
+        generateTablesForPeriod("This Week's Shifts", allThisWeekShifts);
+    }
+    if (period === 'next' || period === 'both') {
+        generateTablesForPeriod("Next Week's Shifts", allNextWeekShifts);
     }
 
+    if (allThisWeekShifts.filter(s => selectedUserId === 'all' || s.userId === selectedUserId).length === 0 && 
+        allNextWeekShifts.filter(s => selectedUserId === 'all' || s.userId === selectedUserId).length === 0) {
+      doc.text("No shifts scheduled for these periods.", pageContentMargin, finalY);
+    }
+    
     addPageNumbers();
     doc.save(`team_schedule_${format(generationDate, 'yyyy-MM-dd')}.pdf`);
   };
@@ -727,8 +647,8 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
               const status = shift.status || 'pending-confirmation';
               const colors = statusColors[status];
               if (colors) {
-                doc.setFillColor(...colors.bg);
-                doc.setTextColor(...colors.text);
+                doc.setFillColor(colors.bg[0], colors.bg[1], colors.bg[2]);
+                doc.setTextColor(colors.text[0], colors.text[1], colors.text[2]);
                 doc.rect(data.cell.x, data.cell.y, data.cell.width, data.cell.height, 'F');
               }
             }
@@ -1300,3 +1220,5 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     </>
   );
 }
+
+    
