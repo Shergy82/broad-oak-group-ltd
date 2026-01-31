@@ -1,6 +1,6 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
-import { getAuth, type Auth } from "firebase/auth";
+import { getAuth, setPersistence, indexedDBLocalPersistence, type Auth } from "firebase/auth";
 import { getFirestore, type Firestore } from "firebase/firestore";
 import { getStorage, type FirebaseStorage } from "firebase/storage";
 import { getFunctions, httpsCallable, type Functions } from "firebase/functions";
@@ -29,6 +29,7 @@ let functions: Functions | null = null;
 if (isFirebaseConfigured && typeof window !== 'undefined') {
     app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
     auth = getAuth(app);
+    setPersistence(auth, indexedDBLocalPersistence).catch(() => {});
     db = getFirestore(app);
     storage = getStorage(app);
     functions = getFunctions(app, 'europe-west2');
@@ -36,6 +37,7 @@ if (isFirebaseConfigured && typeof window !== 'undefined') {
     // For server-side rendering
     app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
     auth = getAuth(app);
+    setPersistence(auth, indexedDBLocalPersistence).catch(() => {});
     db = getFirestore(app);
     storage = getStorage(app);
     functions = getFunctions(app, 'europe-west2');
