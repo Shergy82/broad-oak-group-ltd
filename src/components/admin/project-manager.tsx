@@ -61,6 +61,8 @@ import {
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import jsPDF from 'jspdf';
+import { useAuth } from '@/hooks/use-auth';
+import { EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 
 
 const projectSchema = z.object({
@@ -518,6 +520,7 @@ interface ProjectManagerProps {
 }
 
 export function ProjectManager({ userProfile }: ProjectManagerProps) {
+  const { user } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -525,6 +528,10 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
   const [isFileManagerOpen, setFileManagerOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [isDeletingAll, setIsDeletingAll] = useState(false);
+  const [isConfirmDeleteAllOpen, setIsConfirmDeleteAllOpen] = useState(false);
+  const [password, setPassword] = useState('');
+  const [reauthError, setReauthError] = useState<string | null>(null);
+  const [isReauthenticating, setIsReauthenticating] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState<string | null>(null);
   const { toast } = useToast();
 
@@ -732,6 +739,30 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
     }
   };
 
+  const handlePasswordConfirmedDeleteAll = async () => {
+    if (!user || !user.email) {
+      toast({ title: 'Could not verify user.', variant: 'destructive' });
+      return;
+    }
+    if (!password) {
+      setReauthError('Password is required.');
+      return;
+    }
+    setIsReauthenticating(true);
+    setReauthError(null);
+    try {
+      const credential = EmailAuthProvider.credential(user.email, password);
+      await reauthenticateWithCredential(user, credential);
+      await handleDeleteAllProjects();
+      setIsConfirmDeleteAllOpen(false);
+    } catch (error) {
+      setReauthError('Incorrect password. Deletion cancelled.');
+    } finally {
+      setIsReauthenticating(false);
+      setPassword('');
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row gap-4 justify-between">
@@ -748,28 +779,43 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
             userProfile={userProfile} 
             />
             {userProfile.role === 'owner' && (
-                <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                        <Button variant="destructive" disabled={isDeletingAll || projects.length === 0}>
+                <Dialog open={isConfirmDeleteAllOpen} onOpenChange={setIsConfirmDeleteAllOpen}>
+                    <DialogTrigger asChild>
+                         <Button variant="destructive" disabled={isDeletingAll || projects.length === 0}>
                             <Trash className="mr-2" />
                             {isDeletingAll ? 'Deleting...' : 'Delete All'}
                         </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                                This action cannot be undone. This will permanently delete ALL projects and ALL associated files from the database and storage.
-                            </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={handleDeleteAllProjects} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                                {isDeletingAll ? <Spinner /> : 'Yes, Delete Everything'}
-                            </AlertDialogAction>
-                        </AlertDialogFooter>
-                    </AlertDialogContent>
-                </AlertDialog>
+                    </DialogTrigger>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Are you absolutely sure?</DialogTitle>
+                            <DialogDescription>
+                                This is a highly destructive action. To confirm, please enter your password. This will permanently delete ALL projects and ALL associated files.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-2 pt-4">
+                            <Label htmlFor="password-confirm-projects">Password</Label>
+                            <Input
+                                id="password-confirm-projects"
+                                type="password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                placeholder="Enter your password"
+                            />
+                            {reauthError && <p className="text-sm text-destructive">{reauthError}</p>}
+                        </div>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setIsConfirmDeleteAllOpen(false)}>Cancel</Button>
+                            <Button
+                                variant="destructive"
+                                onClick={handlePasswordConfirmedDeleteAll}
+                                disabled={isReauthenticating || isDeletingAll}
+                            >
+                                {isReauthenticating || isDeletingAll ? <Spinner /> : 'Confirm & Delete All'}
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
             )}
         </div>
       </div>
@@ -809,8 +855,8 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                         <TableCell>{project.nextReviewDate ? format(project.nextReviewDate.toDate(), 'dd/MM/yyyy') : 'N/A'}</TableCell>
                         <TableCell className="text-right space-x-2">
                             <Button variant="outline" size="sm" onClick={() => handleManageFiles(project)}>
-                                <FolderOpen className="mr-2 h-4 w-4" />
-                                Files
+                            <FolderOpen className="mr-2 h-4 w-4" />
+                            Files
                             </Button>
                              {['admin', 'owner', 'manager'].includes(userProfile.role) && (
                                 <Button variant="outline" size="sm" onClick={() => handleDownloadPhotosAsPdf(project)} disabled={isGeneratingPdf === project.id}>
@@ -916,3 +962,4 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
     
 
     
+

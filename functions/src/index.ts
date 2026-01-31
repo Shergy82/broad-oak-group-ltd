@@ -1,6 +1,8 @@
 
 'use server';
 import * as functions from "firebase-functions";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
+import * as logger from "firebase-functions/logger";
 import admin from "firebase-admin";
 import * as webPush from "web-push";
 
@@ -31,74 +33,64 @@ const pushSubscriptionConverter = {
 
 
 // This is the v1 SDK syntax for onCall functions
-export const getVapidPublicKey = functions.region("europe-west2").https.onCall((data, context) => {
-    const publicKey = functions.config().webpush?.public_key;
-    if (!publicKey) {
-        functions.logger.error("CRITICAL: VAPID public key (webpush.public_key) not set in function configuration.");
-        throw new functions.https.HttpsError('not-found', 'VAPID public key is not configured on the server.');
-    }
-    return { publicKey };
+export const getVapidPublicKey = onCall({ region: "europe-west2" }, async () => {
+  const publicKey = process.env.WEBPUSH_PUBLIC_KEY || "";
+  if (!publicKey) {
+    logger.error("WEBPUSH_PUBLIC_KEY is not set.");
+    throw new HttpsError("not-found", "VAPID public key is not configured on the server.");
+  }
+  return { publicKey };
 });
 
-export const getNotificationStatus = functions.region("europe-west2").https.onCall(async (data, context) => {
-    // 1. Authentication check
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "You must be logged in to perform this action.");
-    }
+export const getNotificationStatus = onCall({ region: "europe-west2" }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be logged in to perform this action.");
+  }
 
-    // 2. Authorization check
-    const uid = context.auth.uid;
-    const userDoc = await db.collection("users").doc(uid).get();
-    const userProfile = userDoc.data();
-    if (!userProfile || userProfile.role !== 'owner') {
-        throw new functions.https.HttpsError("permission-denied", "Only the account owner can view notification settings.");
-    }
-    
-    // 3. Execution
-    try {
-        const settingsRef = db.collection('settings').doc('notifications');
-        const docSnap = await settingsRef.get();
-        if (docSnap.exists && docSnap.data()?.enabled === false) {
-            return { enabled: false };
-        }
-        return { enabled: true }; // Default to enabled
-    } catch (error) {
-        functions.logger.error("Error reading notification settings:", error);
-        throw new functions.https.HttpsError("internal", "An unexpected error occurred while reading the settings.");
-    }
+  const uid = request.auth.uid;
+  const userDoc = await db.collection("users").doc(uid).get();
+  const userProfile = userDoc.data();
+
+  if (!userProfile || userProfile.role !== "owner") {
+    throw new HttpsError("permission-denied", "Only the account owner can view notification settings.");
+  }
+
+  try {
+    const settingsRef = db.collection("settings").doc("notifications");
+    const docSnap = await settingsRef.get();
+    if (docSnap.exists && docSnap.data()?.enabled === false) return { enabled: false };
+    return { enabled: true };
+  } catch (error) {
+    logger.error("Error reading notification settings:", error);
+    throw new HttpsError("internal", "An unexpected error occurred while reading the settings.");
+  }
 });
 
+export const setNotificationStatus = onCall({ region: "europe-west2" }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be logged in to perform this action.");
+  }
 
-export const setNotificationStatus = functions.region("europe-west2").https.onCall(async (data, context) => {
-    // 1. Authentication check
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "You must be logged in to perform this action.");
-    }
+  const uid = request.auth.uid;
+  const userDoc = await db.collection("users").doc(uid).get();
+  const userProfile = userDoc.data();
 
-    // 2. Authorization check
-    const uid = context.auth.uid;
-    const userDoc = await db.collection("users").doc(uid).get();
-    const userProfile = userDoc.data();
-    if (!userProfile || userProfile.role !== 'owner') {
-        throw new functions.https.HttpsError("permission-denied", "Only the account owner can change notification settings.");
-    }
-    
-    // 3. Validation
-    const { enabled } = data;
-    if (typeof enabled !== 'boolean') {
-        throw new functions.https.HttpsError("invalid-argument", "The 'enabled' field must be a boolean value.");
-    }
-    
-    // 4. Execution
-    try {
-        const settingsRef = db.collection('settings').doc('notifications');
-        await settingsRef.set({ enabled: enabled }, { merge: true });
-        functions.logger.log(`Owner ${uid} set global notifications to: ${enabled}`);
-        return { success: true };
-    } catch (error) {
-        functions.logger.error("Error updating notification settings:", error);
-        throw new functions.https.HttpsError("internal", "An unexpected error occurred while updating the settings.");
-    }
+  if (!userProfile || userProfile.role !== "owner") {
+    throw new HttpsError("permission-denied", "Only the account owner can change notification settings.");
+  }
+
+  const { enabled } = request.data || {};
+  if (typeof enabled !== "boolean") {
+    throw new HttpsError("invalid-argument", "The 'enabled' field must be a boolean value.");
+  }
+
+  try {
+    await db.collection("settings").doc("notifications").set({ enabled }, { merge: true });
+    return { success: true, enabled };
+  } catch (error) {
+    logger.error("Error writing notification settings:", error);
+    throw new HttpsError("internal", "An unexpected error occurred while saving the settings.");
+  }
 });
 
 export const sendShiftNotification = functions.region("europe-west2").firestore.document("shifts/{shiftId}")
@@ -114,7 +106,7 @@ export const sendShiftNotification = functions.region("europe-west2").firestore.
       return;
     }
 
-    const config = functions.config();
+    const config = (functions as any).config();
     const publicKey = config.webpush?.public_key;
     const privateKey = config.webpush?.private_key;
 
@@ -258,7 +250,7 @@ export const projectReviewNotifier = functions
       return;
     }
 
-    const config = functions.config();
+    const config = (functions as any).config();
     const publicKey = config.webpush?.public_key;
     const privateKey = config.webpush?.private_key;
 
@@ -355,7 +347,7 @@ export const pendingShiftNotifier = functions
       return;
     }
 
-    const config = functions.config();
+    const config = (functions as any).config();
     const publicKey = config.webpush?.public_key;
     const privateKey = config.webpush?.private_key;
 
@@ -573,33 +565,34 @@ async function deleteQueryBatch(db: FirebaseFirestore.Firestore, query: Firebase
   }
 }
 
-export const deleteAllShifts = functions.region("europe-west2").https.onCall(async (data, context) => {
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "You must be logged in.");
-    }
-    const uid = context.auth.uid;
-    const userDoc = await db.collection("users").doc(uid).get();
-    const userProfile = userDoc.data();
+export const deleteAllShifts = onCall({ region: "europe-west2" }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be logged in.");
+  }
 
-    if (!userProfile || userProfile.role !== 'owner') {
-        throw new functions.https.HttpsError("permission-denied", "Only the account owner can perform this action.");
-    }
-    
-    functions.logger.log(`Owner ${uid} initiated deletion of all active shifts.`);
+  const uid = request.auth.uid;
+  const userDoc = await db.collection("users").doc(uid).get();
+  const userProfile = userDoc.data();
 
-    try {
-        const activeShiftStatuses = ['pending-confirmation', 'confirmed', 'on-site', 'rejected'];
-        const shiftsCollection = db.collection('shifts');
-        const query = shiftsCollection.where('status', 'in', activeShiftStatuses);
-        
-        await new Promise((resolve, reject) => deleteQueryBatch(db, query, resolve, reject));
-        
-        functions.logger.log(`Successfully deleted active shifts.`);
-        return { success: true, message: `Successfully deleted active shifts.` };
-    } catch (error) {
-        functions.logger.error("Error deleting all shifts:", error);
-        throw new functions.https.HttpsError("internal", "An unexpected error occurred while deleting shifts.");
-    }
+  if (!userProfile || userProfile.role !== "owner") {
+    throw new HttpsError("permission-denied", "Only the account owner can perform this action.");
+  }
+
+  logger.log(`Owner ${uid} initiated deletion of all active shifts.`);
+
+  try {
+    const activeShiftStatuses = ["pending-confirmation", "confirmed", "on-site", "rejected"];
+    const shiftsCollection = db.collection("shifts");
+    const query = shiftsCollection.where("status", "in", activeShiftStatuses);
+
+    await new Promise((resolve, reject) => deleteQueryBatch(db, query, resolve, reject));
+
+    logger.log("Successfully deleted active shifts.");
+    return { success: true, message: "Successfully deleted active shifts." };
+  } catch (error) {
+    logger.error("Error deleting all shifts:", error);
+    throw new HttpsError("internal", "An unexpected error occurred while deleting shifts.");
+  }
 });
 
 export const deleteAllProjects = functions.region("europe-west2").https.onCall(async (data, context) => {

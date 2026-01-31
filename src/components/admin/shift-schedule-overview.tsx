@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -87,6 +88,12 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useAuth } from '@/hooks/use-auth';
+import { EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
+import { Dialog, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from '../ui/dialog';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Spinner } from '../shared/spinner';
 
 const getStatusBadge = (shift: Shift) => {
   const baseProps = { className: 'capitalize' };
@@ -178,6 +185,7 @@ interface ShiftScheduleOverviewProps {
 }
 
 export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProps) {
+  const { user } = useAuth();
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -191,6 +199,12 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
   const [selectedUserId, setSelectedUserId] = useState<string>('all');
   const [selectedArchiveWeek, setSelectedArchiveWeek] = useState<string>('0');
   const [activeTab, setActiveTab] = useState('today');
+  
+  const [isConfirmDeleteAllOpen, setIsConfirmDeleteAllOpen] = useState(false);
+  const [password, setPassword] = useState('');
+  const [reauthError, setReauthError] = useState<string | null>(null);
+  const [isReauthenticating, setIsReauthenticating] = useState(false);
+
 
   const { toast } = useToast();
   const router = useRouter();
@@ -552,89 +566,174 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
 
   const handleDeleteAllShifts = async () => {
     if (!functions) {
-      toast({ variant: 'destructive', title: 'Error', description: 'Firebase Functions service is not available.' });
-      return;
+        toast({ variant: 'destructive', title: 'Error', description: 'Firebase Functions service is not available.' });
+        return;
     }
     setIsDeleting(true);
     toast({ title: 'Deleting All Active Shifts...', description: 'This may take a moment.' });
-
+    
     try {
-      const deleteAllShiftsFn = httpsCallable(functions, 'deleteAllShifts');
-      const result = await deleteAllShiftsFn();
-      toast({ title: 'Success', description: (result.data as any).message });
+        const deleteAllShiftsFn = httpsCallable(functions, 'deleteAllShifts');
+        const result = await deleteAllShiftsFn();
+        toast({ title: 'Success', description: (result.data as any).message });
     } catch (error: any) {
-      console.error('Error deleting all shifts:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Deletion Failed',
-        description: error.message || 'An unknown error occurred.',
-      });
+        console.error("Error deleting all shifts:", error);
+        toast({
+            variant: 'destructive',
+            title: 'Deletion Failed',
+            description: error.message || 'An unknown error occurred.',
+        });
     } finally {
-      setIsDeleting(false);
+        setIsDeleting(false);
+    }
+  };
+
+  const handlePasswordConfirmedDeleteAll = async () => {
+    if (!user || !user.email) {
+      toast({ title: 'Could not verify user.', variant: 'destructive' });
+      return;
+    }
+    if (!password) {
+      setReauthError('Password is required.');
+      return;
+    }
+    setIsReauthenticating(true);
+    setReauthError(null);
+    try {
+      const credential = EmailAuthProvider.credential(user.email, password);
+      await reauthenticateWithCredential(user, credential);
+      await handleDeleteAllShifts();
+      setIsConfirmDeleteAllOpen(false);
+    } catch (error) {
+      setReauthError('Incorrect password. Deletion cancelled.');
+    } finally {
+      setIsReauthenticating(false);
+      setPassword('');
     }
   };
 
   const handleDownloadDailyReport = async () => {
     const { default: jsPDF } = await import('jspdf');
     const { default: autoTable } = await import('jspdf-autotable');
-
+    
     const today = new Date();
-    const todaysShifts = shifts.filter((s) => isToday(getCorrectedLocalDate(s.date)));
-
+    const todaysShifts = shifts.filter(s => isToday(getCorrectedLocalDate(s.date)));
+    
     if (todaysShifts.length === 0) {
-      toast({ title: 'No Shifts Today', description: 'There are no shifts scheduled for today to generate a report.' });
-      return;
+        toast({
+            title: 'No Shifts Today',
+            description: 'There are no shifts scheduled for today to generate a report.',
+        });
+        return;
     }
 
     const doc = new jsPDF();
-
-    const manDaysByManager: { [key: string]: number } = {};
-    todaysShifts.forEach((shift) => {
-      const manager = shift.manager || 'Unassigned';
-      if (!manDaysByManager[manager]) manDaysByManager[manager] = 0;
-      if (shift.type === 'all-day') manDaysByManager[manager] += 1;
-      else if (shift.type === 'am' || shift.type === 'pm') manDaysByManager[manager] += 0.5;
-    });
-
+    
+    // Stats
     const totalShifts = todaysShifts.length;
-    const completed = todaysShifts.filter((s) => s.status === 'completed').length;
-    const pending = todaysShifts.filter((s) => s.status === 'pending-confirmation').length;
-    const confirmed = todaysShifts.filter((s) => s.status === 'confirmed').length;
-    const onSite = todaysShifts.filter((s) => s.status === 'on-site').length;
-    const incomplete = todaysShifts.filter((s) => s.status === 'incomplete').length;
-    const operatives = new Set(todaysShifts.map((s) => s.userId)).size;
+    const completed = todaysShifts.filter(s => s.status === 'completed').length;
+    const pending = todaysShifts.filter(s => s.status === 'pending-confirmation').length;
+    const confirmed = todaysShifts.filter(s => s.status === 'confirmed').length;
+    const onSite = todaysShifts.filter(s => s.status === 'on-site').length;
+    const incomplete = todaysShifts.filter(s => s.status === 'incomplete').length;
+    const operatives = new Set(todaysShifts.map(s => s.userId)).size;
 
     doc.setFontSize(18);
     doc.text(`Daily Report for ${format(today, 'PPP')}`, 14, 22);
 
-    let lastY = 25;
-
     doc.setFontSize(12);
-    doc.text('Man-Days per Manager:', 14, lastY + 10);
+    doc.text('Summary of Today\'s Activities:', 14, 32);
     autoTable(doc, {
-      startY: lastY + 14,
-      head: [['Manager', 'Total Man-Days']],
-      body: Object.entries(manDaysByManager).map(([manager, days]) => [manager, days.toFixed(1)]),
-      theme: 'striped',
-      headStyles: { fillColor: [100, 100, 100] },
-    });
-    lastY = (doc as any).lastAutoTable.finalY;
-
-    doc.text("Summary of Today's Activities:", 14, lastY + 10);
-    autoTable(doc, {
-      startY: lastY + 14,
+      startY: 36,
       body: [
-        ['Total Shifts', totalShifts],
-        ['Operatives on Site', operatives],
-        ['Completed Shifts', completed],
-        ['On Site / In Progress', onSite],
-        ['Confirmed', confirmed],
-        ['Pending Confirmation', pending],
-        ['Marked Incomplete', incomplete],
+          ['Total Shifts', totalShifts],
+          ['Operatives on Site', operatives],
+          ['Completed Shifts', completed],
+          ['On Site / In Progress', onSite],
+          ['Confirmed', confirmed],
+          ['Pending Confirmation', pending],
+          ['Marked Incomplete', incomplete],
       ],
       theme: 'grid',
-      styles: { fontStyle: 'bold' },
-      columnStyles: { 0: { cellWidth: 50 }, 1: { cellWidth: 'auto', halign: 'center' } },
+      styles: {
+          fontStyle: 'bold',
+      },
+      columnStyles: {
+          0: { cellWidth: 50 },
+          1: { cellWidth: 'auto', halign: 'center' },
+      }
+    });
+    
+    const lastY = (doc as any).lastAutoTable.finalY;
+
+    doc.text('All Shifts for Today:', 14, lastY + 15);
+
+    const truncateText = (text: string, maxLength: number) => {
+        return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+    };
+    
+    const statusOrder: {[key: string]: number} = {
+        'on-site': 1,
+        'confirmed': 2,
+        'pending-confirmation': 3,
+        'completed': 4,
+        'incomplete': 5,
+        'rejected': 6,
+    };
+    const sortedShifts = [...todaysShifts].sort((a, b) => {
+        const aStatus = a.status || 'pending-confirmation';
+        const bStatus = b.status || 'pending-confirmation';
+        if (statusOrder[aStatus] !== statusOrder[bStatus]) {
+            return statusOrder[aStatus] - statusOrder[bStatus];
+        }
+        const nameA = userNameMap.get(a.userId) || '';
+        const nameB = userNameMap.get(b.userId) || '';
+        return nameA.localeCompare(nameB);
+    });
+
+    const statusColors: {[key: string]: {bg: [number, number, number], text: [number, number, number]}} = {
+      'on-site': { bg: [204, 255, 255], text: [0, 128, 128] },
+      completed: { bg: [211, 255, 211], text: [0, 100, 0] },
+      incomplete: { bg: [255, 239, 213], text: [139, 69, 19] },
+      confirmed: { bg: [224, 236, 255], text: [0, 0, 128] },
+      'pending-confirmation': { bg: [245, 245, 245], text: [105, 105, 105] },
+      rejected: { bg: [255, 228, 225], text: [178, 34, 34]},
+    };
+
+
+    autoTable(doc, {
+        startY: lastY + 19,
+        head: [['Operative', 'Task', 'Address', 'Type', 'Status']],
+        body: sortedShifts.map(shift => [
+            userNameMap.get(shift.userId) || 'Unknown',
+            truncateText(shift.task, 40),
+            truncateText(shift.address, 35),
+            shift.type === 'all-day' ? 'All Day' : shift.type.toUpperCase(),
+            shift.status.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+        ]),
+        headStyles: { fillColor: [6, 95, 212] },
+        styles: {
+            cellPadding: 2,
+            fontSize: 8,
+            valign: 'middle',
+            overflow: 'linebreak'
+        },
+        rowPageBreak: 'avoid',
+        bodyStyles: { minCellHeight: 12 },
+        willDrawCell: (data) => {
+          if (data.section === 'body' && data.column.dataKey === 4) { // Status column
+            const shift = sortedShifts[data.row.index];
+            if (shift) {
+              const status = shift.status || 'pending-confirmation';
+              const colors = statusColors[status];
+              if (colors) {
+                doc.setFillColor(...colors.bg);
+                doc.setTextColor(...colors.text);
+                doc.rect(data.cell.x, data.cell.y, data.cell.width, data.cell.height, 'F');
+              }
+            }
+          }
+        },
     });
 
     doc.save(`daily_report_${format(today, 'yyyy-MM-dd')}.pdf`);
@@ -647,26 +746,57 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     const today = new Date();
     const start = startOfWeek(today, { weekStartsOn: 1 });
     const end = endOfWeek(today, { weekStartsOn: 1 });
-
-    const weeklyShifts = shifts.filter((s) => {
-      const shiftDate = getCorrectedLocalDate(s.date);
-      return shiftDate >= start && shiftDate <= end;
+    const weeklyShifts = shifts.filter(s => {
+        const shiftDate = getCorrectedLocalDate(s.date);
+        return shiftDate >= start && shiftDate <= end;
     });
 
     if (weeklyShifts.length === 0) {
-      toast({ title: 'No Shifts This Week', description: 'There are no shifts scheduled for the current week.' });
-      return;
+        toast({
+            title: 'No Shifts This Week',
+            description: 'There are no shifts scheduled for the current week to generate a report.',
+        });
+        return;
     }
 
     const doc = new jsPDF();
+    
+    // Stats
+    const totalShifts = weeklyShifts.length;
+    const completed = weeklyShifts.filter(s => s.status === 'completed').length;
+    const pending = weeklyShifts.filter(s => s.status === 'pending-confirmation').length;
+    const confirmed = weeklyShifts.filter(s => s.status === 'confirmed').length;
+    const onSite = weeklyShifts.filter(s => s.status === 'on-site').length;
+    const incomplete = weeklyShifts.filter(s => s.status === 'incomplete').length;
+    const rejected = weeklyShifts.filter(s => s.status === 'rejected').length;
+    const operatives = new Set(weeklyShifts.map(s => s.userId)).size;
 
+    // Man-days calculation
+    const managerNames = ['Andy Kent', 'Sophie Lavender', 'Russ Brett', 'Phil Shergold'];
     const manDaysByManager: { [key: string]: number } = {};
-    weeklyShifts.forEach((shift) => {
-      const manager = shift.manager || 'Unassigned';
-      if (!manDaysByManager[manager]) manDaysByManager[manager] = 0;
-      if (shift.type === 'all-day') manDaysByManager[manager] += 1;
-      else if (shift.type === 'am' || shift.type === 'pm') manDaysByManager[manager] += 0.5;
+
+    weeklyShifts.forEach(shift => {
+        const combinedText = `${shift.task} ${shift.address}`;
+        let manager = 'Unassigned';
+
+        for (const name of managerNames) {
+             if (shift.task.toLowerCase().endsWith(name.toLowerCase()) || shift.address.toLowerCase().endsWith(name.toLowerCase())) {
+                manager = name;
+                break;
+            }
+        }
+        
+        if (!manDaysByManager[manager]) {
+            manDaysByManager[manager] = 0;
+        }
+
+        if (shift.type === 'all-day') {
+            manDaysByManager[manager] += 1;
+        } else if (shift.type === 'am' || shift.type === 'pm') {
+            manDaysByManager[manager] += 0.5;
+        }
     });
+
 
     doc.setFontSize(18);
     doc.text(`Weekly Report: ${format(start, 'dd MMM')} - ${format(end, 'dd MMM yyyy')}`, 14, 22);
@@ -676,176 +806,254 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     doc.setFontSize(12);
     doc.text('Man-Days per Manager:', 14, lastY + 10);
     autoTable(doc, {
-      startY: lastY + 14,
-      head: [['Manager', 'Total Man-Days']],
-      body: Object.entries(manDaysByManager).map(([manager, days]) => [manager, days.toFixed(1)]),
-      theme: 'striped',
-      headStyles: { fillColor: [100, 100, 100] },
+        startY: lastY + 14,
+        head: [['Manager', 'Total Man-Days']],
+        body: Object.entries(manDaysByManager).map(([manager, days]) => [manager, days.toFixed(1)]),
+        theme: 'striped',
+        headStyles: { fillColor: [100, 100, 100] },
     });
     lastY = (doc as any).lastAutoTable.finalY;
 
+    doc.text('Summary of Week\'s Activities:', 14, lastY + 10);
     autoTable(doc, {
       startY: lastY + 14,
-      head: [['Date', 'Operative', 'Task', 'Address', 'Status']],
-      body: weeklyShifts
-        .slice()
-        .sort((a, b) => getCorrectedLocalDate(a.date).getTime() - getCorrectedLocalDate(b.date).getTime())
-        .map((shift) => [
-          format(getCorrectedLocalDate(shift.date), 'EEE, dd/MM'),
-          userNameMap.get(shift.userId) || 'Unknown',
-          shift.task,
-          shift.address,
-          shift.status.replace(/-/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()),
+      body: [
+          ['Total Shifts', totalShifts],
+          ['Operatives on Site', operatives],
+          ['Completed Shifts', completed],
+          ['Confirmed & In Progress', confirmed + onSite],
+          ['Marked Incomplete', incomplete],
+      ],
+      theme: 'grid',
+      styles: {
+          fontStyle: 'bold',
+      },
+      columnStyles: {
+          0: { cellWidth: 50 },
+          1: { cellWidth: 'auto', halign: 'center' },
+      }
+    });
+    
+    lastY = (doc as any).lastAutoTable.finalY;
+
+    doc.text('All Shifts for This Week:', 14, lastY + 15);
+
+    // Sort shifts by date, then by user
+    const sortedShifts = [...weeklyShifts].sort((a, b) => {
+        const dateA = getCorrectedLocalDate(a.date).getTime();
+        const dateB = getCorrectedLocalDate(b.date).getTime();
+        if (dateA !== dateB) return dateA - dateB;
+        const nameA = userNameMap.get(a.userId) || '';
+        const nameB = userNameMap.get(b.userId) || '';
+        return nameA.localeCompare(nameB);
+    });
+
+    autoTable(doc, {
+        startY: lastY + 19,
+        head: [['Date', 'Operative', 'Task', 'Address', 'Status']],
+        body: sortedShifts.map(shift => [
+            format(getCorrectedLocalDate(shift.date), 'EEE, dd/MM'),
+            userNameMap.get(shift.userId) || 'Unknown',
+            shift.task,
+            shift.address,
+            shift.status.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
         ]),
-      headStyles: { fillColor: [6, 95, 212] },
-      styles: { cellPadding: 2, fontSize: 8, valign: 'middle' },
-      rowPageBreak: 'auto',
+        headStyles: { fillColor: [6, 95, 212] },
+        styles: {
+            cellPadding: 2,
+            fontSize: 8,
+            valign: 'middle',
+        },
+        rowPageBreak: 'auto',
     });
 
     doc.save(`weekly_report_${format(today, 'yyyy-MM-dd')}.pdf`);
   };
 
   const renderShiftList = (shiftsToRender: Shift[]) => {
-    if (shiftsToRender.length === 0) return null;
+    if (shiftsToRender.length === 0) {
+        return null;
+    }
 
     const truncate = (text: string, length = 10) => {
-      const words = text.split(' ');
-      return words.length > length ? words.slice(0, length).join(' ') + '...' : text;
+        const words = text.split(' ');
+        if (words.length > length) {
+            return words.slice(0, length).join(' ') + '...';
+        }
+        return text;
     };
-
+    
     return (
-      <>
-        <Card className="hidden md:block mt-4">
-          <CardContent className="p-0">
-            <TooltipProvider>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[180px]">Date</TableHead>
-                    {(selectedUserId === 'all' || activeTab === 'archive') && (
-                      <TableHead className="w-[180px]">Operative</TableHead>
-                    )}
-                    <TableHead>Task &amp; Address</TableHead>
-                    <TableHead>Manager</TableHead>
-                    <TableHead className="text-right w-[110px]">Type</TableHead>
-                    <TableHead className="text-right w-[160px]">Status</TableHead>
-                    {isOwner && <TableHead className="text-right w-[140px]">Actions</TableHead>}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {shiftsToRender.map((shift) => (
-                    <TableRow key={shift.id}>
-                      <TableCell className="font-medium">
-                        {format(getCorrectedLocalDate(shift.date), 'eeee, MMM d')}
-                      </TableCell>
-                      {(selectedUserId === 'all' || activeTab === 'archive') && (
-                        <TableCell>{userNameMap.get(shift.userId) || 'Unknown'}</TableCell>
-                      )}
-                      <TableCell>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div className="truncate">{truncate(shift.task)}</div>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p className="max-w-xs">{shift.task}</p>
-                          </TooltipContent>
-                        </Tooltip>
-                        <div className="text-xs text-muted-foreground">{shift.address}</div>
-                        {shift.eNumber && (
-                          <div className="text-xs text-muted-foreground">E-Number: {shift.eNumber}</div>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{shift.manager || 'N/A'}</TableCell>
-                      <TableCell className="text-right">
-                        <Badge
-                          variant={shift.type === 'am' ? 'default' : shift.type === 'pm' ? 'secondary' : 'outline'}
-                          className="capitalize text-xs"
-                        >
-                          {shift.type === 'all-day' ? 'All Day' : shift.type.toUpperCase()}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">{getStatusBadge(shift)}</TableCell>
+        <>
+            {/* Desktop Table View */}
+            <Card className="hidden md:block mt-4">
+                <CardContent className="p-0">
+                    <TooltipProvider>
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead className="w-[180px]">Date</TableHead>
+                                    { (selectedUserId === 'all' || activeTab === 'archive') && <TableHead className="w-[180px]">Operative</TableHead> }
+                                    <TableHead>Task &amp; Address</TableHead>
+                                    <TableHead>Manager</TableHead>
+                                    <TableHead className="text-right w-[110px]">Type</TableHead>
+                                    <TableHead className="text-right w-[160px]">Status</TableHead>
+                                    {isOwner && <TableHead className="text-right w-[140px]">Actions</TableHead>}
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {shiftsToRender.map(shift => (
+                                    <TableRow key={shift.id}>
+                                        <TableCell className="font-medium">{format(getCorrectedLocalDate(shift.date), 'eeee, MMM d')}</TableCell>
+                                        { (selectedUserId === 'all' || activeTab === 'archive') && <TableCell>{userNameMap.get(shift.userId) || 'Unknown'}</TableCell> }
+                                        <TableCell>
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <div className="truncate">{truncate(shift.task)}</div>
+                                                </TooltipTrigger>
+                                                <TooltipContent>
+                                                    <p className="max-w-xs">{shift.task}</p>
+                                                </TooltipContent>
+                                            </Tooltip>
+                                            <div className="text-xs text-muted-foreground">{shift.address}</div>
+                                        </TableCell>
+                                        <TableCell className="text-xs text-muted-foreground">{shift.manager || 'N/A'}</TableCell>
+                                        <TableCell className="text-right">
+                                            <Badge
+                                                variant={shift.type === 'am' ? 'default' : shift.type === 'pm' ? 'secondary' : 'outline'}
+                                                className="capitalize text-xs"
+                                            >
+                                                {shift.type === 'all-day' ? 'All Day' : shift.type.toUpperCase()}
+                                            </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-right">
+                                            {getStatusBadge(shift)}
+                                        </TableCell>
+                                        {isOwner && (
+                                            <TableCell className="text-right">
+                                                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEditShift(shift)}>
+                                                    <Edit className="h-4 w-4" />
+                                                </Button>
+                                                <AlertDialog>
+                                                    <AlertDialogTrigger asChild>
+                                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10">
+                                                            <Trash2 className="h-4 w-4" />
+                                                        </Button>
+                                                    </AlertDialogTrigger>
+                                                    <AlertDialogContent>
+                                                        <AlertDialogHeader>
+                                                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                                            <AlertDialogDescription>
+                                                                This action cannot be undone. This will permanently delete the shift for 
+                                                                <span className="font-semibold"> {shift.task}</span> at 
+                                                                <span className="font-semibold"> {shift.address}</span>.
+                                                            </AlertDialogDescription>
+                                                        </AlertDialogHeader>
+                                                        <AlertDialogFooter>
+                                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                            <AlertDialogAction onClick={() => handleDeleteShift(shift)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                                                Delete
+                                                            </AlertDialogAction>
+                                                        </AlertDialogFooter>
+                                                    </AlertDialogContent>
+                                                </AlertDialog>
+                                            </TableCell>
+                                        )}
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </TooltipProvider>
+                </CardContent>
+            </Card>
 
-                      {isOwner && (
-                        <TableCell className="text-right">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEditShift(shift)}>
-                            <Edit className="h-4 w-4" />
-                          </Button>
-
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  This action cannot be undone. This will permanently delete the shift for
-                                  <span className="font-semibold"> {shift.task}</span> at
-                                  <span className="font-semibold"> {shift.address}</span>.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction
-                                  onClick={() => handleDeleteShift(shift)}
-                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                >
-                                  Delete
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TooltipProvider>
-          </CardContent>
-        </Card>
-      </>
+            {/* Mobile Card View */}
+            <div className="space-y-4 md:hidden mt-4">
+                {shiftsToRender.map(shift => (
+                   <Card key={shift.id}>
+                        <CardHeader>
+                            <div className="flex justify-between items-start gap-2">
+                                <div>
+                                    <CardTitle className="text-base">{shift.task}</CardTitle>
+                                    <CardDescription>{shift.address}</CardDescription>
+                                </div>
+                                <Badge variant={shift.type === 'am' ? 'default' : shift.type === 'pm' ? 'secondary' : 'outline'} className="capitalize text-xs whitespace-nowrap">
+                                    {shift.type === 'all-day' ? 'All Day' : shift.type.toUpperCase()}
+                                </Badge>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="text-sm text-muted-foreground space-y-1">
+                            { (selectedUserId === 'all' || activeTab === 'archive') && <div><strong>Operative:</strong> {userNameMap.get(shift.userId) || 'Unknown'}</div> }
+                            <div><strong>Date:</strong> {format(getCorrectedLocalDate(shift.date), 'eeee, MMM d')}</div>
+                             {shift.manager && <div><strong>Manager:</strong> {shift.manager}</div>}
+                        </CardContent>
+                        <CardFooter className="p-2 bg-muted/30 flex justify-between items-center">
+                            {getStatusBadge(shift)}
+                            {isOwner && (
+                                <div className="flex items-center">
+                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEditShift(shift)}>
+                                        <Edit className="h-4 w-4" />
+                                    </Button>
+                                    <AlertDialog>
+                                        <AlertDialogTrigger asChild>
+                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10">
+                                                <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                        </AlertDialogTrigger>
+                                        <AlertDialogContent>
+                                            <AlertDialogHeader>
+                                                <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                                <AlertDialogDescription>
+                                                    This action cannot be undone. This will permanently delete the shift for 
+                                                    <span className="font-semibold"> {shift.task}</span> at 
+                                                    <span className="font-semibold"> {shift.address}</span>.
+                                                </AlertDialogDescription>
+                                            </AlertDialogHeader>
+                                            <AlertDialogFooter>
+                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                <AlertDialogAction onClick={() => handleDeleteShift(shift)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                                    Delete
+                                                </AlertDialogAction>
+                                            </AlertDialogFooter>
+                                        </AlertDialogContent>
+                                    </AlertDialog>
+                                </div>
+                            )}
+                        </CardFooter>
+                   </Card>
+                ))}
+            </div>
+        </>
     );
-  };
+  }
 
   const renderWeekSchedule = (weekShifts: Shift[]) => {
     if (loading) {
       return (
         <div className="border rounded-lg overflow-hidden mt-4">
-          <Skeleton className="h-48 w-full" />
+            <Skeleton className="h-48 w-full" />
         </div>
       );
     }
-
+    
     const sortShifts = (shiftsToSort: Shift[]) => {
-      return [...shiftsToSort].sort((a, b) => {
-        const dateA = getCorrectedLocalDate(a.date).getTime();
-        const dateB = getCorrectedLocalDate(b.date).getTime();
-        if (dateA !== dateB) return dateA - dateB;
+        return [...shiftsToSort].sort((a, b) => {
+            const dateA = getCorrectedLocalDate(a.date).getTime();
+            const dateB = getCorrectedLocalDate(b.date).getTime();
+            if (dateA !== dateB) return dateA - dateB;
+            
+            const nameA = userNameMap.get(a.userId) || '';
+            const nameB = userNameMap.get(b.userId) || '';
+            if (nameA !== nameB) return nameA.localeCompare(nameB);
+    
+            const typeOrder = { 'am': 1, 'pm': 2, 'all-day': 3 };
+            return typeOrder[a.type] - typeOrder[b.type];
+        });
+    }
 
-        const nameA = userNameMap.get(a.userId) || '';
-        const nameB = userNameMap.get(b.userId) || '';
-        if (nameA !== nameB) return nameA.localeCompare(nameB);
-
-        const typeOrder = { am: 1, pm: 2, 'all-day': 3 } as const;
-        return typeOrder[a.type] - typeOrder[b.type];
-      });
-    };
-
-    const activeShifts = sortShifts(
-      weekShifts.filter((s) => ['pending-confirmation', 'confirmed', 'on-site', 'rejected'].includes(s.status))
-    );
-
-    const historicalShifts = sortShifts(weekShifts.filter((s) => ['completed', 'incomplete'].includes(s.status))).sort(
-      (a, b) => getCorrectedLocalDate(b.date).getTime() - getCorrectedLocalDate(a.date).getTime()
-    );
+    const activeShifts = sortShifts(weekShifts.filter(s => ['pending-confirmation', 'confirmed', 'on-site', 'rejected'].includes(s.status)));
+    const historicalShifts = sortShifts(weekShifts.filter(s => ['completed', 'incomplete'].includes(s.status)))
+      .sort((a,b) => getCorrectedLocalDate(b.date).getTime() - getCorrectedLocalDate(a.date).getTime());
 
     if (activeShifts.length === 0 && historicalShifts.length === 0) {
       return (
@@ -856,25 +1064,23 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     }
 
     return (
-      <>
-        {activeShifts.length > 0 ? (
-          renderShiftList(activeShifts)
-        ) : (
-          <div className="h-24 text-center flex items-center justify-center text-muted-foreground mt-4 border border-dashed rounded-lg">
-            No active shifts scheduled for this period.
-          </div>
-        )}
-
-        {historicalShifts.length > 0 && (
-          <div className="mt-8">
-            <h3 className="text-xl md:text-2xl font-semibold tracking-tight mb-2 flex items-center">
-              <History className="mr-3 h-6 w-6 text-muted-foreground" />
-              Completed &amp; Incomplete
-            </h3>
-            {renderShiftList(historicalShifts)}
-          </div>
-        )}
-      </>
+        <>
+            {activeShifts.length > 0 ? renderShiftList(activeShifts) : (
+                <div className="h-24 text-center flex items-center justify-center text-muted-foreground mt-4 border border-dashed rounded-lg">
+                    No active shifts scheduled for this period.
+                </div>
+            )}
+            
+            {historicalShifts.length > 0 && (
+                <div className="mt-8">
+                    <h3 className="text-xl md:text-2xl font-semibold tracking-tight mb-2 flex items-center">
+                        <History className="mr-3 h-6 w-6 text-muted-foreground" />
+                        Completed &amp; Incomplete
+                    </h3>
+                    {renderShiftList(historicalShifts)}
+                </div>
+            )}
+        </>
     );
   };
 
@@ -882,22 +1088,22 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     if (loading) {
       return (
         <div className="border rounded-lg overflow-hidden mt-4">
-          <Skeleton className="h-48 w-full" />
+            <Skeleton className="h-48 w-full" />
         </div>
       );
     }
 
     const sortedShifts = [...archiveShifts].sort((a, b) => {
-      const dateA = getCorrectedLocalDate(a.date).getTime();
-      const dateB = getCorrectedLocalDate(b.date).getTime();
-      if (dateA !== dateB) return dateB - dateA;
+        const dateA = getCorrectedLocalDate(a.date).getTime();
+        const dateB = getCorrectedLocalDate(b.date).getTime();
+        if (dateA !== dateB) return dateB - dateA; // Most recent first in archive
+        
+        const nameA = userNameMap.get(a.userId) || '';
+        const nameB = userNameMap.get(b.userId) || '';
+        if (nameA !== nameB) return nameA.localeCompare(nameB);
 
-      const nameA = userNameMap.get(a.userId) || '';
-      const nameB = userNameMap.get(b.userId) || '';
-      if (nameA !== nameB) return nameA.localeCompare(nameB);
-
-      const typeOrder = { am: 1, pm: 2, 'all-day': 3 } as const;
-      return typeOrder[a.type] - typeOrder[b.type];
+        const typeOrder = { 'am': 1, 'pm': 2, 'all-day': 3 };
+        return typeOrder[a.type] - typeOrder[b.type];
     });
 
     if (sortedShifts.length === 0) {
@@ -909,129 +1115,97 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     }
 
     return renderShiftList(sortedShifts);
-  };
-
+  }
+  
   if (error) {
-    return (
-      <Alert variant="destructive">
-        <Terminal className="h-4 w-4" />
-        <AlertTitle>Error Loading Schedule</AlertTitle>
-        <AlertDescription style={{ whiteSpace: 'pre-wrap' }}>{error}</AlertDescription>
-      </Alert>
-    );
+      return (
+          <Alert variant="destructive">
+              <Terminal className="h-4 w-4" />
+              <AlertTitle>Error Loading Schedule</AlertTitle>
+              <AlertDescription style={{ whiteSpace: 'pre-wrap' }}>{error}</AlertDescription>
+          </Alert>
+      )
   }
 
   return (
     <>
-      <Card>
+        <Card>
         <CardHeader>
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div>
-              <CardTitle>Team Schedule Overview</CardTitle>
-              <CardDescription>A list of all upcoming shifts for the team, which updates in real-time.</CardDescription>
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0 flex-wrap justify-start sm:justify-end">
-              <Button variant="outline" onClick={() => router.push('/site-schedule')}>
-                <Building className="mr-2 h-4 w-4" />
-                Site View
-              </Button>
-
-              <Button variant="outline" size="sm" onClick={handleDownloadDailyReport}>
-                <BarChart2 className="mr-2 h-4 w-4" />
-                Daily Report
-              </Button>
-
-              <Button variant="outline" size="sm" onClick={handleDownloadWeeklyReport}>
-                <Calendar className="mr-2 h-4 w-4" />
-                Weekly Report
-              </Button>
-
-              {isOwner && (
-                <div className="flex items-center gap-2">
-                  <Button onClick={handleAddShift}>
-                    <PlusCircle className="mr-2 h-4 w-4" />
-                    Add Shift
-                  </Button>
-
-                  <AlertDialog>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="icon" className="h-10 w-10">
-                          <CircleEllipsis />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <AlertDialogTrigger asChild>
-                          <DropdownMenuItem
-                            className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-                            disabled={isDeleting}
-                          >
-                            <Trash className="mr-2" /> Delete All Active
-                          </DropdownMenuItem>
-                        </AlertDialogTrigger>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          This will permanently delete all active (published) shifts. Completed and incomplete shifts will
-                          not be affected. This action cannot be undone.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                          onClick={handleDeleteAllShifts}
-                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                        >
-                          {isDeleting ? 'Deleting...' : 'Yes, Delete Active Shifts'}
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                    <CardTitle>Team Schedule Overview</CardTitle>
+                    <CardDescription>A list of all upcoming shifts for the team, which updates in real-time.</CardDescription>
                 </div>
-              )}
+                <div className="flex items-center gap-2 shrink-0 flex-wrap justify-start sm:justify-end">
+                     <Button variant="outline" onClick={() => router.push('/site-schedule')}>
+                        <Building className="mr-2 h-4 w-4" />
+                        Site View
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={handleDownloadDailyReport}>
+                        <BarChart2 className="mr-2 h-4 w-4" />
+                        Daily Report
+                    </Button>
+                     <Button variant="outline" size="sm" onClick={handleDownloadWeeklyReport}>
+                        <Calendar className="mr-2 h-4 w-4" />
+                        Weekly Report
+                    </Button>
+                    {isOwner && (
+                       <div className="flex items-center gap-2">
+                        <Button onClick={handleAddShift}>
+                            <PlusCircle className="mr-2 h-4 w-4" />
+                            Add Shift
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="icon" className="h-10 w-10">
+                              <CircleEllipsis />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem 
+                              className="text-destructive focus:bg-destructive/10 focus:text-destructive" 
+                              disabled={isDeleting}
+                              onSelect={() => setIsConfirmDeleteAllOpen(true)}
+                            >
+                                <Trash className="mr-2" /> Delete All Active
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                       </div>
+                    )}
+                </div>
             </div>
-          </div>
-
-          <div className="pt-4 flex flex-col sm:flex-row gap-4 items-center">
-            <div className="flex-grow w-full sm:w-auto">
-              <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-                <SelectTrigger className="w-full sm:w-[250px]">
-                  <SelectValue placeholder="All Users" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Users</SelectItem>
-                  {users.map((user) => (
-                    <SelectItem key={user.uid} value={user.uid}>
-                      {user.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+             <div className="pt-4 flex flex-col sm:flex-row gap-4 items-center">
+                <div className="flex-grow w-full sm:w-auto">
+                     <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+                        <SelectTrigger className="w-full sm:w-[250px]">
+                            <SelectValue placeholder="All Users" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Users</SelectItem>
+                            {users.map(user => (
+                                <SelectItem key={user.uid} value={user.uid}>{user.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+                 {activeTab !== 'archive' && (
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm" disabled={loading} className="w-full sm:w-auto">
+                                <Download className="mr-2 h-4 w-4" />
+                                Download PDF
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent>
+                            <DropdownMenuItem onClick={() => handleDownloadPdf('this')}>This Week</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleDownloadPdf('next')}>Next Week</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleDownloadPdf('both')}>Both Weeks</DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                 )}
             </div>
-
-            {activeTab !== 'archive' && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" disabled={loading} className="w-full sm:w-auto">
-                    <Download className="mr-2 h-4 w-4" />
-                    Download PDF
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent>
-                  <DropdownMenuItem onClick={() => handleDownloadPdf('this')}>This Week</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleDownloadPdf('next')}>Next Week</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleDownloadPdf('both')}>Both Weeks</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-          </div>
         </CardHeader>
-
         <CardContent>
           <Tabs defaultValue="today" onValueChange={setActiveTab}>
             <div className="flex flex-col space-y-2">
@@ -1063,38 +1237,66 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
               {renderWeekSchedule(week4Shifts)}
             </TabsContent>
             <TabsContent value="archive" className="mt-4">
-              <div className="flex flex-col sm:flex-row gap-4 items-center bg-muted/50 p-4 rounded-lg">
-                <p className="text-sm font-medium text-muted-foreground">
-                  View completed and incomplete shifts from the last 6 weeks.
-                </p>
-                <Select value={selectedArchiveWeek} onValueChange={setSelectedArchiveWeek}>
-                  <SelectTrigger className="w-full sm:w-[250px]">
-                    <SelectValue placeholder="Select a week" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {archiveWeekOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {renderArchiveView()}
+                <div className="flex flex-col sm:flex-row gap-4 items-center bg-muted/50 p-4 rounded-lg">
+                    <p className="text-sm font-medium text-muted-foreground">View completed and incomplete shifts from the last 6 weeks.</p>
+                     <Select value={selectedArchiveWeek} onValueChange={setSelectedArchiveWeek}>
+                        <SelectTrigger className="w-full sm:w-[250px]">
+                            <SelectValue placeholder="Select a week" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {archiveWeekOptions.map(option => (
+                                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+                {renderArchiveView()}
             </TabsContent>
-          </Tabs>
+            </Tabs>
         </CardContent>
-      </Card>
+        </Card>
+        
+        {isOwner && (
+            <ShiftFormDialog 
+                open={isFormOpen} 
+                onOpenChange={setIsFormOpen} 
+                users={users} 
+                shift={selectedShift} 
+                userProfile={userProfile}
+            />
+        )}
 
-      {isOwner && (
-        <ShiftFormDialog
-          open={isFormOpen}
-          onOpenChange={setIsFormOpen}
-          users={users}
-          shift={selectedShift}
-          userProfile={userProfile}
-        />
-      )}
+        <Dialog open={isConfirmDeleteAllOpen} onOpenChange={setIsConfirmDeleteAllOpen}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Are you absolutely sure?</DialogTitle>
+                    <DialogDescription>
+                    This is a highly destructive action. To confirm, please enter your password. This will permanently delete all active (published) shifts.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-2 pt-4">
+                    <Label htmlFor="password-confirm-shifts">Password</Label>
+                    <Input
+                    id="password-confirm-shifts"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter your password"
+                    />
+                    {reauthError && <p className="text-sm text-destructive">{reauthError}</p>}
+                </div>
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => setIsConfirmDeleteAllOpen(false)}>Cancel</Button>
+                    <Button
+                    variant="destructive"
+                    onClick={handlePasswordConfirmedDeleteAll}
+                    disabled={isReauthenticating || isDeleting}
+                    >
+                    {isReauthenticating || isDeleting ? <Spinner /> : 'Confirm & Delete All'}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     </>
   );
 }
