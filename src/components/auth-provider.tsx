@@ -21,6 +21,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     const unsubscribe = onAuthStateChanged(auth, (user) => {
+      console.log("AUTH_STATE", { signedIn: !!user, uid: user?.uid || null });
       setUser(user);
       setIsLoading(false);
     });
