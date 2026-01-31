@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
-import { getAuth, type Auth } from "firebase/auth";
+import { getAuth, setPersistence, indexedDBLocalPersistence, type Auth } from "firebase/auth";
 import { getFirestore, type Firestore } from "firebase/firestore";
 import { getStorage, type FirebaseStorage } from "firebase/storage";
 import {
@@ -48,6 +48,7 @@ if (!getApps().length) {
 
 if (isFirebaseConfigured) {
   auth = getAuth(app);
+  setPersistence(auth, indexedDBLocalPersistence).catch(() => {});
   db = getFirestore(app);
   storage = getStorage(app);
   // Ensure your functions are deployed to the same region.
