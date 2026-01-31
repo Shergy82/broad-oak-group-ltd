@@ -30,7 +30,7 @@ export function NotificationButton() {
 
   const getIcon = () => {
     if (isSubscribing) return <Spinner />;
-    if (isSubscribed) return <Bell className="h-5 w-5 text-accent" />;
+    if (isSubscribed) return <Bell className="h-5 w-5 text-green-600" />;
     return <BellOff className="h-5 w-5 text-muted-foreground" />;
   };
 
