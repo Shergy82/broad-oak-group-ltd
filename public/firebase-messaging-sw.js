@@ -1,5 +1,5 @@
 /* public/firebase-messaging-sw.js */
-/* Minimal, stable Web Push service worker (no Firebase SDK) */
+/* Stable Web Push service worker (no Firebase SDK) */
 
 self.addEventListener('install', () => self.skipWaiting());
 
@@ -7,32 +7,67 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-self.addEventListener('push', function (event) {
-  if (!event.data) return;
+function safeJsonParse(text) {
+  try { return JSON.parse(text); } catch { return null; }
+}
 
-  let data = {};
+function pickPayload(event) {
+  if (!event.data) return null;
+
   try {
-    data = event.data.json();
+    return event.data.json();
   } catch {
-    data = { body: event.data.text() };
+    const txt = event.data.text();
+    return safeJsonParse(txt) || { body: txt };
   }
+}
 
-  const title = data.title || 'Notification';
-  const options = {
-    body: data.body || '',
-    icon: data.icon || '/icon-192.png',
-    badge: data.badge || '/icon-192.png',
-    data: {
-      url: data.url || '/'
-    }
-  };
+self.addEventListener('push', (event) => {
+  const raw = pickPayload(event);
+  if (!raw) return;
+
+  const notif = raw.notification || {};
+  const data = raw.data || {};
+
+  const title =
+    notif.title ||
+    raw.title ||
+    data.title ||
+    'Notification';
+
+  const body =
+    notif.body ||
+    raw.body ||
+    data.body ||
+    '';
+
+  const icon =
+    notif.icon ||
+    raw.icon ||
+    data.icon ||
+    '/icon-192.png';
+
+  const badge =
+    raw.badge ||
+    data.badge ||
+    '/icon-192.png';
+
+  const url =
+    data.url ||
+    raw.url ||
+    '/';
 
   event.waitUntil(
-    self.registration.showNotification(title, options)
+    self.registration.showNotification(title, {
+      body,
+      icon,
+      badge,
+      data: { url },
+    })
   );
 });
 
-self.addEventListener('notificationclick', function (event) {
+self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
   const url = event.notification.data?.url || '/';
@@ -41,13 +76,9 @@ self.addEventListener('notificationclick', function (event) {
     self.clients.matchAll({ type: 'window', includeUncontrolled: true })
       .then((clients) => {
         for (const client of clients) {
-          if (client.url === url && 'focus' in client) {
-            return client.focus();
-          }
+          if (client.url === url && 'focus' in client) return client.focus();
         }
-        if (self.clients.openWindow) {
-          return self.clients.openWindow(url);
-        }
+        return self.clients.openWindow ? self.clients.openWindow(url) : undefined;
       })
   );
 });
