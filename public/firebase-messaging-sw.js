@@ -1,55 +1,53 @@
-// This file MUST be in the public directory
-importScripts('https://www.gstatic.com/firebasejs/9.2.0/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/9.2.0/firebase-messaging-compat.js');
+/* public/firebase-messaging-sw.js */
+/* Minimal, stable Web Push service worker (no Firebase SDK) */
 
-// This config will be replaced by the values from your project's .env.local file
-const firebaseConfig = {
-  apiKey: '__NEXT_PUBLIC_FIREBASE_API_KEY__',
-  authDomain: '__NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN__',
-  projectId: '__NEXT_PUBLIC_FIREBASE_PROJECT_ID__',
-  storageBucket: '__NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET__',
-  messagingSenderId: '__NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID__',
-  appId: '__NEXT_PUBLIC_FIREBASE_APP_ID__',
-};
+self.addEventListener('install', () => self.skipWaiting());
 
-firebase.initializeApp(firebaseConfig);
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
 
-const messaging = firebase.messaging();
+self.addEventListener('push', function (event) {
+  if (!event.data) return;
 
-messaging.onBackgroundMessage((payload) => {
-  console.log('[firebase-messaging-sw.js] Received background message ', payload);
+  let data = {};
+  try {
+    data = event.data.json();
+  } catch {
+    data = { body: event.data.text() };
+  }
 
-  const notificationTitle = payload.data.title || "New Notification";
-  const notificationOptions = {
-    body: payload.data.body || "",
-    icon: payload.data.icon || '/icon-192.png',
+  const title = data.title || 'Notification';
+  const options = {
+    body: data.body || '',
+    icon: data.icon || '/icon-192.png',
+    badge: data.badge || '/icon-192.png',
     data: {
-        url: payload.data.url || '/'
+      url: data.url || '/'
     }
   };
 
-  self.registration.showNotification(notificationTitle, notificationOptions);
+  event.waitUntil(
+    self.registration.showNotification(title, options)
+  );
 });
 
-self.addEventListener('notificationclick', (event) => {
-    event.notification.close();
-    const urlToOpen = new URL(event.notification.data.url || '/', self.location.origin).href;
+self.addEventListener('notificationclick', function (event) {
+  event.notification.close();
 
-    event.waitUntil(
-        self.clients.matchAll({
-            type: 'window',
-            includeUncontrolled: true,
-        }).then((clientList) => {
-            if (clientList.length > 0) {
-                let client = clientList.find(c => c.url === urlToOpen && 'focus' in c);
-                if (client) {
-                    return client.focus();
-                }
-                if (clientList[0]) {
-                     return clientList[0].navigate(urlToOpen).then(c => c.focus());
-                }
-            }
-            return self.clients.openWindow(urlToOpen);
-        })
-    );
+  const url = event.notification.data?.url || '/';
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then((clients) => {
+        for (const client of clients) {
+          if (client.url === url && 'focus' in client) {
+            return client.focus();
+          }
+        }
+        if (self.clients.openWindow) {
+          return self.clients.openWindow(url);
+        }
+      })
+  );
 });
