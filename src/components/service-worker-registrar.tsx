@@ -30,12 +30,13 @@ export function ServiceWorkerRegistrar() {
       }
     };
 
-    // We register the service worker after the page has loaded to avoid
-    // delaying the initial render.
-    window.addEventListener('load', registerServiceWorker);
+      // Register immediately
+      registerServiceWorker();
+      // plus a fallback after load
+      window.addEventListener('load', registerServiceWorker);
 
-    // Cleanup the event listener on component unmount.
-    return () => window.removeEventListener('load', registerServiceWorker);
+      // Cleanup the event listener on component unmount.
+      return () => window.removeEventListener('load', registerServiceWorker);
   }, [toast]);
 
   // This component does not render anything to the DOM.
