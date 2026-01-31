@@ -1,6 +1,6 @@
 import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
-import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { onCall, HttpsError, onRequest } from "firebase-functions/v2/https";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import * as webPush from "web-push";
 
@@ -9,7 +9,8 @@ const db = admin.firestore();
 
 const VAPID_PUBLIC = process.env.WEBPUSH_PUBLIC_KEY || "";
 const VAPID_PRIVATE = process.env.WEBPUSH_PRIVATE_KEY || "";
-const VAPID_SUBJECT = process.env.WEBPUSH_SUBJECT || "mailto:example@your-project.com";
+const VAPID_SUBJECT =
+  process.env.WEBPUSH_SUBJECT || "mailto:example@your-project.com";
 
 if (VAPID_PUBLIC && VAPID_PRIVATE) {
   webPush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC, VAPID_PRIVATE);
@@ -21,111 +22,158 @@ function subIdFromEndpoint(endpoint: string) {
   return Buffer.from(endpoint).toString("base64").replace(/=+$/g, "");
 }
 
-export const getVapidPublicKey = onCall({ region: "europe-west2" }, async () => {
-  if (!VAPID_PUBLIC) {
-    throw new HttpsError("failed-precondition", "VAPID public key is not configured on the server.");
-  }
-  return { publicKey: VAPID_PUBLIC };
-});
-
-export const setNotificationStatus = onCall({ region: "europe-west2" }, async (req) => {
-  if (!req.auth) throw new HttpsError("unauthenticated", "User must be authenticated.");
-
-  const uid = req.auth.uid;
-  const data = req.data as any;
-  const status = data?.status;
-  const subscription = data?.subscription;
-  const endpoint = data?.endpoint;
-
-  const subsCollection = db.collection("users").doc(uid).collection("pushSubscriptions");
-
-  if (status === "subscribed") {
-    if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
-      throw new HttpsError("invalid-argument", "A valid subscription object is required.");
+export const getVapidPublicKey = onCall(
+  { region: "europe-west2" },
+  async () => {
+    if (!VAPID_PUBLIC) {
+      throw new HttpsError(
+        "failed-precondition",
+        "VAPID public key is not configured"
+      );
     }
-    const id = subIdFromEndpoint(subscription.endpoint);
-    await subsCollection.doc(id).set(
-      {
-        endpoint: subscription.endpoint,
-        keys: {
-          p256dh: subscription.keys.p256dh,
-          auth: subscription.keys.auth
+    return { publicKey: VAPID_PUBLIC };
+  }
+);
+
+export const setNotificationStatus = onCall(
+  { region: "europe-west2" },
+  async (req) => {
+    if (!req.auth) {
+      throw new HttpsError("unauthenticated", "Login required");
+    }
+
+    const uid = req.auth.uid;
+    const data = req.data as any;
+
+    const status = data?.status;
+    const subscription = data?.subscription;
+    const endpoint = data?.endpoint;
+
+    const subs = db
+      .collection("users")
+      .doc(uid)
+      .collection("pushSubscriptions");
+
+    if (status === "subscribed") {
+      if (!subscription?.endpoint) {
+        throw new HttpsError("invalid-argument", "Bad subscription");
+      }
+
+      const id = subIdFromEndpoint(subscription.endpoint);
+
+      await subs.doc(id).set(
+        {
+          endpoint: subscription.endpoint,
+          keys: subscription.keys,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         },
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-      },
-      { merge: true }
-    );
-    return { ok: true };
+        { merge: true }
+      );
+
+      return { ok: true };
+    }
+
+    if (status === "unsubscribed") {
+      if (!endpoint) {
+        throw new HttpsError("invalid-argument", "Missing endpoint");
+      }
+
+      const id = subIdFromEndpoint(endpoint);
+      await subs.doc(id).delete();
+
+      return { ok: true };
+    }
+
+    throw new HttpsError("invalid-argument", "Invalid status");
   }
+);
 
-  if (status === "unsubscribed") {
-    if (!endpoint) throw new HttpsError("invalid-argument", "An endpoint is required to unsubscribe.");
-    const id = subIdFromEndpoint(endpoint);
-    await subsCollection.doc(id).delete();
-    return { ok: true };
-  }
+// HTTP test endpoint (no Eventarc)
+export const sendTestNotificationHttp = onRequest(
+  { region: "europe-west2" },
+  async (req, res) => {
+    try {
+      const uid = String(req.query.uid || "");
 
-  throw new HttpsError("invalid-argument", "Invalid status provided.");
-});
+      if (!uid) {
+        res.status(400).json({ ok: false, error: "Missing uid" });
+        return;
+      }
 
-export const sendTestNotification = onCall({ region: "europe-west2" }, async (req) => {
-  if (!req.auth) throw new HttpsError("unauthenticated", "User must be authenticated.");
-  if (!VAPID_PUBLIC || !VAPID_PRIVATE) throw new HttpsError("failed-precondition", "VAPID keys not configured.");
+      if (!VAPID_PUBLIC || !VAPID_PRIVATE) {
+        res
+          .status(500)
+          .json({ ok: false, error: "VAPID keys not configured" });
+        return;
+      }
 
-  const uid = req.auth.uid;
-  const snap = await db.collection(`users/${uid}/pushSubscriptions`).get();
+      const snap = await db
+        .collection(`users/${uid}/pushSubscriptions`)
+        .get();
 
-  if (snap.empty) return { ok: true, sent: 0, removed: 0 };
+      if (snap.empty) {
+        res.json({ ok: true, sent: 0, removed: 0 });
+        return;
+      }
 
-  const payload = JSON.stringify({
-    title: "Test Notification",
-    body: "If you received this, your push notifications are working!",
-    url: "/push-debug"
-  });
+      const payload = JSON.stringify({
+        title: "Test Notification",
+        body: "Push is working",
+        url: "/",
+      });
 
-  let sent = 0;
-  let removed = 0;
+      let sent = 0;
+      let removed = 0;
 
-  await Promise.all(
-    snap.docs.map(async (doc) => {
-      const sub = doc.data() as webPush.PushSubscription;
-      try {
-        await webPush.sendNotification(sub, payload);
-        sent++;
-      } catch (err: any) {
-        const code = err?.statusCode;
-        if (code === 404 || code === 410) {
-          await doc.ref.delete();
-          removed++;
-        } else {
-          logger.error("Push send failed", err);
+      for (const doc of snap.docs) {
+        const sub = doc.data() as webPush.PushSubscription;
+
+        try {
+          await webPush.sendNotification(sub, payload);
+          sent++;
+        } catch (err: any) {
+          const code = err?.statusCode;
+
+          if (code === 404 || code === 410) {
+            await doc.ref.delete();
+            removed++;
+          } else {
+            logger.error("Push failed", err);
+          }
         }
       }
-    })
-  );
 
-  return { ok: true, sent, removed };
-});
+      res.json({ ok: true, sent, removed });
+    } catch (e: any) {
+      res
+        .status(500)
+        .json({ ok: false, error: e?.message || String(e) });
+    }
+  }
+);
 
-// TEMP placeholder to keep file compiling if older onShiftWrite existed.
-// Remove once push is stable.
 export const onShiftWrite = onDocumentWritten(
   { region: "europe-west2", document: "shifts/{shiftId}" },
   async () => undefined
 );
 
-export const getNotificationStatus = onCall({ region: "europe-west2" }, async (req) => {
-  if (!req.auth) throw new HttpsError("unauthenticated", "User must be authenticated.");
+export const getNotificationStatus = onCall(
+  { region: "europe-west2" },
+  async (req) => {
+    if (!req.auth) {
+      throw new HttpsError("unauthenticated", "Login required");
+    }
 
-  const uid = req.auth.uid;
+    const uid = req.auth.uid;
 
-  const snap = await db
-    .collection("users")
-    .doc(uid)
-    .collection("pushSubscriptions")
-    .limit(1)
-    .get();
+    const snap = await db
+      .collection("users")
+      .doc(uid)
+      .collection("pushSubscriptions")
+      .limit(1)
+      .get();
 
-  return { subscribed: !snap.empty };
-});
+    return { subscribed: !snap.empty };
+  }
+
+);
