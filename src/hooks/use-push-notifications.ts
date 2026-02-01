@@ -92,7 +92,7 @@ export function usePushNotifications() {
   }, [isSupported, functions, toast]);
 
   const subscribe = useCallback(async () => {
-    if (!isSupported || !user || !vapidKey || !functions) {
+    if (!isSupported || !user || !functions) {
       toast({
         title: 'Cannot Subscribe',
         description: 'Required services are not ready.',
@@ -101,43 +101,67 @@ export function usePushNotifications() {
       return;
     }
 
+    // iOS Safari/PWA: requestPermission must be triggered immediately from the user gesture.
+    let currentPermission: NotificationPermission;
+    try {
+      const permissionPromise = Notification.requestPermission();
+
+      // Safety timeout so we never spin forever if iOS hangs.
+      currentPermission = (await Promise.race([
+        permissionPromise,
+        new Promise<NotificationPermission>((_, reject) =>
+          setTimeout(() => reject(new Error('Permission request timed out')), 8000)
+        ),
+      ])) as NotificationPermission;
+    } catch (e: any) {
+      console.error('Notification permission failed/hung:', e);
+      toast({
+        title: 'Permission Request Failed',
+        description: 'Safari did not return a permission response. Try again.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setPermission(currentPermission);
+
+    if (currentPermission !== 'granted') {
+      toast({
+        title: 'Permission Denied',
+        description: 'Notifications are blocked by your browser.',
+      });
+      return;
+    }
+
+    if (!vapidKey) {
+      toast({
+        title: 'Cannot Subscribe',
+        description: 'Notification key not loaded yet. Try again in a moment.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsSubscribing(true);
 
     try {
-      const currentPermission = await Notification.requestPermission();
-      setPermission(currentPermission);
-
-      if (currentPermission !== 'granted') {
-        toast({
-          title: 'Permission Denied',
-          description: 'Notifications are blocked by your browser.',
-        });
-
-        setIsSubscribing(false);
-        return;
-      }
-
       const registration = await navigator.serviceWorker.ready;
 
-      const applicationServerKey =
-        urlBase64ToUint8Array(vapidKey);
+      const applicationServerKey = urlBase64ToUint8Array(vapidKey);
 
-      const subscription =
-        await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey,
-        });
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey,
+      });
 
-      const setStatus =
-        httpsCallable<SetStatusRequest, GenericResponse>(
-          functions,
-          'setNotificationStatus'
-        );
+      const setStatus = httpsCallable<SetStatusRequest, GenericResponse>(
+        functions,
+        'setNotificationStatus'
+      );
 
       await setStatus({
         status: 'subscribed',
-        subscription:
-          subscription.toJSON() as PushSubscriptionPayload,
+        subscription: subscription.toJSON() as PushSubscriptionPayload,
       });
 
       setIsSubscribed(true);
@@ -147,15 +171,11 @@ export function usePushNotifications() {
         description: 'You will now receive notifications.',
       });
     } catch (error: any) {
-      console.error(
-        'Error subscribing to push notifications:',
-        error
-      );
+      console.error('Error subscribing to push notifications:', error);
 
       toast({
         title: 'Subscription Failed',
-        description:
-          error.message || 'An unexpected error occurred.',
+        description: error?.message || 'An unexpected error occurred.',
         variant: 'destructive',
       });
     } finally {
@@ -171,17 +191,15 @@ export function usePushNotifications() {
     try {
       const registration = await navigator.serviceWorker.ready;
 
-      const subscription =
-        await registration.pushManager.getSubscription();
+      const subscription = await registration.pushManager.getSubscription();
 
       if (subscription) {
         await subscription.unsubscribe();
 
-        const setStatus =
-          httpsCallable<SetStatusRequest, GenericResponse>(
-            functions,
-            'setNotificationStatus'
-          );
+        const setStatus = httpsCallable<SetStatusRequest, GenericResponse>(
+          functions,
+          'setNotificationStatus'
+        );
 
         await setStatus({
           status: 'unsubscribed',
@@ -193,16 +211,14 @@ export function usePushNotifications() {
 
       toast({
         title: 'Unsubscribed',
-        description:
-          'You will no longer receive notifications.',
+        description: 'You will no longer receive notifications.',
       });
     } catch (error: any) {
       console.error('Error unsubscribing:', error);
 
       toast({
         title: 'Unsubscribe Failed',
-        description:
-          error.message || 'An unexpected error occurred.',
+        description: error?.message || 'An unexpected error occurred.',
         variant: 'destructive',
       });
     } finally {
