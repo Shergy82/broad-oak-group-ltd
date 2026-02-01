@@ -43,3 +43,9 @@ env:
     availability:
       - BUILD
       - RUNTIME
+
+  - variable: NEXT_PUBLIC_VAPID_PUBLIC_KEY
+    secret: NEXT_PUBLIC_VAPID_PUBLIC_KEY
+    availability:
+      - BUILD
+      - RUNTIME
