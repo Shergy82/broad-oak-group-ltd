@@ -68,7 +68,7 @@ export const getNotificationStatus = onCall({ region: "europe-west2" }, async (r
 
 export const setNotificationStatus = onCall({ region: "europe-west2" }, async (request) => {
   if (!request.auth) {
-    throw new HttpsError("unauthenticated", "You must be logged in to perform this action.");
+    throw new HttpsError("unauthenticated", "You must be logged in.");
   }
 
   const uid = request.auth.uid;
@@ -79,13 +79,29 @@ export const setNotificationStatus = onCall({ region: "europe-west2" }, async (r
     throw new HttpsError("permission-denied", "Only the account owner can change notification settings.");
   }
 
-  const { enabled } = request.data || {};
+  const data = request.data || {};
+
+  let enabled: boolean | null = null;
+
+  // Accept both formats
+  if (typeof data.enabled === "boolean") {
+    enabled = data.enabled;
+  } else if (data.status === "subscribed") {
+    enabled = true;
+  } else if (data.status === "unsubscribed") {
+    enabled = false;
+  }
+
   if (typeof enabled !== "boolean") {
     throw new HttpsError("invalid-argument", "The 'enabled' field must be a boolean value.");
   }
 
   try {
-    await db.collection("settings").doc("notifications").set({ enabled }, { merge: true });
+    await db.collection("settings").doc("notifications").set(
+      { enabled },
+      { merge: true }
+    );
+
     return { success: true, enabled };
   } catch (error) {
     logger.error("Error writing notification settings:", error);

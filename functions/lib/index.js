@@ -99,7 +99,7 @@ exports.getNotificationStatus = (0, https_1.onCall)({ region: "europe-west2" }, 
 });
 exports.setNotificationStatus = (0, https_1.onCall)({ region: "europe-west2" }, async (request) => {
     if (!request.auth) {
-        throw new https_1.HttpsError("unauthenticated", "You must be logged in to perform this action.");
+        throw new https_1.HttpsError("unauthenticated", "You must be logged in.");
     }
     const uid = request.auth.uid;
     const userDoc = await db.collection("users").doc(uid).get();
@@ -107,7 +107,18 @@ exports.setNotificationStatus = (0, https_1.onCall)({ region: "europe-west2" }, 
     if (!userProfile || userProfile.role !== "owner") {
         throw new https_1.HttpsError("permission-denied", "Only the account owner can change notification settings.");
     }
-    const { enabled } = request.data || {};
+    const data = request.data || {};
+    let enabled = null;
+    // Accept both formats
+    if (typeof data.enabled === "boolean") {
+        enabled = data.enabled;
+    }
+    else if (data.status === "subscribed") {
+        enabled = true;
+    }
+    else if (data.status === "unsubscribed") {
+        enabled = false;
+    }
     if (typeof enabled !== "boolean") {
         throw new https_1.HttpsError("invalid-argument", "The 'enabled' field must be a boolean value.");
     }
