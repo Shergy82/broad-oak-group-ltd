@@ -42,6 +42,24 @@ export function usePushNotifications() {
     );
   }, []);
 
+  /**
+   * iOS can hang forever on navigator.serviceWorker.ready after SW updates.
+   * Use getRegistration() and register() fallback to guarantee a usable registration.
+   */
+  const getOrRegisterSW = useCallback(async () => {
+    // Prefer an existing registration for this origin/scope
+    let registration = await navigator.serviceWorker.getRegistration();
+
+    // If missing (or iOS got into a bad state), register explicitly
+    if (!registration) {
+      registration = await navigator.serviceWorker.register(
+        '/firebase-messaging-sw.js'
+      );
+    }
+
+    return registration;
+  }, []);
+
   useEffect(() => {
     if (!isSupported) {
       setPermission('unsupported');
@@ -50,12 +68,17 @@ export function usePushNotifications() {
 
     setPermission(Notification.permission);
 
-    navigator.serviceWorker.ready.then(registration => {
-      registration.pushManager.getSubscription().then(subscription => {
+    (async () => {
+      try {
+        const registration = await getOrRegisterSW();
+        const subscription = await registration.pushManager.getSubscription();
         setIsSubscribed(!!subscription);
-      });
-    });
-  }, [isSupported]);
+      } catch (e) {
+        // Don’t toast here; just keep UI usable
+        console.error('Failed to check existing push subscription:', e);
+      }
+    })();
+  }, [isSupported, getOrRegisterSW]);
 
   useEffect(() => {
     if (!isSupported || !functions) {
@@ -72,7 +95,7 @@ export function usePushNotifications() {
           'getVapidPublicKey'
         );
 
-        const result = await getVapidPublicKey();
+        const result = await getVapidPublicKey({});
         setVapidKey(result.data.publicKey);
       } catch (error: any) {
         console.error('Failed to fetch VAPID public key:', error);
@@ -80,8 +103,7 @@ export function usePushNotifications() {
         toast({
           variant: 'destructive',
           title: 'Notification Error',
-          description:
-            'Could not load notification configuration from the server.',
+          description: 'Could not load notification configuration from the server.',
         });
       } finally {
         setIsKeyLoading(false);
@@ -89,7 +111,7 @@ export function usePushNotifications() {
     };
 
     fetchKey();
-  }, [isSupported, functions, toast]);
+  }, [isSupported, toast]);
 
   const subscribe = useCallback(async () => {
     if (!isSupported || !user || !functions) {
@@ -101,12 +123,10 @@ export function usePushNotifications() {
       return;
     }
 
-    // iOS Safari/PWA: requestPermission must be triggered immediately from the user gesture.
     let currentPermission: NotificationPermission;
     try {
       const permissionPromise = Notification.requestPermission();
 
-      // Safety timeout so we never spin forever if iOS hangs.
       currentPermission = (await Promise.race([
         permissionPromise,
         new Promise<NotificationPermission>((_, reject) =>
@@ -145,7 +165,7 @@ export function usePushNotifications() {
     setIsSubscribing(true);
 
     try {
-      const registration = await navigator.serviceWorker.ready;
+      const registration = await getOrRegisterSW();
 
       const applicationServerKey = urlBase64ToUint8Array(vapidKey);
 
@@ -181,7 +201,7 @@ export function usePushNotifications() {
     } finally {
       setIsSubscribing(false);
     }
-  }, [isSupported, user, vapidKey, functions, toast]);
+  }, [isSupported, user, vapidKey, functions, toast, getOrRegisterSW]);
 
   const unsubscribe = useCallback(async () => {
     if (!isSupported || !user || !functions) return;
@@ -189,8 +209,7 @@ export function usePushNotifications() {
     setIsSubscribing(true);
 
     try {
-      const registration = await navigator.serviceWorker.ready;
-
+      const registration = await getOrRegisterSW();
       const subscription = await registration.pushManager.getSubscription();
 
       if (subscription) {
@@ -224,7 +243,7 @@ export function usePushNotifications() {
     } finally {
       setIsSubscribing(false);
     }
-  }, [isSupported, user, functions, toast]);
+  }, [isSupported, user, functions, toast, getOrRegisterSW]);
 
   return {
     isSupported,
