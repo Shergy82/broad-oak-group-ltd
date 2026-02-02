@@ -1,4 +1,3 @@
-
 rules_version = '2';
 
 service cloud.firestore {
@@ -30,7 +29,7 @@ service cloud.firestore {
       allow delete: if role(request.auth.uid) == 'owner';
 
       allow list: if isPrivilegedUser(request.auth.uid);
-      
+
       // ---- PUSH SUBSCRIPTIONS ----
       match /pushSubscriptions/{docId} {
         allow read, write, delete: if request.auth != null && request.auth.uid == userId;
@@ -84,5 +83,12 @@ service cloud.firestore {
       allow read: if signedIn();
       allow write: if isPrivilegedUser(request.auth.uid);
     }
+
+    // ---- HEALTH & SAFETY FILES ----
+    match /health_and_safety_files/{id} {
+      allow read: if signedIn();
+      allow create, update, delete: if role(request.auth.uid) == 'owner';
+    }
+
   }
 }
