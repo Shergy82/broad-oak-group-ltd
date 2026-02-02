@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import Dashboard from '@/components/dashboard/index';
-import { Header } from '@/components/layout/header';
 import { Spinner } from '@/components/shared/spinner';
 import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -201,7 +200,6 @@ export default function DashboardPage() {
 
   return (
     <div className="flex min-h-screen w-full flex-col">
-      <Header />
       <main className="flex flex-1 flex-col gap-6 p-4 md:p-8">
         <Dashboard userShifts={allShifts} loading={loadingData} />
       </main>
