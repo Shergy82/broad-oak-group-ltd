@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Providers } from "@/components/providers";
+import { Header } from "@/components/layout/header";
 import "./globals.css";
 
 const siteUrl = `https://${process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID}.web.app`;
@@ -39,9 +40,9 @@ export const metadata: Metadata = {
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
     <html lang="en" className="h-full">
       <head>
@@ -53,8 +54,14 @@ export default function RootLayout({
         />
         <meta name="theme-color" content="#ffffff" />
       </head>
+
       <body className="font-body antialiased h-full">
-        <Providers>{children}</Providers>
+        <Providers>
+          <div className="min-h-screen flex flex-col">
+            <Header />
+            <main className="flex-1">{children}</main>
+          </div>
+        </Providers>
       </body>
     </html>
   );
