@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect } from 'react';
@@ -18,13 +17,17 @@ export default function RootPage() {
     if (!isLoading) {
       if (user && userProfile) {
         const isPrivileged = ['admin', 'owner', 'manager'].includes(userProfile.role);
+
         if (isPrivileged) {
           router.replace('/admin/control-panel');
         } else {
           router.replace('/dashboard');
         }
+
       } else if (!user) {
-        router.replace('/login');
+        // Send unauthenticated users to dashboard,
+        // which already handles login
+        router.replace('/dashboard');
       }
     }
   }, [user, userProfile, isLoading, router]);
