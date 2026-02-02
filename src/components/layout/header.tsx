@@ -42,7 +42,7 @@ export function Header() {
   const handleSignOut = async () => {
     if (auth) {
       await signOut(auth);
-      router.push('/login');
+      router.push('/dashboard');
     }
   };
 
@@ -119,12 +119,12 @@ export function Header() {
                   <HelpCircle className="mr-2" />
                   <span>Help & Support</span>
                 </DropdownMenuItem>
-                
+
                 {isPrivilegedUser && (
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuLabel>Admin Area</DropdownMenuLabel>
-                     <DropdownMenuItem onClick={() => router.push('/admin/control-panel')} className="cursor-pointer">
+                    <DropdownMenuItem onClick={() => router.push('/admin/control-panel')} className="cursor-pointer">
                       <Shield className="mr-2" />
                       <span>Control Panel</span>
                     </DropdownMenuItem>
@@ -136,20 +136,17 @@ export function Header() {
                       <Calendar className="mr-2" />
                       <span>Availability</span>
                     </DropdownMenuItem>
-                     <DropdownMenuItem onClick={() => router.push('/admin/contracts')} className="cursor-pointer">
+                    <DropdownMenuItem onClick={() => router.push('/admin/contracts')} className="cursor-pointer">
                       <Briefcase className="mr-2" />
                       <span>Contracts</span>
                     </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => router.push('/admin/performance')}
-                      className="cursor-pointer"
-                    >
+                    <DropdownMenuItem onClick={() => router.push('/admin/performance')} className="cursor-pointer">
                       <TrendingUp className="mr-2" />
                       <span>Performance</span>
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => router.push('/admin/tasks')} className="cursor-pointer">
-                        <ListChecks className="mr-2" />
-                        <span>Tasks</span>
+                      <ListChecks className="mr-2" />
+                      <span>Tasks</span>
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => router.push('/admin/users')} className="cursor-pointer">
                       <UserCog className="mr-2" />
