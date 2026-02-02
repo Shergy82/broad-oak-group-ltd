@@ -12,28 +12,28 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Broad Oak Group",
     description: "Broad Oak Group internal portal for scheduling, projects and site management.",
-    url: '/',
-    siteName: 'Broad Oak Group',
+    url: "/",
+    siteName: "Broad Oak Group",
     images: [
       {
-        url: '/icon-512.png', // Relative to metadataBase
+        url: "/icon-512.png",
         width: 512,
         height: 512,
-        alt: 'Broad Oak Group Logo',
+        alt: "Broad Oak Group Logo",
       },
     ],
-    locale: 'en_GB',
-    type: 'website',
+    locale: "en_GB",
+    type: "website",
   },
   twitter: {
-    card: 'summary_large_image',
+    card: "summary_large_image",
     title: "Broad Oak Group",
     description: "Broad Oak Group internal portal for scheduling, projects and site management.",
-    images: [`/icon-512.png`],
+    images: ["/icon-512.png"],
   },
   icons: {
-    icon: '/icon-192.png',
-    apple: '/icon-192.png',
+    icon: "/icon-192.png",
+    apple: "/icon-192.png",
   },
 };
 
@@ -47,13 +47,14 @@ export default function RootLayout({
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap"
+          rel="stylesheet"
+        />
         <meta name="theme-color" content="#ffffff" />
       </head>
       <body className="font-body antialiased h-full">
-        <Providers>
-          {children}
-        </Providers>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

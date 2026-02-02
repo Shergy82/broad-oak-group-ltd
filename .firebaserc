@@ -5,6 +5,14 @@
     "new": "the-final-project-5e248",
     "final": "the-final-project-5e248"
   },
-  "targets": {},
+  "targets": {
+    "the-final-project-5e248": {
+      "hosting": {
+        "the-final-project-5e248": [
+          "the-final-project-5e248"
+        ]
+      }
+    }
+  },
   "etags": {}
 }

@@ -55,3 +55,4 @@ firebase-debug.log*
 .DS_Store
 firebase-backup.zip
 firebase-backup.zip
+app_BACKUP_*
