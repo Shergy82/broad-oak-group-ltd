@@ -1,7 +1,7 @@
-
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -21,8 +21,8 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { Spinner } from '@/components/shared/spinner';
 import { UnconfiguredForm } from '@/components/auth/unconfigured-form';
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Terminal } from "lucide-react"
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Terminal } from 'lucide-react';
 import Link from 'next/link';
 
 const formSchema = z.object({
@@ -31,6 +31,7 @@ const formSchema = z.object({
 });
 
 export function LoginForm() {
+  const router = useRouter();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +50,11 @@ export function LoginForm() {
     if (!auth || !db) return;
 
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, values.email, values.password);
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
+        values.email,
+        values.password
+      );
       const user = userCredential.user;
 
       // Check user status in Firestore
@@ -59,24 +64,27 @@ export function LoginForm() {
       if (userDoc.exists()) {
         const userProfile = userDoc.data();
         if (userProfile.status === 'suspended') {
-            await auth.signOut();
-            setError('Your account has been suspended. Please contact an administrator.');
-            setIsLoading(false);
-            return;
+          await auth.signOut();
+          setError('Your account has been suspended. Please contact an administrator.');
+          setIsLoading(false);
+          return;
         }
         if (userProfile.status === 'pending-approval') {
-            await auth.signOut();
-            setError('Your account is pending approval. You will be able to log in once an administrator approves your account.');
-            setIsLoading(false);
-            return;
+          await auth.signOut();
+          setError(
+            'Your account is pending approval. You will be able to log in once an administrator approves your account.'
+          );
+          setIsLoading(false);
+          return;
         }
       }
 
       toast({
         title: 'Login Successful',
-        description: "Welcome back!",
+        description: 'Welcome back!',
       });
-      // Redirect handled by AuthProvider
+
+      router.push('/dashboard');
     } catch (error: any) {
       let errorMessage = 'An unexpected error occurred. Please try again.';
       if (error.code) {
@@ -85,7 +93,8 @@ export function LoginForm() {
             errorMessage = 'Invalid email or password. Please try again.';
             break;
           case 'auth/user-disabled':
-            errorMessage = 'This account has been disabled or suspended. Please contact an administrator.';
+            errorMessage =
+              'This account has been disabled or suspended. Please contact an administrator.';
             break;
           case 'auth/too-many-requests':
             errorMessage = 'Too many login attempts. Please try again later.';
@@ -110,12 +119,13 @@ export function LoginForm() {
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
         {error && (
-            <Alert variant="destructive">
-              <Terminal className="h-4 w-4" />
-              <AlertTitle>Login Failed</AlertTitle>
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
+          <Alert variant="destructive">
+            <Terminal className="h-4 w-4" />
+            <AlertTitle>Login Failed</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
+
         <FormField
           control={form.control}
           name="email"
@@ -129,6 +139,7 @@ export function LoginForm() {
             </FormItem>
           )}
         />
+
         <FormField
           control={form.control}
           name="password"
@@ -137,10 +148,10 @@ export function LoginForm() {
               <div className="flex items-center justify-between">
                 <FormLabel>Password</FormLabel>
                 <Link
-                    href="/forgot-password"
-                    className="text-sm font-medium text-primary hover:underline"
+                  href="/forgot-password"
+                  className="text-sm font-medium text-primary hover:underline"
                 >
-                    Forgot password?
+                  Forgot password?
                 </Link>
               </div>
               <FormControl>
@@ -150,10 +161,11 @@ export function LoginForm() {
             </FormItem>
           )}
         />
+
         <div className="pt-2">
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? <Spinner /> : 'Log In'}
-            </Button>
+          <Button type="submit" className="w-full" disabled={isLoading}>
+            {isLoading ? <Spinner /> : 'Log In'}
+          </Button>
         </div>
       </form>
     </Form>
