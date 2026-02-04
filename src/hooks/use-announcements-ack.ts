@@ -6,7 +6,7 @@ export async function acknowledgeAnnouncement(
   user: any,
   name: string
 ) {
-  const id = \`\${announcementId}_\${user.uid}\`;
+  const id = `${announcementId}_${user.uid}`;
 
   await setDoc(doc(db, "announcementAcknowledgements", id), {
     announcementId,
@@ -20,7 +20,7 @@ export async function hasAcknowledged(
   announcementId: string,
   user: any
 ) {
-  const id = \`\${announcementId}_\${user.uid}\`;
+  const id = `${announcementId}_${user.uid}`;
 
   return (await getDoc(doc(db, "announcementAcknowledgements", id))).exists();
 }

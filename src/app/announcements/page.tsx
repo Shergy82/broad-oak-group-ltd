@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -9,14 +10,21 @@ import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/use-auth';
 import type { Announcement } from '@/types';
 
+import {
+  acknowledgeAnnouncement,
+  hasAcknowledged,
+} from '@/hooks/use-announcements-ack';
+
+import { Button } from '@/components/ui/button';
+
 export default function AnnouncementsPage() {
   const { user, isLoading: isAuthLoading } = useAuth();
   const router = useRouter();
 
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
+  const [ack, setAck] = useState<Record<string, boolean>>({});
 
-  // If not logged in, go to dashboard (which handles sign-in)
   useEffect(() => {
     if (!isAuthLoading && !user) router.replace('/dashboard');
   }, [user, isAuthLoading, router]);
@@ -25,10 +33,15 @@ export default function AnnouncementsPage() {
     if (!user) return;
 
     const qy = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'));
+
     const unsub = onSnapshot(
       qy,
       (snap) => {
-        const rows = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Announcement[];
+        const rows = snap.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as any),
+        })) as Announcement[];
+
         setAnnouncements(rows);
         setLoading(false);
       },
@@ -38,7 +51,23 @@ export default function AnnouncementsPage() {
     return () => unsub();
   }, [user]);
 
-  const hasAnnouncements = useMemo(() => announcements.length > 0, [announcements]);
+  useEffect(() => {
+    async function load() {
+      if (!user) return;
+
+      for (const a of announcements) {
+        const ok = await hasAcknowledged(a.id, user);
+        setAck((p) => ({ ...p, [a.id]: ok }));
+      }
+    }
+
+    if (announcements.length) load();
+  }, [announcements, user]);
+
+  const hasAnnouncements = useMemo(
+    () => announcements.length > 0,
+    [announcements]
+  );
 
   if (!user) return null;
 
@@ -53,17 +82,43 @@ export default function AnnouncementsPage() {
       ) : (
         <div className="space-y-4">
           {announcements.map((a) => (
-            <div key={a.id} className="rounded-lg border p-4 bg-background">
+            <div
+              key={a.id}
+              className="rounded-lg border p-4 bg-background space-y-3"
+            >
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h2 className="font-semibold">{a.title}</h2>
                   <p className="text-xs text-muted-foreground">
                     Posted by {a.authorName || '—'}{' '}
-                    {a.createdAt?.toDate ? `on ${format(a.createdAt.toDate(), 'PPP')}` : ''}
+                    {a.createdAt?.toDate
+                      ? `on ${format(a.createdAt.toDate(), 'PPP')}`
+                      : ''}
                   </p>
                 </div>
+
+                <Button
+                  size="sm"
+                  disabled={ack[a.id]}
+                  onClick={async () => {
+                    if (!user) return;
+
+                    await acknowledgeAnnouncement(
+                      a.id,
+                      user,
+                      user.displayName || 'Unknown'
+                    );
+
+                    setAck((p) => ({ ...p, [a.id]: true }));
+                  }}
+                >
+                  {ack[a.id] ? 'Acknowledged ✅' : 'Acknowledge'}
+                </Button>
               </div>
-              <div className="mt-3 whitespace-pre-wrap text-sm">{a.content}</div>
+
+              <div className="whitespace-pre-wrap text-sm">
+                {a.content}
+              </div>
             </div>
           ))}
         </div>
@@ -71,3 +126,4 @@ export default function AnnouncementsPage() {
     </div>
   );
 }
+
