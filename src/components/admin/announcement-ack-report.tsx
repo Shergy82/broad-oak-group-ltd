@@ -60,10 +60,10 @@ export function AnnouncementAckReport({ announcementId }: { announcementId: stri
                   })
                   .map((r) => (
                     <div key={r.id} className="flex items-center justify-between gap-3">
-                      <div className="truncate">
-                        <span className="font-medium">{r.name || 'Unknown'}</span>{' '}
-                        <span className="text-xs text-muted-foreground">({r.userId})</span>
-                      </div>
+                    <div className="truncate">
+                     <span className="font-medium">{r.name || 'Unknown'}</span>
+                    </div>
+                
                       <div className="text-xs text-muted-foreground">
                         {r.acknowledgedAt?.toDate
                           ? format(r.acknowledgedAt.toDate(), 'PP p')
