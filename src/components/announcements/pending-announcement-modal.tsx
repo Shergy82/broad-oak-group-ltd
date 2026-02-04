@@ -11,17 +11,23 @@ export function PendingAnnouncementModal() {
   const { user, pendingAnnouncements } = useAuth();
   const [ackLoading, setAckLoading] = useState(false);
 
-  const top = useMemo(() => pendingAnnouncements?.[0] ?? null, [pendingAnnouncements]);
+  const top = useMemo(
+    () => pendingAnnouncements?.[0] ?? null,
+    [pendingAnnouncements]
+  );
 
-  // Show modal only if there is something pending
-  const open = !!user && !!top;
-
-  if (!open || !top || !user) return null;
+  // If no signed-in user or no pending announcement, don't render
+  if (!user || !top) return null;
 
   async function handleAcknowledge() {
+    const u = user; // capture + narrow for TS
+    const a = top;
+
+    if (!u || !a) return;
+
     setAckLoading(true);
     try {
-      await acknowledgeAnnouncement(top.id, user, user.displayName || 'Unknown');
+      await acknowledgeAnnouncement(a.id, u, u.displayName ?? 'Unknown');
       // After ack, the announcements page will refresh state; hard gate will lift once all are ack’d.
       window.location.href = '/announcements';
     } finally {
@@ -38,10 +44,14 @@ export function PendingAnnouncementModal() {
           <div className="text-sm text-muted-foreground">
             New announcement requires acknowledgement
           </div>
+
           <h2 className="text-xl font-semibold">{top.title || 'Announcement'}</h2>
+
           <div className="text-xs text-muted-foreground">
             Posted by {top.authorName || '—'}{' '}
-            {top.createdAt?.toDate ? `on ${format(top.createdAt.toDate(), 'PPP')}` : ''}
+            {top.createdAt?.toDate
+              ? `on ${format(top.createdAt.toDate(), 'PPP')}`
+              : ''}
           </div>
         </div>
 
