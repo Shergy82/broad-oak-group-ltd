@@ -67,6 +67,16 @@ service cloud.firestore {
       allow create, update, delete: if isPrivilegedUser(request.auth.uid);
     }
 
+    // ---- ANNOUNCEMENT ACKNOWLEDGEMENTS ----
+    // Your app writes to: announcementAcknowledgements/{announcementId}_{uid}
+    match /announcementAcknowledgements/{docId} {
+      allow read: if signedIn();
+
+      // Only allow a user to create/update/delete their own acknowledgement
+      allow create, update, delete: if signedIn()
+        && request.resource.data.userId == request.auth.uid;
+    }
+
     // ---- SETTINGS ----
     match /settings/{id} {
       allow read, write: if role(request.auth.uid) == 'owner';

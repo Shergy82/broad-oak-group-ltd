@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -10,11 +9,8 @@ import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/use-auth';
 import type { Announcement } from '@/types';
 
-import {
-  acknowledgeAnnouncement,
-  hasAcknowledged,
-} from '@/hooks/use-announcements-ack';
-
+import { acknowledgeAnnouncement, hasAcknowledged } from '@/hooks/use-announcements-ack';
+import { AnnouncementAckReport } from '@/components/admin/announcement-ack-report';
 import { Button } from '@/components/ui/button';
 
 export default function AnnouncementsPage() {
@@ -24,6 +20,9 @@ export default function AnnouncementsPage() {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
   const [ack, setAck] = useState<Record<string, boolean>>({});
+
+  // Auto-hide acknowledged items toggle
+  const [hideAcknowledged, setHideAcknowledged] = useState(true);
 
   useEffect(() => {
     if (!isAuthLoading && !user) router.replace('/dashboard');
@@ -55,33 +54,55 @@ export default function AnnouncementsPage() {
     async function load() {
       if (!user) return;
 
-      for (const a of announcements) {
-        const ok = await hasAcknowledged(a.id, user);
-        setAck((p) => ({ ...p, [a.id]: ok }));
-      }
+      const results = await Promise.all(
+        announcements.map(async (a) => [a.id, await hasAcknowledged(a.id, user)] as const)
+      );
+
+      setAck((prev) => {
+        const next = { ...prev };
+        for (const [id, ok] of results) next[id] = ok;
+        return next;
+      });
     }
 
     if (announcements.length) load();
   }, [announcements, user]);
 
+  const visibleAnnouncements = useMemo(() => {
+    if (!hideAcknowledged) return announcements;
+    return announcements.filter((a) => !ack[a.id]);
+  }, [announcements, ack, hideAcknowledged]);
+
   const hasAnnouncements = useMemo(
-    () => announcements.length > 0,
-    [announcements]
+    () => visibleAnnouncements.length > 0,
+    [visibleAnnouncements]
   );
 
   if (!user) return null;
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-4">
-      <h1 className="text-2xl font-semibold">Announcements</h1>
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="text-2xl font-semibold">Announcements</h1>
+
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setHideAcknowledged((v) => !v)}
+        >
+          {hideAcknowledged ? 'Showing: Unacknowledged' : 'Showing: All'}
+        </Button>
+      </div>
 
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : !hasAnnouncements ? (
-        <p className="text-sm text-muted-foreground">No announcements yet.</p>
+        <p className="text-sm text-muted-foreground">
+          {hideAcknowledged ? 'No unacknowledged announcements.' : 'No announcements yet.'}
+        </p>
       ) : (
         <div className="space-y-4">
-          {announcements.map((a) => (
+          {visibleAnnouncements.map((a) => (
             <div
               key={a.id}
               className="rounded-lg border p-4 bg-background space-y-3"
@@ -99,7 +120,7 @@ export default function AnnouncementsPage() {
 
                 <Button
                   size="sm"
-                  disabled={ack[a.id]}
+                  disabled={!!ack[a.id]}
                   onClick={async () => {
                     if (!user) return;
 
@@ -116,8 +137,11 @@ export default function AnnouncementsPage() {
                 </Button>
               </div>
 
-              <div className="whitespace-pre-wrap text-sm">
-                {a.content}
+              <div className="whitespace-pre-wrap text-sm">{a.content}</div>
+
+              {/* Admin reporting: who acknowledged this announcement */}
+              <div className="pt-2">
+                <AnnouncementAckReport announcementId={a.id} />
               </div>
             </div>
           ))}
@@ -126,4 +150,3 @@ export default function AnnouncementsPage() {
     </div>
   );
 }
-
