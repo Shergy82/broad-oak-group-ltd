@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+
 import { useAuth } from '@/hooks/use-auth';
 import { Spinner } from '@/components/shared/spinner';
 import { useUserProfile } from '@/hooks/use-user-profile';
@@ -14,22 +15,26 @@ export default function RootPage() {
   const isLoading = isAuthLoading || isProfileLoading;
 
   useEffect(() => {
-    if (!isLoading) {
-      if (user && userProfile) {
-        const isPrivileged = ['admin', 'owner', 'manager'].includes(userProfile.role);
+    if (isLoading) return;
 
-        if (isPrivileged) {
-          router.replace('/admin/control-panel');
-        } else {
-          router.replace('/dashboard');
-        }
-
-      } else if (!user) {
-        // Send unauthenticated users to dashboard,
-        // which already handles login
-        router.replace('/dashboard');
-      }
+    if (!user) {
+      router.replace('/dashboard');
+      return;
     }
+
+    if (!userProfile) return;
+
+    const isPrivileged = ['admin', 'owner', 'manager'].includes(
+      (userProfile.role || '').toLowerCase()
+    );
+
+    if (!isPrivileged) {
+      router.replace('/dashboard');
+      return;
+    }
+
+    // Default admin landing: compliance report
+    router.replace('/admin/announcement-acks');
   }, [user, userProfile, isLoading, router]);
 
   return (
