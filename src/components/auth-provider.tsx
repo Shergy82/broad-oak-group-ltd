@@ -2,18 +2,39 @@
 
 import { useEffect, useState, createContext } from 'react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
-import { collection, getDocs, query } from 'firebase/firestore';
+import {
+  collection,
+  getDocs,
+  query,
+  where,
+  orderBy,
+  type DocumentData,
+} from 'firebase/firestore';
 import { usePathname, useRouter } from 'next/navigation';
 
 import { auth, isFirebaseConfigured, db } from '@/lib/firebase';
 import { Spinner } from '@/components/shared/spinner';
 
+export type PendingAnnouncement = {
+  id: string;
+  title?: string;
+  content?: string;
+  authorName?: string;
+  createdAt?: any;
+};
+
 export const AuthContext = createContext<{
   user: User | null;
   isLoading: boolean;
+
+  // Announcements gating + modal support
+  pendingAnnouncements: PendingAnnouncement[];
+  hasPendingAnnouncements: boolean;
 }>({
   user: null,
   isLoading: true,
+  pendingAnnouncements: [],
+  hasPendingAnnouncements: false,
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -21,43 +42,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [checkingAcks, setCheckingAcks] = useState(true);
 
+  const [pendingAnnouncements, setPendingAnnouncements] = useState<PendingAnnouncement[]>([]);
+  const [hasPendingAnnouncements, setHasPendingAnnouncements] = useState(false);
+
   const router = useRouter();
   const pathname = usePathname();
 
-  // Check if user has unacknowledged announcements
-  async function hasPendingAnnouncements(u: User) {
-    // Get all announcements
+  async function loadPendingAnnouncements(u: User) {
+    // 1) Get all announcements (newest first)
     const annSnap = await getDocs(
-      query(collection(db, 'announcements'))
+      query(collection(db, 'announcements'), orderBy('createdAt', 'desc'))
     );
 
-    if (annSnap.empty) return false;
+    if (annSnap.empty) return [];
 
-    // Get all this user's acknowledgements
+    // 2) Get ONLY this user's acknowledgements (much cheaper than reading whole collection)
     const ackSnap = await getDocs(
-      query(collection(db, 'announcementAcknowledgements'))
+      query(
+        collection(db, 'announcementAcknowledgements'),
+        where('userId', '==', u.uid)
+      )
     );
 
     const acked = new Set<string>();
-
     ackSnap.docs.forEach((d) => {
-      const data = d.data();
-      if (data.userId === u.uid) {
-        acked.add(data.announcementId);
-      }
+      const data = d.data() as DocumentData;
+      if (data?.announcementId) acked.add(String(data.announcementId));
     });
 
-    // Check if any announcement is missing
-    for (const doc of annSnap.docs) {
-      if (!acked.has(doc.id)) return true;
+    // 3) Anything not in acked is pending
+    const pending: PendingAnnouncement[] = [];
+    for (const docSnap of annSnap.docs) {
+      if (!acked.has(docSnap.id)) {
+        const data = docSnap.data() as DocumentData;
+        pending.push({
+          id: docSnap.id,
+          title: data?.title,
+          content: data?.content,
+          authorName: data?.authorName,
+          createdAt: data?.createdAt,
+        });
+      }
     }
 
-    return false;
+    return pending;
   }
 
   useEffect(() => {
     if (!isFirebaseConfigured || !auth) {
       setIsLoading(false);
+      setCheckingAcks(false);
       return;
     }
 
@@ -65,6 +99,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(u);
 
       if (!u) {
+        setPendingAnnouncements([]);
+        setHasPendingAnnouncements(false);
         setIsLoading(false);
         setCheckingAcks(false);
         return;
@@ -73,10 +109,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setCheckingAcks(true);
 
       try {
-        const pending = await hasPendingAnnouncements(u);
+        const pending = await loadPendingAnnouncements(u);
 
-        // Force user to announcements page
-        if (pending && pathname !== '/announcements') {
+        setPendingAnnouncements(pending);
+        setHasPendingAnnouncements(pending.length > 0);
+
+        // Hard gate: if pending, force announcements page
+        if (pending.length > 0 && pathname !== '/announcements') {
           router.replace('/announcements');
         }
       } finally {
@@ -97,7 +136,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, isLoading }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isLoading,
+        pendingAnnouncements,
+        hasPendingAnnouncements,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
