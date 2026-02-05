@@ -25,10 +25,8 @@ export default function AnnouncementAcksAdminPage() {
   const [acks, setAcks] = useState<Ack[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const isPrivileged = useMemo(() => {
-    const r = (userProfile?.role || '').toLowerCase();
-    return r === 'owner' || r === 'admin' || r === 'manager';
-  }, [userProfile]);
+  const role = (userProfile?.role || '').toLowerCase();
+  const isPrivileged = role === 'owner' || role === 'admin' || role === 'manager';
 
   useEffect(() => {
     async function load() {
@@ -38,9 +36,7 @@ export default function AnnouncementAcksAdminPage() {
         const annSnap = await getDocs(
           query(collection(db, 'announcements'), orderBy('createdAt', 'desc'))
         );
-        const ackSnap = await getDocs(
-          query(collection(db, 'announcementAcknowledgements'))
-        );
+        const ackSnap = await getDocs(query(collection(db, 'announcementAcknowledgements')));
 
         setAnns(
           annSnap.docs.map((d) => ({
@@ -66,32 +62,29 @@ export default function AnnouncementAcksAdminPage() {
   const csv = useMemo(() => {
     const annById = new Map<string, Ann>(anns.map((a) => [a.id, a]));
 
-    const header = [
-      'announcementId',
-      'announcementTitle',
-      'announcementCreatedAt',
-      'name',
-      'acknowledgedAt',
-    ].join(',');
+    // Only generate CSV for privileged users
+    if (!isPrivileged) return '';
+
+    const header = ['announcementTitle', 'announcementCreatedAt', 'name', 'acknowledgedAt'].join(',');
 
     const rows = acks
       .slice()
       .sort(
         (a, b) =>
-          (b.acknowledgedAt?.toMillis?.() ?? 0) -
-          (a.acknowledgedAt?.toMillis?.() ?? 0)
+          (b.acknowledgedAt?.toMillis?.() ?? 0) - (a.acknowledgedAt?.toMillis?.() ?? 0)
       )
       .map((ack) => {
         const ann = annById.get(ack.announcementId);
+
         const annCreated = ann?.createdAt?.toDate
           ? format(ann.createdAt.toDate(), 'yyyy-MM-dd HH:mm')
           : '';
+
         const ackedAt = ack.acknowledgedAt?.toDate
           ? format(ack.acknowledgedAt.toDate(), 'yyyy-MM-dd HH:mm')
           : '';
 
         return [
-          toCsvCell(ack.announcementId),
           toCsvCell(ann?.title || ''),
           toCsvCell(annCreated),
           toCsvCell(ack.name || ''),
@@ -100,16 +93,15 @@ export default function AnnouncementAcksAdminPage() {
       });
 
     return [header, ...rows].join('\n');
-  }, [anns, acks]);
+  }, [anns, acks, isPrivileged]);
 
   function downloadCsv() {
+    if (!isPrivileged) return;
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `announcement-acknowledgements-${new Date()
-      .toISOString()
-      .slice(0, 10)}.csv`;
+    a.download = `announcement-acknowledgements-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -120,6 +112,7 @@ export default function AnnouncementAcksAdminPage() {
     return <div className="p-6">Loading…</div>;
   }
 
+  // Standard users never see this page content at all
   if (!isPrivileged) {
     return <div className="p-6">You don’t have access to this page.</div>;
   }
@@ -128,19 +121,15 @@ export default function AnnouncementAcksAdminPage() {
     <div className="p-6 max-w-5xl mx-auto space-y-4">
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl font-semibold">Announcement Acknowledgements</h1>
-        <Button onClick={downloadCsv} disabled={loading || acks.length === 0}>
+        <Button onClick={downloadCsv} disabled={loading || acks.length === 0 || !csv}>
           {loading ? 'Loading…' : 'Download CSV'}
         </Button>
       </div>
 
-      <div className="text-sm text-muted-foreground">
-        Records: {loading ? '—' : acks.length}
-      </div>
+      <div className="text-sm text-muted-foreground">Records: {loading ? '—' : acks.length}</div>
 
       {!loading && acks.length === 0 && (
-        <div className="text-sm text-muted-foreground">
-          No acknowledgements yet.
-        </div>
+        <div className="text-sm text-muted-foreground">No acknowledgements yet.</div>
       )}
     </div>
   );
