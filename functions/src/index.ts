@@ -8,17 +8,22 @@ import * as crypto from "crypto";
 if (admin.apps.length === 0) admin.initializeApp();
 const db = admin.firestore();
 
-// ENV ONLY (Cloud Functions v2)
+/** =========================
+ *  ENV (Cloud Functions v2)
+ *  ========================= */
 const VAPID_PUBLIC = process.env.WEBPUSH_PUBLIC_KEY || "";
 const VAPID_PRIVATE = process.env.WEBPUSH_PRIVATE_KEY || "";
-const VAPID_SUBJECT =
-  process.env.WEBPUSH_SUBJECT || "mailto:example@your-project.com";
+const VAPID_SUBJECT = process.env.WEBPUSH_SUBJECT || "mailto:example@your-project.com";
 
 if (VAPID_PUBLIC && VAPID_PRIVATE) {
   webPush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC, VAPID_PRIVATE);
 } else {
   logger.warn("VAPID keys not configured. Push notifications will not work.");
 }
+
+/** =========================
+ *  Helpers
+ *  ========================= */
 
 /**
  * Firestore doc IDs must NOT contain '/'.
@@ -39,7 +44,6 @@ async function sendWebPushToUser(uid: string, payloadObj: any) {
   }
 
   const snap = await db.collection(`users/${uid}/pushSubscriptions`).get();
-
   if (snap.empty) {
     logger.info("No push subs for user", { uid });
     return { sent: 0, removed: 0 };
@@ -140,7 +144,7 @@ function toMillis(v: any): number | null {
 }
 
 function getShiftStartMs(shift: any): number | null {
-  // Your schema:
+  // Current schema:
   // - shift.date = Firestore Timestamp for the day (midnight)
   // - shift.type = "am" | "pm"
   const dayMs = toMillis(shift.date);
@@ -232,6 +236,10 @@ function hashSig(sig: string): string {
   return crypto.createHash("sha256").update(sig).digest("hex");
 }
 
+/** =========================
+ *  Callable / HTTP Functions
+ *  ========================= */
+
 export const getVapidPublicKey = onCall({ region: "europe-west2" }, async () => {
   if (!VAPID_PUBLIC) {
     throw new HttpsError("failed-precondition", "VAPID public key is not configured");
@@ -287,7 +295,6 @@ export const setNotificationStatus = onCall({ region: "europe-west2" }, async (r
   throw new HttpsError("invalid-argument", "Invalid status");
 });
 
-// ✅ FIXED: enable CORS so browser can read response (prevents “failed” UI)
 export const sendTestNotificationHttp = onRequest(
   { region: "europe-west2", cors: true },
   async (req, res) => {
@@ -312,6 +319,37 @@ export const sendTestNotificationHttp = onRequest(
     }
   }
 );
+
+/**
+ * ✅ deleteAllShifts callable
+ * Frontend calls httpsCallable(functions, 'deleteAllShifts')
+ *
+ * NOTE: Admin-only check removed (your local credentials can't set claims right now).
+ */
+export const deleteAllShifts = onCall({ region: "europe-west2" }, async (req) => {
+  if (!req.auth) throw new HttpsError("unauthenticated", "Login required");
+
+  const shiftsRef = db.collection("shifts");
+  let totalDeleted = 0;
+
+  // Chunk deletes to avoid Firestore batch limit (500) and reduce timeouts
+  while (true) {
+    const snap = await shiftsRef.limit(400).get();
+    if (snap.empty) break;
+
+    const batch = db.batch();
+    snap.docs.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+
+    totalDeleted += snap.size;
+  }
+
+  return { ok: true, message: `Deleted ${totalDeleted} shift(s).` };
+});
+
+/** =========================
+ *  Firestore Trigger
+ *  ========================= */
 
 /**
  * Fires on create/update/delete.
@@ -393,9 +431,7 @@ export const onShiftWrite = onDocumentWritten(
 
       const result = await sendWebPushToUser(userId, {
         title: isCreate ? "New Shift Assigned" : "Shift Updated",
-        body: isCreate
-          ? "You have been assigned a new shift."
-          : "One of your shifts has been updated.",
+        body: isCreate ? "You have been assigned a new shift." : "One of your shifts has been updated.",
         url: "/dashboard",
       });
 

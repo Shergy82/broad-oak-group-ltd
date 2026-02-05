@@ -8,6 +8,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { Spinner } from '@/components/shared/spinner';
 import Dashboard from '@/components/dashboard/index';
 import { db } from '@/lib/firebase';
+if (!db) throw new Error("Firestore db not initialized");
 import type { Shift } from '@/types';
 
 export default function SiteSchedulePage() {

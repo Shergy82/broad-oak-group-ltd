@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
 import {
@@ -80,18 +80,22 @@ interface FileUploaderProps {
   userProfile: UserProfile;
 }
 
-// --- Helper Functions ---
+// ------------------------
+// Helper functions
+// ------------------------
+
 const levenshtein = (a: string, b: string): number => {
   if (a.length === 0) return b.length;
   if (b.length === 0) return a.length;
+
   const matrix: number[][] = [];
   for (let i = 0; i <= b.length; i++) matrix[i] = [i];
   for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+
   for (let i = 1; i <= b.length; i++) {
     for (let j = 1; j <= a.length; j++) {
-      if (b.charAt(i - 1) === a.charAt(j - 1)) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) matrix[i][j] = matrix[i - 1][j - 1];
+      else {
         matrix[i][j] = Math.min(
           matrix[i - 1][j - 1] + 1,
           matrix[i][j - 1] + 1,
@@ -103,8 +107,7 @@ const levenshtein = (a: string, b: string): number => {
   return matrix[b.length][a.length];
 };
 
-const normalizeText = (text: string) =>
-  (text || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const normalizeText = (text: string) => (text || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 const findUser = (name: string, userMap: UserMapEntry[]): UserMapEntry | null => {
   const normalizedName = normalizeText(name);
@@ -148,18 +151,23 @@ const findUser = (name: string, userMap: UserMapEntry[]): UserMapEntry | null =>
 const parseDate = (dateValue: any): Date | null => {
   if (!dateValue) return null;
 
+  // Excel numeric date
   if (typeof dateValue === 'number' && dateValue > 1) {
     const excelEpoch = new Date(1899, 11, 30);
     const d = new Date(excelEpoch.getTime() + dateValue * 24 * 60 * 60 * 1000);
-    if (!isNaN(d.getTime())) {
-      return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-    }
+    if (!isNaN(d.getTime())) return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
   }
 
+  // String date
   if (typeof dateValue === 'string') {
-    const lowerCell = dateValue.toLowerCase();
+    const s = dateValue.trim();
+    const parsed = new Date(s);
+    if (!isNaN(parsed.getTime())) {
+      return new Date(Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()));
+    }
 
-    const dateMatch = lowerCell.match(/(\d{1,2})[ -/]+([a-z]{3})/);
+    const lower = s.toLowerCase();
+    const dateMatch = lower.match(/(\d{1,2})[ -/]+([a-z]{3})/);
     if (dateMatch) {
       const day = parseInt(dateMatch[1], 10);
       const monthStr = dateMatch[2];
@@ -169,28 +177,111 @@ const parseDate = (dateValue: any): Date | null => {
         return new Date(Date.UTC(year, monthIndex, day));
       }
     }
-
-    const dayNameMatch = lowerCell.match(
-      /(mon|tue|wed|thu|fri|sat|sun)\s+(\d{1,2})[ -/]+([a-z]{3})/
-    );
-    if (dayNameMatch) {
-      const day = parseInt(dayNameMatch[2], 10);
-      const monthStr = dayNameMatch[3];
-      const monthIndex = new Date(Date.parse(monthStr + ' 1, 2012')).getMonth();
-      if (!isNaN(day) && monthIndex !== -1) {
-        const year = new Date().getFullYear();
-        return new Date(Date.UTC(year, monthIndex, day));
-      }
-    }
   }
 
   if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
-    return new Date(
-      Date.UTC(dateValue.getFullYear(), dateValue.getMonth(), dateValue.getDate())
-    );
+    return new Date(Date.UTC(dateValue.getFullYear(), dateValue.getMonth(), dateValue.getDate()));
   }
 
   return null;
+};
+
+const looksLikePostcode = (text: string) =>
+  /\b[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}\b/i.test(text);
+
+const isProbablyAddressText = (text: string) => {
+  const t = (text || '').toString().trim();
+  if (!t) return false;
+
+  // E-number prefix (E90667 etc)
+  if (/^E\d{4,}/i.test(t)) return true;
+
+  // UK postcode
+  if (looksLikePostcode(t)) return true;
+
+  // Common street words
+  if (/\b(road|rd|street|st|avenue|ave|close|cl|drive|dr|lane|ln|grove|court|ct|way)\b/i.test(t))
+    return true;
+
+  return false;
+};
+
+// New site always starts at JOB MANAGER row
+const isSiteSeparatorRow = (row: any[]) => {
+  const cells = (row || [])
+    .map((c) => (c ?? '').toString().trim().toUpperCase())
+    .filter(Boolean);
+
+  if (cells.length === 0) return false;
+  return cells.some((c) => c.includes('JOB MANAGER'));
+};
+
+const findAddressInBlock = (jsonData: any[][], startRow: number, endRow: number) => {
+  for (let r = startRow; r < endRow; r++) {
+    const row = jsonData[r] || [];
+
+    // Scan left-side region where address block can appear (wider than before)
+    for (let c = 0; c <= 12; c++) {
+      const cell = row[c];
+      if (typeof cell !== 'string') continue;
+
+      const text = cell.trim();
+      if (!isProbablyAddressText(text)) continue;
+
+      // Merge downwards for multi-line addresses
+      const lines: string[] = [text];
+      for (let rr = r + 1; rr < endRow; rr++) {
+        const next = (jsonData[rr]?.[c] ?? '').toString().trim();
+        if (!next) break;
+
+        const up = next.toUpperCase();
+        if (
+          up.includes('PROJECT MANAGER') ||
+          up.includes('SITE MANAGER') ||
+          up.includes('TENANT') ||
+          up.includes('JOB MANAGER') ||
+          up.includes('IGNORE')
+        )
+          break;
+
+        // stop if clearly not address continuation
+        if (!isProbablyAddressText(next) && next.length < 8) break;
+
+        lines.push(next);
+      }
+
+      let address = lines.join(', ').replace(/\s+/g, ' ').trim();
+      let eNumber = '';
+
+      const m = address.match(/^(E\d+)\s*/i);
+      if (m) {
+        eNumber = m[1].toUpperCase();
+        address = address.replace(m[0], '').trim();
+      }
+
+      return { address, eNumber };
+    }
+  }
+
+  return { address: '', eNumber: '' };
+};
+
+const findDateHeaderRowInBlock = (jsonData: any[][], startRow: number, endRow: number) => {
+  for (let r = startRow; r < endRow; r++) {
+    const row = jsonData[r] || [];
+    let dateCount = 0;
+
+    for (let c = 0; c < row.length; c++) {
+      if (parseDate(row[c])) dateCount++;
+    }
+
+    // ✅ allow single-date rows too
+    if (dateCount >= 1) {
+      return { dateRowIndex: r, dateRow: row.map((cell) => parseDate(cell)) as (Date | null)[] };
+    }
+  }
+
+  return { dateRowIndex: -1, dateRow: [] as (Date | null)[] };
 };
 
 const LOCAL_STORAGE_KEY = 'shiftImport_selectedSheets';
@@ -221,7 +312,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
     onFileSelect();
 
     const reader = new FileReader();
-    reader.onload = e => {
+    reader.onload = (e) => {
       const data = e.target?.result;
       if (!data) return;
 
@@ -253,7 +344,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
 
   const toggleSheet = (sheetName: string) => {
     const next = selectedSheets.includes(sheetName)
-      ? selectedSheets.filter(s => s !== sheetName)
+      ? selectedSheets.filter((s) => s !== sheetName)
       : [...selectedSheets, sheetName];
 
     setSelectedSheets(next);
@@ -265,23 +356,21 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
     }
   };
 
-  const getShiftKey = (shift: {
-    userId: string;
-    date: Date | Timestamp;
-    task: string;
-    address: string;
-    type: 'am' | 'pm' | 'all-day';
-  }): string => {
+  /**
+   * ✅ UNIQUE KEY
+   * User + Date + Address
+   * (Type/task changes should UPDATE, not delete+create.)
+   */
+  const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string }): string => {
     const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
     const normalizedDate = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-    return `${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${shift.type}-${normalizeText(
-      shift.address
-    )}-${normalizeText(shift.task)}`;
+    return `${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${normalizeText(shift.address)}`;
   };
 
   const runImport = useCallback(
     async (commitChanges: boolean) => {
-      if (!file || !db) {
+      const firestore = db;
+      if (!file || !firestore) {
         setError('Please select a file first.');
         return;
       }
@@ -295,7 +384,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
       setError(null);
 
       const reader = new FileReader();
-      reader.onload = async e => {
+      reader.onload = async (e) => {
         try {
           const data = e.target?.result;
           if (!data) throw new Error('Could not read file data.');
@@ -306,8 +395,8 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
             cellStyles: true,
           });
 
-          const usersSnapshot = await getDocs(collection(db, 'users'));
-          const userMap: UserMapEntry[] = usersSnapshot.docs.map(d => {
+          const usersSnapshot = await getDocs(collection(firestore, 'users'));
+          const userMap: UserMapEntry[] = usersSnapshot.docs.map((d) => {
             const u = d.data() as UserProfile;
             return { uid: d.id, normalizedName: normalizeText(u.name), originalName: u.name };
           });
@@ -328,107 +417,60 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
               defval: null,
             });
 
-            const projectBlockStartRows: number[] = [];
-            jsonData.forEach((row, i) => {
-              const cellA = (row[0] || '').toString().trim().toUpperCase();
-              if (cellA.includes('JOB MANAGER')) projectBlockStartRows.push(i);
-            });
-
-            if (projectBlockStartRows.length === 0) continue;
-
-            for (let i = 0; i < projectBlockStartRows.length; i++) {
-              const blockStartRowIndex = projectBlockStartRows[i];
-              const blockEndRowIndex =
-                i + 1 < projectBlockStartRows.length ? projectBlockStartRows[i + 1] : jsonData.length;
-
-              let manager = '';
-              let address = '';
-              let eNumber = '';
-              let dateRow: (Date | null)[] = [];
-              let dateRowIndex = -1;
-
-              let managerRowIndex = -1;
-              let addressRowIndex = -1;
-
-              for (let r = blockStartRowIndex; r < blockEndRowIndex; r++) {
-                const row = jsonData[r] || [];
-                const cellAValue = (row[0] || '').toString().trim().toUpperCase();
-
-                if (cellAValue.includes('JOB MANAGER')) managerRowIndex = r + 1;
-                if (cellAValue.includes('ADDRESS')) addressRowIndex = r + 1;
-
-                if (dateRowIndex === -1) {
-                  const dayAbbrs = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-                  const monthAbbrs = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-                  let dateCellCount = 0;
-
-                  row.forEach(cell => {
-                    if (cell instanceof Date) dateCellCount++;
-                    else if (typeof cell === 'string') {
-                      const lowerCell = cell.toLowerCase();
-                      if (dayAbbrs.some(day => lowerCell.startsWith(day)) || monthAbbrs.some(abbr => lowerCell.includes(abbr))) {
-                        dateCellCount++;
-                      }
-                    }
-                  });
-
-                  if (dateCellCount > 2) {
-                    dateRowIndex = r;
-                    dateRow = row.map(cell => parseDate(cell));
-                  }
-                }
+            // --- Site blocks start around JOB MANAGER; include a few rows above for date headers ---
+            const blockStarts: number[] = [];
+            for (let i = 0; i < jsonData.length; i++) {
+              if (isSiteSeparatorRow(jsonData[i])) {
+                const start = Math.max(0, i - 3);
+                blockStarts.push(start);
               }
+            }
+            if (blockStarts.length === 0) blockStarts.push(0);
 
-              if (managerRowIndex !== -1 && managerRowIndex < blockEndRowIndex) {
-                manager = jsonData[managerRowIndex]?.[0] || 'Unknown Manager';
-              }
+            // De-dupe and sort starts
+            const starts = Array.from(new Set(blockStarts)).sort((a, b) => a - b);
 
-              if (addressRowIndex !== -1) {
-                const fullAddress: string[] = [];
-                for (let r = addressRowIndex; r < blockEndRowIndex; r++) {
-                  const addrPart = jsonData[r]?.[0];
-                  if (addrPart && typeof addrPart === 'string' && addrPart.trim() !== '') {
-                    fullAddress.push(addrPart.trim());
-                  } else {
-                    break;
-                  }
-                }
+            for (let i = 0; i < starts.length; i++) {
+              const blockStartRowIndex = starts[i];
+              const blockEndRowIndex = i + 1 < starts.length ? starts[i + 1] : jsonData.length;
 
-                if (fullAddress.length > 0) {
-                  const firstLine = fullAddress[0];
-                  const eNumberMatch = firstLine.match(/^(E\d+)\s*/i);
-                  if (eNumberMatch) {
-                    eNumber = eNumberMatch[0].trim();
-                    fullAddress[0] = firstLine.replace(eNumberMatch[0], '').trim();
-                  }
-                  address = fullAddress.join(', ');
-                }
-              }
+              if (blockEndRowIndex - blockStartRowIndex < 5) continue;
+
+              const { address, eNumber } = findAddressInBlock(jsonData, blockStartRowIndex, blockEndRowIndex);
 
               if (!address) {
                 allFailedShifts.push({
                   date: null,
                   projectAddress: `Block at row ${blockStartRowIndex + 1}`,
                   cellContent: '',
-                  reason: 'Could not find a valid Address within this project block.',
+                  reason: 'Could not find a valid Address within this site block.',
                   sheetName,
                   cellRef: `A${blockStartRowIndex + 1}`,
                 });
                 continue;
               }
+
+              const { dateRowIndex, dateRow } = findDateHeaderRowInBlock(
+                jsonData,
+                blockStartRowIndex,
+                blockEndRowIndex
+              );
 
               if (dateRowIndex === -1) {
                 allFailedShifts.push({
                   date: null,
                   projectAddress: address,
                   cellContent: '',
-                  reason: 'Could not find a valid Date Row within this project block.',
+                  reason: 'Could not find a valid Date Header Row within this site block.',
                   sheetName,
                   cellRef: `A${blockStartRowIndex + 1}`,
                 });
                 continue;
               }
 
+              const manager = '';
+
+              // Parse grid
               for (let r = dateRowIndex + 1; r < blockEndRowIndex; r++) {
                 const rowData = jsonData[r];
                 if (!rowData) continue;
@@ -445,59 +487,60 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                   if (!cellContentRaw || typeof cellContentRaw !== 'string') continue;
 
                   const cellContent = cellContentRaw.replace(/\s+/g, ' ').trim();
-                  const bgColor = cell?.s?.fgColor?.rgb;
-                  if (bgColor === 'FF800080' || bgColor === '800080') continue;
+                  if (!cellContent) continue;
 
                   let shiftType: 'am' | 'pm' | 'all-day' = 'all-day';
                   let remainingContent = cellContent;
 
-                  const amRegex = /^\s*AM\b/i;
-                  const pmRegex = /^\s*PM\b/i;
-
-                  if (amRegex.test(remainingContent)) {
+                  if (/^\s*AM\b/i.test(remainingContent)) {
                     shiftType = 'am';
-                    remainingContent = remainingContent.replace(amRegex, '').trim();
-                  } else if (pmRegex.test(remainingContent)) {
+                    remainingContent = remainingContent.replace(/^\s*AM\b/i, '').trim();
+                  } else if (/^\s*PM\b/i.test(remainingContent)) {
                     shiftType = 'pm';
-                    remainingContent = remainingContent.replace(pmRegex, '').trim();
+                    remainingContent = remainingContent.replace(/^\s*PM\b/i, '').trim();
                   }
 
-                  const parts = remainingContent.split('-').map(p => p.trim());
-                  if (parts.length > 1) {
-                    const potentialUserNames = parts.pop()!;
-                    const task = parts.join('-').trim();
+                  const parts = remainingContent
+                    .split('-')
+                    .map((p) => p.trim())
+                    .filter(Boolean);
 
-                    const usersInCell = potentialUserNames
-                      .split(/&|,|\+/g)
-                      .map(n => n.trim())
-                      .filter(Boolean);
+                  if (parts.length < 2) continue;
 
-                    if (task && usersInCell.length > 0) {
-                      for (const userName of usersInCell) {
-                        const user = findUser(userName, userMap);
-                        if (user) {
-                          allShiftsFromExcel.push({
-                            task,
-                            userId: user.uid,
-                            userName: user.originalName,
-                            type: shiftType,
-                            date: shiftDate,
-                            address,
-                            eNumber,
-                            manager,
-                            contract: sheetName, // ✅ sheet name stored as contract
-                          });
-                        } else {
-                          allFailedShifts.push({
-                            date: shiftDate,
-                            projectAddress: address,
-                            cellContent: cellContentRaw,
-                            reason: `Could not find a user matching "${userName}".`,
-                            sheetName,
-                            cellRef,
-                          });
-                        }
-                      }
+                  const potentialUserNames = parts.pop()!;
+                  const task = parts.join('-').trim();
+                  if (!task) continue;
+
+                  const usersInCell = potentialUserNames
+                    .split(/&|,|\+/g)
+                    .map((n) => n.trim())
+                    .filter(Boolean);
+
+                  if (usersInCell.length === 0) continue;
+
+                  for (const userName of usersInCell) {
+                    const user = findUser(userName, userMap);
+                    if (user) {
+                      allShiftsFromExcel.push({
+                        task,
+                        userId: user.uid,
+                        userName: user.originalName,
+                        type: shiftType,
+                        date: shiftDate,
+                        address,
+                        eNumber,
+                        manager,
+                        contract: sheetName,
+                      });
+                    } else {
+                      allFailedShifts.push({
+                        date: shiftDate,
+                        projectAddress: address,
+                        cellContent: cellContentRaw,
+                        reason: `Could not find a user matching "${userName}".`,
+                        sheetName,
+                        cellRef,
+                      });
                     }
                   }
                 }
@@ -515,7 +558,8 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
             return;
           }
 
-          const allDatesFound = allShiftsFromExcel.map(s => s.date).filter((d): d is Date => d !== null);
+          const allDatesFound = allShiftsFromExcel.map((s) => s.date).filter((d): d is Date => d !== null);
+
           if (allDatesFound.length === 0 && allFailedShifts.length > 0) {
             onImportComplete(allFailedShifts, async () => {}, {
               toCreate: [],
@@ -527,11 +571,11 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
             return;
           }
 
-          const minDate = new Date(Math.min(...allDatesFound.map(d => d.getTime())));
-          const maxDate = new Date(Math.max(...allDatesFound.map(d => d.getTime())));
+          const minDate = new Date(Math.min(...allDatesFound.map((d) => d.getTime())));
+          const maxDate = new Date(Math.max(...allDatesFound.map((d) => d.getTime())));
 
           const shiftsQuery = query(
-            collection(db, 'shifts'),
+            collection(firestore, 'shifts'),
             where('date', '>=', Timestamp.fromDate(minDate)),
             where('date', '<=', Timestamp.fromDate(maxDate))
           );
@@ -539,9 +583,10 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
           const existingShiftsSnapshot = await getDocs(shiftsQuery);
 
           const existingShiftsMap = new Map<string, Shift>();
-          existingShiftsSnapshot.forEach(d => {
+          existingShiftsSnapshot.forEach((d) => {
             const shiftData = { id: d.id, ...d.data() } as Shift;
-            existingShiftsMap.set(getShiftKey(shiftData), shiftData);
+            if (!shiftData.userId || !shiftData.date || !shiftData.address) return;
+            existingShiftsMap.set(getShiftKey(shiftData as any), shiftData);
           });
 
           const excelShiftsMap = new Map<string, ParsedShift>();
@@ -554,23 +599,29 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
           const toDelete: Shift[] = [];
           const protectedStatuses: ShiftStatus[] = ['completed', 'incomplete'];
 
+          // Create / Update
           for (const [key, excelShift] of excelShiftsMap.entries()) {
             const existingShift = existingShiftsMap.get(key);
-            if (existingShift) {
-              if (
-                (existingShift as any).eNumber !== (excelShift.eNumber || '') ||
-                (existingShift as any).manager !== (excelShift.manager || '') ||
-                (existingShift as any).contract !== (excelShift.contract || '')
-              ) {
-                if (!protectedStatuses.includes(existingShift.status)) {
-                  toUpdate.push({ old: existingShift, new: excelShift });
-                }
-              }
-            } else {
+
+            if (!existingShift) {
               toCreate.push(excelShift);
+              continue;
+            }
+
+            const changed =
+              normalizeText(existingShift.address || '') !== normalizeText(excelShift.address || '') ||
+              normalizeText((existingShift as any).task || '') !== normalizeText(excelShift.task || '') ||
+              (existingShift as any).type !== (excelShift as any).type ||
+              ((existingShift as any).eNumber || '') !== (excelShift.eNumber || '') ||
+              ((existingShift as any).manager || '') !== (excelShift.manager || '') ||
+              ((existingShift as any).contract || '') !== (excelShift.contract || '');
+
+            if (changed && !protectedStatuses.includes(existingShift.status)) {
+              toUpdate.push({ old: existingShift, new: excelShift });
             }
           }
 
+          // Deletions (only if key missing entirely)
           for (const [key, existingShift] of existingShiftsMap.entries()) {
             if (!excelShiftsMap.has(key) && !protectedStatuses.includes(existingShift.status)) {
               toDelete.push(existingShift);
@@ -578,21 +629,22 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
           }
 
           const onConfirm = async () => {
-            const batch = writeBatch(db);
-            const projectsRef = collection(db, 'projects');
+            const batch = writeBatch(firestore);
+
+            const projectsRef = collection(firestore, 'projects');
             const existingProjectsSnapshot = await getDocs(projectsRef);
             const existingProjectAddresses = new Set(
-              existingProjectsSnapshot.docs.map(d => (d.data() as Project).address)
+              existingProjectsSnapshot.docs.map((d) => (d.data() as Project).address)
             );
 
-            toCreate.forEach(shift => {
+            toCreate.forEach((shift) => {
               const newShiftData = {
                 ...shift,
                 date: Timestamp.fromDate(shift.date),
                 status: 'pending-confirmation',
                 createdAt: serverTimestamp(),
               };
-              batch.set(doc(collection(db, 'shifts')), newShiftData);
+              batch.set(doc(collection(firestore, 'shifts')), newShiftData);
 
               if (shift.address && !existingProjectAddresses.has(shift.address)) {
                 const reviewDate = new Date();
@@ -614,15 +666,18 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
             });
 
             toUpdate.forEach(({ old, new: newShift }) => {
-              batch.update(doc(db, 'shifts', old.id), {
+              batch.update(doc(firestore, 'shifts', old.id), {
+                address: newShift.address,
+                task: newShift.task,
+                type: newShift.type,
                 eNumber: newShift.eNumber || '',
                 manager: newShift.manager || '',
                 contract: newShift.contract || '',
               });
             });
 
-            toDelete.forEach(shift => {
-              batch.delete(doc(db, 'shifts', shift.id));
+            toDelete.forEach((shift) => {
+              batch.delete(doc(firestore, 'shifts', shift.id));
             });
 
             if (toCreate.length > 0 || toUpdate.length > 0 || toDelete.length > 0) {
@@ -663,7 +718,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
           handleClear();
         } catch (err: any) {
           console.error('Import failed:', err);
-          setError(err.message || 'An unexpected error occurred during import.');
+          setError(err?.message || 'An unexpected error occurred during import.');
           onImportComplete([], async () => {});
         } finally {
           setIsUploading(false);
@@ -780,12 +835,12 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                     <DropdownMenuLabel>Available Sheets</DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     <ScrollArea className="h-72">
-                      {sheetNames.map(name => (
+                      {sheetNames.map((name) => (
                         <DropdownMenuCheckboxItem
                           key={name}
                           checked={selectedSheets.includes(name)}
                           onCheckedChange={() => toggleSheet(name)}
-                          onSelect={e => e.preventDefault()}
+                          onSelect={(e) => e.preventDefault()}
                         >
                           <Sheet className="mr-2 h-4 w-4 text-muted-foreground" />
                           {name}
@@ -802,7 +857,11 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
         {file && (
           <div className="flex flex-col sm:flex-row gap-4 pt-2">
             <div className="flex items-center space-x-2">
-              <Checkbox id="dry-run" checked={isDryRun} onCheckedChange={checked => setIsDryRun(!!checked)} />
+              <Checkbox
+                id="dry-run"
+                checked={isDryRun}
+                onCheckedChange={(checked) => setIsDryRun(!!checked)}
+              />
               <Label
                 htmlFor="dry-run"
                 className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"

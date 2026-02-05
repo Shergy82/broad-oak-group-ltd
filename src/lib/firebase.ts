@@ -1,3 +1,4 @@
+// src/lib/firebase.ts
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
 import {
   getAuth,
@@ -30,31 +31,37 @@ export const isFirebaseConfigured =
   !!firebaseConfig.messagingSenderId &&
   !!firebaseConfig.appId;
 
-// IMPORTANT: use nulls when not configured (never export fake {} objects)
-let app: FirebaseApp | null = null;
-let auth: Auth | null = null;
-let db: Firestore | null = null;
-let storage: FirebaseStorage | null = null;
-let functions: Functions | null = null;
-
-if (isFirebaseConfigured) {
-  // Initialize app once
-  app = getApps().length ? getApp() : initializeApp(firebaseConfig);
-
-  auth = getAuth(app);
-  setPersistence(auth, indexedDBLocalPersistence).catch(() => {});
-
-  db = getFirestore(app);
-  storage = getStorage(app);
-
-  // Ensure your functions are deployed to the same region.
-  functions = getFunctions(app, "europe-west2");
-} else {
-  console.error("Firebase is not configured. Check your environment variables.");
+/**
+ * We export non-null Firebase singletons so builds/typecheck don’t fail
+ * (Firebase App Hosting runs a real type-check).
+ *
+ * If env vars are missing, we fail fast with a clear error.
+ */
+function assertConfigured(): void {
+  if (!isFirebaseConfigured) {
+    throw new Error(
+      "Firebase is not configured. Missing NEXT_PUBLIC_FIREBASE_* environment variables."
+    );
+  }
 }
 
-// Re-export httpsCallable for use in other parts of the app.
-export const httpsCallable = _httpsCallable;
+assertConfigured();
 
-// NOTE: these are nullable now — code using them must handle null
-export { app, auth, db, storage, functions };
+// Initialize app once
+export const app: FirebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
+
+// Auth
+export const auth: Auth = getAuth(app);
+setPersistence(auth, indexedDBLocalPersistence).catch(() => {
+  // Persistence can fail in some environments (e.g. private mode) — safe to ignore.
+});
+
+// Firestore / Storage
+export const db: Firestore = getFirestore(app);
+export const storage: FirebaseStorage = getStorage(app);
+
+// Cloud Functions (region must match your deployed region)
+export const functions: Functions = getFunctions(app, "europe-west2");
+
+// Re-export httpsCallable for use elsewhere
+export const httpsCallable = _httpsCallable;

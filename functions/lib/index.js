@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getNotificationStatus = exports.onShiftWrite = exports.sendTestNotificationHttp = exports.setNotificationStatus = exports.getVapidPublicKey = void 0;
+exports.getNotificationStatus = exports.onShiftWrite = exports.deleteAllShifts = exports.sendTestNotificationHttp = exports.setNotificationStatus = exports.getVapidPublicKey = void 0;
 const admin = __importStar(require("firebase-admin"));
 const logger = __importStar(require("firebase-functions/logger"));
 const https_1 = require("firebase-functions/v2/https");
@@ -43,7 +43,9 @@ const crypto = __importStar(require("crypto"));
 if (admin.apps.length === 0)
     admin.initializeApp();
 const db = admin.firestore();
-// ENV ONLY (Cloud Functions v2)
+/** =========================
+ *  ENV (Cloud Functions v2)
+ *  ========================= */
 const VAPID_PUBLIC = process.env.WEBPUSH_PUBLIC_KEY || "";
 const VAPID_PRIVATE = process.env.WEBPUSH_PRIVATE_KEY || "";
 const VAPID_SUBJECT = process.env.WEBPUSH_SUBJECT || "mailto:example@your-project.com";
@@ -53,6 +55,9 @@ if (VAPID_PUBLIC && VAPID_PRIVATE) {
 else {
     logger.warn("VAPID keys not configured. Push notifications will not work.");
 }
+/** =========================
+ *  Helpers
+ *  ========================= */
 /**
  * Firestore doc IDs must NOT contain '/'.
  * Use base64url so the ID is always safe.
@@ -153,7 +158,7 @@ function toMillis(v) {
     return null;
 }
 function getShiftStartMs(shift) {
-    // Your schema:
+    // Current schema:
     // - shift.date = Firestore Timestamp for the day (midnight)
     // - shift.type = "am" | "pm"
     const dayMs = toMillis(shift.date);
@@ -241,6 +246,9 @@ function relevantShiftSignature(shift) {
 function hashSig(sig) {
     return crypto.createHash("sha256").update(sig).digest("hex");
 }
+/** =========================
+ *  Callable / HTTP Functions
+ *  ========================= */
 exports.getVapidPublicKey = (0, https_1.onCall)({ region: "europe-west2" }, async () => {
     if (!VAPID_PUBLIC) {
         throw new https_1.HttpsError("failed-precondition", "VAPID public key is not configured");
@@ -281,7 +289,6 @@ exports.setNotificationStatus = (0, https_1.onCall)({ region: "europe-west2" }, 
     }
     throw new https_1.HttpsError("invalid-argument", "Invalid status");
 });
-// ✅ FIXED: enable CORS so browser can read response (prevents “failed” UI)
 exports.sendTestNotificationHttp = (0, https_1.onRequest)({ region: "europe-west2", cors: true }, async (req, res) => {
     try {
         res.setHeader("Cache-Control", "no-store");
@@ -301,6 +308,32 @@ exports.sendTestNotificationHttp = (0, https_1.onRequest)({ region: "europe-west
         res.status(500).json({ ok: false, error: e?.message || String(e) });
     }
 });
+/**
+ * ✅ deleteAllShifts callable
+ * Frontend calls httpsCallable(functions, 'deleteAllShifts')
+ *
+ * NOTE: Admin-only check removed (your local credentials can't set claims right now).
+ */
+exports.deleteAllShifts = (0, https_1.onCall)({ region: "europe-west2" }, async (req) => {
+    if (!req.auth)
+        throw new https_1.HttpsError("unauthenticated", "Login required");
+    const shiftsRef = db.collection("shifts");
+    let totalDeleted = 0;
+    // Chunk deletes to avoid Firestore batch limit (500) and reduce timeouts
+    while (true) {
+        const snap = await shiftsRef.limit(400).get();
+        if (snap.empty)
+            break;
+        const batch = db.batch();
+        snap.docs.forEach((d) => batch.delete(d.ref));
+        await batch.commit();
+        totalDeleted += snap.size;
+    }
+    return { ok: true, message: `Deleted ${totalDeleted} shift(s).` };
+});
+/** =========================
+ *  Firestore Trigger
+ *  ========================= */
 /**
  * Fires on create/update/delete.
  * - Create: before missing, after present
@@ -368,9 +401,7 @@ exports.onShiftWrite = (0, firestore_1.onDocumentWritten)({ region: "europe-west
         }
         const result = await sendWebPushToUser(userId, {
             title: isCreate ? "New Shift Assigned" : "Shift Updated",
-            body: isCreate
-                ? "You have been assigned a new shift."
-                : "One of your shifts has been updated.",
+            body: isCreate ? "You have been assigned a new shift." : "One of your shifts has been updated.",
             url: "/dashboard",
         });
         logger.info("Shift write push done", {

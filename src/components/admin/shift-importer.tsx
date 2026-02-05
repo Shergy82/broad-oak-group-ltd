@@ -106,7 +106,19 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                         <ScrollArea className="h-72">
                             <Table>
                                 <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Task</TableHead><TableHead>Address</TableHead></TableRow></TableHeader>
-                                <TableBody>{dryRun.toCreate.map((s,i) => <TableRow key={i}><TableCell>{format(s.date, 'PPP')}</TableCell><TableCell>{s.userName}</TableCell><TableCell>{s.task}</TableCell><TableCell>{s.address}</TableCell></TableRow>)}</TableBody>
+                                <TableBody>
+  {[...dryRun.toCreate]
+    .sort((a, b) => a.date.getTime() - b.date.getTime())
+    .map((s, i) => (
+      <TableRow key={i}>
+        <TableCell>{format(s.date, 'PPP')}</TableCell>
+        <TableCell>{s.userName}</TableCell>
+        <TableCell>{s.task}</TableCell>
+        <TableCell>{s.address}</TableCell>
+      </TableRow>
+    ))}
+</TableBody>
+
                             </Table>
                         </ScrollArea>
                     </CardContent>
