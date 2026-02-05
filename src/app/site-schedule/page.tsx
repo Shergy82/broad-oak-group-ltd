@@ -22,7 +22,7 @@ export default function SiteSchedulePage() {
   }, [user, isAuthLoading, router]);
 
   useEffect(() => {
-    const firestore = db; // ✅ narrow Firestore | null -> Firestore inside this scope
+    const firestore = db;
 
     if (!user || !firestore) {
       setLoadingData(false);
@@ -65,6 +65,7 @@ export default function SiteSchedulePage() {
   return (
     <div className="flex min-h-screen w-full flex-col">
       <main className="flex flex-1 flex-col gap-6 p-4 md:p-8">
+        <h1 className="text-2xl font-semibold">Site Schedule</h1>
         <Dashboard userShifts={allShifts} loading={loadingData} />
       </main>
     </div>
