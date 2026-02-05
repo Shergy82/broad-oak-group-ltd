@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { collection, onSnapshot, query, where, orderBy } from 'firebase/firestore';
 
@@ -22,7 +22,9 @@ export default function SiteSchedulePage() {
   }, [user, isAuthLoading, router]);
 
   useEffect(() => {
-    if (!user || !db) {
+    const firestore = db; // ✅ narrow Firestore | null -> Firestore inside this scope
+
+    if (!user || !firestore) {
       setLoadingData(false);
       return;
     }
@@ -30,7 +32,7 @@ export default function SiteSchedulePage() {
     setLoadingData(true);
 
     const shiftsQuery = query(
-      collection(db, 'shifts'),
+      collection(firestore, 'shifts'),
       where('userId', '==', user.uid),
       orderBy('date', 'asc')
     );
