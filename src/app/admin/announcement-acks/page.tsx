@@ -25,6 +25,7 @@ export default function AnnouncementAcksAdminPage() {
   const [acks, setAcks] = useState<Ack[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // IMPORTANT: don't block UI on profileLoading; treat missing profile as non-privileged
   const role = (userProfile?.role || '').toLowerCase();
   const isPrivileged = role === 'owner' || role === 'admin' || role === 'manager';
 
@@ -56,13 +57,13 @@ export default function AnnouncementAcksAdminPage() {
       }
     }
 
-    if (!isAuthLoading && user && !profileLoading) load();
-  }, [user, isAuthLoading, profileLoading]);
+    // Only wait for auth; profile can load later
+    if (!isAuthLoading && user) load();
+  }, [user, isAuthLoading]);
 
   const csv = useMemo(() => {
     const annById = new Map<string, Ann>(anns.map((a) => [a.id, a]));
 
-    // Only generate CSV for privileged users
     if (!isPrivileged) return '';
 
     const header = ['announcementTitle', 'announcementCreatedAt', 'name', 'acknowledgedAt'].join(',');
@@ -108,11 +109,16 @@ export default function AnnouncementAcksAdminPage() {
 
   if (!user) return null;
 
-  if (profileLoading || isAuthLoading) {
+  // Only block on auth; profile can be slow/missing
+  if (isAuthLoading) {
     return <div className="p-6">Loading…</div>;
   }
 
-  // Standard users never see this page content at all
+  // If profile is still loading, show a lightweight message instead of an infinite spinner
+  if (profileLoading) {
+    return <div className="p-6">Loading…</div>;
+  }
+
   if (!isPrivileged) {
     return <div className="p-6">You don’t have access to this page.</div>;
   }
