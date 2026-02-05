@@ -25,19 +25,30 @@ export default function SiteSchedulePage() {
       }
 
       setProfileLoading(true);
+
       try {
         const snap = await getDoc(doc(db, 'users', user.uid));
+
         if (cancelled) return;
-        setUserProfile(snap.exists() ? (snap.data() as UserProfile) : null);
-      } catch {
-        if (cancelled) return;
-        setUserProfile(null);
+
+        setUserProfile(
+          snap.exists() ? (snap.data() as UserProfile) : null
+        );
+      } catch (err) {
+        console.error('Failed to load user profile:', err);
+
+        if (!cancelled) {
+          setUserProfile(null);
+        }
       } finally {
-        if (!cancelled) setProfileLoading(false);
+        if (!cancelled) {
+          setProfileLoading(false);
+        }
       }
     }
 
     loadProfile();
+
     return () => {
       cancelled = true;
     };
