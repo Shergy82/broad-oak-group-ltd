@@ -1,74 +1,70 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { ShiftScheduleOverview } from '@/components/admin/shift-schedule-overview';
+import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { collection, onSnapshot, query, where, orderBy } from 'firebase/firestore';
+
 import { useAuth } from '@/hooks/use-auth';
-import { db } from '@/lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
 import { Spinner } from '@/components/shared/spinner';
-import type { UserProfile } from '@/types';
+import Dashboard from '@/components/dashboard/index';
+import { db } from '@/lib/firebase';
+import type { Shift } from '@/types';
 
 export default function SiteSchedulePage() {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading: isAuthLoading } = useAuth();
+  const router = useRouter();
 
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [profileLoading, setProfileLoading] = useState(true);
+  const [allShifts, setAllShifts] = useState<Shift[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
 
   useEffect(() => {
-    let cancelled = false;
+    if (!isAuthLoading && !user) router.push('/login');
+  }, [user, isAuthLoading, router]);
 
-    async function loadProfile() {
-      if (!user || !db) {
-        setUserProfile(null);
-        setProfileLoading(false);
-        return;
-      }
-
-      setProfileLoading(true);
-
-      try {
-        const snap = await getDoc(doc(db, 'users', user.uid));
-
-        if (cancelled) return;
-
-        setUserProfile(
-          snap.exists() ? (snap.data() as UserProfile) : null
-        );
-      } catch (err) {
-        console.error('Failed to load user profile:', err);
-
-        if (!cancelled) {
-          setUserProfile(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setProfileLoading(false);
-        }
-      }
+  useEffect(() => {
+    if (!user || !db) {
+      setLoadingData(false);
+      return;
     }
 
-    loadProfile();
+    setLoadingData(true);
 
-    return () => {
-      cancelled = true;
-    };
+    const shiftsQuery = query(
+      collection(db, 'shifts'),
+      where('userId', '==', user.uid),
+      orderBy('date', 'asc')
+    );
+
+    const unsubShifts = onSnapshot(
+      shiftsQuery,
+      (snapshot) => {
+        setAllShifts(snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as Shift)));
+        setLoadingData(false);
+      },
+      (error) => {
+        console.error('Error fetching user shifts:', error);
+        setLoadingData(false);
+      }
+    );
+
+    return () => unsubShifts();
   }, [user]);
 
-  if (isLoading || profileLoading) {
+  const isLoading = isAuthLoading || loadingData;
+
+  if (isLoading || !user) {
     return (
-      <div className="p-6">
-        <Spinner />
+      <div className="flex min-h-screen w-full flex-col items-center justify-center">
+        <Spinner size="lg" />
       </div>
     );
   }
 
-  if (!user) {
-    return <div className="p-6">Please sign in to view the schedule.</div>;
-  }
-
-  if (!userProfile) {
-    return <div className="p-6">Your profile could not be loaded.</div>;
-  }
-
-  return <ShiftScheduleOverview userProfile={userProfile} />;
+  return (
+    <div className="flex min-h-screen w-full flex-col">
+      <main className="flex flex-1 flex-col gap-6 p-4 md:p-8">
+        <Dashboard userShifts={allShifts} loading={loadingData} />
+      </main>
+    </div>
+  );
 }
