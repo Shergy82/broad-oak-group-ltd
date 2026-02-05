@@ -7,6 +7,7 @@ import { format } from 'date-fns';
 
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/use-auth';
+import { useUserProfile } from '@/hooks/use-user-profile';
 import type { Announcement } from '@/types';
 
 import { acknowledgeAnnouncement, hasAcknowledged } from '@/hooks/use-announcements-ack';
@@ -15,14 +16,18 @@ import { Button } from '@/components/ui/button';
 
 export default function AnnouncementsPage() {
   const { user, isLoading: isAuthLoading } = useAuth();
+  const { userProfile, loading: profileLoading } = useUserProfile();
   const router = useRouter();
 
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
   const [ack, setAck] = useState<Record<string, boolean>>({});
 
-  // Auto-hide acknowledged items toggle
+  // Admin-only toggle (standard users never see it)
   const [hideAcknowledged, setHideAcknowledged] = useState(true);
+
+  const role = (userProfile?.role || '').toLowerCase();
+  const isPrivileged = role === 'owner' || role === 'admin' || role === 'manager';
 
   useEffect(() => {
     if (!isAuthLoading && !user) router.replace('/dashboard');
@@ -69,14 +74,15 @@ export default function AnnouncementsPage() {
   }, [announcements, user]);
 
   const visibleAnnouncements = useMemo(() => {
+    // Standard users: ALWAYS hide acknowledged
+    if (!isPrivileged) return announcements.filter((a) => !ack[a.id]);
+
+    // Privileged users: can toggle
     if (!hideAcknowledged) return announcements;
     return announcements.filter((a) => !ack[a.id]);
-  }, [announcements, ack, hideAcknowledged]);
+  }, [announcements, ack, hideAcknowledged, isPrivileged]);
 
-  const hasAnnouncements = useMemo(
-    () => visibleAnnouncements.length > 0,
-    [visibleAnnouncements]
-  );
+  const hasAnnouncements = useMemo(() => visibleAnnouncements.length > 0, [visibleAnnouncements]);
 
   if (!user) return null;
 
@@ -85,36 +91,31 @@ export default function AnnouncementsPage() {
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl font-semibold">Announcements</h1>
 
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => setHideAcknowledged((v) => !v)}
-        >
-          {hideAcknowledged ? 'Showing: Unacknowledged' : 'Showing: All'}
-        </Button>
+        {isPrivileged && (
+          <Button size="sm" variant="outline" onClick={() => setHideAcknowledged((v) => !v)}>
+            {hideAcknowledged ? 'Showing: Unacknowledged' : 'Showing: All'}
+          </Button>
+        )}
       </div>
 
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : !hasAnnouncements ? (
         <p className="text-sm text-muted-foreground">
-          {hideAcknowledged ? 'No unacknowledged announcements.' : 'No announcements yet.'}
+          {isPrivileged && !hideAcknowledged
+            ? 'No announcements yet.'
+            : 'No unacknowledged announcements.'}
         </p>
       ) : (
         <div className="space-y-4">
           {visibleAnnouncements.map((a) => (
-            <div
-              key={a.id}
-              className="rounded-lg border p-4 bg-background space-y-3"
-            >
+            <div key={a.id} className="rounded-lg border p-4 bg-background space-y-3">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h2 className="font-semibold">{a.title}</h2>
                   <p className="text-xs text-muted-foreground">
                     Posted by {a.authorName || '—'}{' '}
-                    {a.createdAt?.toDate
-                      ? `on ${format(a.createdAt.toDate(), 'PPP')}`
-                      : ''}
+                    {a.createdAt?.toDate ? `on ${format(a.createdAt.toDate(), 'PPP')}` : ''}
                   </p>
                 </div>
 
@@ -124,12 +125,7 @@ export default function AnnouncementsPage() {
                   onClick={async () => {
                     if (!user) return;
 
-                    await acknowledgeAnnouncement(
-                      a.id,
-                      user,
-                      user.displayName || 'Unknown'
-                    );
-
+                    await acknowledgeAnnouncement(a.id, user, user.displayName || 'Unknown');
                     setAck((p) => ({ ...p, [a.id]: true }));
                   }}
                 >
@@ -139,10 +135,12 @@ export default function AnnouncementsPage() {
 
               <div className="whitespace-pre-wrap text-sm">{a.content}</div>
 
-              {/* Admin reporting: who acknowledged this announcement */}
-              <div className="pt-2">
-                <AnnouncementAckReport announcementId={a.id} />
-              </div>
+              {/* Admin reporting only */}
+              {isPrivileged && (
+                <div className="pt-2">
+                  <AnnouncementAckReport announcementId={a.id} />
+                </div>
+              )}
             </div>
           ))}
         </div>
