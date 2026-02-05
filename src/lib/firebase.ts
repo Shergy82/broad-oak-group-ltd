@@ -1,5 +1,10 @@
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
-import { getAuth, setPersistence, indexedDBLocalPersistence, type Auth } from "firebase/auth";
+import {
+  getAuth,
+  setPersistence,
+  indexedDBLocalPersistence,
+  type Auth,
+} from "firebase/auth";
 import { getFirestore, type Firestore } from "firebase/firestore";
 import { getStorage, type FirebaseStorage } from "firebase/storage";
 import {
@@ -25,41 +30,31 @@ export const isFirebaseConfigured =
   !!firebaseConfig.messagingSenderId &&
   !!firebaseConfig.appId;
 
-let app: FirebaseApp;
-let auth: Auth;
-let db: Firestore;
-let storage: FirebaseStorage;
-let functions: Functions;
-
-// This check ensures we only initialize Firebase once.
-if (!getApps().length) {
-  if (isFirebaseConfigured) {
-    app = initializeApp(firebaseConfig);
-  } else {
-    // In a real app, you might want to show a more user-friendly error
-    // or have a fallback experience if Firebase isn't configured.
-    console.error("Firebase is not configured. Check your .env.local file.");
-    // We'll create dummy objects to prevent the app from crashing.
-    app = {} as FirebaseApp;
-  }
-} else {
-  app = getApp();
-}
+// IMPORTANT: use nulls when not configured (never export fake {} objects)
+let app: FirebaseApp | null = null;
+let auth: Auth | null = null;
+let db: Firestore | null = null;
+let storage: FirebaseStorage | null = null;
+let functions: Functions | null = null;
 
 if (isFirebaseConfigured) {
+  // Initialize app once
+  app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+
   auth = getAuth(app);
   setPersistence(auth, indexedDBLocalPersistence).catch(() => {});
+
   db = getFirestore(app);
   storage = getStorage(app);
+
   // Ensure your functions are deployed to the same region.
   functions = getFunctions(app, "europe-west2");
 } else {
-  auth = {} as Auth;
-  db = {} as Firestore;
-  storage = {} as FirebaseStorage;
-  functions = {} as Functions;
+  console.error("Firebase is not configured. Check your environment variables.");
 }
 
 // Re-export httpsCallable for use in other parts of the app.
 export const httpsCallable = _httpsCallable;
+
+// NOTE: these are nullable now — code using them must handle null
 export { app, auth, db, storage, functions };
