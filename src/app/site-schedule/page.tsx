@@ -94,9 +94,9 @@ export default function SiteSchedulePage() {
 
     const shiftsQuery = query(
       collection(db, 'shifts'),
-      where('userId', '==', user.uid),
-      where('endDate', '>=', yesterday),
-      orderBy('endDate', 'asc')
+      where('assignedUserIds','array-contains', user.uid),
+      where('date','>=', yesterday),
+      orderBy('date','asc')
     );
 
     const unsub = onSnapshot(
