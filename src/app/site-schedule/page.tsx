@@ -92,8 +92,6 @@ export default function SiteSchedulePage() {
     startOfYesterday.setHours(0, 0, 0, 0);
     startOfYesterday.setDate(startOfYesterday.getDate() - 1);
     const yesterday = Timestamp.fromDate(startOfYesterday);
-      new Date(Date.now() - 24 * 60 * 60 * 1000)
-    );
 
     const shiftsQuery = query(
       collection(db, 'shifts'),
