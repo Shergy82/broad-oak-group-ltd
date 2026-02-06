@@ -88,7 +88,10 @@ export default function SiteSchedulePage() {
 
     // Keep showing sites until the day after last shift:
     // We filter out shifts whose end is BEFORE yesterday.
-    const yesterday = Timestamp.fromDate(
+    const startOfYesterday = new Date();
+    startOfYesterday.setHours(0, 0, 0, 0);
+    startOfYesterday.setDate(startOfYesterday.getDate() - 1);
+    const yesterday = Timestamp.fromDate(startOfYesterday);
       new Date(Date.now() - 24 * 60 * 60 * 1000)
     );
 
