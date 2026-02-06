@@ -105,7 +105,7 @@ export default function SiteScheduleAddressPage() {
                   {getCorrectedLocalDate(s.date).toDateString()} — {s.type || 'Shift'}
                 </div>
                 <div className="text-sm text-muted-foreground">
-                  {s.task || s.description || ''}
+                  {(s.userName || (Array.isArray(s.operatives) ? s.operatives.join(', ') : '')) + (s.task || s.description ? ' — ' : '') + (s.task || s.description || '')}
                 </div>
               </li>
             ))}
