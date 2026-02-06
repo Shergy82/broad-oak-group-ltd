@@ -18,7 +18,10 @@ export const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY ?? "",
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN ?? "",
   projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? "",
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ?? "",
+
+  // ✅ FIXED: Use correct Firebase Storage bucket
+  storageBucket: "the-final-project-5e248.firebasestorage.app",
+
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ?? "",
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID ?? "",
 };
@@ -48,10 +51,13 @@ function assertConfigured(): void {
 assertConfigured();
 
 // Initialize app once
-export const app: FirebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
+export const app: FirebaseApp = getApps().length
+  ? getApp()
+  : initializeApp(firebaseConfig);
 
 // Auth
 export const auth: Auth = getAuth(app);
+
 setPersistence(auth, indexedDBLocalPersistence).catch(() => {
   // Persistence can fail in some environments (e.g. private mode) — safe to ignore.
 });
