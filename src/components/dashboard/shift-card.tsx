@@ -324,7 +324,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
         size: file.size,
         type: file.type,
         uploadedAt: serverTimestamp(),
-        uploaderId: userProfile?.uid || auth.currentUser?.uid || "system",
+        uploaderId: userProfile?.uid || "system",
         uploaderName: userProfile.name,
       });
 
