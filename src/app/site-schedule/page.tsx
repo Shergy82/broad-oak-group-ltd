@@ -94,7 +94,7 @@ export default function SiteSchedulePage() {
 
     const shiftsQuery = query(
       collection(db, 'shifts'),
-      where('assignedUserIds','array-contains', user.uid),
+      where('userId','==', user.uid),
       where('date','>=', yesterday),
       orderBy('date','asc')
     );
