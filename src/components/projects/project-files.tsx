@@ -104,7 +104,7 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
                 size: file.size,
                 type: file.type,
                 uploadedAt: serverTimestamp(),
-                uploaderId: userProfile.uid,
+                uploaderId: userProfile?.uid || auth.currentUser?.uid || "system",
                 uploaderName: userProfile.name,
               });
               resolve();
