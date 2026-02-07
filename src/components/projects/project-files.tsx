@@ -77,10 +77,15 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
   };
 
-  // VIEW: click name -> always open the actual file URL (fast on mobile)
-  const getViewHref = (file: ProjectFile) => file.url;
+  // VIEW: force inline at click-time (helps iPhone Safari)
+  const getViewHref = (file: ProjectFile) => {
+    const url = file.url || '';
+    if (!url) return url;
+    const joiner = url.includes('?') ? '&' : '?';
+    return `${url}${joiner}response-content-disposition=inline`;
+  };
 
-  // DOWNLOAD: use same URL but add ?alt=media to encourage direct media download from Firebase Storage
+  // DOWNLOAD: encourage direct media download
   const getDownloadHref = (file: ProjectFile) => {
     const url = file.url || '';
     if (!url) return url;
@@ -98,10 +103,12 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
     const uploadPromises = filesToUpload.map((file) => {
       const storagePath = `project_files/${project.id}/${Date.now()}-${file.name}`;
       const storageRef = ref(storage, storagePath);
+
+      // Set metadata to inline for future viewers
       const uploadTask = uploadBytesResumable(storageRef, file, {
         contentType: file.type || 'application/octet-stream',
         contentDisposition: `inline; filename="${file.name}"`,
-      });      
+      });
 
       return new Promise<void>((resolve, reject) => {
         uploadTask.on(
@@ -114,6 +121,7 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
           async () => {
             try {
               const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+
               await addDoc(collection(db, `projects/${project.id}/files`), {
                 name: file.name,
                 url: downloadURL,
@@ -121,9 +129,10 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
                 size: file.size,
                 type: file.type,
                 uploadedAt: serverTimestamp(),
-                uploaderId: userProfile.uid,
+                uploaderId: userProfile.uid, // must match Firestore rule
                 uploaderName: userProfile?.name || 'System',
               });
+
               resolve();
             } catch (dbError) {
               console.error(`Failed to save file info for ${file.name} to Firestore:`, dbError);
@@ -214,7 +223,6 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
               {files.map((file) => (
                 <TableRow key={file.id}>
                   <TableCell className="font-medium truncate max-w-[150px]">
-                    {/* CLICK NAME = VIEW (fast) */}
                     <a
                       href={getViewHref(file)}
                       target="_blank"
@@ -230,7 +238,6 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
                   <TableCell className="text-xs text-muted-foreground">{file.uploaderName}</TableCell>
 
                   <TableCell className="text-right space-x-1">
-                    {/* DOWNLOAD BUTTON = DOWNLOAD */}
                     <a
                       href={getDownloadHref(file)}
                       target="_blank"
