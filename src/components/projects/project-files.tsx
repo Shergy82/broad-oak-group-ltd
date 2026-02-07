@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
-import { db, storage, functions, httpsCallable } from '@/lib/firebase';
+import { db, storage, functions, httpsCallable, auth } from '@/lib/firebase';
 import { collection, onSnapshot, query, orderBy, addDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { Button } from '@/components/ui/button';
@@ -95,7 +95,9 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
   };
 
   const handleFileUpload = (selectedFiles: FileList | null) => {
-    if (!userProfile?.uid) {
+    const authUid = auth.currentUser?.uid;
+
+    if (!authUid) {
       toast({
         variant: 'destructive',
         title: 'Not signed in',
@@ -103,7 +105,7 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
       });
       return;
     }
-  
+
     if (!selectedFiles || selectedFiles.length === 0) return;
 
     setIsUploading(true);
@@ -113,7 +115,6 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
       const storagePath = `project_files/${project.id}/${Date.now()}-${file.name}`;
       const storageRef = ref(storage, storagePath);
 
-      // Set metadata to inline for future viewers
       const uploadTask = uploadBytesResumable(storageRef, file, {
         contentType: file.type || 'application/octet-stream',
         contentDisposition: `inline; filename="${file.name}"`,
@@ -131,6 +132,11 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
             try {
               const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
 
+              console.log('UPLOAD UID CHECK:', {
+                authUid: auth.currentUser?.uid,
+                profileUid: userProfile?.uid,
+              });
+
               await addDoc(collection(db, `projects/${project.id}/files`), {
                 name: file.name,
                 url: downloadURL,
@@ -138,7 +144,7 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
                 size: file.size,
                 type: file.type,
                 uploadedAt: serverTimestamp(),
-                uploaderId: userProfile.uid.toString(), // must match Firestore rule
+                uploaderId: authUid, // MUST match request.auth.uid
                 uploaderName: userProfile?.name || 'System',
               });
 
