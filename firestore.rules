@@ -30,9 +30,8 @@ service cloud.firestore {
 
       allow list: if isPrivilegedUser(request.auth.uid);
 
-      // ---- PUSH SUBSCRIPTIONS ----
       match /pushSubscriptions/{docId} {
-        allow read, write, delete: if request.auth != null && request.auth.uid == userId;
+        allow read, write, delete: if signedIn() && request.auth.uid == userId;
       }
     }
 
@@ -52,10 +51,14 @@ service cloud.firestore {
     // ---- PROJECTS ----
     match /projects/{projectId} {
       allow read: if signedIn();
-      allow create, update, delete: if isPrivilegedUser(request.auth.uid);
+      allow create, update: if isPrivilegedUser(request.auth.uid);
 
       match /files/{fileId} {
-        allow read, create: if signedIn();
+        allow read: if signedIn();
+
+        allow create: if signedIn()
+          && request.resource.data.uploaderId == request.auth.uid;
+
         allow delete: if isPrivilegedUser(request.auth.uid)
           || resource.data.uploaderId == request.auth.uid;
       }
@@ -68,11 +71,9 @@ service cloud.firestore {
     }
 
     // ---- ANNOUNCEMENT ACKNOWLEDGEMENTS ----
-    // Your app writes to: announcementAcknowledgements/{announcementId}_{uid}
     match /announcementAcknowledgements/{docId} {
       allow read: if signedIn();
 
-      // Only allow a user to create/update/delete their own acknowledgement
       allow create, update, delete: if signedIn()
         && request.resource.data.userId == request.auth.uid;
     }
@@ -97,8 +98,14 @@ service cloud.firestore {
     // ---- HEALTH & SAFETY FILES ----
     match /health_and_safety_files/{id} {
       allow read: if signedIn();
-      allow create, update, delete: if role(request.auth.uid) == 'owner';
-    }
 
+      allow create: if signedIn()
+        && request.resource.data.uploaderId == request.auth.uid;
+
+      allow delete: if role(request.auth.uid) == 'owner'
+        || resource.data.uploaderId == request.auth.uid;
+
+      allow update: if false;
+    }
   }
 }

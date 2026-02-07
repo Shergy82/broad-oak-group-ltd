@@ -33,15 +33,20 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getNotificationStatus = exports.onShiftWrite = exports.deleteAllShifts = exports.sendTestNotificationHttp = exports.setNotificationStatus = exports.getVapidPublicKey = void 0;
+exports.getNotificationStatus = exports.onShiftWrite = exports.deleteAllShifts = exports.deleteProjectFile = exports.sendTestNotificationHttp = exports.setNotificationStatus = exports.getVapidPublicKey = void 0;
+// functions/src/index.ts
 const admin = __importStar(require("firebase-admin"));
 const logger = __importStar(require("firebase-functions/logger"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
 const webPush = __importStar(require("web-push"));
 const crypto = __importStar(require("crypto"));
-if (admin.apps.length === 0)
-    admin.initializeApp();
+if (admin.apps.length === 0) {
+    admin.initializeApp({
+        storageBucket: process.env.FIREBASE_STORAGE_BUCKET ||
+            "the-final-project-5e248.firebasestorage.app",
+    });
+}
 const db = admin.firestore();
 /** =========================
  *  ENV (Cloud Functions v2)
@@ -49,11 +54,20 @@ const db = admin.firestore();
 const VAPID_PUBLIC = process.env.WEBPUSH_PUBLIC_KEY || "";
 const VAPID_PRIVATE = process.env.WEBPUSH_PRIVATE_KEY || "";
 const VAPID_SUBJECT = process.env.WEBPUSH_SUBJECT || "mailto:example@your-project.com";
-if (VAPID_PUBLIC && VAPID_PRIVATE) {
-    webPush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC, VAPID_PRIVATE);
-}
-else {
+let vapidReady = false;
+function ensureVapidConfigured() {
+    if (vapidReady)
+        return true;
+    const pub = process.env.WEBPUSH_PUBLIC_KEY || "";
+    const priv = process.env.WEBPUSH_PRIVATE_KEY || "";
+    const subject = process.env.WEBPUSH_SUBJECT || "mailto:example@your-project.com";
+    if (pub && priv) {
+        webPush.setVapidDetails(subject, pub, priv);
+        vapidReady = true;
+        return true;
+    }
     logger.warn("VAPID keys not configured. Push notifications will not work.");
+    return false;
 }
 /** =========================
  *  Helpers
@@ -70,7 +84,7 @@ function subIdFromEndpoint(endpoint) {
         .replace(/=+$/g, "");
 }
 async function sendWebPushToUser(uid, payloadObj) {
-    if (!VAPID_PUBLIC || !VAPID_PRIVATE) {
+    if (!ensureVapidConfigured()) {
         logger.error("VAPID not configured");
         return { sent: 0, removed: 0 };
     }
@@ -105,6 +119,7 @@ async function sendWebPushToUser(uid, payloadObj) {
         }
         catch (err) {
             const code = err?.statusCode;
+            // subscription no longer valid
             if (code === 404 || code === 410) {
                 await docSnap.ref.delete();
                 removed++;
@@ -163,8 +178,8 @@ function getShiftStartMs(shift) {
     // - shift.type = "am" | "pm"
     const dayMs = toMillis(shift.date);
     if (dayMs !== null) {
-        const t = (shift.type || "").toString().toLowerCase();
-        const hour = t === "pm" ? 12 : 6;
+        const d = (shift.type || "").toString().toLowerCase();
+        const hour = d === "pm" ? 12 : 6;
         return dayMs + hour * 60 * 60 * 1000;
     }
     // Fallbacks (older schemas)
@@ -222,11 +237,13 @@ function stableStringify(obj) {
     if (typeof obj !== "object")
         return JSON.stringify(obj);
     const keys = Object.keys(obj).sort();
-    return "{" + keys.map((k) => JSON.stringify(k) + ":" + stableStringify(obj[k])).join(",") + "}";
+    return ("{" +
+        keys
+            .map((k) => JSON.stringify(k) + ":" + stableStringify(obj[k]))
+            .join(",") +
+        "}");
 }
 function relevantShiftSignature(shift) {
-    // Only fields that should trigger a notification when changed.
-    // Intentionally excludes status / confirmations / bookkeeping.
     const startMs = getShiftStartMs(shift);
     const endMs = getShiftEndMs(shift);
     const sig = {
@@ -265,15 +282,16 @@ exports.setNotificationStatus = (0, https_1.onCall)({ region: "europe-west2" }, 
     const endpoint = data?.endpoint;
     const subs = db.collection("users").doc(uid).collection("pushSubscriptions");
     if (status === "subscribed") {
-        if (!subscription?.endpoint)
+        if (!subscription?.endpoint) {
             throw new https_1.HttpsError("invalid-argument", "Bad subscription");
+        }
         const id = typeof data?.subId === "string" && data.subId.trim()
             ? data.subId.trim()
             : subIdFromEndpoint(subscription.endpoint);
         await subs.doc(id).set({
             endpoint: subscription.endpoint,
             keys: subscription.keys,
-            subscription, // keep full copy (helps compatibility)
+            subscription, // keep full copy
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         }, { merge: true });
         return { ok: true };
@@ -289,6 +307,10 @@ exports.setNotificationStatus = (0, https_1.onCall)({ region: "europe-west2" }, 
     }
     throw new https_1.HttpsError("invalid-argument", "Invalid status");
 });
+/**
+ * ✅ CORS-enabled HTTP test endpoint
+ * Call: /?uid=<uid>
+ */
 exports.sendTestNotificationHttp = (0, https_1.onRequest)({ region: "europe-west2", cors: true }, async (req, res) => {
     try {
         res.setHeader("Cache-Control", "no-store");
@@ -309,17 +331,63 @@ exports.sendTestNotificationHttp = (0, https_1.onRequest)({ region: "europe-west
     }
 });
 /**
+ * ✅ deleteProjectFile (CALLABLE)
+ * Frontend uses httpsCallable(functions, 'deleteProjectFile')
+ *
+ * Input:
+ * - docPath (preferred) OR projectId + fileId
+ * - filePath optional (if not present we read from Firestore doc)
+ */
+exports.deleteProjectFile = (0, https_1.onCall)({ region: "europe-west2" }, async (req) => {
+    if (!req.auth)
+        throw new https_1.HttpsError("unauthenticated", "Login required");
+    const uid = req.auth.uid;
+    const body = req.data || {};
+    const projectId = String(body.projectId || "");
+    const fileId = String(body.fileId || "");
+    const docPath = String(body.docPath || (projectId && fileId ? `projects/${projectId}/files/${fileId}` : ""));
+    if (!docPath) {
+        throw new https_1.HttpsError("invalid-argument", "Missing docPath (or projectId + fileId).");
+    }
+    const docRef = db.doc(docPath);
+    const snap = await docRef.get();
+    if (!snap.exists) {
+        throw new https_1.HttpsError("not-found", "File record not found");
+    }
+    const fileDoc = snap.data();
+    // Determine storage path
+    const filePath = String(body.filePath ||
+        fileDoc?.storagePath ||
+        fileDoc?.filePath ||
+        fileDoc?.path ||
+        fileDoc?.fullPath ||
+        "");
+    if (!filePath) {
+        throw new https_1.HttpsError("invalid-argument", "Could not determine storage file path. Store storagePath/filePath on the doc or send filePath.");
+    }
+    // Authorization (uploader OR privileged role)
+    const uploaderId = String(fileDoc?.uploaderId || "");
+    const userSnap = await db.collection("users").doc(uid).get();
+    const role = String(userSnap.data()?.role || "");
+    const privileged = ["owner", "admin", "manager"].includes(role);
+    if (!privileged && uploaderId && uploaderId !== uid) {
+        throw new https_1.HttpsError("permission-denied", "Not allowed to delete this file");
+    }
+    // Delete from Storage (ignore if already missing)
+    await admin.storage().bucket().file(filePath).delete({ ignoreNotFound: true });
+    // Delete Firestore doc
+    await docRef.delete();
+    return { ok: true };
+});
+/**
  * ✅ deleteAllShifts callable
  * Frontend calls httpsCallable(functions, 'deleteAllShifts')
- *
- * NOTE: Admin-only check removed (your local credentials can't set claims right now).
  */
 exports.deleteAllShifts = (0, https_1.onCall)({ region: "europe-west2" }, async (req) => {
     if (!req.auth)
         throw new https_1.HttpsError("unauthenticated", "Login required");
     const shiftsRef = db.collection("shifts");
     let totalDeleted = 0;
-    // Chunk deletes to avoid Firestore batch limit (500) and reduce timeouts
     while (true) {
         const snap = await shiftsRef.limit(400).get();
         if (snap.empty)
@@ -334,32 +402,22 @@ exports.deleteAllShifts = (0, https_1.onCall)({ region: "europe-west2" }, async 
 /** =========================
  *  Firestore Trigger
  *  ========================= */
-/**
- * Fires on create/update/delete.
- * - Create: before missing, after present
- * - Update: before present, after present
- * - Delete: before present, after missing
- */
 exports.onShiftWrite = (0, firestore_1.onDocumentWritten)({ region: "europe-west2", document: "shifts/{shiftId}" }, async (event) => {
     const before = event.data?.before?.data();
     const after = event.data?.after?.data();
     const todayStartUtc = londonMidnightUtcMs(new Date()) - 5 * 60 * 1000;
-    // Use after if present, else before for deletes
     const doc = after || before;
     if (!doc)
         return;
-    // Must have a start date/time to be considered
     const startMs = getShiftStartMs(doc);
     if (startMs === null) {
         logger.info("Skip notification (no shift start date/time found)");
         return;
     }
-    // Only notify for today + future
     if (startMs < todayStartUtc) {
         logger.info("Skip notification (past shift)", { startMs, todayStartUtc });
         return;
     }
-    // Never notify for completed shifts
     if (isCompletedShift(doc)) {
         logger.info("Skip notification for completed shift");
         return;
@@ -384,7 +442,6 @@ exports.onShiftWrite = (0, firestore_1.onDocumentWritten)({ region: "europe-west
             return;
         const isCreate = !before && !!after;
         const isUpdate = !!before && !!after;
-        // Dedupe: ignore updates where only bookkeeping changed
         if (isUpdate) {
             const beforeSig = relevantShiftSignature(before);
             const afterSig = relevantShiftSignature(after);
@@ -401,7 +458,9 @@ exports.onShiftWrite = (0, firestore_1.onDocumentWritten)({ region: "europe-west
         }
         const result = await sendWebPushToUser(userId, {
             title: isCreate ? "New Shift Assigned" : "Shift Updated",
-            body: isCreate ? "You have been assigned a new shift." : "One of your shifts has been updated.",
+            body: isCreate
+                ? "You have been assigned a new shift."
+                : "One of your shifts has been updated.",
             url: "/dashboard",
         });
         logger.info("Shift write push done", {
