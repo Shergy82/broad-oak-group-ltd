@@ -370,7 +370,7 @@ exports.deleteProjectFile = (0, https_1.onCall)({ region: "europe-west2" }, asyn
     const userSnap = await db.collection("users").doc(uid).get();
     const role = String(userSnap.data()?.role || "");
     const privileged = ["owner", "admin", "manager"].includes(role);
-    if (!privileged && uploaderId && uploaderId !== uid) {
+    if (!privileged && uploaderId !== uid) {
         throw new https_1.HttpsError("permission-denied", "Not allowed to delete this file");
     }
     // Delete from Storage (ignore if already missing)
