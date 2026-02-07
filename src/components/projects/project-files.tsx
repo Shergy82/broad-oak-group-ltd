@@ -98,7 +98,10 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
     const uploadPromises = filesToUpload.map((file) => {
       const storagePath = `project_files/${project.id}/${Date.now()}-${file.name}`;
       const storageRef = ref(storage, storagePath);
-      const uploadTask = uploadBytesResumable(storageRef, file);
+      const uploadTask = uploadBytesResumable(storageRef, file, {
+        contentType: file.type || 'application/octet-stream',
+        contentDisposition: `inline; filename="${file.name}"`,
+      });      
 
       return new Promise<void>((resolve, reject) => {
         uploadTask.on(
