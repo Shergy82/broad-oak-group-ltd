@@ -95,6 +95,15 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
   };
 
   const handleFileUpload = (selectedFiles: FileList | null) => {
+    if (!userProfile?.uid) {
+      toast({
+        variant: 'destructive',
+        title: 'Not signed in',
+        description: 'Please log in again before uploading.',
+      });
+      return;
+    }
+  
     if (!selectedFiles || selectedFiles.length === 0) return;
 
     setIsUploading(true);
@@ -129,7 +138,7 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
                 size: file.size,
                 type: file.type,
                 uploadedAt: serverTimestamp(),
-                uploaderId: userProfile.uid, // must match Firestore rule
+                uploaderId: userProfile.uid.toString(), // must match Firestore rule
                 uploaderName: userProfile?.name || 'System',
               });
 

@@ -56,11 +56,16 @@ service cloud.firestore {
       match /files/{fileId} {
         allow read: if signedIn();
 
+        // upload must tag uploaderId = current user
         allow create: if signedIn()
           && request.resource.data.uploaderId == request.auth.uid;
 
+        // only uploader or privileged can delete
         allow delete: if isPrivilegedUser(request.auth.uid)
           || resource.data.uploaderId == request.auth.uid;
+
+        // block edits
+        allow update: if false;
       }
     }
 
