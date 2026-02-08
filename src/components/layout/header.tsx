@@ -21,7 +21,6 @@ import {
   HelpCircle,
   Fingerprint,
   Building2,
-  ListChecks,
 } from 'lucide-react';
 import { NotificationButton } from '../shared/notification-button';
 import {
@@ -42,11 +41,11 @@ export function Header() {
   const handleSignOut = async () => {
     if (auth) {
       await signOut(auth);
-      router.push('/dashboard');
+      router.push('/login');
     }
   };
 
-  const isPrivilegedUser = userProfile && ['admin', 'owner', 'manager'].includes(userProfile.role);
+  const isPrivilegedUser = userProfile && ['admin', 'owner'].includes(userProfile.role);
 
   const getInitials = (name?: string) => {
     if (!name) return <User className="h-5 w-5" />;
@@ -114,39 +113,21 @@ export function Header() {
                   <HardHat className="mr-2" />
                   <span>Health & Safety</span>
                 </DropdownMenuItem>
-                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => router.push('/help')} className="cursor-pointer">
                   <HelpCircle className="mr-2" />
                   <span>Help & Support</span>
                 </DropdownMenuItem>
-
                 {isPrivilegedUser && (
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuLabel>Admin Area</DropdownMenuLabel>
-                    <DropdownMenuItem onClick={() => router.push('/admin/control-panel')} className="cursor-pointer">
-                      <Shield className="mr-2" />
-                      <span>Control Panel</span>
-                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => router.push('/schedule')} className="cursor-pointer">
                       <Users className="mr-2" />
                       <span>Team Schedule</span>
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => router.push('/admin/availability')} className="cursor-pointer">
-                      <Calendar className="mr-2" />
-                      <span>Availability</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => router.push('/admin/contracts')} className="cursor-pointer">
-                      <Briefcase className="mr-2" />
-                      <span>Contracts</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => router.push('/admin/performance')} className="cursor-pointer">
-                      <TrendingUp className="mr-2" />
-                      <span>Performance</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => router.push('/admin/tasks')} className="cursor-pointer">
-                      <ListChecks className="mr-2" />
-                      <span>Tasks</span>
+                    <DropdownMenuItem onClick={() => router.push('/admin')} className="cursor-pointer">
+                      <Shield className="mr-2" />
+                      <span>Admin Panel</span>
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => router.push('/admin/users')} className="cursor-pointer">
                       <UserCog className="mr-2" />
