@@ -22,6 +22,7 @@ interface PerformanceMetric {
     completionRate: number;
     incompleteRate: number;
     totalShifts: number;
+    photosUploaded: number;
 }
 
 const getInitials = (name?: string) => {
@@ -72,26 +73,43 @@ export function StatsDashboard({ allShifts, userShifts, allUsers, allFiles, time
 
     const topPerformers = useMemo(() => {
         const operativeUsers = allUsers.filter(u => u.role === 'user' || u.role === 'TLO');
-        if (operativeUsers.length === 0 || allShifts.length === 0) return [];
+        if (operativeUsers.length === 0) return [];
 
         const metrics = operativeUsers.map(user => {
             const userShiftsForPeriod = allShifts.filter(s => s.userId === user.uid);
-            if (userShiftsForPeriod.length === 0) return null;
+            const photosUploaded = allFiles.filter(f => f.uploaderId === user.uid && f.type?.startsWith('image/')).length;
+
+            if (userShiftsForPeriod.length === 0 && photosUploaded === 0) return null;
 
             const completed = userShiftsForPeriod.filter(s => s.status === 'completed').length;
             const incomplete = userShiftsForPeriod.filter(s => s.status === 'incomplete').length;
             const rateCalculationTotal = userShiftsForPeriod.filter(s => s.status !== 'pending-confirmation').length;
             
-            if (rateCalculationTotal === 0) return null;
+            if (rateCalculationTotal === 0 && photosUploaded === 0) return null;
 
-            const completionRate = (completed / rateCalculationTotal) * 100;
-            const incompleteRate = (incomplete / rateCalculationTotal) * 100;
+            const completionRate = rateCalculationTotal > 0 ? (completed / rateCalculationTotal) * 100 : 0;
+            const incompleteRate = rateCalculationTotal > 0 ? (incomplete / rateCalculationTotal) * 100 : 0;
 
-            return { userId: user.uid, userName: user.name, completionRate, incompleteRate, totalShifts: userShiftsForPeriod.length };
+            return { 
+                userId: user.uid, 
+                userName: user.name, 
+                completionRate, 
+                incompleteRate, 
+                totalShifts: userShiftsForPeriod.length,
+                photosUploaded,
+            };
         }).filter((m): m is PerformanceMetric => m !== null);
         
-        return metrics.sort((a, b) => b.completionRate - a.completionRate).slice(0, 5);
-    }, [allShifts, allUsers]);
+        return metrics.sort((a, b) => {
+            if (a.completionRate !== b.completionRate) {
+                return b.completionRate - a.completionRate;
+            }
+            if (a.photosUploaded !== b.photosUploaded) {
+                return b.photosUploaded - a.photosUploaded;
+            }
+            return b.totalShifts - a.totalShifts;
+        }).slice(0, 5);
+    }, [allShifts, allUsers, allFiles]);
 
     const timeRangeTitle = useMemo(() => {
         if (timeRange === 'weekly') return 'This Week';
@@ -118,6 +136,7 @@ export function StatsDashboard({ allShifts, userShifts, allUsers, allFiles, time
                                     <TableHead className="text-right">Completion %</TableHead>
                                     <TableHead className="text-right">Incomplete %</TableHead>
                                     <TableHead className="text-right">Total Shifts</TableHead>
+                                    <TableHead className="text-right">Photos Uploaded</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -142,6 +161,9 @@ export function StatsDashboard({ allShifts, userShifts, allUsers, allFiles, time
                                         </TableCell>
                                         <TableCell className="text-right font-medium tabular-nums">
                                             {p.totalShifts}
+                                        </TableCell>
+                                        <TableCell className="text-right font-medium tabular-nums">
+                                            {p.photosUploaded}
                                         </TableCell>
                                     </TableRow>
                                 ))}
