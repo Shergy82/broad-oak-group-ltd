@@ -16,7 +16,6 @@ import { getCorrectedLocalDate } from '@/lib/utils';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
-import { Header } from '@/components/layout/header';
 import { useAuth } from '@/hooks/use-auth';
 import { useRouter } from 'next/navigation';
 import { Spinner } from '@/components/shared/spinner';
@@ -266,7 +265,7 @@ export default function SiteSchedulePage() {
                 body,
                 startY: finalY,
                 headStyles: { fillColor: [6, 95, 212] },
-                didDrawPage: (data) => {
+                didDrawPage: (data: any) => {
                     finalY = data.cursor?.y || 0;
                 }
             });
@@ -286,104 +285,101 @@ export default function SiteSchedulePage() {
 
     if (isAuthLoading || isProfileLoading || !user) {
         return (
-          <div className="flex min-h-screen w-full flex-col items-center justify-center">
+          <main className="flex flex-1 flex-col items-center justify-center">
             <Spinner size="lg" />
-          </div>
+          </main>
         );
     }
     
     return (
-        <div className="flex min-h-screen w-full flex-col">
-            <Header />
-            <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
-                <Card>
-                    <CardHeader>
-                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                            <div>
-                                <CardTitle>Site Schedule View</CardTitle>
-                                <CardDescription>Select a property to see all scheduled work.</CardDescription>
+        <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
+            <Card>
+                <CardHeader>
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                        <div>
+                            <CardTitle>Site Schedule View</CardTitle>
+                            <CardDescription>Select a property to see all scheduled work.</CardDescription>
+                        </div>
+                    </div>
+                    <div className="pt-4 flex flex-col sm:flex-row gap-4">
+                         <div className="relative flex-grow">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input 
+                                placeholder="Search addresses..."
+                                value={addressSearchTerm}
+                                onChange={(e) => setAddressSearchTerm(e.target.value)}
+                                className="w-full sm:w-[400px] pl-10"
+                            />
+                        </div>
+                        <Button variant="outline" onClick={handleDownloadPdf} disabled={!selectedAddress || loading}>
+                            <Download className="mr-2 h-4 w-4" />
+                            Download PDF
+                        </Button>
+                    </div>
+                     <div className="pt-2">
+                        <Select onValueChange={setSelectedAddress} value={selectedAddress || ''}>
+                            <SelectTrigger className="w-full sm:w-[400px]">
+                                <SelectValue placeholder="Select a property address..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {availableAddresses.length > 0 ? (
+                                    availableAddresses.map(address => (
+                                        <SelectItem key={address} value={address}>
+                                            {address}
+                                        </SelectItem>
+                                    ))
+                                ) : (
+                                    <div className="p-4 text-center text-sm text-muted-foreground">
+                                        No matching addresses found.
+                                    </div>
+                                )}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </CardHeader>
+                <CardContent>
+                    {error && (
+                        <Alert variant="destructive">
+                            <Terminal className="h-4 w-4" />
+                            <AlertTitle>Error Loading Data</AlertTitle>
+                            <AlertDescription>{error}</AlertDescription>
+                        </Alert>
+                    )}
+                    {!selectedAddress && !error ? (
+                        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center h-60">
+                            <Building2 className="mx-auto h-12 w-12 text-muted-foreground" />
+                            <h3 className="mt-4 text-lg font-semibold">No Property Selected</h3>
+                            <p className="mt-2 text-sm text-muted-foreground">Please select a property from the dropdown above.</p>
+                        </div>
+                    ) : loading ? (
+                        <div className="space-y-4">
+                            <Skeleton className="h-12 w-1/3" />
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                <Skeleton className="h-48 w-full" />
+                                <Skeleton className="h-48 w-full" />
+                                <Skeleton className="h-48 w-full" />
                             </div>
                         </div>
-                        <div className="pt-4 flex flex-col sm:flex-row gap-4">
-                             <div className="relative flex-grow">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                                <Input 
-                                    placeholder="Search addresses..."
-                                    value={addressSearchTerm}
-                                    onChange={(e) => setAddressSearchTerm(e.target.value)}
-                                    className="w-full sm:w-[400px] pl-10"
-                                />
-                            </div>
-                            <Button variant="outline" onClick={handleDownloadPdf} disabled={!selectedAddress || loading}>
-                                <Download className="mr-2 h-4 w-4" />
-                                Download PDF
-                            </Button>
-                        </div>
-                         <div className="pt-2">
-                            <Select onValueChange={setSelectedAddress} value={selectedAddress || ''}>
-                                <SelectTrigger className="w-full sm:w-[400px]">
-                                    <SelectValue placeholder="Select a property address..." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {availableAddresses.length > 0 ? (
-                                        availableAddresses.map(address => (
-                                            <SelectItem key={address} value={address}>
-                                                {address}
-                                            </SelectItem>
-                                        ))
-                                    ) : (
-                                        <div className="p-4 text-center text-sm text-muted-foreground">
-                                            No matching addresses found.
-                                        </div>
-                                    )}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    </CardHeader>
-                    <CardContent>
-                        {error && (
-                            <Alert variant="destructive">
-                                <Terminal className="h-4 w-4" />
-                                <AlertTitle>Error Loading Data</AlertTitle>
-                                <AlertDescription>{error}</AlertDescription>
-                            </Alert>
-                        )}
-                        {!selectedAddress && !error ? (
-                            <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center h-60">
-                                <Building2 className="mx-auto h-12 w-12 text-muted-foreground" />
-                                <h3 className="mt-4 text-lg font-semibold">No Property Selected</h3>
-                                <p className="mt-2 text-sm text-muted-foreground">Please select a property from the dropdown above.</p>
-                            </div>
-                        ) : loading ? (
-                            <div className="space-y-4">
-                                <Skeleton className="h-12 w-1/3" />
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                    <Skeleton className="h-48 w-full" />
-                                    <Skeleton className="h-48 w-full" />
-                                    <Skeleton className="h-48 w-full" />
-                                </div>
-                            </div>
-                        ) : (
-                            <Tabs defaultValue="this-week">
-                                <TabsList>
-                                    <TabsTrigger value="last-week">Last Week</TabsTrigger>
-                                    <TabsTrigger value="this-week">This Week</TabsTrigger>
-                                    <TabsTrigger value="next-week">Next Week</TabsTrigger>
-                                </TabsList>
-                                <TabsContent value="last-week" className="mt-4">
-                                    <WeekScheduleView shifts={lastWeekShifts} weekName="Last Week" userNameMap={userNameMap} />
-                                </TabsContent>
-                                <TabsContent value="this-week" className="mt-4">
-                                    <WeekScheduleView shifts={thisWeekShifts} weekName="This Week" userNameMap={userNameMap} />
-                                </TabsContent>
-                                <TabsContent value="next-week" className="mt-4">
-                                     <WeekScheduleView shifts={nextWeekShifts} weekName="Next Week" userNameMap={userNameMap} />
-                                </TabsContent>
-                            </Tabs>
-                        )}
-                    </CardContent>
-                </Card>
-            </main>
-        </div>
+                    ) : (
+                        <Tabs defaultValue="this-week">
+                            <TabsList>
+                                <TabsTrigger value="last-week">Last Week</TabsTrigger>
+                                <TabsTrigger value="this-week">This Week</TabsTrigger>
+                                <TabsTrigger value="next-week">Next Week</TabsTrigger>
+                            </TabsList>
+                            <TabsContent value="last-week" className="mt-4">
+                                <WeekScheduleView shifts={lastWeekShifts} weekName="Last Week" userNameMap={userNameMap} />
+                            </TabsContent>
+                            <TabsContent value="this-week" className="mt-4">
+                                <WeekScheduleView shifts={thisWeekShifts} weekName="This Week" userNameMap={userNameMap} />
+                            </TabsContent>
+                            <TabsContent value="next-week" className="mt-4">
+                                 <WeekScheduleView shifts={nextWeekShifts} weekName="Next Week" userNameMap={userNameMap} />
+                            </TabsContent>
+                        </Tabs>
+                    )}
+                </CardContent>
+            </Card>
+        </main>
     );
 }

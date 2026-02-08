@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import Dashboard from '@/components/dashboard/index';
-import { Header } from '@/components/layout/header';
 import { Spinner } from '@/components/shared/spinner';
 import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -94,39 +93,32 @@ export default function DashboardPage() {
 
   if (isLoading || !user) {
     return (
-      <div className="flex min-h-screen w-full flex-col items-center justify-center">
+      <main className="flex flex-1 flex-col items-center justify-center">
         <Spinner size="lg" />
-      </div>
+      </main>
     );
   }
 
-  // --- Dialog Rendering Logic ---
-  // Priority: 1. New Shifts, 2. Announcements
-  if (newShifts.length > 0 && showNewShifts) {
-    return (
+  return (
+    <>
+      {newShifts.length > 0 && showNewShifts && (
         <NewShiftsDialog
             shifts={newShifts}
             onClose={() => setShowNewShifts(false)}
         />
-    )
-  }
+      )}
 
-  if (unreadAnnouncements.length > 0 && showAnnouncements) {
-    return (
+      {!(newShifts.length > 0 && showNewShifts) && unreadAnnouncements.length > 0 && showAnnouncements && (
         <UnreadAnnouncements 
           announcements={unreadAnnouncements} 
           user={user} 
           onClose={() => setShowAnnouncements(false)}
         />
-    );
-  }
-
-  return (
-    <div className="flex min-h-screen w-full flex-col">
-      <Header />
+      )}
+      
       <main className="flex flex-1 flex-col gap-6 p-4 md:p-8">
         <Dashboard userShifts={allShifts} loading={loadingData} />
       </main>
-    </div>
+    </>
   );
 }

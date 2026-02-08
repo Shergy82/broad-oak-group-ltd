@@ -1,3 +1,4 @@
+
 'use client';
 
 import { Toaster } from "@/components/ui/toaster";
@@ -5,12 +6,18 @@ import "./globals.css";
 import { AuthProvider } from "@/components/auth-provider";
 import { UserProfileProvider } from "@/components/user-profile-provider";
 import { ServiceWorkerRegistrar } from "@/components/service-worker-registrar";
+import { usePathname } from "next/navigation";
+import { Header } from "@/components/layout/header";
 
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const pathname = usePathname();
+  const noHeaderPaths = ['/login', '/signup', '/forgot-password'];
+  const showHeader = !noHeaderPaths.includes(pathname) && pathname !== '/';
+
   return (
     <html lang="en" className="h-full">
       <head>
@@ -25,7 +32,14 @@ export default function RootLayout({
         <AuthProvider>
           <UserProfileProvider>
             <ServiceWorkerRegistrar />
-            {children}
+            {showHeader ? (
+              <div className="flex min-h-screen w-full flex-col">
+                <Header />
+                {children}
+              </div>
+            ) : (
+              children
+            )}
             <Toaster />
           </UserProfileProvider>
         </AuthProvider>

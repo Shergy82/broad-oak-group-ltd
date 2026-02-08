@@ -4,7 +4,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
-import { Header } from '@/components/layout/header';
 import { Spinner } from '@/components/shared/spinner';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -80,19 +79,16 @@ export default function StatsPage() {
 
   if (isLoading || !user) {
     return (
-      <div className="flex min-h-screen w-full flex-col items-center justify-center">
+      <main className="flex flex-1 flex-col items-center justify-center">
         <Spinner size="lg" />
-      </div>
+      </main>
     );
   }
 
   return (
-    <div className="flex min-h-screen w-full flex-col">
-      <Header />
-      <main className="flex flex-1 flex-col gap-6 p-4 md:p-8">
-        <PerformanceAwards allShifts={allShifts} allUsers={allUsers} />
-        <UserStatsDashboard allShifts={userShifts} />
-      </main>
-    </div>
+    <main className="flex flex-1 flex-col gap-6 p-4 md:p-8">
+      <PerformanceAwards allShifts={allShifts} allUsers={allUsers} />
+      <UserStatsDashboard allShifts={userShifts} />
+    </main>
   );
 }
