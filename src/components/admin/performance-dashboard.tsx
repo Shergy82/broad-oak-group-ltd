@@ -49,7 +49,9 @@ export function PerformanceDashboard() {
       (snapshot) => {
         const fetchedUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
         setUsers(
-          fetchedUsers.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
+          fetchedUsers
+            .filter(u => u.role === 'user' || u.role === 'TLO')
+            .sort((a,b) => (a.name ?? '').localeCompare(b.name ?? ''))
         );        
         setLoading(false);
       },
@@ -285,7 +287,3 @@ export function PerformanceDashboard() {
     </Card>
   );
 }
-
-    
-
-    

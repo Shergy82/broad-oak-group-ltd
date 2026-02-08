@@ -30,20 +30,6 @@ export default function DashboardPage() {
       router.push('/login');
     }
   }, [user, isAuthLoading, router]);
-  
-  useEffect(() => {
-    if (user) {
-      try {
-        const storedAcknowledged = localStorage.getItem(`acknowledgedAnnouncements_${user.uid}`);
-        if (storedAcknowledged) {
-          setAcknowledgedIds(new Set(JSON.parse(storedAcknowledged)));
-        }
-      } catch (e) {
-        console.error("Failed to parse acknowledged announcements from localStorage", e);
-        setAcknowledgedIds(new Set());
-      }
-    }
-  }, [user]);
 
   useEffect(() => {
     if (!user || !db) {
@@ -52,18 +38,17 @@ export default function DashboardPage() {
     }
     setLoadingData(true);
 
-    const announcementsQuery = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'));
-    const shiftsQuery = query(collection(db, 'shifts'), where('userId', '==', user.uid));
-    
     let announcementsLoaded = false;
     let shiftsLoaded = false;
+    let acksLoaded = false;
 
     const checkAllDataLoaded = () => {
-        if (announcementsLoaded && shiftsLoaded) {
+        if (announcementsLoaded && shiftsLoaded && acksLoaded) {
             setLoadingData(false);
         }
     }
 
+    const announcementsQuery = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'));
     const unsubAnnouncements = onSnapshot(announcementsQuery, (snapshot) => {
       setAnnouncements(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement)));
       announcementsLoaded = true;
@@ -74,6 +59,7 @@ export default function DashboardPage() {
         checkAllDataLoaded();
     });
 
+    const shiftsQuery = query(collection(db, 'shifts'), where('userId', '==', user.uid));
     const unsubShifts = onSnapshot(shiftsQuery, (snapshot) => {
         setAllShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
         shiftsLoaded = true;
@@ -84,9 +70,25 @@ export default function DashboardPage() {
         checkAllDataLoaded();
     });
 
+    const ackQuery = query(collection(db, 'announcementAcknowledgements'), where('userId', '==', user.uid));
+    const unsubAcks = onSnapshot(ackQuery, (snapshot) => {
+        const ackedIds = new Set<string>();
+        snapshot.forEach(doc => {
+            ackedIds.add(doc.data().announcementId);
+        });
+        setAcknowledgedIds(ackedIds);
+        acksLoaded = true;
+        checkAllDataLoaded();
+    }, (error) => {
+        console.error("Error fetching acknowledgements:", error);
+        acksLoaded = true;
+        checkAllDataLoaded();
+    });
+
     return () => {
       unsubAnnouncements();
       unsubShifts();
+      unsubAcks();
     };
   }, [user]);
   
@@ -104,16 +106,6 @@ export default function DashboardPage() {
   
   const handleAnnouncementsClose = () => {
     setShowAnnouncements(false);
-    if (user) {
-      try {
-        const storedAcknowledged = localStorage.getItem(`acknowledgedAnnouncements_${user.uid}`);
-        if (storedAcknowledged) {
-          setAcknowledgedIds(new Set(JSON.parse(storedAcknowledged)));
-        }
-      } catch (e) {
-        console.error("Failed to re-read acknowledged announcements from localStorage", e);
-      }
-    }
   };
 
 
