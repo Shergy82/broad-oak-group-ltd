@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -156,10 +157,17 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
 
   const getFileViewUrl = (file: ProjectFile): string => {
     const officeExtensions = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
+    const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
     const fileExtension = file.name.split('.').pop()?.toLowerCase();
 
-    if (fileExtension && officeExtensions.includes(fileExtension)) {
-        return `https://docs.google.com/gview?url=${encodeURIComponent(file.url)}&embedded=true`;
+    if (fileExtension) {
+        if (officeExtensions.includes(fileExtension) || fileExtension === 'pdf') {
+            return `https://docs.google.com/gview?url=${encodeURIComponent(file.url)}&embedded=true`;
+        }
+        if (imageExtensions.includes(fileExtension)) {
+            // Using an image proxy to bypass content-disposition header
+            return `https://images.weserv.nl/?url=${encodeURIComponent(file.url)}`;
+        }
     }
     return file.url;
   };
@@ -257,3 +265,5 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
     </div>
   );
 }
+
+    

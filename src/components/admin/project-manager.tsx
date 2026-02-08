@@ -164,11 +164,7 @@ function FileUploader({ project, userProfile }: { project: Project; userProfile:
       const storagePath = `project_files/${project.id}/${Date.now()}-${file.name}`;
       const storageRef = ref(storage, storagePath);
       
-      const metadata = {
-        contentDisposition: 'attachment', // This is the crucial part
-      };
-
-      const uploadTask = uploadBytesResumable(storageRef, file, metadata);
+      const uploadTask = uploadBytesResumable(storageRef, file);
 
       return new Promise<void>((resolve, reject) => {
         uploadTask.on(
@@ -415,10 +411,17 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
     
     const getFileViewUrl = (file: ProjectFile): string => {
         const officeExtensions = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
+        const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
         const fileExtension = file.name.split('.').pop()?.toLowerCase();
 
-        if (fileExtension && officeExtensions.includes(fileExtension)) {
-            return `https://docs.google.com/gview?url=${encodeURIComponent(file.url)}&embedded=true`;
+        if (fileExtension) {
+            if (officeExtensions.includes(fileExtension) || fileExtension === 'pdf') {
+                return `https://docs.google.com/gview?url=${encodeURIComponent(file.url)}&embedded=true`;
+            }
+            if (imageExtensions.includes(fileExtension)) {
+                // Using an image proxy to bypass content-disposition header
+                return `https://images.weserv.nl/?url=${encodeURIComponent(file.url)}`;
+            }
         }
         return file.url;
     };
@@ -962,4 +965,5 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
     
 
     
+
 
