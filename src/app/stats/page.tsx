@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -12,7 +11,7 @@ import { Spinner } from '@/components/shared/spinner';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Leaderboard } from '@/components/stats/leaderboard';
-import { UserStatsDashboard } from '@/components/dashboard/user-stats-dashboard';
+import { PersonalStatsTable } from '@/components/stats/personal-stats-table';
 import { getCorrectedLocalDate, isWithin } from '@/lib/utils';
 import { Award } from 'lucide-react';
 
@@ -193,15 +192,15 @@ export default function StatsPage() {
                     </TabsList>
                     <TabsContent value="weekly" className="mt-6 space-y-8">
                         <Leaderboard title="Weekly Top 5" data={weeklyData} />
-                        {currentUserStats?.weekly && <UserStatsDashboard {...currentUserStats.weekly} />}
+                        {currentUserStats?.weekly && <PersonalStatsTable data={currentUserStats.weekly} />}
                     </TabsContent>
                     <TabsContent value="monthly" className="mt-6 space-y-8">
                         <Leaderboard title="Monthly Top 5" data={monthlyData} />
-                        {currentUserStats?.monthly && <UserStatsDashboard {...currentUserStats.monthly} />}
+                        {currentUserStats?.monthly && <PersonalStatsTable data={currentUserStats.monthly} />}
                     </TabsContent>
                     <TabsContent value="yearly" className="mt-6 space-y-8">
                         <Leaderboard title="Yearly Top 5" data={yearlyData} />
-                        {currentUserStats?.yearly && <UserStatsDashboard {...currentUserStats.yearly} />}
+                        {currentUserStats?.yearly && <PersonalStatsTable data={currentUserStats.yearly} />}
                     </TabsContent>
                 </Tabs>
             </CardContent>
