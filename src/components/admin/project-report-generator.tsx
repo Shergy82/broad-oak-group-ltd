@@ -72,13 +72,27 @@ export function ProjectReportGenerator({ project, files }: ProjectReportGenerato
   const generatePdf = async () => {
     setIsGenerating(true);
     const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.width;
+    const pageMargin = 14;
+    const usableWidth = pageWidth - (pageMargin * 2);
 
-    doc.setFontSize(18);
-    doc.text(`End of Project Report: ${project.address}`, 14, 22);
-    doc.setFontSize(11);
-    doc.setTextColor(100);
-    doc.text(`Generated on: ${format(new Date(), 'PPP p')}`, 14, 28);
-    let finalY = 35;
+    // --- HEADER on Page 1 ---
+    doc.setFontSize(22);
+    doc.setFont('helvetica', 'bold');
+    doc.text('End of Project Report', pageWidth / 2, 25, { align: 'center' });
+
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'normal');
+    const addressLines = doc.splitTextToSize(project.address, usableWidth - 20);
+    doc.text(addressLines, pageWidth / 2, 35, { align: 'center' });
+    
+    let headerEndY = 35 + (addressLines.length * 8);
+
+    doc.setFontSize(10);
+    doc.setTextColor(150);
+    doc.text(`Generated on: ${format(new Date(), 'PPP p')}`, pageWidth / 2, headerEndY, { align: 'center' });
+    
+    let finalY = headerEndY + 15;
 
     const allPhotos = files.filter(f => f.type?.startsWith('image/'));
     const allOtherFiles = files.filter(f => !f.type?.startsWith('image/'));
@@ -87,7 +101,8 @@ export function ProjectReportGenerator({ project, files }: ProjectReportGenerato
       doc.addPage();
       finalY = 22;
       doc.setFontSize(16);
-      doc.text('Project Documents', 14, finalY);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Project Documents', pageMargin, finalY);
       finalY += 10;
       if (allOtherFiles.length > 0) {
         (doc as any).autoTable({
@@ -113,6 +128,7 @@ export function ProjectReportGenerator({ project, files }: ProjectReportGenerato
         doc.addPage();
         finalY = 22;
         doc.setFontSize(16);
+        doc.setFont('helvetica', 'bold');
         doc.text('Project Photos', 14, finalY);
         finalY += 10;
 
