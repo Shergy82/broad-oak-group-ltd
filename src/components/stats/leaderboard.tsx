@@ -31,6 +31,9 @@ export function Leaderboard({ title, data }: LeaderboardProps) {
         if (b.completionRate !== a.completionRate) {
             return b.completionRate - a.completionRate;
         }
+        if (a.failedToCloseShifts !== b.failedToCloseShifts) {
+            return a.failedToCloseShifts - b.failedToCloseShifts; // Lower is better
+        }
         return b.photosUploaded - a.photosUploaded;
     }).slice(0, 5);
 
@@ -51,6 +54,7 @@ export function Leaderboard({ title, data }: LeaderboardProps) {
                                     <TableHead className="text-center">Shifts</TableHead>
                                     <TableHead className="text-center">Photos</TableHead>
                                     <TableHead className="text-center">Incomplete</TableHead>
+                                    <TableHead className="text-center">Failed Close</TableHead>
                                     <TableHead className="text-right">Completion</TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -71,6 +75,7 @@ export function Leaderboard({ title, data }: LeaderboardProps) {
                                         <TableCell className="text-center font-medium tabular-nums">{p.totalShifts}</TableCell>
                                         <TableCell className="text-center font-medium tabular-nums">{p.photosUploaded}</TableCell>
                                         <TableCell className="text-center font-medium tabular-nums text-amber-600">{p.incompleteRate.toFixed(0)}%</TableCell>
+                                        <TableCell className="text-center font-medium tabular-nums text-red-600">{p.failedToCloseShifts}</TableCell>
                                         <TableCell className="text-right font-bold text-lg text-primary tabular-nums">
                                             {p.completionRate.toFixed(0)}%
                                         </TableCell>

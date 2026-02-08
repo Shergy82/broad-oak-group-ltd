@@ -2,7 +2,7 @@
 'use client';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { CheckCircle2, History, Percent, XCircle, Camera } from 'lucide-react';
+import { CheckCircle2, History, Percent, XCircle, Camera, AlertCircle } from 'lucide-react';
 
 interface UserStatsDashboardProps {
   totalShifts: number;
@@ -11,6 +11,7 @@ interface UserStatsDashboardProps {
   photosUploaded: number;
   completionRate: number;
   incompleteRate: number;
+  failedToCloseShifts: number;
 }
 
 const StatCard = ({ title, value, icon: Icon }: { title: string, value: string | number, icon: React.ElementType }) => (
@@ -32,15 +33,17 @@ export function UserStatsDashboard({
     photosUploaded = 0,
     completionRate = 0,
     incompleteRate = 0,
+    failedToCloseShifts = 0
 }: UserStatsDashboardProps) {
 
     return (
         <div>
             <h3 className="text-lg font-semibold tracking-tight mb-2">Your Personal Stats</h3>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <StatCard title="Total Shifts" value={totalShifts} icon={History} />
                 <StatCard title="Completed" value={completedShifts} icon={CheckCircle2} />
                 <StatCard title="Incomplete" value={incompleteShifts} icon={XCircle} />
+                <StatCard title="Failed to Close" value={failedToCloseShifts} icon={AlertCircle} />
                 <StatCard title="Photos Uploaded" value={photosUploaded} icon={Camera} />
                 <StatCard title="Completion Rate" value={`${completionRate.toFixed(0)}%`} icon={Percent} />
                 <StatCard title="Incompletion Rate" value={`${incompleteRate.toFixed(0)}%`} icon={Percent} />

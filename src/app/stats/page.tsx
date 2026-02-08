@@ -1,10 +1,11 @@
+
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot, query, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Shift, UserProfile, ProjectFile, PerformanceMetric } from '@/types';
-import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear } from 'date-fns';
+import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, isBefore, startOfToday } from 'date-fns';
 import { useAuth } from '@/hooks/use-auth';
 import { useRouter } from 'next/navigation';
 import { Spinner } from '@/components/shared/spinner';
@@ -89,7 +90,8 @@ export default function StatsPage() {
   }, [user]);
 
   const calculateMetrics = (shifts: Shift[], users: UserProfile[], photos: ProjectFile[]): PerformanceMetric[] => {
-    const operativeUsers = users.filter(u => u.role === 'user');
+    const operativeUsers = users.filter(u => u.role === 'user' || u.role === 'TLO');
+    const today = startOfToday();
 
     return operativeUsers.map(op => {
       const userShifts = shifts.filter(s => s.userId === op.uid);
@@ -98,6 +100,11 @@ export default function StatsPage() {
       const totalShifts = userShifts.length;
       const completedShifts = userShifts.filter(s => s.status === 'completed').length;
       const incompleteShifts = userShifts.filter(s => s.status === 'incomplete').length;
+      
+      const failedToCloseShifts = userShifts.filter(s => {
+        const shiftDate = getCorrectedLocalDate(s.date);
+        return isBefore(shiftDate, today) && !['completed', 'incomplete', 'rejected'].includes(s.status);
+      }).length;
       
       const rateCalculationTotal = completedShifts + incompleteShifts;
       const completionRate = rateCalculationTotal > 0 ? (completedShifts / rateCalculationTotal) * 100 : 0;
@@ -112,6 +119,7 @@ export default function StatsPage() {
         photosUploaded: userPhotos.length,
         completionRate,
         incompleteRate,
+        failedToCloseShifts,
       };
     });
   };

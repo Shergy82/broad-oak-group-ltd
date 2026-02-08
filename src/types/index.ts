@@ -24,11 +24,12 @@ export interface UserProfile {
   name: string;
   email: string;
   phoneNumber: string;
-  role: 'user' | 'admin' | 'owner';
+  role: 'user' | 'admin' | 'owner' | 'manager' | 'TLO';
   createdAt?: Timestamp;
   status?: 'active' | 'suspended' | 'pending-approval';
   employmentType?: 'direct' | 'subbie';
   operativeId?: string;
+  trade?: string;
 }
 
 export interface Project {
@@ -83,6 +84,17 @@ export interface Acknowledgement {
     acknowledgedAt: Timestamp;
 }
 
+export interface Trade {
+  id: string;
+  name: string;
+  tasks: TradeTask[];
+}
+
+export interface TradeTask {
+  text: string;
+  photoRequired: boolean;
+}
+
 export interface PerformanceMetric {
   userId: string;
   userName: string;
@@ -92,4 +104,15 @@ export interface PerformanceMetric {
   photosUploaded: number;
   completionRate: number;
   incompleteRate: number;
+  failedToCloseShifts: number;
+}
+
+export interface Unavailability {
+  id: string;
+  userId: string;
+  userName: string;
+  startDate: Timestamp;
+  endDate: Timestamp;
+  reason: 'Holiday' | 'Sickness' | 'Other';
+  createdAt: Timestamp;
 }
