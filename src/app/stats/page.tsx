@@ -9,8 +9,7 @@ import { db } from '@/lib/firebase';
 import type { Shift, UserProfile, Project, ProjectFile } from '@/types';
 import { StatsDashboard } from '@/components/dashboard/stats-dashboard';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, startOfDay } from 'date-fns';
-import { isWithin } from '@/lib/utils';
+import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, startOfDay, isWithinInterval } from 'date-fns';
 
 type TimeRange = 'weekly' | 'monthly' | 'yearly';
 
@@ -87,14 +86,14 @@ export default function StatsPage() {
 
     const shifts = allShifts.filter(s => {
         if (!s.date) return false;
-        const shiftDate = startOfDay(s.date.toDate());
-        return isWithin(shiftDate, interval);
+        const shiftDate = s.date.toDate();
+        return isWithinInterval(shiftDate, interval);
     });
 
     const files = allFiles.filter(f => {
         if (!f.uploadedAt) return false;
-        const uploadDate = startOfDay(f.uploadedAt.toDate());
-        return isWithin(uploadDate, interval);
+        const uploadDate = f.uploadedAt.toDate();
+        return isWithinInterval(uploadDate, interval);
     });
 
     return { shifts, files };
