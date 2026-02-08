@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { collection, onSnapshot, query, Timestamp } from 'firebase/firestore';
+import { collection, query, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Shift, UserProfile } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -34,38 +34,37 @@ export function PerformanceDashboard() {
   const [timeRange, setTimeRange] = useState<TimeRange>('all-time');
 
   useEffect(() => {
-    const shiftsQuery = query(collection(db, 'shifts'));
-    const usersQuery = query(collection(db, 'users'));
+    async function fetchData() {
+        setLoading(true);
+        setError(null);
+        try {
+            const shiftsQuery = query(collection(db, 'shifts'));
+            const usersQuery = query(collection(db, 'users'));
 
-    const unsubShifts = onSnapshot(shiftsQuery, 
-      (snapshot) => setShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift))),
-      (err) => {
-        console.error("Error fetching shifts:", err);
-        setError("Could not fetch shift data.");
-      }
-    );
-    
-    const unsubUsers = onSnapshot(usersQuery, 
-      (snapshot) => {
-        const fetchedUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
-        setUsers(
-          fetchedUsers
-            .filter(u => u.role === 'user' || u.role === 'TLO')
-            .sort((a,b) => (a.name ?? '').localeCompare(b.name ?? ''))
-        );        
-        setLoading(false);
-      },
-      (err) => {
-        console.error("Error fetching users:", err);
-        setError("Could not fetch user data.");
-        setLoading(false);
-      }
-    );
+            const shiftsSnapshot = await getDocs(shiftsQuery);
+            setShifts(shiftsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
 
-    return () => {
-      unsubShifts();
-      unsubUsers();
-    };
+            const usersSnapshot = await getDocs(usersQuery);
+            const fetchedUsers = usersSnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
+            setUsers(
+              fetchedUsers
+                .filter(u => u.role === 'user' || u.role === 'TLO')
+                .sort((a,b) => (a.name ?? '').localeCompare(b.name ?? ''))
+            );
+            
+        } catch (err: any) {
+            console.error("Error fetching data:", err);
+            if (err.message?.includes('permission-denied')) {
+                setError("Permission denied. You might not have the required role to view this data.");
+            } else {
+                setError("Could not fetch performance data.");
+            }
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    fetchData();
   }, []);
 
   const performanceData = useMemo((): PerformanceMetrics[] => {
@@ -114,7 +113,7 @@ export function PerformanceDashboard() {
         
         return {
           userId: user.uid,
-          userName: (user.name ?? 'Unnamed user'),
+          userName: user.name,
           totalShifts,
           completed,
           incomplete,
