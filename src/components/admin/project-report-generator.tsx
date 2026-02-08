@@ -77,22 +77,15 @@ export function ProjectReportGenerator({ project, files }: ProjectReportGenerato
     const pageMargin = 14;
 
     // --- HEADER ---
-    doc.setFillColor(45, 55, 72); // A dark slate color
-    doc.rect(0, 0, pageWidth, 30, 'F');
+    const logoSvg = `<svg width="28" height="28" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><g transform="translate(16,16)"><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#22d3ee" transform="rotate(0)"/><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#f87171" transform="rotate(90)"/><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#84cc16" transform="rotate(180)"/><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#fbbf24" transform="rotate(270)"/></g></svg>`;
+    const logoDataUrl = `data:image/svg+xml;base64,${btoa(logoSvg)}`;
 
+    doc.addImage(logoDataUrl, 'SVG', pageMargin, 11, 8, 8);
+    
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(16);
-    doc.setTextColor(255, 255, 255);
-    const mainHeaderText = 'BROAD OAK GROUP';
-    doc.text(mainHeaderText, pageMargin, 18);
-    
-    const mainHeaderTextWidth = doc.getTextWidth(mainHeaderText);
-    
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.setTextColor(200, 200, 200);
-    doc.text('Live', pageMargin + mainHeaderTextWidth + 4, 18);
-
+    doc.setTextColor(45, 55, 72);
+    doc.text('BROAD OAK GROUP', pageMargin + 12, 18);
 
     // --- CENTERED CONTENT ---
     const contentStartY = 60;
@@ -110,7 +103,7 @@ export function ProjectReportGenerator({ project, files }: ProjectReportGenerato
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(16);
     const addressLines = doc.splitTextToSize(addressText, pageWidth - (pageMargin * 6));
-    const addressHeight = (doc.getLineHeight() * addressLines.length);
+    const addressHeight = (doc.getLineHeight() * addressLines.length) / doc.internal.scaleFactor;
 
     doc.setFontSize(10);
     const dateHeight = doc.getTextDimensions(generatedDateText).h;
@@ -207,10 +200,15 @@ export function ProjectReportGenerator({ project, files }: ProjectReportGenerato
             }
             doc.addImage(dataUrl, 'JPEG', 15, finalY, imgWidth, imgHeight);
             finalY += imgHeight + 5;
+            
+            const captionText = `${photo.name} - Uploaded by ${photo.uploaderName}`;
+            const captionLines = doc.splitTextToSize(captionText, imgWidth);
             doc.setFontSize(9);
             doc.setTextColor(150);
-            doc.text(`${photo.name} - Uploaded by ${photo.uploaderName}`, 15, finalY);
-            finalY += 15;
+            doc.text(captionLines, 15, finalY);
+            const captionHeight = doc.getTextDimensions(captionLines).h;
+            finalY += captionHeight + 10;
+
           } catch(e) {
             console.error("Could not add image to PDF", e);
             if (finalY + 10 > doc.internal.pageSize.height) {
@@ -298,5 +296,3 @@ export function ProjectReportGenerator({ project, files }: ProjectReportGenerato
     </>
   );
 }
-
-    
