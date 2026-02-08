@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -325,7 +326,6 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                                   <TableHeader>
                                     <TableRow>
                                       <TableHead>File</TableHead>
-                                      <TableHead className="text-right">Size</TableHead>
                                       <TableHead className="text-right w-[100px]">Actions</TableHead>
                                     </TableRow>
                                   </TableHeader>
@@ -337,7 +337,6 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                                                     {file.name}
                                                   </a>
                                                 </TableCell>
-                                                <TableCell className="text-right text-xs text-muted-foreground">{formatFileSize(file.size)}</TableCell>
                                                 <TableCell className="text-right">
                                                     <a href={file.url} target="_blank" rel="noopener noreferrer" download>
                                                       <Button variant="ghost" size="icon" className="h-8 w-8">

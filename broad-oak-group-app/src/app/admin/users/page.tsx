@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -36,7 +37,8 @@ export default function UserManagementPage() {
   const { toast } = useToast();
   
   const isOwner = currentUserProfile?.role === 'owner';
-  const isPrivilegedUser = isOwner || currentUserProfile?.role === 'admin';
+  const isAdmin = currentUserProfile?.role === 'admin';
+  const isPrivilegedUser = isOwner || isAdmin;
 
   useEffect(() => {
     if (!currentUserProfile || !db) {
@@ -222,8 +224,8 @@ export default function UserManagementPage() {
   };
 
   const handleDeleteUser = async (uid: string) => {
-      if (!isOwner) {
-          toast({ variant: "destructive", title: "Permission Denied", description: "Only the owner can delete users." });
+      if (!isPrivilegedUser) {
+          toast({ variant: "destructive", title: "Permission Denied", description: "Only admins and owners can delete users." });
           return;
       }
        if (!functions) {
@@ -380,7 +382,7 @@ export default function UserManagementPage() {
                                   <Button variant="outline" size="sm" onClick={() => handleUserStatusChange(user.uid, user.status)}>
                                       {user.status === 'suspended' || user.status === 'pending-approval' ? 'Activate' : 'Suspend'}
                                   </Button>
-                                  {isOwner && (
+                                  {(isOwner || (isAdmin && user.role !== 'owner')) && (
                                     <AlertDialog>
                                         <AlertDialogTrigger asChild>
                                         <Button variant="destructive" size="sm"><Trash2 className="h-4 w-4" /></Button>
@@ -455,7 +457,7 @@ export default function UserManagementPage() {
                       <Button variant="outline" size="sm" onClick={() => handleUserStatusChange(user.uid, user.status)} className="w-full">
                           {user.status === 'suspended' || user.status === 'pending-approval' ? 'Activate' : 'Suspend'}
                       </Button>
-                      {isOwner && (
+                      {(isOwner || (isAdmin && user.role !== 'owner')) && (
                         <AlertDialog>
                             <AlertDialogTrigger asChild>
                             <Button variant="destructive" size="sm" className="w-full"><Trash2 className="mr-2 h-4 w-4" /> Delete</Button>

@@ -30,24 +30,6 @@ if (VAPID_PUBLIC && VAPID_PRIVATE) {
  *  Helpers
  *  ========================= */
 
-async function isUserRole(uid: string | undefined, roles: string[]): Promise<boolean> {
-    if (!uid) return false;
-    try {
-        const userDoc = await db.collection('users').doc(uid).get();
-        if (!userDoc.exists) return false;
-        const userRole = userDoc.data()?.role;
-        return roles.includes(userRole);
-    } catch (error) {
-        logger.error(`Error checking role for UID: ${uid}`, error);
-        return false;
-    }
-}
-
-const isOwner = (uid: string | undefined) => isUserRole(uid, ['owner']);
-const isAdminOrOwner = (uid: string | undefined) => isUserRole(uid, ['owner', 'admin']);
-const isPrivileged = (uid: string | undefined) => isUserRole(uid, ['owner', 'admin', 'manager']);
-
-
 /**
  * Firestore doc IDs must NOT contain '/'.
  * Use base64url so the ID is always safe.
@@ -295,11 +277,10 @@ export const setNotificationStatus = onCall({ region: "europe-west2" }, async (r
 });
 
 
-/**
- * ✅ deleteAllShifts callable
- */
 export const deleteAllShifts = onCall({ region: "europe-west2" }, async (req) => {
-    if (!(await isOwner(req.auth?.uid))) {
+    if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
+    const userDoc = await db.collection("users").doc(req.auth.uid).get();
+    if (userDoc.data()?.role !== 'owner') {
         throw new HttpsError('permission-denied', 'You must be an owner to perform this action.');
     }
 
@@ -323,7 +304,10 @@ export const deleteAllShifts = onCall({ region: "europe-west2" }, async (req) =>
 
 
 export const setUserStatus = onCall({ region: "europe-west2" }, async (req) => {
-    if (!(await isAdminOrOwner(req.auth?.uid))) {
+    if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
+    const userDoc = await db.collection("users").doc(req.auth.uid).get();
+    const userRole = userDoc.data()?.role;
+    if (userRole !== 'admin' && userRole !== 'owner') {
         throw new HttpsError('permission-denied', 'You must be an admin or owner to perform this action.');
     }
 
@@ -344,8 +328,11 @@ export const setUserStatus = onCall({ region: "europe-west2" }, async (req) => {
 });
 
 export const deleteUser = onCall({ region: "europe-west2" }, async (req) => {
-    if (!(await isOwner(req.auth?.uid))) {
-        throw new HttpsError('permission-denied', 'You must be an owner to perform this action.');
+    if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
+    const userDoc = await db.collection("users").doc(req.auth.uid).get();
+    const userRole = userDoc.data()?.role;
+    if (userRole !== 'admin' && userRole !== 'owner') {
+        throw new HttpsError('permission-denied', 'You must be an admin or owner to perform this action.');
     }
 
     const { uid } = req.data;
@@ -365,7 +352,9 @@ export const deleteUser = onCall({ region: "europe-west2" }, async (req) => {
 });
 
 export const syncUserNamesToShifts = onCall({ region: "europe-west2" }, async (req) => {
-    if (!(await isOwner(req.auth?.uid))) {
+    if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
+    const userDoc = await db.collection("users").doc(req.auth.uid).get();
+    if (userDoc.data()?.role !== 'owner') {
         throw new HttpsError('permission-denied', 'You must be an owner to perform this action.');
     }
 
@@ -402,7 +391,10 @@ export const syncUserNamesToShifts = onCall({ region: "europe-west2" }, async (r
 });
 
 export const deleteProjectFile = onCall({ region: "europe-west2" }, async (req) => {
-    if (!(await isPrivileged(req.auth?.uid))) {
+    if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
+    const userDoc = await db.collection("users").doc(req.auth.uid).get();
+    const userRole = userDoc.data()?.role;
+    if (!['owner', 'admin', 'manager'].includes(userRole)) {
         throw new HttpsError('permission-denied', 'You do not have permission to delete files.');
     }
 
@@ -429,8 +421,52 @@ export const deleteProjectFile = onCall({ region: "europe-west2" }, async (req) 
     }
 });
 
+export const deleteProjectAndFiles = onCall({ region: "europe-west2" }, async (req) => {
+    if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
+    const userDoc = await db.collection("users").doc(req.auth.uid).get();
+    const userRole = userDoc.data()?.role;
+    if (!['owner', 'admin', 'manager'].includes(userRole)) {
+        throw new HttpsError('permission-denied', 'You do not have permission to delete projects.');
+    }
+    
+    const { projectId } = req.data;
+    if (!projectId) {
+        throw new HttpsError('invalid-argument', 'Missing projectId.');
+    }
+
+    try {
+        const projectRef = db.collection('projects').doc(projectId);
+        const projectDocSnap = await projectRef.get();
+        if (!projectDocSnap.exists) {
+            throw new HttpsError('not-found', 'Project not found.');
+        }
+
+        // Delete files in storage
+        await storage.bucket().deleteFiles({ prefix: `project_files/${projectId}` });
+        
+        // This relies on the "delete-collections" extension or similar functionality.
+        // It's a placeholder for a recursive delete implementation.
+        const filesSubcollection = projectRef.collection('files');
+        const filesSnapshot = await filesSubcollection.get();
+        const batch = db.batch();
+        filesSnapshot.forEach(doc => batch.delete(doc.ref));
+        await batch.commit();
+
+        await projectRef.delete();
+        
+        return { success: true, message: `Successfully deleted project ${projectId} and its files.`};
+
+    } catch (error: any) {
+        logger.error("Error deleting project:", { projectId, error });
+        throw new HttpsError('internal', error.message || 'Failed to delete project.');
+    }
+});
+
+
 export const deleteAllProjects = onCall({ region: "europe-west2" }, async (req) => {
-    if (!(await isOwner(req.auth?.uid))) {
+    if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Authentication required.");
+    const userDoc = await db.collection("users").doc(req.auth.uid).get();
+    if (userDoc.data()?.role !== 'owner') {
         throw new HttpsError('permission-denied', 'You must be an owner to delete all projects.');
     }
     
@@ -440,7 +476,15 @@ export const deleteAllProjects = onCall({ region: "europe-west2" }, async (req) 
         
         for (const doc of projectsSnapshot.docs) {
             await storage.bucket().deleteFiles({ prefix: `project_files/${doc.id}` });
-            await (db as any).recursiveDelete(doc.ref);
+            
+            // This relies on the "delete-collections" extension or similar functionality.
+            const filesSubcollection = doc.ref.collection('files');
+            const filesSnapshot = await filesSubcollection.get();
+            const batch = db.batch();
+            filesSnapshot.forEach(fileDoc => batch.delete(fileDoc.ref));
+            await batch.commit();
+
+            await doc.ref.delete();
             deletedProjects++;
         }
         
