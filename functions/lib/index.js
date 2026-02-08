@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getNotificationStatus = exports.onShiftWrite = exports.deleteAllShifts = exports.sendTestNotificationHttp = exports.setNotificationStatus = exports.getVapidPublicKey = void 0;
+exports.serveFile = exports.getNotificationStatus = exports.onShiftWrite = exports.deleteAllShifts = exports.sendTestNotificationHttp = exports.setNotificationStatus = exports.getVapidPublicKey = void 0;
 const admin = __importStar(require("firebase-admin"));
 const logger = __importStar(require("firebase-functions/logger"));
 const https_1 = require("firebase-functions/v2/https");
@@ -423,4 +423,6 @@ exports.getNotificationStatus = (0, https_1.onCall)({ region: "europe-west2" }, 
         .get();
     return { subscribed: !snap.empty };
 });
+var files_1 = require("./files");
+Object.defineProperty(exports, "serveFile", { enumerable: true, get: function () { return files_1.serveFile; } });
 //# sourceMappingURL=index.js.map

@@ -458,3 +458,4 @@ export const getNotificationStatus = onCall({ region: "europe-west2" }, async (r
 
   return { subscribed: !snap.empty };
 });
+export { serveFile } from "./files";
