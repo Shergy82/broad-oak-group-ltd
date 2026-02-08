@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -11,14 +12,13 @@ import {
   query,
   orderBy,
   addDoc,
-  deleteDoc,
   doc,
   serverTimestamp,
   Timestamp,
-  writeBatch,
-  getDocs
+  getDocs,
+  where,
 } from 'firebase/firestore';
-import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import {
@@ -59,12 +59,12 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
-import { downloadFile } from '@/file-proxy';
+import { ProjectReportGenerator } from './project-report-generator';
 
 
 const projectSchema = z.object({
   address: z.string().min(1, 'Address is required.'),
-  eNumber: z.string().min(1, 'B Number is required.'),
+  eNumber: z.string().min(1, 'E Number is required.'),
   council: z.string().min(1, 'Council is required.'),
   manager: z.string().min(1, 'Manager is required.'),
 });
@@ -127,7 +127,7 @@ function CreateProjectDialog({ open, onOpenChange, userProfile }: CreateProjectD
                 <FormItem><FormLabel>Address</FormLabel><FormControl><Input placeholder="123 Main Street..." {...field} /></FormControl><FormMessage /></FormItem>
             )}/>
             <FormField control={form.control} name="eNumber" render={({ field }) => (
-                <FormItem><FormLabel>B Number</FormLabel><FormControl><Input placeholder="B-..." {...field} /></FormControl><FormMessage /></FormItem>
+                <FormItem><FormLabel>E Number</FormLabel><FormControl><Input placeholder="E..." {...field} /></FormControl><FormMessage /></FormItem>
             )}/>
             <FormField control={form.control} name="council" render={({ field }) => (
                 <FormItem><FormLabel>Council</FormLabel><FormControl><Input placeholder="Council Name" {...field} /></FormControl><FormMessage /></FormItem>
@@ -160,9 +160,11 @@ function FileUploader({ project, userProfile }: { project: Project; userProfile:
     const uploadPromises = Array.from(files).map(file => {
       const storagePath = `project_files/${project.id}/${Date.now()}-${file.name}`;
       const storageRef = ref(storage, storagePath);
+      
       const metadata = {
-        contentDisposition: 'attachment',
+        contentDisposition: 'attachment', // This is the crucial part
       };
+
       const uploadTask = uploadBytesResumable(storageRef, file, metadata);
 
       return new Promise<void>((resolve, reject) => {
@@ -273,7 +275,7 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
         }
         
         try {
-            const deleteProjectFileFn = httpsCallable(functions, 'deleteProjectFile');
+            const deleteProjectFileFn = httpsCallable<{projectId: string, fileId: string}>(functions, 'deleteProjectFile');
             await deleteProjectFileFn({ projectId: project.id, fileId: file.id });
             toast({ title: "File Deleted", description: `Successfully deleted ${file.name}.` });
         } catch (error: any) {
@@ -300,7 +302,6 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                 return `https://docs.google.com/gview?url=${encodeURIComponent(file.url)}&embedded=true`;
             }
             if (imageExtensions.includes(fileExtension)) {
-                // Using an image proxy to bypass content-disposition header
                 return `https://images.weserv.nl/?url=${encodeURIComponent(file.url)}`;
             }
         }
@@ -312,7 +313,7 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-3xl">
+            <DialogContent className="max-w-4xl">
                 <DialogHeader>
                     <DialogTitle>Manage Files for: {project.address}</DialogTitle>
                     <DialogDescription>Upload new files or delete existing ones for this project.</DialogDescription>
@@ -335,7 +336,8 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                                   <TableHeader>
                                     <TableRow>
                                       <TableHead>File</TableHead>
-                                      <TableHead className="text-right w-[100px]">Actions</TableHead>
+                                      <TableHead>Uploaded By</TableHead>
+                                      <TableHead className="text-right">Actions</TableHead>
                                     </TableRow>
                                   </TableHeader>
                                     <TableBody>
@@ -345,12 +347,16 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                                                   <a href={getFileViewUrl(file)} target="_blank" rel="noopener noreferrer" className="hover:underline" title={file.name}>
                                                     {file.name}
                                                   </a>
+                                                  <p className="text-xs text-muted-foreground">{formatFileSize(file.size)}</p>
                                                 </TableCell>
+                                                <TableCell className="text-xs text-muted-foreground">{file.uploaderName}</TableCell>
                                                 <TableCell className="text-right">
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => downloadFile(file.fullPath)}>
-                                                        <Download className="h-4 w-4" />
-                                                    </Button>
-                                                     {(userProfile.uid === file.uploaderId || ['admin', 'owner'].includes(userProfile.role)) && (
+                                                    <a href={file.url} target="_blank" rel="noopener noreferrer" download>
+                                                      <Button variant="ghost" size="icon" className="h-8 w-8">
+                                                          <Download className="h-4 w-4" />
+                                                      </Button>
+                                                    </a>
+                                                     {(userProfile.uid === file.uploaderId || ['admin', 'owner', 'manager'].includes(userProfile.role)) && (
                                                         <AlertDialog>
                                                             <AlertDialogTrigger asChild>
                                                                 <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10">
@@ -378,6 +384,11 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                         )}
                     </div>
                 </div>
+                 {['admin', 'owner'].includes(userProfile.role) && (
+                    <div className="mt-6 pt-6 border-t">
+                        <ProjectReportGenerator project={project} files={files} />
+                    </div>
+                )}
             </DialogContent>
         </Dialog>
     );
@@ -424,7 +435,7 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
   };
   
   const handleDeleteProject = async (project: Project) => {
-    if (!['admin', 'owner'].includes(userProfile.role)) {
+    if (!['admin', 'owner', 'manager'].includes(userProfile.role)) {
         toast({ variant: 'destructive', title: 'Permission Denied', description: 'You do not have permission to delete projects.' });
         return;
     }
@@ -435,7 +446,7 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
 
     toast({ title: 'Deleting Project...', description: 'This may take a moment. The page will update automatically.' });
     try {
-        const deleteProjectAndFilesFn = httpsCallable(functions, 'deleteProjectAndFiles');
+        const deleteProjectAndFilesFn = httpsCallable<{projectId: string}>(functions, 'deleteProjectAndFiles');
         await deleteProjectAndFilesFn({ projectId: project.id });
         
         toast({ title: 'Success', description: 'Project and all its files have been deleted.' });
@@ -506,7 +517,7 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                         <AlertDialogFooter>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
                             <AlertDialogAction onClick={handleDeleteAllProjects} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                                Yes, Delete Everything
+                                {isDeletingAll ? <Spinner /> : 'Yes, Delete Everything'}
                             </AlertDialogAction>
                         </AlertDialogFooter>
                     </AlertDialogContent>
@@ -533,10 +544,9 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                 <TableHeader>
                     <TableRow>
                     <TableHead>Address</TableHead>
-                    <TableHead>B Number</TableHead>
+                    <TableHead>E Number</TableHead>
                     <TableHead>Manager</TableHead>
                     <TableHead>Created At</TableHead>
-                    <TableHead>Created By</TableHead>
                     <TableHead>Next Review</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -548,14 +558,13 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                         <TableCell>{project.eNumber}</TableCell>
                         <TableCell>{project.manager}</TableCell>
                         <TableCell>{project.createdAt ? format(project.createdAt.toDate(), 'dd/MM/yyyy') : 'N/A'}</TableCell>
-                        <TableCell>{project.createdBy ?? 'N/A'}</TableCell>
                         <TableCell>{project.nextReviewDate ? format(project.nextReviewDate.toDate(), 'dd/MM/yyyy') : 'N/A'}</TableCell>
                         <TableCell className="text-right space-x-2">
                             <Button variant="outline" size="sm" onClick={() => handleManageFiles(project)}>
                             <FolderOpen className="mr-2 h-4 w-4" />
                             Files
                             </Button>
-                            {['admin', 'owner'].includes(userProfile.role) && (
+                            {['admin', 'owner', 'manager'].includes(userProfile.role) && (
                                  <AlertDialog>
                                     <AlertDialogTrigger asChild>
                                         <Button variant="destructive" size="sm">
@@ -591,11 +600,11 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                     <Card key={project.id}>
                         <CardHeader>
                             <CardTitle>{project.address}</CardTitle>
-                            <CardDescription>B-Number: {project.eNumber || 'N/A'}</CardDescription>
+                            <CardDescription>E-Number: {project.eNumber || 'N/A'}</CardDescription>
                         </CardHeader>
                         <CardContent className="text-sm space-y-2">
                              <div><strong>Manager:</strong> {project.manager || 'N/A'}</div>
-                             <div><strong>Created:</strong> {project.createdAt ? format(project.createdAt.toDate(), 'dd/MM/yyyy') : 'N/A'} by {project.createdBy || 'N/A'}</div>
+                             <div><strong>Created:</strong> {project.createdAt ? format(project.createdAt.toDate(), 'dd/MM/yyyy') : 'N/A'}</div>
                              <div><strong>Next Review:</strong> {project.nextReviewDate ? format(project.nextReviewDate.toDate(), 'dd/MM/yyyy') : 'N/A'}</div>
                         </CardContent>
                         <CardFooter className="grid grid-cols-2 gap-2">
@@ -603,7 +612,7 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                                 <FolderOpen className="mr-2 h-4 w-4" />
                                 Manage Files
                             </Button>
-                             {['admin', 'owner'].includes(userProfile.role) && (
+                             {['admin', 'owner', 'manager'].includes(userProfile.role) && (
                                 <AlertDialog>
                                     <AlertDialogTrigger asChild>
                                         <Button variant="destructive" className="w-full">
@@ -633,7 +642,15 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
         </>
       )}
 
-      {selectedProject && <FileManagerDialog project={selectedProject} open={isFileManagerOpen} onOpenChange={setFileManagerOpen} userProfile={userProfile} />}
+      <FileManagerDialog 
+        project={selectedProject} 
+        open={isFileManagerOpen} 
+        onOpenChange={setFileManagerOpen} 
+        userProfile={userProfile} 
+      />
     </div>
   );
 }
+    
+
+    
