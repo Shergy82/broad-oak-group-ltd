@@ -63,7 +63,7 @@ export function ProjectFiles({ project, userProfile }: Props) {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
 
-  // Preview modal state (keeps user in-app; better on mobile than new tabs)
+  // Preview modal state (keeps user in-app; better on some mobiles)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewName, setPreviewName] = useState<string | null>(null);
   const [previewType, setPreviewType] = useState<string | null>(null);
@@ -81,7 +81,9 @@ export function ProjectFiles({ project, userProfile }: Props) {
     return onSnapshot(
       q,
       (snap) => {
-        setFiles(snap.docs.map((d) => ({ id: d.id, ...d.data() } as ProjectFile)));
+        setFiles(
+          snap.docs.map((d) => ({ id: d.id, ...d.data() } as ProjectFile))
+        );
         setLoading(false);
       },
       (err) => {
@@ -98,10 +100,6 @@ export function ProjectFiles({ project, userProfile }: Props) {
 
   /* ---------------- Helpers ---------------- */
 
-  async function getFreshUrl(fullPath: string) {
-    return getDownloadURL(ref(storage, fullPath));
-  }
-
   const canDelete = (f: ProjectFile) =>
     f.uploaderId === userProfile.uid ||
     ['admin', 'owner', 'manager'].includes(userProfile.role);
@@ -109,12 +107,28 @@ export function ProjectFiles({ project, userProfile }: Props) {
   const isImageName = (name: string) => /\.(png|jpe?g|gif|webp)$/i.test(name);
   const isPdfName = (name: string) => /\.pdf$/i.test(name);
 
+  function getFileViewUrl(file: ProjectFile): string {
+    const office = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
+    const ext = (file.name ?? '').split('.').pop()?.toLowerCase();
+
+    if (ext && office.includes(ext)) {
+      return `https://docs.google.com/gview?url=${encodeURIComponent(
+        file.url
+      )}&embedded=true`;
+    }
+
+    return file.url;
+  }
+
   /* ---------------- Open / Download ---------------- */
+
+  async function getFreshUrl(fullPath: string) {
+    return getDownloadURL(ref(storage, fullPath));
+  }
 
   async function openFile(file: ProjectFile) {
     try {
       const url = await getFreshUrl(file.fullPath);
-
       setPreviewUrl(url);
       setPreviewName(file.name ?? 'Preview');
       setPreviewType(file.type ?? '');
@@ -171,9 +185,10 @@ export function ProjectFiles({ project, userProfile }: Props) {
       for (const file of Array.from(list)) {
         const path = `project_files/${project.id}/${Date.now()}-${file.name}`;
 
-        // Strong mobile compatibility: ensure correct content-type + cache-control
+        // IMPORTANT for mobile: force inline viewing + set correct content-type.
         const metadata: UploadMetadata = {
-          contentType: file.type || undefined,
+          contentType: file.type || 'application/octet-stream',
+          contentDisposition: 'inline',
           cacheControl: 'public,max-age=3600',
         };
 
@@ -184,7 +199,6 @@ export function ProjectFiles({ project, userProfile }: Props) {
           task.on('state_changed', null, reject, resolve);
         });
 
-        // Keep url for backwards compat, but UI uses fullPath -> fresh URL
         const url = await getDownloadURL(task.snapshot.ref);
 
         await addDoc(collection(db, `projects/${project.id}/files`), {
@@ -234,7 +248,7 @@ export function ProjectFiles({ project, userProfile }: Props) {
     }
   }
 
-  /* ---------------- UI ---------------- */
+  /* ---------------- Preview Kind ---------------- */
 
   const previewKind = useMemo(() => {
     const name = previewName ?? '';
@@ -243,6 +257,8 @@ export function ProjectFiles({ project, userProfile }: Props) {
     if (type === 'application/pdf' || isPdfName(name)) return 'pdf';
     return 'other';
   }, [previewName, previewType]);
+
+  /* ---------------- UI ---------------- */
 
   return (
     <div className="space-y-4">
@@ -273,14 +289,16 @@ export function ProjectFiles({ project, userProfile }: Props) {
               {files.map((f) => (
                 <TableRow key={f.id}>
                   <TableCell className="truncate max-w-[220px]">
-                    <button
-                      type="button"
-                      onClick={() => openFile(f)}
-                      className="hover:underline text-left truncate max-w-[220px]"
+                    {/* Primary behaviour: open in browser with a real link (mobile-friendly) */}
+                    <a
+                      href={getFileViewUrl(f)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hover:underline block truncate max-w-[220px]"
                       title={f.name}
                     >
                       {f.name}
-                    </button>
+                    </a>
 
                     <div className="text-xs text-muted-foreground">
                       {typeof f.size === 'number'
@@ -292,11 +310,12 @@ export function ProjectFiles({ project, userProfile }: Props) {
                   <TableCell className="text-xs">{f.uploaderName}</TableCell>
 
                   <TableCell className="text-right space-x-1">
+                    {/* Optional: in-app preview (uses fresh URL). Keep if you want the eye icon preview. */}
                     <Button
                       size="icon"
                       variant="ghost"
                       onClick={() => openFile(f)}
-                      title="View"
+                      title="Preview"
                       type="button"
                     >
                       <Eye className="h-4 w-4" />
@@ -378,7 +397,7 @@ export function ProjectFiles({ project, userProfile }: Props) {
         </Label>
       </Button>
 
-      {/* Preview modal */}
+      {/* In-app preview modal */}
       {previewUrl && (
         <AlertDialog open onOpenChange={(o) => !o && setPreviewUrl(null)}>
           <AlertDialogContent className="max-w-3xl">
