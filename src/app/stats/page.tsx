@@ -4,9 +4,9 @@ import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { Spinner } from '@/components/shared/spinner';
-import { collection, onSnapshot, query } from 'firebase/firestore';
+import { collection, query, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { Shift, UserProfile } from '@/types';
+import type { Shift, UserProfile, Project, ProjectFile } from '@/types';
 import { StatsDashboard } from '@/components/dashboard/stats-dashboard';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear } from 'date-fns';
@@ -19,6 +19,7 @@ export default function StatsPage() {
 
   const [allShifts, setAllShifts] = useState<Shift[]>([]);
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
+  const [allFiles, setAllFiles] = useState<ProjectFile[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [timeRange, setTimeRange] = useState<TimeRange>('weekly');
 
@@ -33,47 +34,45 @@ export default function StatsPage() {
       setLoadingData(false);
       return;
     }
-    setLoadingData(true);
 
-    const shiftsQuery = query(collection(db, 'shifts'));
-    const usersQuery = query(collection(db, 'users'));
+    const fetchData = async () => {
+      setLoadingData(true);
+      try {
+        const shiftsQuery = query(collection(db, 'shifts'));
+        const usersQuery = query(collection(db, 'users'));
+        const projectsQuery = query(collection(db, 'projects'));
 
-    let shiftsLoaded = false;
-    let usersLoaded = false;
+        const [shiftsSnapshot, usersSnapshot, projectsSnapshot] = await Promise.all([
+          getDocs(shiftsQuery),
+          getDocs(usersQuery),
+          getDocs(projectsQuery),
+        ]);
 
-    const checkAllDataLoaded = () => {
-      if (shiftsLoaded && usersLoaded) {
-        setLoadingData(false);
+        setAllShifts(shiftsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
+        setAllUsers(usersSnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile)));
+        
+        const projects = projectsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project));
+        
+        if (projects.length > 0) {
+            const allFilesPromises = projects.map(project => getDocs(collection(db, `projects/${project.id}/files`)));
+            const allFilesSnapshots = await Promise.all(allFilesPromises);
+            const files = allFilesSnapshots.flatMap(snapshot => snapshot.docs.map(doc => doc.data() as ProjectFile));
+            setAllFiles(files);
+        } else {
+            setAllFiles([]);
+        }
+
+      } catch (error) {
+          console.error("Error fetching stats data:", error);
+      } finally {
+          setLoadingData(false);
       }
     };
 
-    const unsubShifts = onSnapshot(shiftsQuery, (snapshot) => {
-      setAllShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
-      shiftsLoaded = true;
-      checkAllDataLoaded();
-    }, (error) => {
-      console.error("Error fetching shifts:", error);
-      shiftsLoaded = true;
-      checkAllDataLoaded();
-    });
-
-    const unsubUsers = onSnapshot(usersQuery, (snapshot) => {
-      setAllUsers(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile)));
-      usersLoaded = true;
-      checkAllDataLoaded();
-    }, (error) => {
-      console.error("Error fetching users:", error);
-      usersLoaded = true;
-      checkAllDataLoaded();
-    });
-
-    return () => {
-      unsubShifts();
-      unsubUsers();
-    };
+    fetchData();
   }, [user]);
   
-  const filteredShifts = useMemo(() => {
+  const filteredData = useMemo(() => {
     const now = new Date();
     let start, end;
 
@@ -88,16 +87,23 @@ export default function StatsPage() {
       end = endOfYear(now);
     }
 
-    return allShifts.filter(s => {
+    const shifts = allShifts.filter(s => {
         const shiftDate = s.date.toDate();
         return shiftDate >= start && shiftDate <= end;
     });
-  }, [allShifts, timeRange]);
+
+    const files = allFiles.filter(f => {
+        const uploadDate = f.uploadedAt.toDate();
+        return uploadDate >= start && uploadDate <= end;
+    });
+
+    return { shifts, files };
+  }, [allShifts, allFiles, timeRange]);
 
   const userShifts = useMemo(() => {
     if (!user) return [];
-    return filteredShifts.filter(shift => shift.userId === user.uid);
-  }, [filteredShifts, user]);
+    return filteredData.shifts.filter(shift => shift.userId === user.uid);
+  }, [filteredData.shifts, user]);
 
   const isLoading = isAuthLoading || loadingData;
 
@@ -125,9 +131,10 @@ export default function StatsPage() {
             </Select>
         </div>
         <StatsDashboard
-            allShifts={filteredShifts}
+            allShifts={filteredData.shifts}
             userShifts={userShifts}
             allUsers={allUsers}
+            allFiles={filteredData.files}
             timeRange={timeRange}
         />
     </main>

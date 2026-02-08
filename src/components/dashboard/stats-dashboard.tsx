@@ -1,9 +1,10 @@
 'use client';
 
 import { useMemo } from 'react';
-import type { Shift, UserProfile } from '@/types';
+import { useAuth } from '@/hooks/use-auth';
+import type { Shift, UserProfile, ProjectFile } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { CheckCircle2, History, Percent, XCircle, Medal, Trophy } from 'lucide-react';
+import { CheckCircle2, History, Percent, XCircle, Medal, Trophy, Camera } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Avatar, AvatarFallback } from '../ui/avatar';
 
@@ -11,6 +12,7 @@ interface StatsDashboardProps {
     allShifts: Shift[];
     userShifts: Shift[];
     allUsers: UserProfile[];
+    allFiles: ProjectFile[];
     timeRange: 'weekly' | 'monthly' | 'yearly';
 }
 
@@ -18,6 +20,7 @@ interface PerformanceMetric {
     userId: string;
     userName: string;
     completionRate: number;
+    incompleteRate: number;
     totalShifts: number;
 }
 
@@ -42,7 +45,9 @@ const StatCard = ({ title, value, icon: Icon }: { title: string, value: string |
     </Card>
 );
 
-export function StatsDashboard({ allShifts, userShifts, allUsers, timeRange }: StatsDashboardProps) {
+export function StatsDashboard({ allShifts, userShifts, allUsers, allFiles, timeRange }: StatsDashboardProps) {
+
+    const { user } = useAuth();
 
     const userStats = useMemo(() => {
         const totalShifts = userShifts.length;
@@ -51,9 +56,19 @@ export function StatsDashboard({ allShifts, userShifts, allUsers, timeRange }: S
         
         const rateCalculationTotal = userShifts.filter(s => s.status !== 'pending-confirmation').length;
         const completionRate = rateCalculationTotal > 0 ? (completedShifts / rateCalculationTotal) * 100 : 0;
+        const incompleteRate = rateCalculationTotal > 0 ? (incompleteShifts / rateCalculationTotal) * 100 : 0;
 
-        return { totalShifts, completedShifts, incompleteShifts, completionRate };
-    }, [userShifts]);
+        const photosUploaded = allFiles.filter(f => f.uploaderId === user?.uid && f.type?.startsWith('image/')).length;
+
+        return {
+            totalShifts,
+            completedShifts,
+            incompleteShifts,
+            completionRate,
+            incompleteRate,
+            photosUploaded,
+        };
+    }, [userShifts, allFiles, user]);
 
     const topPerformers = useMemo(() => {
         const operativeUsers = allUsers.filter(u => u.role === 'user' || u.role === 'TLO');
@@ -64,14 +79,16 @@ export function StatsDashboard({ allShifts, userShifts, allUsers, timeRange }: S
             if (userShiftsForPeriod.length === 0) return null;
 
             const completed = userShiftsForPeriod.filter(s => s.status === 'completed').length;
+            const incomplete = userShiftsForPeriod.filter(s => s.status === 'incomplete').length;
             const rateCalculationTotal = userShiftsForPeriod.filter(s => s.status !== 'pending-confirmation').length;
             
             if (rateCalculationTotal === 0) return null;
 
             const completionRate = (completed / rateCalculationTotal) * 100;
+            const incompleteRate = (incomplete / rateCalculationTotal) * 100;
 
-            return { userId: user.uid, userName: user.name, completionRate, totalShifts: userShiftsForPeriod.length };
-        }).filter((m): m is PerformanceMetric => m !== null && m.completionRate > 0);
+            return { userId: user.uid, userName: user.name, completionRate, incompleteRate, totalShifts: userShiftsForPeriod.length };
+        }).filter((m): m is PerformanceMetric => m !== null);
         
         return metrics.sort((a, b) => b.completionRate - a.completionRate).slice(0, 5);
     }, [allShifts, allUsers]);
@@ -98,7 +115,8 @@ export function StatsDashboard({ allShifts, userShifts, allUsers, timeRange }: S
                                 <TableRow>
                                     <TableHead className="w-10"></TableHead>
                                     <TableHead>Operative</TableHead>
-                                    <TableHead className="text-right">Completion Rate</TableHead>
+                                    <TableHead className="text-right">Completion %</TableHead>
+                                    <TableHead className="text-right">Incomplete %</TableHead>
                                     <TableHead className="text-right">Total Shifts</TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -119,6 +137,9 @@ export function StatsDashboard({ allShifts, userShifts, allUsers, timeRange }: S
                                         <TableCell className="text-right font-bold tabular-nums text-green-600">
                                             {p.completionRate.toFixed(0)}%
                                         </TableCell>
+                                        <TableCell className="text-right font-bold tabular-nums text-amber-600">
+                                            {p.incompleteRate.toFixed(0)}%
+                                        </TableCell>
                                         <TableCell className="text-right font-medium tabular-nums">
                                             {p.totalShifts}
                                         </TableCell>
@@ -138,11 +159,12 @@ export function StatsDashboard({ allShifts, userShifts, allUsers, timeRange }: S
 
             <div>
                 <h3 className="text-lg font-semibold tracking-tight mb-2">Your Stats - {timeRangeTitle}</h3>
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
                     <StatCard title="Total Shifts" value={userStats.totalShifts} icon={History} />
                     <StatCard title="Completed" value={userStats.completedShifts} icon={CheckCircle2} />
                     <StatCard title="Incomplete" value={userStats.incompleteShifts} icon={XCircle} />
                     <StatCard title="Completion Rate" value={`${userStats.completionRate.toFixed(0)}%`} icon={Percent} />
+                    <StatCard title="Photos Uploaded" value={userStats.photosUploaded} icon={Camera} />
                 </div>
             </div>
         </div>
