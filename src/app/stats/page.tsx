@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot, query, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { Shift, UserProfile, Project, ProjectFile } from '@/types';
+import type { Shift, UserProfile, ProjectFile } from '@/types';
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear } from 'date-fns';
 import { useAuth } from '@/hooks/use-auth';
 import { useRouter } from 'next/navigation';
@@ -23,6 +23,7 @@ export interface PerformanceMetric {
   incompleteShifts: number;
   photosUploaded: number;
   completionRate: number;
+  incompleteRate: number;
 }
 
 export default function StatsPage() {
@@ -73,9 +74,10 @@ export default function StatsPage() {
         try {
             const projectsSnapshot = await getDocs(query(collection(db, 'projects')));
             const photoPromises = projectsSnapshot.docs.map(async (projectDoc) => {
-                const filesQuery = query(collection(db, `projects/${projectDoc.id}/files`), where('type', '>=', 'image/'), where('type', '<', 'image/~'));
+                const filesQuery = query(collection(db, `projects/${projectDoc.id}/files`));
                 const filesSnapshot = await getDocs(filesQuery);
-                return filesSnapshot.docs.map(fileDoc => ({ id: fileDoc.id, ...fileDoc.data() } as ProjectFile));
+                return filesSnapshot.docs.map(fileDoc => ({ id: fileDoc.id, ...fileDoc.data() } as ProjectFile))
+                                        .filter(file => file.type?.startsWith('image/'));
             });
 
             const photosByProject = await Promise.all(photoPromises);
@@ -107,8 +109,9 @@ export default function StatsPage() {
       const completedShifts = userShifts.filter(s => s.status === 'completed').length;
       const incompleteShifts = userShifts.filter(s => s.status === 'incomplete').length;
       
-      const rateCalculationTotal = userShifts.filter(s => s.status !== 'pending-confirmation').length;
+      const rateCalculationTotal = completedShifts + incompleteShifts;
       const completionRate = rateCalculationTotal > 0 ? (completedShifts / rateCalculationTotal) * 100 : 0;
+      const incompleteRate = rateCalculationTotal > 0 ? (incompleteShifts / rateCalculationTotal) * 100 : 0;
 
       return {
         userId: op.uid,
@@ -118,6 +121,7 @@ export default function StatsPage() {
         incompleteShifts,
         photosUploaded: userPhotos.length,
         completionRate,
+        incompleteRate,
       };
     });
   };
@@ -191,15 +195,15 @@ export default function StatsPage() {
                     </TabsList>
                     <TabsContent value="weekly" className="mt-6">
                         <Leaderboard title="Weekly Top 5" data={weeklyData} />
-                         {currentUserStats?.weekly && <div className="mt-8"><UserStatsDashboard allShifts={[]} {...currentUserStats.weekly} /></div>}
+                         {currentUserStats?.weekly && <div className="mt-8"><UserStatsDashboard {...currentUserStats.weekly} /></div>}
                     </TabsContent>
                     <TabsContent value="monthly" className="mt-6">
                         <Leaderboard title="Monthly Top 5" data={monthlyData} />
-                         {currentUserStats?.monthly && <div className="mt-8"><UserStatsDashboard allShifts={[]} {...currentUserStats.monthly} /></div>}
+                         {currentUserStats?.monthly && <div className="mt-8"><UserStatsDashboard {...currentUserStats.monthly} /></div>}
                     </TabsContent>
                     <TabsContent value="yearly" className="mt-6">
                         <Leaderboard title="Yearly Top 5" data={yearlyData} />
-                         {currentUserStats?.yearly && <div className="mt-8"><UserStatsDashboard allShifts={[]} {...currentUserStats.yearly} /></div>}
+                         {currentUserStats?.yearly && <div className="mt-8"><UserStatsDashboard {...currentUserStats.yearly} /></div>}
                     </TabsContent>
                 </Tabs>
             </CardContent>

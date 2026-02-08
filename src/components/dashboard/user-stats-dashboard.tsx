@@ -6,11 +6,13 @@ import { CheckCircle2, History, Percent, XCircle, Camera } from 'lucide-react';
 import { useMemo } from 'react';
 
 interface UserStatsDashboardProps {
-  allShifts: Shift[];
+  allShifts?: Shift[];
   totalShifts?: number;
   completedShifts?: number;
   incompleteShifts?: number;
   photosUploaded?: number;
+  completionRate?: number;
+  incompleteRate?: number;
 }
 
 const StatCard = ({ title, value, icon: Icon }: { title: string, value: string | number, icon: React.ElementType }) => (
@@ -31,44 +33,50 @@ export function UserStatsDashboard({
     completedShifts: completedProp,
     incompleteShifts: incompleteProp,
     photosUploaded: photosProp,
+    completionRate: completionRateProp,
+    incompleteRate: incompleteRateProp,
 }: UserStatsDashboardProps) {
 
     const stats = useMemo(() => {
-        if (totalProp !== undefined && completedProp !== undefined && incompleteProp !== undefined) {
-             const completionRate = totalProp > 0 ? (completedProp / totalProp) * 100 : 0;
+        if (totalProp !== undefined && completedProp !== undefined && incompleteProp !== undefined && completionRateProp !== undefined && incompleteRateProp !== undefined) {
             return {
                 totalShifts: totalProp,
                 completedShifts: completedProp,
                 incompleteShifts: incompleteProp,
                 photosUploaded: photosProp || 0,
-                completionRate
+                completionRate: completionRateProp,
+                incompleteRate: incompleteRateProp,
             };
         }
 
-        const totalShifts = allShifts.length;
-        const completedShifts = allShifts.filter(s => s.status === 'completed').length;
-        const incompleteShifts = allShifts.filter(s => s.status === 'incomplete').length;
-        const rateCalculationTotal = allShifts.filter(s => s.status !== 'pending-confirmation').length;
+        const safeAllShifts = allShifts || [];
+        const totalShifts = safeAllShifts.length;
+        const completedShifts = safeAllShifts.filter(s => s.status === 'completed').length;
+        const incompleteShifts = safeAllShifts.filter(s => s.status === 'incomplete').length;
+        const rateCalculationTotal = completedShifts + incompleteShifts;
         const completionRate = rateCalculationTotal > 0 ? (completedShifts / rateCalculationTotal) * 100 : 0;
+        const incompleteRate = rateCalculationTotal > 0 ? (incompleteShifts / rateCalculationTotal) * 100 : 0;
 
         return {
             totalShifts,
             completedShifts,
             incompleteShifts,
             photosUploaded: photosProp || 0,
-            completionRate
+            completionRate,
+            incompleteRate,
         };
-    }, [allShifts, totalProp, completedProp, incompleteProp, photosProp]);
+    }, [allShifts, totalProp, completedProp, incompleteProp, photosProp, completionRateProp, incompleteRateProp]);
 
     return (
         <div>
             <h3 className="text-lg font-semibold tracking-tight mb-2">Your Personal Stats</h3>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 <StatCard title="Total Shifts" value={stats.totalShifts} icon={History} />
                 <StatCard title="Completed" value={stats.completedShifts} icon={CheckCircle2} />
                 <StatCard title="Incomplete" value={stats.incompleteShifts} icon={XCircle} />
                 <StatCard title="Photos Uploaded" value={stats.photosUploaded} icon={Camera} />
                 <StatCard title="Completion Rate" value={`${stats.completionRate.toFixed(0)}%`} icon={Percent} />
+                <StatCard title="Incompletion Rate" value={`${stats.incompleteRate.toFixed(0)}%`} icon={Percent} />
             </div>
         </div>
     );

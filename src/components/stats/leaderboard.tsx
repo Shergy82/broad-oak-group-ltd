@@ -48,7 +48,9 @@ export function Leaderboard({ title, data }: LeaderboardProps) {
                                 <TableRow>
                                     <TableHead className="w-12">Rank</TableHead>
                                     <TableHead>Operative</TableHead>
+                                    <TableHead className="text-center">Shifts</TableHead>
                                     <TableHead className="text-center">Photos</TableHead>
+                                    <TableHead className="text-center">Incomplete</TableHead>
                                     <TableHead className="text-right">Completion</TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -66,7 +68,9 @@ export function Leaderboard({ title, data }: LeaderboardProps) {
                                                 <span className="font-medium truncate">{p.userName}</span>
                                             </div>
                                         </TableCell>
+                                        <TableCell className="text-center font-medium tabular-nums">{p.totalShifts}</TableCell>
                                         <TableCell className="text-center font-medium tabular-nums">{p.photosUploaded}</TableCell>
+                                        <TableCell className="text-center font-medium tabular-nums text-amber-600">{p.incompleteRate.toFixed(0)}%</TableCell>
                                         <TableCell className="text-right font-bold text-lg text-primary tabular-nums">
                                             {p.completionRate.toFixed(0)}%
                                         </TableCell>
