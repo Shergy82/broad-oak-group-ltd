@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -15,7 +13,7 @@ import {
   doc,
   serverTimestamp,
 } from 'firebase/firestore';
-import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { Button } from '@/components/ui/button';
 import {
   Table,
@@ -42,6 +40,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { FileText, Download, Trash2, Upload } from 'lucide-react';
 import type { Project, ProjectFile, UserProfile } from '@/types';
+import { downloadFile } from '@/file-proxy';
 
 interface ProjectFilesProps {
   project: Project;
@@ -85,7 +84,10 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
     const uploadPromises = filesToUpload.map(file => {
       const storagePath = `project_files/${project.id}/${Date.now()}-${file.name}`;
       const storageRef = ref(storage, storagePath);
-      const uploadTask = uploadBytesResumable(storageRef, file);
+      const metadata = {
+        contentDisposition: 'attachment',
+      };
+      const uploadTask = uploadBytesResumable(storageRef, file, metadata);
 
       return new Promise<void>((resolve, reject) => {
         uploadTask.on(
@@ -105,7 +107,7 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
                 size: file.size,
                 type: file.type,
                 uploadedAt: serverTimestamp(),
-                uploaderId: userProfile?.uid || "system",
+                uploaderId: userProfile.uid,
                 uploaderName: userProfile.name,
               });
               resolve();
@@ -208,12 +210,10 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">{file.uploaderName}</TableCell>
                         <TableCell className="text-right space-x-1">
-                            <a href={file.url} target="_blank" rel="noopener noreferrer" download>
-                                <Button variant="ghost" size="icon" className="h-8 w-8">
-                                    <Download className="h-4 w-4" />
-                                </Button>
-                            </a>
-                            {(userProfile.uid === file.uploaderId || ['admin', 'owner', 'manager'].includes(userProfile.role)) && (
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => downloadFile(file.fullPath)}>
+                                <Download className="h-4 w-4" />
+                            </Button>
+                            {(userProfile.uid === file.uploaderId || ['admin', 'owner'].includes(userProfile.role)) && (
                                 <AlertDialog>
                                     <AlertDialogTrigger asChild>
                                         <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10">
@@ -265,5 +265,3 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
     </div>
   );
 }
-
-    
