@@ -4,8 +4,10 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { LoginForm } from '@/components/auth/login-form';
-import { Spinner } from '@/components/shared/spinner';
+import { Logo } from '@/components/shared/logo';
 import Link from 'next/link';
+import { Spinner } from '@/components/shared/spinner';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 export default function LoginPage() {
   const { user, isLoading } = useAuth();
@@ -19,20 +21,28 @@ export default function LoginPage() {
 
   if (isLoading || user) {
     return (
-      <div className="flex flex-1 items-center justify-center">
+      <div className="flex min-h-screen w-full flex-col items-center justify-center">
         <Spinner size="lg" />
       </div>
     );
   }
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center p-6">
-      <div className="w-full max-w-sm space-y-4">
-        <div className="text-center">
-          <h1 className="text-2xl font-semibold">Login</h1>
+    <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
+      <div className="w-full max-w-md">
+        <div className="mb-6 flex justify-center">
+          <Logo />
         </div>
-        <LoginForm />
-        <p className="text-center text-sm text-muted-foreground">
+        <Card className="shadow-lg">
+          <CardHeader>
+            <CardTitle>Log In</CardTitle>
+            <CardDescription>Enter your email and password to access your account.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <LoginForm />
+          </CardContent>
+        </Card>
+        <p className="mt-6 text-center text-sm text-muted-foreground">
           Don't have an account?{' '}
           <Link href="/signup" className="font-semibold text-primary hover:underline">
             Sign up
