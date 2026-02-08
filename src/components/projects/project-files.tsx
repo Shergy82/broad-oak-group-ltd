@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { auth, db, storage, functions, httpsCallable } from '@/lib/firebase';
 
@@ -13,7 +13,12 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import {
+  ref,
+  uploadBytesResumable,
+  getDownloadURL,
+  type UploadMetadata,
+} from 'firebase/storage';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -58,6 +63,11 @@ export function ProjectFiles({ project, userProfile }: Props) {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
 
+  // Preview modal state (keeps user in-app; better on mobile than new tabs)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewName, setPreviewName] = useState<string | null>(null);
+  const [previewType, setPreviewType] = useState<string | null>(null);
+
   /* ---------------- Load Files ---------------- */
 
   useEffect(() => {
@@ -71,9 +81,7 @@ export function ProjectFiles({ project, userProfile }: Props) {
     return onSnapshot(
       q,
       (snap) => {
-        setFiles(
-          snap.docs.map((d) => ({ id: d.id, ...d.data() } as ProjectFile))
-        );
+        setFiles(snap.docs.map((d) => ({ id: d.id, ...d.data() } as ProjectFile)));
         setLoading(false);
       },
       (err) => {
@@ -88,33 +96,37 @@ export function ProjectFiles({ project, userProfile }: Props) {
     );
   }, [project?.id, toast]);
 
-  /* ---------------- Open/Download (fresh URL at click time) ---------------- */
+  /* ---------------- Helpers ---------------- */
 
   async function getFreshUrl(fullPath: string) {
     return getDownloadURL(ref(storage, fullPath));
   }
 
+  const canDelete = (f: ProjectFile) =>
+    f.uploaderId === userProfile.uid ||
+    ['admin', 'owner', 'manager'].includes(userProfile.role);
+
+  const isImageName = (name: string) => /\.(png|jpe?g|gif|webp)$/i.test(name);
+  const isPdfName = (name: string) => /\.pdf$/i.test(name);
+
+  /* ---------------- Open / Download ---------------- */
+
   async function openFile(file: ProjectFile) {
-    // IMPORTANT: open immediately so mobile browsers allow it
-    const win = window.open('about:blank', '_blank', 'noopener,noreferrer');
-  
     try {
       const url = await getFreshUrl(file.fullPath);
-      if (win) {
-        win.location.href = url;
-      } else {
-        window.location.href = url; // fallback
-      }
+
+      setPreviewUrl(url);
+      setPreviewName(file.name ?? 'Preview');
+      setPreviewType(file.type ?? '');
     } catch (e) {
       console.error(e);
-      if (win) win.close();
       toast({
         variant: 'destructive',
         title: 'Open failed',
-        description: 'Could not open file on this device',
+        description: 'Could not load file preview',
       });
     }
-  }  
+  }
 
   async function downloadFile(file: ProjectFile) {
     try {
@@ -159,14 +171,20 @@ export function ProjectFiles({ project, userProfile }: Props) {
       for (const file of Array.from(list)) {
         const path = `project_files/${project.id}/${Date.now()}-${file.name}`;
 
+        // Strong mobile compatibility: ensure correct content-type + cache-control
+        const metadata: UploadMetadata = {
+          contentType: file.type || undefined,
+          cacheControl: 'public,max-age=3600',
+        };
+
         const refFile = ref(storage, path);
-        const task = uploadBytesResumable(refFile, file);
+        const task = uploadBytesResumable(refFile, file, metadata);
 
         await new Promise<void>((resolve, reject) => {
           task.on('state_changed', null, reject, resolve);
         });
 
-        // Optional: keep url for legacy/backwards compat, but UI no longer relies on it.
+        // Keep url for backwards compat, but UI uses fullPath -> fresh URL
         const url = await getDownloadURL(task.snapshot.ref);
 
         await addDoc(collection(db, `projects/${project.id}/files`), {
@@ -208,7 +226,6 @@ export function ProjectFiles({ project, userProfile }: Props) {
       toast({ title: 'Deleted' });
     } catch (e: any) {
       console.error(e);
-
       toast({
         variant: 'destructive',
         title: 'Delete failed',
@@ -217,11 +234,15 @@ export function ProjectFiles({ project, userProfile }: Props) {
     }
   }
 
-  const canDelete = (f: ProjectFile) =>
-    f.uploaderId === userProfile.uid ||
-    ['admin', 'owner', 'manager'].includes(userProfile.role);
-
   /* ---------------- UI ---------------- */
+
+  const previewKind = useMemo(() => {
+    const name = previewName ?? '';
+    const type = previewType ?? '';
+    if (type.startsWith('image/') || isImageName(name)) return 'image';
+    if (type === 'application/pdf' || isPdfName(name)) return 'pdf';
+    return 'other';
+  }, [previewName, previewType]);
 
   return (
     <div className="space-y-4">
@@ -356,6 +377,49 @@ export function ProjectFiles({ project, userProfile }: Props) {
           )}
         </Label>
       </Button>
+
+      {/* Preview modal */}
+      {previewUrl && (
+        <AlertDialog open onOpenChange={(o) => !o && setPreviewUrl(null)}>
+          <AlertDialogContent className="max-w-3xl">
+            <AlertDialogHeader>
+              <AlertDialogTitle>{previewName ?? 'Preview'}</AlertDialogTitle>
+              <AlertDialogDescription />
+            </AlertDialogHeader>
+
+            <div className="w-full">
+              {previewKind === 'image' ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={previewUrl}
+                  alt={previewName ?? 'preview'}
+                  className="w-full h-auto rounded"
+                />
+              ) : previewKind === 'pdf' ? (
+                <iframe src={previewUrl} className="w-full h-[70vh] rounded" />
+              ) : (
+                <div className="text-sm text-muted-foreground">
+                  Preview not available for this file type.
+                </div>
+              )}
+            </div>
+
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setPreviewUrl(null)}>
+                Close
+              </AlertDialogCancel>
+
+              <AlertDialogAction
+                onClick={() =>
+                  window.open(previewUrl, '_blank', 'noopener,noreferrer')
+                }
+              >
+                Open in browser
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </div>
   );
 }
