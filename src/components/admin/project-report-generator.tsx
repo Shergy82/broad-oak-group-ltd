@@ -73,35 +73,93 @@ export function ProjectReportGenerator({ project, files }: ProjectReportGenerato
     setIsGenerating(true);
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.width;
+    const pageHeight = doc.internal.pageSize.height;
     const pageMargin = 14;
     const usableWidth = pageWidth - (pageMargin * 2);
 
-    // --- HEADER on Page 1 ---
-    doc.setFontSize(22);
-    doc.setFont('helvetica', 'bold');
-    doc.text('End of Project Report', pageWidth / 2, 25, { align: 'center' });
+    // --- HEADER ---
+    doc.setFillColor(45, 55, 72); // A dark slate color
+    doc.rect(0, 0, pageWidth, 30, 'F'); // Header bar
 
+    // Logo text
+    doc.setFont('helvetica', 'bold');
     doc.setFontSize(16);
+    doc.setTextColor(255, 255, 255);
+    doc.text('BROAD OAK GROUP', pageMargin, 18);
+
     doc.setFont('helvetica', 'normal');
-    const addressLines = doc.splitTextToSize(project.address, usableWidth - 20);
-    doc.text(addressLines, pageWidth / 2, 35, { align: 'center' });
-    
-    let headerEndY = 35 + (addressLines.length * 8);
+    doc.setFontSize(10);
+    doc.setTextColor(200, 200, 200);
+    doc.text('Live', pageMargin + 72, 18);
+
+
+    // --- CENTERED CONTENT ---
+    const contentStartY = 60; // Start content lower down
+    const contentEndY = pageHeight - 30;
+    const contentHeight = contentEndY - contentStartY;
+
+    const mainTitle = 'End of Project Report';
+    const addressText = project.address;
+    const generatedDateText = `Generated on: ${format(new Date(), 'PPP p')}`;
+
+    // Calculate block height
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(30);
+    const titleDim = doc.getTextDimensions(mainTitle);
+    const titleHeight = titleDim.h;
+
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(16);
+    const addressLines = doc.splitTextToSize(addressText, pageWidth - (pageMargin * 4));
+    const addressHeight = (doc.getLineHeight() * addressLines.length) * 0.7;
 
     doc.setFontSize(10);
-    doc.setTextColor(150);
-    doc.text(`Generated on: ${format(new Date(), 'PPP p')}`, pageWidth / 2, headerEndY, { align: 'center' });
+    const dateHeight = doc.getTextDimensions(generatedDateText).h;
+
+    const totalBlockHeight = titleHeight + addressHeight + dateHeight + 20; // with spacing
+    const blockStartY = contentStartY + (contentHeight / 2) - (totalBlockHeight / 2);
     
-    let finalY = headerEndY + 15;
+    let currentY = blockStartY;
+
+    // Draw text
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(30);
+    doc.setTextColor(45, 55, 72);
+    doc.text(mainTitle, pageWidth / 2, currentY, { align: 'center' });
+    currentY += titleHeight;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(16);
+    doc.setTextColor(100, 100, 100);
+    doc.text(addressLines, pageWidth / 2, currentY, { align: 'center' });
+    currentY += addressHeight + 10;
+
+    doc.setFontSize(10);
+    doc.setTextColor(150, 150, 150);
+    doc.text(generatedDateText, pageWidth / 2, currentY, { align: 'center' });
+    
+
+    // --- CONTENT PAGES ---
+    let firstContentPage = true;
+    let finalY = 0;
 
     const allPhotos = files.filter(f => f.type?.startsWith('image/'));
     const allOtherFiles = files.filter(f => !f.type?.startsWith('image/'));
 
+    const addContentPage = () => {
+        if(firstContentPage) {
+            doc.addPage();
+            firstContentPage = false;
+        }
+        finalY = 22;
+        doc.setFontSize(16);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(0,0,0);
+    }
+
     if (includeType === 'all' || includeType === 'files') {
-      doc.addPage();
-      finalY = 22;
-      doc.setFontSize(16);
-      doc.setFont('helvetica', 'bold');
+      addContentPage();
       doc.text('Project Documents', pageMargin, finalY);
       finalY += 10;
       if (allOtherFiles.length > 0) {
@@ -117,6 +175,7 @@ export function ProjectReportGenerator({ project, files }: ProjectReportGenerato
         finalY = (doc as any).lastAutoTable.finalY + 15;
       } else {
         doc.setFontSize(12);
+        doc.setFont('helvetica', 'normal');
         doc.text('No documents for this project.', 14, finalY);
         finalY += 10;
       }
@@ -125,10 +184,7 @@ export function ProjectReportGenerator({ project, files }: ProjectReportGenerato
     if (includeType === 'all' || includeType === 'photos') {
       const photosToInclude = allPhotos.filter(p => selectedUserIds.has(p.uploaderId));
       if (photosToInclude.length > 0) {
-        doc.addPage();
-        finalY = 22;
-        doc.setFontSize(16);
-        doc.setFont('helvetica', 'bold');
+        addContentPage();
         doc.text('Project Photos', 14, finalY);
         finalY += 10;
 
