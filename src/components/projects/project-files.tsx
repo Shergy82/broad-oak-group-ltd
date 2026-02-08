@@ -64,7 +64,7 @@ export function ProjectFiles({ project, userProfile }: Props) {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
 
-  // In-app preview modal state
+  // In-app preview modal state (optional)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewName, setPreviewName] = useState<string | null>(null);
   const [previewType, setPreviewType] = useState<string | null>(null);
@@ -106,17 +106,11 @@ export function ProjectFiles({ project, userProfile }: Props) {
   const isImageName = (name: string) => /\.(png|jpe?g|gif|webp)$/i.test(name);
   const isPdfName = (name: string) => /\.pdf$/i.test(name);
 
+  // ✅ FIX: open via YOUR domain viewer page (avoids iOS in-app Safari blank screen)
   function getFileViewUrl(file: ProjectFile): string {
-    const office = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
-    const ext = (file.name ?? '').split('.').pop()?.toLowerCase();
-
-    if (ext && office.includes(ext)) {
-      return `https://docs.google.com/gview?url=${encodeURIComponent(
-        file.url
-      )}&embedded=true`;
-    }
-
-    return file.url;
+    const u = encodeURIComponent(file.url);
+    const n = encodeURIComponent(file.name ?? 'File');
+    return `/file-viewer?url=${u}&name=${n}`;
   }
 
   async function getFreshUrl(fullPath: string) {
@@ -184,8 +178,6 @@ export function ProjectFiles({ project, userProfile }: Props) {
       for (const file of Array.from(list)) {
         const path = `project_files/${project.id}/${Date.now()}-${file.name}`;
 
-        // Goal: iOS Safari must receive Content-Disposition: inline.
-        // We do BOTH: send metadata on upload + force rewrite after upload.
         const metadata: UploadMetadata = {
           contentType: file.type || 'application/octet-stream',
           contentDisposition: 'inline',
@@ -199,7 +191,7 @@ export function ProjectFiles({ project, userProfile }: Props) {
           task.on('state_changed', null, reject, resolve);
         });
 
-        // Force metadata rewrite (critical for iOS/Safari behaviour)
+        // Force metadata rewrite (helps iOS/Safari)
         await updateMetadata(refFile, {
           contentType: file.type || 'application/octet-stream',
           contentDisposition: 'inline',
@@ -296,7 +288,7 @@ export function ProjectFiles({ project, userProfile }: Props) {
               {files.map((f) => (
                 <TableRow key={f.id}>
                   <TableCell className="truncate max-w-[220px]">
-                    {/* Mobile-friendly: real link (uses stored URL). Office docs -> Google viewer */}
+                    {/* ✅ filename now opens /file-viewer on your domain */}
                     <a
                       href={getFileViewUrl(f)}
                       target="_blank"
@@ -317,7 +309,7 @@ export function ProjectFiles({ project, userProfile }: Props) {
                   <TableCell className="text-xs">{f.uploaderName}</TableCell>
 
                   <TableCell className="text-right space-x-1">
-                    {/* In-app preview uses fresh URL */}
+                    {/* optional in-app preview */}
                     <Button
                       size="icon"
                       variant="ghost"
