@@ -44,6 +44,7 @@ async function isUserRole(uid: string | undefined, roles: string[]): Promise<boo
 }
 
 const isOwner = (uid: string | undefined) => isUserRole(uid, ['owner']);
+const isAdminOrOwner = (uid: string | undefined) => isUserRole(uid, ['owner', 'admin']);
 const isPrivileged = (uid: string | undefined) => isUserRole(uid, ['owner', 'admin', 'manager']);
 
 
@@ -322,8 +323,8 @@ export const deleteAllShifts = onCall({ region: "europe-west2" }, async (req) =>
 
 
 export const setUserStatus = onCall({ region: "europe-west2" }, async (req) => {
-    if (!(await isOwner(req.auth?.uid))) {
-        throw new HttpsError('permission-denied', 'You must be an owner to perform this action.');
+    if (!(await isAdminOrOwner(req.auth?.uid))) {
+        throw new HttpsError('permission-denied', 'You must be an admin or owner to perform this action.');
     }
 
     const { uid, disabled, newStatus } = req.data;
@@ -588,3 +589,5 @@ export const onShiftWrite = onDocumentWritten(
     }
   }
 );
+
+    

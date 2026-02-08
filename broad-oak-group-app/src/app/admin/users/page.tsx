@@ -167,7 +167,7 @@ export default function UserManagementPage() {
         ]),
         startY: finalY,
         headStyles: { fillColor: [6, 95, 212] },
-        didDrawPage: (data) => {
+        didDrawPage: (data: any) => {
             finalY = data.cursor?.y || 0;
         }
       });
@@ -188,12 +188,12 @@ export default function UserManagementPage() {
   };
 
   const handleUserStatusChange = async (uid: string, currentStatus: 'active' | 'suspended' | 'pending-approval' = 'pending-approval') => {
-      if (!isOwner) {
-          toast({ variant: "destructive", title: "Permission Denied", description: "Only the owner can change user status." });
+      if (!isPrivilegedUser) {
+          toast({ variant: "destructive", title: "Permission Denied", description: "You must be an admin or owner to change user status." });
           return;
       }
       if (uid === currentUserProfile?.uid) {
-          toast({ variant: "destructive", title: "Invalid Action", description: "Owner cannot change their own status." });
+          toast({ variant: "destructive", title: "Invalid Action", description: "You cannot change your own status." });
           return;
       }
 
@@ -223,7 +223,7 @@ export default function UserManagementPage() {
 
   const handleDeleteUser = async (uid: string) => {
       if (!isOwner) {
-          toast({ variant: "destructive", title: "Permission Denied" });
+          toast({ variant: "destructive", title: "Permission Denied", description: "Only the owner can delete users." });
           return;
       }
        if (!functions) {
@@ -328,7 +328,7 @@ export default function UserManagementPage() {
                     <TableHead>Role</TableHead>
                     <TableHead>Status</TableHead>
                     {isPrivilegedUser && <TableHead>Type</TableHead>}
-                    {isOwner && <TableHead className="text-right">Actions</TableHead>}
+                    {isPrivilegedUser && <TableHead className="text-right">Actions</TableHead>}
                     </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -375,26 +375,28 @@ export default function UserManagementPage() {
                               </TableCell>
                           )}
                           <TableCell className="text-right">
-                              {isOwner && user.uid !== currentUserProfile?.uid && (
+                              {isPrivilegedUser && user.uid !== currentUserProfile?.uid && (
                                 <div className="flex gap-2 justify-end">
                                   <Button variant="outline" size="sm" onClick={() => handleUserStatusChange(user.uid, user.status)}>
                                       {user.status === 'suspended' || user.status === 'pending-approval' ? 'Activate' : 'Suspend'}
                                   </Button>
-                                  <AlertDialog>
-                                    <AlertDialogTrigger asChild>
-                                      <Button variant="destructive" size="sm"><Trash2 className="h-4 w-4" /></Button>
-                                    </AlertDialogTrigger>
-                                    <AlertDialogContent>
-                                      <AlertDialogHeader>
-                                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                                        <AlertDialogDescription>This will permanently delete the user "{user.name}". This action cannot be undone.</AlertDialogDescription>
-                                      </AlertDialogHeader>
-                                      <AlertDialogFooter>
-                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                        <AlertDialogAction onClick={() => handleDeleteUser(user.uid)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
-                                      </AlertDialogFooter>
-                                    </AlertDialogContent>
-                                  </AlertDialog>
+                                  {isOwner && (
+                                    <AlertDialog>
+                                        <AlertDialogTrigger asChild>
+                                        <Button variant="destructive" size="sm"><Trash2 className="h-4 w-4" /></Button>
+                                        </AlertDialogTrigger>
+                                        <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                            <AlertDialogDescription>This will permanently delete the user "{user.name}". This action cannot be undone.</AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                            <AlertDialogAction onClick={() => handleDeleteUser(user.uid)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+                                        </AlertDialogFooter>
+                                        </AlertDialogContent>
+                                    </AlertDialog>
+                                  )}
                                 </div>
                               )}
                           </TableCell>
@@ -448,23 +450,25 @@ export default function UserManagementPage() {
                         </>
                      )}
                   </CardContent>
-                  {isOwner && user.uid !== currentUserProfile?.uid && (
+                  {isPrivilegedUser && user.uid !== currentUserProfile?.uid && (
                     <CardFooter className="grid grid-cols-2 gap-2 p-2 bg-muted/20">
                       <Button variant="outline" size="sm" onClick={() => handleUserStatusChange(user.uid, user.status)} className="w-full">
                           {user.status === 'suspended' || user.status === 'pending-approval' ? 'Activate' : 'Suspend'}
                       </Button>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="destructive" size="sm" className="w-full"><Trash2 className="mr-2 h-4 w-4" /> Delete</Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader><AlertDialogTitle>Are you sure?</AlertDialogTitle><AlertDialogDescription>This will permanently delete "{user.name}".</AlertDialogDescription></AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => handleDeleteUser(user.uid)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                      {isOwner && (
+                        <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                            <Button variant="destructive" size="sm" className="w-full"><Trash2 className="mr-2 h-4 w-4" /> Delete</Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                            <AlertDialogHeader><AlertDialogTitle>Are you sure?</AlertDialogTitle><AlertDialogDescription>This will permanently delete "{user.name}".</AlertDialogDescription></AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => handleDeleteUser(user.uid)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+                            </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
+                      )}
                     </CardFooter>
                   )}
                 </Card>
