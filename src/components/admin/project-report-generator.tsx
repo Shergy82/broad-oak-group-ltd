@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
@@ -84,12 +83,11 @@ export function ProjectReportGenerator({ project, files }: ProjectReportGenerato
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        // Render at double resolution for better quality
-        canvas.width = 56;
-        canvas.height = 56;
+        canvas.width = 28;
+        canvas.height = 28;
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          ctx.drawImage(img, 0, 0, 56, 56);
+          ctx.drawImage(img, 0, 0, 28, 28);
           resolve(canvas.toDataURL('image/png'));
         } else {
           reject(new Error('Failed to get canvas context'));
@@ -98,13 +96,22 @@ export function ProjectReportGenerator({ project, files }: ProjectReportGenerato
       img.onerror = () => reject(new Error('Failed to load SVG for conversion'));
       img.src = logoDataUrl;
     });
+    
+    doc.setFillColor(248, 250, 252); // bg-slate-50
+    doc.rect(0, 0, pageWidth, 28, 'F');
 
-    doc.addImage(pngDataUrl, 'PNG', pageMargin, 11, 8, 8);
+    doc.addImage(pngDataUrl, 'PNG', pageMargin, 10, 8, 8);
     
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(16);
-    doc.setTextColor(45, 55, 72);
-    doc.text('BROAD OAK GROUP', pageMargin + 12, 18);
+    doc.setFontSize(14);
+    doc.setTextColor(15, 23, 42); // text-slate-900
+    doc.text('BROAD OAK GROUP', pageMargin + 12, 16);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139); // text-slate-500
+    doc.text('Live', pageMargin + 12, 21);
+
 
     // --- CENTERED CONTENT ---
     const contentStartY = 60;
@@ -148,29 +155,31 @@ export function ProjectReportGenerator({ project, files }: ProjectReportGenerato
     doc.setTextColor(150, 150, 150);
     doc.text(generatedDateText, pageWidth / 2, currentY, { align: 'center' });
     
-
     // --- CONTENT PAGES ---
-    let firstContentPage = true;
-    let finalY = 0;
+    let contentAdded = false;
+    doc.addPage();
+    let finalY = 22;
+
+    const ensurePageSpace = (requiredSpace: number) => {
+        if (finalY + requiredSpace > pageHeight - 20) {
+            doc.addPage();
+            finalY = 22;
+        }
+    }
 
     const allPhotos = files.filter(f => f.type?.startsWith('image/'));
     const allOtherFiles = files.filter(f => !f.type?.startsWith('image/'));
 
-    const addContentPage = () => {
-        if(firstContentPage) {
-            doc.addPage();
-            firstContentPage = false;
-        }
-        finalY = 22;
-        doc.setFontSize(16);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(0,0,0);
-    }
-
     if (includeType === 'all' || includeType === 'files') {
-      addContentPage();
+      if (contentAdded) finalY += 15;
+      ensurePageSpace(20);
+      doc.setFontSize(16);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(0,0,0);
       doc.text('Project Documents', pageMargin, finalY);
       finalY += 10;
+      contentAdded = true;
+
       if (allOtherFiles.length > 0) {
         (doc as any).autoTable({
           startY: finalY,
@@ -181,7 +190,7 @@ export function ProjectReportGenerator({ project, files }: ProjectReportGenerato
             f.uploadedAt ? format(f.uploadedAt.toDate(), 'dd/MM/yyyy') : '',
           ]),
         });
-        finalY = (doc as any).lastAutoTable.finalY + 15;
+        finalY = (doc as any).lastAutoTable.finalY;
       } else {
         doc.setFontSize(12);
         doc.setFont('helvetica', 'normal');
@@ -193,9 +202,15 @@ export function ProjectReportGenerator({ project, files }: ProjectReportGenerato
     if (includeType === 'all' || includeType === 'photos') {
       const photosToInclude = allPhotos.filter(p => selectedUserIds.has(p.uploaderId));
       if (photosToInclude.length > 0) {
-        addContentPage();
+        if (contentAdded) finalY += 15;
+        ensurePageSpace(20);
+        doc.setFontSize(16);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(0,0,0);
         doc.text('Project Photos', 14, finalY);
         finalY += 10;
+        contentAdded = true;
+
 
         for (const photo of photosToInclude) {
           try {
@@ -213,10 +228,8 @@ export function ProjectReportGenerator({ project, files }: ProjectReportGenerato
             const imgWidth = 180;
             const imgHeight = (imgProps.height * imgWidth) / imgProps.width;
 
-            if (finalY + imgHeight + 20 > doc.internal.pageSize.height) {
-              doc.addPage();
-              finalY = 22;
-            }
+            ensurePageSpace(imgHeight + 20);
+            
             doc.addImage(dataUrl, 'JPEG', 15, finalY, imgWidth, imgHeight);
             finalY += imgHeight + 5;
             
@@ -230,16 +243,22 @@ export function ProjectReportGenerator({ project, files }: ProjectReportGenerato
 
           } catch(e) {
             console.error("Could not add image to PDF", e);
-            if (finalY + 10 > doc.internal.pageSize.height) {
-              doc.addPage();
-              finalY = 22;
-            }
+            ensurePageSpace(10);
             doc.setFontSize(9);
             doc.setTextColor(255, 0, 0);
             doc.text(`Failed to load image: ${photo.name}`, 15, finalY);
             finalY += 10;
           }
         }
+      } else if (includeType === 'photos') {
+        if (contentAdded) finalY += 15;
+        ensurePageSpace(20);
+        doc.text('Project Photos', 14, finalY);
+        finalY += 10;
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'normal');
+        doc.text('No photos to include based on selected filters.', 14, finalY);
+        contentAdded = true;
       }
     }
 
