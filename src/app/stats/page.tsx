@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
@@ -10,6 +11,7 @@ import type { Shift, UserProfile, Project, ProjectFile } from '@/types';
 import { StatsDashboard } from '@/components/dashboard/stats-dashboard';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear } from 'date-fns';
+import { getCorrectedLocalDate, isWithin } from '@/lib/utils';
 
 type TimeRange = 'weekly' | 'monthly' | 'yearly';
 
@@ -74,27 +76,24 @@ export default function StatsPage() {
   
   const filteredData = useMemo(() => {
     const now = new Date();
-    let start, end;
+    let interval: { start: Date, end: Date };
 
     if (timeRange === 'weekly') {
-      start = startOfWeek(now, { weekStartsOn: 1 });
-      end = endOfWeek(now, { weekStartsOn: 1 });
+      interval = { start: startOfWeek(now, { weekStartsOn: 1 }), end: endOfWeek(now, { weekStartsOn: 1 }) };
     } else if (timeRange === 'monthly') {
-      start = startOfMonth(now);
-      end = endOfMonth(now);
+      interval = { start: startOfMonth(now), end: endOfMonth(now) };
     } else { // yearly
-      start = startOfYear(now);
-      end = endOfYear(now);
+      interval = { start: startOfYear(now), end: endOfYear(now) };
     }
 
     const shifts = allShifts.filter(s => {
-        const shiftDate = s.date.toDate();
-        return shiftDate >= start && shiftDate <= end;
+        const shiftDate = getCorrectedLocalDate(s.date);
+        return isWithin(shiftDate, interval);
     });
 
     const files = allFiles.filter(f => {
-        const uploadDate = f.uploadedAt.toDate();
-        return uploadDate >= start && uploadDate <= end;
+        const uploadDate = getCorrectedLocalDate(f.uploadedAt);
+        return isWithin(uploadDate, interval);
     });
 
     return { shifts, files };
