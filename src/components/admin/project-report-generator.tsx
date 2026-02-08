@@ -75,26 +75,27 @@ export function ProjectReportGenerator({ project, files }: ProjectReportGenerato
     const pageWidth = doc.internal.pageSize.width;
     const pageHeight = doc.internal.pageSize.height;
     const pageMargin = 14;
-    const usableWidth = pageWidth - (pageMargin * 2);
 
     // --- HEADER ---
     doc.setFillColor(45, 55, 72); // A dark slate color
-    doc.rect(0, 0, pageWidth, 30, 'F'); // Header bar
+    doc.rect(0, 0, pageWidth, 30, 'F');
 
-    // Logo text
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(16);
     doc.setTextColor(255, 255, 255);
-    doc.text('BROAD OAK GROUP', pageMargin, 18);
-
+    const mainHeaderText = 'BROAD OAK GROUP';
+    doc.text(mainHeaderText, pageMargin, 18);
+    
+    const mainHeaderTextWidth = doc.getTextWidth(mainHeaderText);
+    
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
     doc.setTextColor(200, 200, 200);
-    doc.text('Live', pageMargin + 72, 18);
+    doc.text('Live', pageMargin + mainHeaderTextWidth + 4, 18);
 
 
     // --- CENTERED CONTENT ---
-    const contentStartY = 60; // Start content lower down
+    const contentStartY = 60;
     const contentEndY = pageHeight - 30;
     const contentHeight = contentEndY - contentStartY;
 
@@ -102,32 +103,28 @@ export function ProjectReportGenerator({ project, files }: ProjectReportGenerato
     const addressText = project.address;
     const generatedDateText = `Generated on: ${format(new Date(), 'PPP p')}`;
 
-    // Calculate block height
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(30);
     const titleDim = doc.getTextDimensions(mainTitle);
-    const titleHeight = titleDim.h;
-
-
+    
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(16);
-    const addressLines = doc.splitTextToSize(addressText, pageWidth - (pageMargin * 4));
-    const addressHeight = (doc.getLineHeight() * addressLines.length) * 0.7;
+    const addressLines = doc.splitTextToSize(addressText, pageWidth - (pageMargin * 6));
+    const addressHeight = (doc.getLineHeight() * addressLines.length);
 
     doc.setFontSize(10);
     const dateHeight = doc.getTextDimensions(generatedDateText).h;
 
-    const totalBlockHeight = titleHeight + addressHeight + dateHeight + 20; // with spacing
-    const blockStartY = contentStartY + (contentHeight / 2) - (totalBlockHeight / 2);
+    const totalBlockHeight = titleDim.h + addressHeight + dateHeight + 20;
+    const blockStartY = contentStartY + (contentHeight - totalBlockHeight) / 2;
     
     let currentY = blockStartY;
 
-    // Draw text
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(30);
     doc.setTextColor(45, 55, 72);
     doc.text(mainTitle, pageWidth / 2, currentY, { align: 'center' });
-    currentY += titleHeight;
+    currentY += titleDim.h + 5;
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(16);
@@ -301,3 +298,5 @@ export function ProjectReportGenerator({ project, files }: ProjectReportGenerato
     </>
   );
 }
+
+    
