@@ -17,6 +17,7 @@ import {
   ref,
   uploadBytesResumable,
   getDownloadURL,
+  updateMetadata,
   type UploadMetadata,
 } from 'firebase/storage';
 
@@ -63,7 +64,7 @@ export function ProjectFiles({ project, userProfile }: Props) {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
 
-  // Preview modal state (keeps user in-app; better on some mobiles)
+  // In-app preview modal state
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewName, setPreviewName] = useState<string | null>(null);
   const [previewType, setPreviewType] = useState<string | null>(null);
@@ -81,9 +82,7 @@ export function ProjectFiles({ project, userProfile }: Props) {
     return onSnapshot(
       q,
       (snap) => {
-        setFiles(
-          snap.docs.map((d) => ({ id: d.id, ...d.data() } as ProjectFile))
-        );
+        setFiles(snap.docs.map((d) => ({ id: d.id, ...d.data() } as ProjectFile)));
         setLoading(false);
       },
       (err) => {
@@ -120,11 +119,11 @@ export function ProjectFiles({ project, userProfile }: Props) {
     return file.url;
   }
 
-  /* ---------------- Open / Download ---------------- */
-
   async function getFreshUrl(fullPath: string) {
     return getDownloadURL(ref(storage, fullPath));
   }
+
+  /* ---------------- Open / Download ---------------- */
 
   async function openFile(file: ProjectFile) {
     try {
@@ -185,7 +184,8 @@ export function ProjectFiles({ project, userProfile }: Props) {
       for (const file of Array.from(list)) {
         const path = `project_files/${project.id}/${Date.now()}-${file.name}`;
 
-        // IMPORTANT for mobile: force inline viewing + set correct content-type.
+        // Goal: iOS Safari must receive Content-Disposition: inline.
+        // We do BOTH: send metadata on upload + force rewrite after upload.
         const metadata: UploadMetadata = {
           contentType: file.type || 'application/octet-stream',
           contentDisposition: 'inline',
@@ -199,7 +199,14 @@ export function ProjectFiles({ project, userProfile }: Props) {
           task.on('state_changed', null, reject, resolve);
         });
 
-        const url = await getDownloadURL(task.snapshot.ref);
+        // Force metadata rewrite (critical for iOS/Safari behaviour)
+        await updateMetadata(refFile, {
+          contentType: file.type || 'application/octet-stream',
+          contentDisposition: 'inline',
+          cacheControl: 'public,max-age=3600',
+        });
+
+        const url = await getDownloadURL(refFile);
 
         await addDoc(collection(db, `projects/${project.id}/files`), {
           name: file.name,
@@ -289,7 +296,7 @@ export function ProjectFiles({ project, userProfile }: Props) {
               {files.map((f) => (
                 <TableRow key={f.id}>
                   <TableCell className="truncate max-w-[220px]">
-                    {/* Primary behaviour: open in browser with a real link (mobile-friendly) */}
+                    {/* Mobile-friendly: real link (uses stored URL). Office docs -> Google viewer */}
                     <a
                       href={getFileViewUrl(f)}
                       target="_blank"
@@ -310,7 +317,7 @@ export function ProjectFiles({ project, userProfile }: Props) {
                   <TableCell className="text-xs">{f.uploaderName}</TableCell>
 
                   <TableCell className="text-right space-x-1">
-                    {/* Optional: in-app preview (uses fresh URL). Keep if you want the eye icon preview. */}
+                    {/* In-app preview uses fresh URL */}
                     <Button
                       size="icon"
                       variant="ghost"
@@ -348,9 +355,7 @@ export function ProjectFiles({ project, userProfile }: Props) {
                         <AlertDialogContent>
                           <AlertDialogHeader>
                             <AlertDialogTitle>Delete file?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              {f.name}
-                            </AlertDialogDescription>
+                            <AlertDialogDescription>{f.name}</AlertDialogDescription>
                           </AlertDialogHeader>
 
                           <AlertDialogFooter>
@@ -429,9 +434,7 @@ export function ProjectFiles({ project, userProfile }: Props) {
               </AlertDialogCancel>
 
               <AlertDialogAction
-                onClick={() =>
-                  window.open(previewUrl, '_blank', 'noopener,noreferrer')
-                }
+                onClick={() => window.open(previewUrl, '_blank', 'noopener,noreferrer')}
               >
                 Open in browser
               </AlertDialogAction>
