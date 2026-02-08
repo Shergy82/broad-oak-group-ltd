@@ -28,7 +28,7 @@ export default function ProjectsPage() {
       try {
         const snap = await getDoc(doc(db, 'users', user.uid));
         if (cancelled) return;
-        setUserProfile(snap.exists() ? (snap.data() as UserProfile) : null);
+        setUserProfile(snap.exists() ? ({ uid: snap.id, ...snap.data() } as UserProfile) : null);
       } catch {
         if (cancelled) return;
         setUserProfile(null);
