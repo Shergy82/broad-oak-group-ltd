@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Medal, Trophy } from 'lucide-react';
-import type { PerformanceMetric } from '@/app/stats/page';
+import type { PerformanceMetric } from '@/types';
 
 interface LeaderboardProps {
   title: string;
@@ -27,7 +27,7 @@ export function Leaderboard({ title, data }: LeaderboardProps) {
         'text-amber-600'  // Bronze
     ];
 
-    const sortedData = data.sort((a, b) => {
+    const sortedData = [...data].sort((a, b) => {
         if (b.completionRate !== a.completionRate) {
             return b.completionRate - a.completionRate;
         }

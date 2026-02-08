@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot, query, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { Shift, UserProfile, ProjectFile } from '@/types';
+import type { Shift, UserProfile, ProjectFile, PerformanceMetric } from '@/types';
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear } from 'date-fns';
 import { useAuth } from '@/hooks/use-auth';
 import { useRouter } from 'next/navigation';
@@ -15,16 +15,6 @@ import { UserStatsDashboard } from '@/components/dashboard/user-stats-dashboard'
 import { getCorrectedLocalDate, isWithin } from '@/lib/utils';
 import { Award } from 'lucide-react';
 
-export interface PerformanceMetric {
-  userId: string;
-  userName: string;
-  totalShifts: number;
-  completedShifts: number;
-  incompleteShifts: number;
-  photosUploaded: number;
-  completionRate: number;
-  incompleteRate: number;
-}
 
 export default function StatsPage() {
   const { user, isLoading: isAuthLoading } = useAuth();
@@ -193,17 +183,17 @@ export default function StatsPage() {
                         <TabsTrigger value="monthly">This Month</TabsTrigger>
                         <TabsTrigger value="yearly">This Year</TabsTrigger>
                     </TabsList>
-                    <TabsContent value="weekly" className="mt-6">
+                    <TabsContent value="weekly" className="mt-6 space-y-8">
                         <Leaderboard title="Weekly Top 5" data={weeklyData} />
-                         {currentUserStats?.weekly && <div className="mt-8"><UserStatsDashboard {...currentUserStats.weekly} /></div>}
+                        {currentUserStats?.weekly && <UserStatsDashboard {...currentUserStats.weekly} />}
                     </TabsContent>
-                    <TabsContent value="monthly" className="mt-6">
+                    <TabsContent value="monthly" className="mt-6 space-y-8">
                         <Leaderboard title="Monthly Top 5" data={monthlyData} />
-                         {currentUserStats?.monthly && <div className="mt-8"><UserStatsDashboard {...currentUserStats.monthly} /></div>}
+                        {currentUserStats?.monthly && <UserStatsDashboard {...currentUserStats.monthly} />}
                     </TabsContent>
-                    <TabsContent value="yearly" className="mt-6">
+                    <TabsContent value="yearly" className="mt-6 space-y-8">
                         <Leaderboard title="Yearly Top 5" data={yearlyData} />
-                         {currentUserStats?.yearly && <div className="mt-8"><UserStatsDashboard {...currentUserStats.yearly} /></div>}
+                        {currentUserStats?.yearly && <UserStatsDashboard {...currentUserStats.yearly} />}
                     </TabsContent>
                 </Tabs>
             </CardContent>
