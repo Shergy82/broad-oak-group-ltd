@@ -13,11 +13,7 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 
-import {
-  ref,
-  uploadBytesResumable,
-  getDownloadURL,
-} from 'firebase/storage';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -46,7 +42,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 
-import { FileText, Download, Trash2, Upload } from 'lucide-react';
+import { FileText, Download, Trash2, Upload, Eye } from 'lucide-react';
 
 import type { Project, ProjectFile, UserProfile } from '@/types';
 
@@ -92,11 +88,52 @@ export function ProjectFiles({ project, userProfile }: Props) {
     );
   }, [project?.id, toast]);
 
+  /* ---------------- Open/Download (fresh URL at click time) ---------------- */
+
+  async function getFreshUrl(fullPath: string) {
+    return getDownloadURL(ref(storage, fullPath));
+  }
+
+  async function openFile(file: ProjectFile) {
+    try {
+      const url = await getFreshUrl(file.fullPath);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (e) {
+      console.error(e);
+      toast({
+        variant: 'destructive',
+        title: 'Open failed',
+        description: 'Could not open file',
+      });
+    }
+  }
+
+  async function downloadFile(file: ProjectFile) {
+    try {
+      const url = await getFreshUrl(file.fullPath);
+
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = file.name || 'download';
+      a.rel = 'noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (e) {
+      console.error(e);
+      toast({
+        variant: 'destructive',
+        title: 'Download failed',
+        description: 'Could not download file',
+      });
+    }
+  }
+
   /* ---------------- Upload ---------------- */
 
   async function handleUpload(list: FileList | null) {
     const uid = auth.currentUser?.uid;
-  
+
     if (!uid) {
       toast({
         variant: 'destructive',
@@ -105,24 +142,25 @@ export function ProjectFiles({ project, userProfile }: Props) {
       });
       return;
     }
-  
+
     if (!list?.length) return;
-  
+
     setUploading(true);
-  
+
     try {
       for (const file of Array.from(list)) {
         const path = `project_files/${project.id}/${Date.now()}-${file.name}`;
-  
+
         const refFile = ref(storage, path);
         const task = uploadBytesResumable(refFile, file);
-  
+
         await new Promise<void>((resolve, reject) => {
           task.on('state_changed', null, reject, resolve);
         });
-  
+
+        // Optional: keep url for legacy/backwards compat, but UI no longer relies on it.
         const url = await getDownloadURL(task.snapshot.ref);
-  
+
         await addDoc(collection(db, `projects/${project.id}/files`), {
           name: file.name,
           url,
@@ -134,7 +172,7 @@ export function ProjectFiles({ project, userProfile }: Props) {
           uploaderName: userProfile?.name || 'System',
         });
       }
-  
+
       toast({ title: 'Success', description: 'Files uploaded' });
     } catch (err) {
       console.error(err);
@@ -146,7 +184,7 @@ export function ProjectFiles({ project, userProfile }: Props) {
     } finally {
       setUploading(false);
     }
-  }  
+  }
 
   /* ---------------- Delete ---------------- */
 
@@ -160,7 +198,6 @@ export function ProjectFiles({ project, userProfile }: Props) {
       });
 
       toast({ title: 'Deleted' });
-
     } catch (e: any) {
       console.error(e);
 
@@ -180,7 +217,6 @@ export function ProjectFiles({ project, userProfile }: Props) {
 
   return (
     <div className="space-y-4">
-
       <h4 className="font-semibold text-sm">Attached Files</h4>
 
       {loading ? (
@@ -195,7 +231,6 @@ export function ProjectFiles({ project, userProfile }: Props) {
         </div>
       ) : (
         <div className="border rounded-lg max-h-60 overflow-y-auto">
-
           <Table>
             <TableHeader>
               <TableRow>
@@ -208,80 +243,81 @@ export function ProjectFiles({ project, userProfile }: Props) {
             <TableBody>
               {files.map((f) => (
                 <TableRow key={f.id}>
-
-                  <TableCell className="truncate max-w-[180px]">
-                    <a
-                      href={f.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="hover:underline"
+                  <TableCell className="truncate max-w-[220px]">
+                    <button
+                      type="button"
+                      onClick={() => openFile(f)}
+                      className="hover:underline text-left truncate max-w-[220px]"
+                      title={f.name}
                     >
                       {f.name}
-                    </a>
+                    </button>
 
                     <div className="text-xs text-muted-foreground">
-                    {typeof f.size === 'number' ? `${(f.size / 1024 / 1024).toFixed(2)} MB` : '—'}
+                      {typeof f.size === 'number'
+                        ? `${(f.size / 1024 / 1024).toFixed(2)} MB`
+                        : '—'}
                     </div>
                   </TableCell>
 
-                  <TableCell className="text-xs">
-                    {f.uploaderName}
-                  </TableCell>
+                  <TableCell className="text-xs">{f.uploaderName}</TableCell>
 
                   <TableCell className="text-right space-x-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => openFile(f)}
+                      title="View"
+                      type="button"
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
 
-                    <a href={f.url} download>
-                      <Button size="icon" variant="ghost">
-                        <Download className="h-4 w-4" />
-                      </Button>
-                    </a>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => downloadFile(f)}
+                      title="Download"
+                      type="button"
+                    >
+                      <Download className="h-4 w-4" />
+                    </Button>
 
                     {canDelete(f) && (
                       <AlertDialog>
-
                         <AlertDialogTrigger asChild>
                           <Button
                             size="icon"
                             variant="ghost"
                             className="text-destructive"
+                            title="Delete"
+                            type="button"
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </AlertDialogTrigger>
 
                         <AlertDialogContent>
-
                           <AlertDialogHeader>
-                            <AlertDialogTitle>
-                              Delete file?
-                            </AlertDialogTitle>
-
+                            <AlertDialogTitle>Delete file?</AlertDialogTitle>
                             <AlertDialogDescription>
                               {f.name}
                             </AlertDialogDescription>
                           </AlertDialogHeader>
 
                           <AlertDialogFooter>
-
-                            <AlertDialogCancel>
-                              Cancel
-                            </AlertDialogCancel>
-
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
                             <AlertDialogAction
                               onClick={() => handleDelete(f)}
                               className="bg-destructive"
                             >
                               Delete
                             </AlertDialogAction>
-
                           </AlertDialogFooter>
-
                         </AlertDialogContent>
                       </AlertDialog>
                     )}
-
                   </TableCell>
-
                 </TableRow>
               ))}
             </TableBody>
@@ -300,7 +336,6 @@ export function ProjectFiles({ project, userProfile }: Props) {
 
       <Button asChild disabled={uploading} className="w-full">
         <Label htmlFor={`upload-${project.id}`}>
-
           {uploading ? (
             <>
               <Spinner /> Uploading...
@@ -311,10 +346,8 @@ export function ProjectFiles({ project, userProfile }: Props) {
               Upload Files
             </>
           )}
-
         </Label>
       </Button>
-
     </div>
   );
 }
