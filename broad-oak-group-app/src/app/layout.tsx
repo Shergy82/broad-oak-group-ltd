@@ -1,4 +1,3 @@
-
 'use client';
 
 import { Toaster } from "@/components/ui/toaster";
@@ -15,7 +14,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   const pathname = usePathname();
-  const noHeaderPaths = ['/login', '/signup', '/forgot-password'];
+  const noHeaderPaths = ['/signup', '/forgot-password'];
   const showHeader = !noHeaderPaths.includes(pathname) && pathname !== '/';
 
   return (
