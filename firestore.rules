@@ -16,6 +16,16 @@ service cloud.firestore {
         (role(uid) == 'admin' || role(uid) == 'owner' || role(uid) == 'manager');
     }
 
+    // ✅ allow serverTimestamp() by NOT validating uploadedAt on create
+    function isValidProjectFileCreate() {
+      return request.resource.data.uploaderId == request.auth.uid
+        && request.resource.data.name is string
+        && request.resource.data.url is string
+        && request.resource.data.fullPath is string
+        && request.resource.data.size is number
+        && request.resource.data.type is string;
+    }
+
     // ---- USERS ----
     match /users/{userId} {
       allow create: if signedIn() && request.auth.uid == userId;
@@ -56,15 +66,14 @@ service cloud.firestore {
       match /files/{fileId} {
         allow read: if signedIn();
 
-        // upload must tag uploaderId = current user
-        allow create: if signedIn()
-          && request.resource.data.uploaderId == request.auth.uid;
+        // ✅ uploader can create their own file record
+        allow create: if signedIn() && isValidProjectFileCreate();
 
-        // only uploader or privileged can delete
-        allow delete: if isPrivilegedUser(request.auth.uid)
-          || resource.data.uploaderId == request.auth.uid;
+        // ✅ only uploader OR privileged can delete
+        allow delete: if signedIn() &&
+          (isPrivilegedUser(request.auth.uid) || resource.data.uploaderId == request.auth.uid);
 
-        // block edits
+        // ✅ block edits
         allow update: if false;
       }
     }
