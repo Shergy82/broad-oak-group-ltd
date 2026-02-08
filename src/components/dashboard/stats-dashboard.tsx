@@ -72,7 +72,7 @@ export function StatsDashboard({ allShifts, userShifts, allUsers, allFiles, time
     }, [userShifts, allFiles, user]);
 
     const topPerformers = useMemo(() => {
-        const operativeUsers = allUsers.filter(u => u.role === 'user' || u.role === 'TLO');
+        const operativeUsers = allUsers.filter(u => u.role === 'user');
         if (operativeUsers.length === 0) return [];
 
         const metrics = operativeUsers.map(user => {
