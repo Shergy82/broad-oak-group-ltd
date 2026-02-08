@@ -95,18 +95,26 @@ export function ProjectFiles({ project, userProfile }: Props) {
   }
 
   async function openFile(file: ProjectFile) {
+    // IMPORTANT: open immediately so mobile browsers allow it
+    const win = window.open('about:blank', '_blank', 'noopener,noreferrer');
+  
     try {
       const url = await getFreshUrl(file.fullPath);
-      window.open(url, '_blank', 'noopener,noreferrer');
+      if (win) {
+        win.location.href = url;
+      } else {
+        window.location.href = url; // fallback
+      }
     } catch (e) {
       console.error(e);
+      if (win) win.close();
       toast({
         variant: 'destructive',
         title: 'Open failed',
-        description: 'Could not open file',
+        description: 'Could not open file on this device',
       });
     }
-  }
+  }  
 
   async function downloadFile(file: ProjectFile) {
     try {
