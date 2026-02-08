@@ -167,7 +167,7 @@ export default function UserManagementPage() {
         ]),
         startY: finalY,
         headStyles: { fillColor: [6, 95, 212] },
-        didDrawPage: (data: any) => {
+        didDrawPage: (data) => {
             finalY = data.cursor?.y || 0;
         }
       });
@@ -219,6 +219,28 @@ export default function UserManagementPage() {
           console.error("Error updating user status:", error);
           toast({ variant: "destructive", title: "Update Failed", description: error.message || "Could not update user status." });
       }
+  };
+
+  const handleRoleChange = async (uid: string, role: UserProfile['role']) => {
+    if (!isOwner) {
+        toast({ variant: "destructive", title: "Permission Denied", description: "Only the owner can change user roles." });
+        return;
+    }
+    if (uid === currentUserProfile?.uid) {
+        toast({ variant: "destructive", title: "Invalid Action", description: "You cannot change your own role." });
+        return;
+    }
+    if (!db) {
+      toast({ variant: 'destructive', title: 'Database not configured' });
+      return;
+    }
+    const userDocRef = doc(db, 'users', uid);
+    try {
+        await updateDoc(userDocRef, { role });
+        toast({ title: "Success", description: "User role updated." });
+    } catch (error: any) {
+        toast({ variant: "destructive", title: "Update Failed", description: error.message || "Could not update user role." });
+    }
   };
 
   const handleDeleteUser = async (uid: string) => {
@@ -325,8 +347,7 @@ export default function UserManagementPage() {
                     <TableHead>Name</TableHead>
                     <TableHead>Operative ID</TableHead>
                     <TableHead>Phone Number</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead>Status</TableHead>
+                    <TableHead>Status & Role</TableHead>
                     {isPrivilegedUser && <TableHead>Type</TableHead>}
                     {isOwner && <TableHead className="text-right">Actions</TableHead>}
                     </TableRow>
@@ -350,12 +371,28 @@ export default function UserManagementPage() {
                           </TableCell>
                           <TableCell>{user.phoneNumber || 'N/A'}</TableCell>
                           <TableCell>
-                              <Badge variant={user.role === 'owner' ? 'default' : user.role === 'admin' ? 'secondary' : 'outline'} className="capitalize">
-                                  {user.role}
-                              </Badge>
-                          </TableCell>
-                          <TableCell>
-                              {getStatusBadge(user.status)}
+                              <div className="flex flex-col gap-2 items-start">
+                                {getStatusBadge(user.status)}
+                                {isOwner && user.uid !== currentUserProfile?.uid ? (
+                                    <Select
+                                        value={user.role}
+                                        onValueChange={(value) => handleRoleChange(user.uid, value as UserProfile['role'])}
+                                    >
+                                        <SelectTrigger className="h-8 text-xs w-[110px]">
+                                            <SelectValue placeholder="Set Role" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="user">User</SelectItem>
+                                            <SelectItem value="TLO">TLO</SelectItem>
+                                            <SelectItem value="manager">Manager</SelectItem>
+                                            <SelectItem value="admin">Admin</SelectItem>
+                                            <SelectItem value="owner">Owner</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                ) : (
+                                    <Badge variant={user.role === 'owner' ? 'default' : user.role === 'admin' ? 'secondary' : 'outline'} className="capitalize">{user.role}</Badge>
+                                )}
+                              </div>
                           </TableCell>
                           {isPrivilegedUser && (
                               <TableCell>
@@ -408,15 +445,36 @@ export default function UserManagementPage() {
               {users.map((user) => (
                 <Card key={user.uid} className={user.status === 'suspended' ? 'bg-muted/50' : ''}>
                   <CardHeader>
-                    <div className="flex items-center justify-between">
-                        <CardTitle className="text-lg">{user.name}</CardTitle>
-                        {getStatusBadge(user.status)}
+                    <div className="flex items-start justify-between">
+                        <div>
+                            <CardTitle className="text-lg">{user.name}</CardTitle>
+                            <CardDescription>{user.phoneNumber || 'No phone number'}</CardDescription>
+                        </div>
+                        <div className="flex flex-col items-end gap-2 text-right">
+                           {getStatusBadge(user.status)}
+                           {isOwner && user.uid !== currentUserProfile?.uid ? (
+                                <Select
+                                    value={user.role}
+                                    onValueChange={(value) => handleRoleChange(user.uid, value as UserProfile['role'])}
+                                >
+                                    <SelectTrigger className="h-8 text-xs w-[100px]">
+                                        <SelectValue placeholder="Set role" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="user">User</SelectItem>
+                                        <SelectItem value="TLO">TLO</SelectItem>
+                                        <SelectItem value="manager">Manager</SelectItem>
+                                        <SelectItem value="admin">Admin</SelectItem>
+                                        <SelectItem value="owner">Owner</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            ) : (
+                                <Badge variant={user.role === 'owner' ? 'default' : user.role === 'admin' ? 'secondary' : 'outline'} className="capitalize">{user.role}</Badge>
+                            )}
+                        </div>
                     </div>
-                    <CardDescription>{user.phoneNumber || 'No phone number'}</CardDescription>
                   </CardHeader>
                   <CardContent className="text-sm space-y-3">
-                     <p className="flex items-center gap-2"><strong>Role:</strong> <Badge variant={user.role === 'owner' ? 'default' : user.role === 'admin' ? 'secondary' : 'outline'} className="capitalize">{user.role}</Badge></p>
-                     
                      {isPrivilegedUser && (
                         <>
                           <div className="flex items-center gap-2 pt-2">
@@ -476,5 +534,3 @@ export default function UserManagementPage() {
     </Card>
   );
 }
-
-    
