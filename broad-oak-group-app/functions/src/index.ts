@@ -317,14 +317,9 @@ export const setUserStatus = onCall({ region: "europe-west2" }, async (req) => {
         throw new HttpsError('invalid-argument', 'The function must be called with "uid", "disabled", and "newStatus" arguments.');
     }
 
-    try {
-        await admin.auth().updateUser(uid, { disabled });
-        await db.collection('users').doc(uid).update({ status: newStatus });
-        return { success: true, message: `User ${uid} status updated to ${newStatus}.` };
-    } catch (error: any) {
-        logger.error("Error updating user status:", {uid, error});
-        throw new HttpsError('internal', error.message || 'An unknown error occurred while updating user status.');
-    }
+    await admin.auth().updateUser(uid, { disabled });
+    await db.collection('users').doc(uid).update({ status: newStatus });
+    return { success: true, message: `User ${uid} status updated to ${newStatus}.` };
 });
 
 export const deleteUser = onCall({ region: "europe-west2" }, async (req) => {
@@ -340,15 +335,10 @@ export const deleteUser = onCall({ region: "europe-west2" }, async (req) => {
         throw new HttpsError('invalid-argument', 'The function must be called with a "uid" argument.');
     }
 
-    try {
-        await admin.auth().deleteUser(uid);
-        await db.collection('users').doc(uid).delete();
-        // Note: Does not delete subcollections like pushSubscriptions or shifts. A more robust solution would.
-        return { success: true, message: `User ${uid} has been permanently deleted.` };
-    } catch (error: any) {
-        logger.error("Error deleting user:", {uid, error});
-        throw new HttpsError('internal', error.message || 'An unknown error occurred while deleting the user.');
-    }
+    await admin.auth().deleteUser(uid);
+    await db.collection('users').doc(uid).delete();
+    // Note: Does not delete subcollections like pushSubscriptions or shifts. A more robust solution would.
+    return { success: true, message: `User ${uid} has been permanently deleted.` };
 });
 
 export const syncUserNamesToShifts = onCall({ region: "europe-west2" }, async (req) => {
@@ -358,36 +348,30 @@ export const syncUserNamesToShifts = onCall({ region: "europe-west2" }, async (r
         throw new HttpsError('permission-denied', 'You must be an owner to perform this action.');
     }
 
-    try {
-        const usersSnapshot = await db.collection('users').get();
-        const userNameMap = new Map<string, string>();
-        usersSnapshot.forEach(doc => {
-            userNameMap.set(doc.id, doc.data().name);
-        });
+    const usersSnapshot = await db.collection('users').get();
+    const userNameMap = new Map<string, string>();
+    usersSnapshot.forEach(doc => {
+        userNameMap.set(doc.id, doc.data().name);
+    });
 
-        const shiftsSnapshot = await db.collection('shifts').get();
-        const batch = db.batch();
-        let updates = 0;
+    const shiftsSnapshot = await db.collection('shifts').get();
+    const batch = db.batch();
+    let updates = 0;
 
-        shiftsSnapshot.forEach(doc => {
-            const shift = doc.data();
-            const correctName = userNameMap.get(shift.userId);
-            if (correctName && shift.userName !== correctName) {
-                batch.update(doc.ref, { userName: correctName });
-                updates++;
-            }
-        });
-
-        if (updates > 0) {
-            await batch.commit();
+    shiftsSnapshot.forEach(doc => {
+        const shift = doc.data();
+        const correctName = userNameMap.get(shift.userId);
+        if (correctName && shift.userName !== correctName) {
+            batch.update(doc.ref, { userName: correctName });
+            updates++;
         }
+    });
 
-        return { success: true, message: `Sync complete. ${updates} shift record(s) updated.` };
-
-    } catch (error: any) {
-        logger.error("Error syncing user names to shifts:", error);
-        throw new HttpsError('internal', error.message || 'An unknown error occurred during the sync.');
+    if (updates > 0) {
+        await batch.commit();
     }
+
+    return { success: true, message: `Sync complete. ${updates} shift record(s) updated.` };
 });
 
 export const deleteProjectFile = onCall({ region: "europe-west2" }, async (req) => {
@@ -403,22 +387,17 @@ export const deleteProjectFile = onCall({ region: "europe-west2" }, async (req) 
         throw new HttpsError('invalid-argument', 'Missing projectId or fileId.');
     }
 
-    try {
-        const fileDocRef = db.collection('projects').doc(projectId).collection('files').doc(fileId);
-        const fileDoc = await fileDocRef.get();
-        if (!fileDoc.exists) {
-            throw new HttpsError('not-found', 'File not found.');
-        }
-        const fileData = fileDoc.data();
-        if(fileData?.fullPath) {
-            await storage.bucket().file(fileData.fullPath).delete();
-        }
-        await fileDocRef.delete();
-        return { success: true };
-    } catch (error: any) {
-        logger.error("Error deleting project file:", error);
-        throw new HttpsError('internal', error.message || 'Failed to delete project file.');
+    const fileDocRef = db.collection('projects').doc(projectId).collection('files').doc(fileId);
+    const fileDoc = await fileDocRef.get();
+    if (!fileDoc.exists) {
+        throw new HttpsError('not-found', 'File not found.');
     }
+    const fileData = fileDoc.data();
+    if(fileData?.fullPath) {
+        await storage.bucket().file(fileData.fullPath).delete();
+    }
+    await fileDocRef.delete();
+    return { success: true };
 });
 
 export const deleteProjectAndFiles = onCall({ region: "europe-west2" }, async (req) => {
@@ -434,32 +413,25 @@ export const deleteProjectAndFiles = onCall({ region: "europe-west2" }, async (r
         throw new HttpsError('invalid-argument', 'Missing projectId.');
     }
 
-    try {
-        const projectRef = db.collection('projects').doc(projectId);
-        const projectDocSnap = await projectRef.get();
-        if (!projectDocSnap.exists) {
-            throw new HttpsError('not-found', 'Project not found.');
-        }
-
-        // Delete files in storage
-        await storage.bucket().deleteFiles({ prefix: `project_files/${projectId}` });
-        
-        // This relies on the "delete-collections" extension or similar functionality.
-        // It's a placeholder for a recursive delete implementation.
-        const filesSubcollection = projectRef.collection('files');
-        const filesSnapshot = await filesSubcollection.get();
-        const batch = db.batch();
-        filesSnapshot.forEach(doc => batch.delete(doc.ref));
-        await batch.commit();
-
-        await projectRef.delete();
-        
-        return { success: true, message: `Successfully deleted project ${projectId} and its files.`};
-
-    } catch (error: any) {
-        logger.error("Error deleting project:", { projectId, error });
-        throw new HttpsError('internal', error.message || 'Failed to delete project.');
+    const projectRef = db.collection('projects').doc(projectId);
+    const projectDocSnap = await projectRef.get();
+    if (!projectDocSnap.exists) {
+        throw new HttpsError('not-found', 'Project not found.');
     }
+
+    // Delete files in storage
+    await storage.bucket().deleteFiles({ prefix: `project_files/${projectId}` });
+    
+    // Delete files subcollection
+    const filesSubcollection = projectRef.collection('files');
+    const filesSnapshot = await filesSubcollection.get();
+    const batch = db.batch();
+    filesSnapshot.forEach(doc => batch.delete(doc.ref));
+    await batch.commit();
+
+    await projectRef.delete();
+    
+    return { success: true, message: `Successfully deleted project ${projectId} and its files.`};
 });
 
 
@@ -470,30 +442,23 @@ export const deleteAllProjects = onCall({ region: "europe-west2" }, async (req) 
         throw new HttpsError('permission-denied', 'You must be an owner to delete all projects.');
     }
     
-    try {
-        const projectsSnapshot = await db.collection('projects').get();
-        let deletedProjects = 0;
+    const projectsSnapshot = await db.collection('projects').get();
+    let deletedProjects = 0;
+    
+    for (const doc of projectsSnapshot.docs) {
+        await storage.bucket().deleteFiles({ prefix: `project_files/${doc.id}` });
         
-        for (const doc of projectsSnapshot.docs) {
-            await storage.bucket().deleteFiles({ prefix: `project_files/${doc.id}` });
-            
-            // This relies on the "delete-collections" extension or similar functionality.
-            const filesSubcollection = doc.ref.collection('files');
-            const filesSnapshot = await filesSubcollection.get();
-            const batch = db.batch();
-            filesSnapshot.forEach(fileDoc => batch.delete(fileDoc.ref));
-            await batch.commit();
+        const filesSubcollection = doc.ref.collection('files');
+        const filesSnapshot = await filesSubcollection.get();
+        const batch = db.batch();
+        filesSnapshot.forEach(fileDoc => batch.delete(fileDoc.ref));
+        await batch.commit();
 
-            await doc.ref.delete();
-            deletedProjects++;
-        }
-        
-        return { success: true, message: `Successfully deleted ${deletedProjects} projects and their files.`};
-
-    } catch (error: any) {
-        logger.error("Error deleting all projects:", error);
-        throw new HttpsError('internal', error.message || 'Failed to delete all projects.');
+        await doc.ref.delete();
+        deletedProjects++;
     }
+    
+    return { success: true, message: `Successfully deleted ${deletedProjects} projects and their files.`};
 });
 
 export const zipProjectFiles = onCall({ region: "europe-west2", timeoutSeconds: 300 }, async (req) => {
@@ -505,38 +470,32 @@ export const zipProjectFiles = onCall({ region: "europe-west2", timeoutSeconds: 
         throw new HttpsError('invalid-argument', 'Missing projectId.');
     }
 
-    try {
-        const filesSnapshot = await db.collection('projects').doc(projectId).collection('files').get();
-        if (filesSnapshot.empty) {
-            throw new HttpsError('not-found', 'No files found for this project.');
-        }
-
-        const zip = new JSZip();
-        
-        for (const doc of filesSnapshot.docs) {
-            const fileData = doc.data();
-            const file = storage.bucket().file(fileData.fullPath);
-            const [buffer] = await file.download();
-            zip.file(fileData.name, buffer);
-        }
-        
-        const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
-        const zipFileName = `project_${projectId}_${Date.now()}.zip`;
-        const zipFile = storage.bucket().file(`temp_zips/${zipFileName}`);
-        
-        await zipFile.save(zipBuffer, { contentType: 'application/zip' });
-        
-        const [signedUrl] = await zipFile.getSignedUrl({
-            action: 'read',
-            expires: Date.now() + 15 * 60 * 1000, // 15 minutes
-        });
-        
-        return { downloadUrl: signedUrl };
-
-    } catch (error: any) {
-        logger.error("Error zipping files:", error);
-        throw new HttpsError('internal', error.message || 'Failed to create zip file.');
+    const filesSnapshot = await db.collection('projects').doc(projectId).collection('files').get();
+    if (filesSnapshot.empty) {
+        throw new HttpsError('not-found', 'No files found for this project.');
     }
+
+    const zip = new JSZip();
+    
+    for (const doc of filesSnapshot.docs) {
+        const fileData = doc.data();
+        const file = storage.bucket().file(fileData.fullPath);
+        const [buffer] = await file.download();
+        zip.file(fileData.name, buffer);
+    }
+    
+    const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
+    const zipFileName = `project_${projectId}_${Date.now()}.zip`;
+    const zipFile = storage.bucket().file(`temp_zips/${zipFileName}`);
+    
+    await zipFile.save(zipBuffer, { contentType: 'application/zip' });
+    
+    const [signedUrl] = await zipFile.getSignedUrl({
+        action: 'read',
+        expires: Date.now() + 15 * 60 * 1000, // 15 minutes
+    });
+    
+    return { downloadUrl: signedUrl };
 });
 
 
@@ -633,5 +592,3 @@ export const onShiftWrite = onDocumentWritten(
     }
   }
 );
-
-    
