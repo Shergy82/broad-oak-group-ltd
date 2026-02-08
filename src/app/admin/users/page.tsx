@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -36,7 +35,7 @@ export default function UserManagementPage() {
   const { toast } = useToast();
   
   const isOwner = currentUserProfile?.role === 'owner';
-  const isPrivilegedUser = isOwner || currentUserProfile?.role === 'admin';
+  const isPrivilegedUser = isOwner || currentUserProfile?.role === 'admin' || currentUserProfile?.role === 'manager';
 
   useEffect(() => {
     if (!currentUserProfile || !db) {
@@ -49,22 +48,9 @@ export default function UserManagementPage() {
     const q = query(usersCollection);
 
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      let employmentTypes: { [key: string]: 'direct' | 'subbie' } = {};
-      if (typeof window !== 'undefined') {
-        const storedTypes = localStorage.getItem('employmentTypes');
-        if (storedTypes) {
-          employmentTypes = JSON.parse(storedTypes);
-        }
-      }
-
       const fetchedUsers: UserProfile[] = [];
       querySnapshot.forEach((doc) => {
-        const user = { uid: doc.id, ...doc.data() } as UserProfile;
-        // Apply locally stored type if it exists
-        if (employmentTypes[user.uid]) {
-            user.employmentType = employmentTypes[user.uid];
-        }
-        fetchedUsers.push(user);
+        fetchedUsers.push({ uid: doc.id, ...doc.data() } as UserProfile);
       });
       setUsers(fetchedUsers.sort((a, b) => a.name.localeCompare(b.name)));
       setLoading(false);
@@ -113,26 +99,22 @@ export default function UserManagementPage() {
     }
   };
 
-  const handleEmploymentTypeChange = (uid: string, employmentType: 'direct' | 'subbie') => {
-    // Update the state for immediate UI feedback
-    setUsers(currentUsers =>
-      currentUsers.map(user =>
-        user.uid === uid ? { ...user, employmentType: employmentType } : user
-      )
-    );
-
-    // Persist to localStorage
-    if (typeof window !== 'undefined') {
-        const storedTypes = localStorage.getItem('employmentTypes');
-        const employmentTypes = storedTypes ? JSON.parse(storedTypes) : {};
-        employmentTypes[uid] = employmentType;
-        localStorage.setItem('employmentTypes', JSON.stringify(employmentTypes));
+  const handleTradeChange = async (uid: string, trade: string) => {
+    if (!isPrivilegedUser) {
+        toast({ variant: "destructive", title: "Permission Denied", description: "You cannot change the trade." });
+        return;
     }
-    
-    toast({
-        title: "Employment Type Saved (Locally)",
-        description: "This choice is saved in your browser and will be remembered."
-    });
+    if (!db) {
+      toast({ variant: 'destructive', title: 'Database not configured' });
+      return;
+    }
+    const userDocRef = doc(db, 'users', uid);
+    try {
+        await updateDoc(userDocRef, { trade });
+        toast({ title: "Success", description: "User trade updated." });
+    } catch (error: any) {
+        toast({ variant: "destructive", title: "Update Failed", description: error.message || "Could not update trade." });
+    }
   };
   
   const handleDownloadPdf = async () => {
@@ -346,16 +328,19 @@ export default function UserManagementPage() {
                     <TableRow>
                     <TableHead>Name</TableHead>
                     <TableHead>Operative ID</TableHead>
-                    <TableHead>Phone Number</TableHead>
-                    <TableHead>Status & Role</TableHead>
-                    {isPrivilegedUser && <TableHead>Type</TableHead>}
+                    <TableHead>Role</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Trade</TableHead>
                     {isOwner && <TableHead className="text-right">Actions</TableHead>}
                     </TableRow>
                 </TableHeader>
                 <TableBody>
                     {users.map((user) => (
                         <TableRow key={user.uid} className={user.status === 'suspended' ? 'bg-muted/30' : ''}>
-                          <TableCell className="font-medium">{user.name}</TableCell>
+                          <TableCell className="font-medium">
+                            <div>{user.name}</div>
+                            <div className="text-xs text-muted-foreground">{user.phoneNumber || 'N/A'}</div>
+                          </TableCell>
                           <TableCell>
                             {isPrivilegedUser ? (
                               <Input
@@ -369,48 +354,43 @@ export default function UserManagementPage() {
                               user.operativeId || <Badge variant="outline">N/A</Badge>
                             )}
                           </TableCell>
-                          <TableCell>{user.phoneNumber || 'N/A'}</TableCell>
                           <TableCell>
-                              <div className="flex flex-col gap-2 items-start">
-                                {getStatusBadge(user.status)}
-                                {isOwner && user.uid !== currentUserProfile?.uid ? (
-                                    <Select
-                                        value={user.role}
-                                        onValueChange={(value) => handleRoleChange(user.uid, value as UserProfile['role'])}
-                                    >
-                                        <SelectTrigger className="h-8 text-xs w-[110px]">
-                                            <SelectValue placeholder="Set Role" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="user">User</SelectItem>
-                                            <SelectItem value="TLO">TLO</SelectItem>
-                                            <SelectItem value="manager">Manager</SelectItem>
-                                            <SelectItem value="admin">Admin</SelectItem>
-                                            <SelectItem value="owner">Owner</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                ) : (
-                                    <Badge variant={user.role === 'owner' ? 'default' : user.role === 'admin' ? 'secondary' : 'outline'} className="capitalize">{user.role}</Badge>
-                                )}
-                              </div>
-                          </TableCell>
-                          {isPrivilegedUser && (
-                              <TableCell>
+                              {isOwner && user.uid !== currentUserProfile?.uid ? (
                                   <Select
-                                      value={user.employmentType || ''}
-                                      onValueChange={(value) => handleEmploymentTypeChange(user.uid, value as 'direct' | 'subbie')}
-                                      disabled={!isPrivilegedUser}
+                                      value={user.role}
+                                      onValueChange={(value) => handleRoleChange(user.uid, value as UserProfile['role'])}
                                   >
-                                      <SelectTrigger className="w-[120px]">
-                                          <SelectValue placeholder="Set Type" />
+                                      <SelectTrigger className="h-8 text-xs w-[110px]">
+                                          <SelectValue placeholder="Set Role" />
                                       </SelectTrigger>
                                       <SelectContent>
-                                          <SelectItem value="direct">Direct</SelectItem>
-                                          <SelectItem value="subbie">Subbie</SelectItem>
+                                          <SelectItem value="user">User</SelectItem>
+                                          <SelectItem value="TLO">TLO</SelectItem>
+                                          <SelectItem value="manager">Manager</SelectItem>
+                                          <SelectItem value="admin">Admin</SelectItem>
+                                          <SelectItem value="owner">Owner</SelectItem>
                                       </SelectContent>
                                   </Select>
-                              </TableCell>
-                          )}
+                              ) : (
+                                  <Badge variant={user.role === 'owner' ? 'default' : user.role === 'admin' ? 'secondary' : 'outline'} className="capitalize">{user.role}</Badge>
+                              )}
+                          </TableCell>
+                          <TableCell>
+                              {getStatusBadge(user.status)}
+                          </TableCell>
+                           <TableCell>
+                                {isPrivilegedUser ? (
+                                <Input
+                                    defaultValue={user.trade || ''}
+                                    onBlur={(e) => handleTradeChange(user.uid, e.target.value)}
+                                    className="h-8 w-32"
+                                    placeholder="Set Trade"
+                                    disabled={!isPrivilegedUser}
+                                />
+                                ) : (
+                                user.trade || <Badge variant="outline">N/A</Badge>
+                                )}
+                            </TableCell>
                           <TableCell className="text-right">
                               {isOwner && user.uid !== currentUserProfile?.uid && (
                                 <div className="flex gap-2 justify-end">
@@ -450,31 +430,33 @@ export default function UserManagementPage() {
                             <CardTitle className="text-lg">{user.name}</CardTitle>
                             <CardDescription>{user.phoneNumber || 'No phone number'}</CardDescription>
                         </div>
-                        <div className="flex flex-col items-end gap-2 text-right">
-                           {getStatusBadge(user.status)}
-                           {isOwner && user.uid !== currentUserProfile?.uid ? (
-                                <Select
-                                    value={user.role}
-                                    onValueChange={(value) => handleRoleChange(user.uid, value as UserProfile['role'])}
-                                >
-                                    <SelectTrigger className="h-8 text-xs w-[100px]">
-                                        <SelectValue placeholder="Set role" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="user">User</SelectItem>
-                                        <SelectItem value="TLO">TLO</SelectItem>
-                                        <SelectItem value="manager">Manager</SelectItem>
-                                        <SelectItem value="admin">Admin</SelectItem>
-                                        <SelectItem value="owner">Owner</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            ) : (
-                                <Badge variant={user.role === 'owner' ? 'default' : user.role === 'admin' ? 'secondary' : 'outline'} className="capitalize">{user.role}</Badge>
-                            )}
-                        </div>
+                        {getStatusBadge(user.status)}
                     </div>
                   </CardHeader>
                   <CardContent className="text-sm space-y-3">
+                     <div className="flex items-center gap-2">
+                        <strong className="shrink-0">Role:</strong>
+                        {isOwner && user.uid !== currentUserProfile?.uid ? (
+                            <Select
+                                value={user.role}
+                                onValueChange={(value) => handleRoleChange(user.uid, value as UserProfile['role'])}
+                            >
+                                <SelectTrigger className="h-8 text-xs">
+                                    <SelectValue placeholder="Set Role" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="user">User</SelectItem>
+                                    <SelectItem value="TLO">TLO</SelectItem>
+                                    <SelectItem value="manager">Manager</SelectItem>
+                                    <SelectItem value="admin">Admin</SelectItem>
+                                    <SelectItem value="owner">Owner</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        ) : (
+                            <Badge variant={user.role === 'owner' ? 'default' : user.role === 'admin' ? 'secondary' : 'outline'} className="capitalize">{user.role}</Badge>
+                        )}
+                    </div>
+                     
                      {isPrivilegedUser && (
                         <>
                           <div className="flex items-center gap-2 pt-2">
@@ -488,20 +470,14 @@ export default function UserManagementPage() {
                               />
                           </div>
                           <div className="flex items-center gap-2 pt-2">
-                            <strong className="shrink-0">Type:</strong>
-                            <Select
-                              value={user.employmentType || ''}
-                              onValueChange={(value) => handleEmploymentTypeChange(user.uid, value as 'direct' | 'subbie')}
-                              disabled={!isPrivilegedUser}
-                            >
-                              <SelectTrigger className="w-full">
-                                <SelectValue placeholder="Set Type" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="direct">Direct</SelectItem>
-                                <SelectItem value="subbie">Subbie</SelectItem>
-                              </SelectContent>
-                            </Select>
+                            <strong className="shrink-0">Trade:</strong>
+                            <Input
+                                defaultValue={user.trade || ''}
+                                onBlur={(e) => handleTradeChange(user.uid, e.target.value)}
+                                className="h-8"
+                                placeholder="Set Trade"
+                                disabled={!isPrivilegedUser}
+                            />
                           </div>
                         </>
                      )}
