@@ -1,13 +1,20 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth, isFirebaseConfigured, db } from '@/lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import {
+  collection,
+  getDocs,
+  limit,
+  query,
+  updateDoc,
+  where,
+} from 'firebase/firestore';
+
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -30,18 +37,18 @@ const formSchema = z.object({
   password: z.string().min(1, { message: 'Password is required.' }),
 });
 
-export function LoginForm() {
-  const router = useRouter();
+interface LoginFormProps {
+    onLoginStatusChange: (status: 'form' | 'suspended' | 'pending') => void;
+}
+
+export function LoginForm({ onLoginStatusChange }: LoginFormProps) {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: {
-      email: '',
-      password: '',
-    },
+    defaultValues: { email: '', password: '' },
   });
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
@@ -50,45 +57,66 @@ export function LoginForm() {
     if (!auth || !db) return;
 
     try {
+      // 1) Firebase Auth sign-in
       const userCredential = await signInWithEmailAndPassword(
         auth,
         values.email,
         values.password
       );
-      const user = userCredential.user;
+      const authUser = userCredential.user;
 
-      // Check user status in Firestore
-      const userDocRef = doc(db, 'users', user.uid);
-      const userDoc = await getDoc(userDocRef);
+      // 2) Find the Firestore user doc by email
+      const usersCol = collection(db, 'users');
+      const q = query(
+        usersCol,
+        where('email', '==', values.email.trim().toLowerCase()),
+        limit(1)
+      );
+      const snap = await getDocs(q);
 
-      if (userDoc.exists()) {
-        const userProfile = userDoc.data();
-        if (userProfile.status === 'suspended') {
-          await auth.signOut();
-          setError('Your account has been suspended. Please contact an administrator.');
-          setIsLoading(false);
-          return;
-        }
-        if (userProfile.status === 'pending-approval') {
-          await auth.signOut();
-          setError(
-            'Your account is pending approval. You will be able to log in once an administrator approves your account.'
-          );
-          setIsLoading(false);
-          return;
-        }
+      if (snap.empty) {
+        await auth.signOut();
+        setError('No user profile found for this account. Please contact an administrator.');
+        setIsLoading(false);
+        return;
       }
+
+      const userDocSnap = snap.docs[0];
+      const userProfile = userDocSnap.data() as any;
+
+      // 3) Status enforcement
+      if (userProfile.status === 'suspended') {
+        await auth.signOut();
+        setIsLoading(false);
+        onLoginStatusChange('suspended');
+        return;
+      }
+
+      if (userProfile.status === 'pending-approval') {
+        await auth.signOut();
+        setIsLoading(false);
+        onLoginStatusChange('pending');
+        return;
+      }
+
+      // 4) Link Auth UID <-> Firestore user doc
+      await updateDoc(userDocSnap.ref, {
+        authUid: authUser.uid,
+        fireAuthUid: authUser.uid,
+        authLinkedAt: new Date(),
+      });
 
       toast({
         title: 'Login Successful',
         description: 'Welcome back!',
       });
 
-      router.push('/dashboard');
-    } catch (error: any) {
+      // Redirect handled by AuthProvider in parent
+    } catch (err: any) {
       let errorMessage = 'An unexpected error occurred. Please try again.';
-      if (error.code) {
-        switch (error.code) {
+
+      if (err?.code) {
+        switch (err.code) {
           case 'auth/invalid-credential':
             errorMessage = 'Invalid email or password. Please try again.';
             break;
@@ -100,12 +128,13 @@ export function LoginForm() {
             errorMessage = 'Too many login attempts. Please try again later.';
             break;
           default:
-            errorMessage = `Login failed: ${error.message}`;
+            errorMessage = `Login failed: ${err.message}`;
             break;
         }
       }
+
       setError(errorMessage);
-      console.error('Login error:', error);
+      console.error('Login error:', err);
     } finally {
       setIsLoading(false);
     }

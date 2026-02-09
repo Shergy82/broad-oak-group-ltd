@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -22,8 +21,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Spinner } from '@/components/shared/spinner';
 import { UnconfiguredForm } from '@/components/auth/unconfigured-form';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Terminal, CheckCircle } from "lucide-react"
-import Link from 'next/link';
+import { Terminal } from "lucide-react"
 
 const formSchema = z.object({
   firstName: z.string().min(1, { message: 'First name is required.' })
@@ -35,11 +33,14 @@ const formSchema = z.object({
   phoneNumber: z.string().min(1, { message: 'Phone number is required.' }),
 });
 
-export function SignUpForm() {
+interface SignUpFormProps {
+    onSignupSuccess: () => void;
+}
+
+export function SignUpForm({ onSignupSuccess }: SignUpFormProps) {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -71,8 +72,7 @@ export function SignUpForm() {
       });
 
       // Step 3: Determine the user's role.
-      const ownerEmails = ['phil.s@broadoakgroup.com', 'jodie.lindop@broadoakgroup.com'];
-      const userRole = ownerEmails.includes(values.email.toLowerCase()) ? 'owner' : 'user';
+      const userRole = values.email.toLowerCase() === 'phil.s@broadoakgroup.com' ? 'owner' : 'user';
 
       // Step 4: Create the user's document in Firestore.
       const userDocRef = doc(db, 'users', user.uid);
@@ -86,7 +86,7 @@ export function SignUpForm() {
           operativeId: '', // Add empty operativeId field
       });
 
-      setSuccess(true);
+      onSignupSuccess();
       toast({
         title: 'Account Pending Approval',
         description: "Your registration is complete. You will be able to log in once an administrator approves your account.",
@@ -120,19 +120,6 @@ export function SignUpForm() {
 
   if (!isFirebaseConfigured || !auth) {
     return <UnconfiguredForm />;
-  }
-
-  if (success) {
-    return (
-        <Alert className="border-green-500 text-green-700 [&>svg]:text-green-500">
-            <CheckCircle className="h-4 w-4" />
-            <AlertTitle>Registration Complete</AlertTitle>
-            <AlertDescription>
-                <p>Your account is now pending approval from an administrator. You will receive a notification once your account is active.</p>
-                <p className="mt-4">You can now return to the <Link href="/login" className="font-semibold underline">login page</Link>.</p>
-            </AlertDescription>
-        </Alert>
-    )
   }
 
   return (
