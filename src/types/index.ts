@@ -61,6 +61,7 @@ export interface Project {
   createdBy?: string;
   creatorId?: string;
   nextReviewDate?: Timestamp;
+  contract?: string;
 }
 
 export interface ProjectFile {

@@ -654,6 +654,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                   address: shift.address,
                   eNumber: shift.eNumber || '',
                   manager: shift.manager || '',
+                  contract: shift.contract || '',
                   createdAt: serverTimestamp(),
                   createdBy: userProfile.name,
                   creatorId: userProfile.uid,

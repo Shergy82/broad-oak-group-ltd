@@ -35,9 +35,23 @@ export default function EvidencePage() {
   const filteredProjects = useMemo(() => {
     if (!searchTerm) return projects;
     return projects.filter(project =>
-      project.address.toLowerCase().includes(searchTerm.toLowerCase())
+      project.address.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      project.contract?.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [projects, searchTerm]);
+
+  const groupedProjects = useMemo(() => {
+    const groups: { [key: string]: Project[] } = {};
+    filteredProjects.forEach(project => {
+      const groupName = project.contract || 'Uncategorized';
+      if (!groups[groupName]) {
+        groups[groupName] = [];
+      }
+      groups[groupName].push(project);
+    });
+    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
+  }, [filteredProjects]);
+
 
   return (
     <Card>
@@ -60,14 +74,14 @@ export default function EvidencePage() {
             </div>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-8">
         {loading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {Array.from({ length: 10 }).map((_, i) => (
               <Skeleton key={i} className="h-28 w-full" />
             ))}
           </div>
-        ) : filteredProjects.length === 0 ? (
+        ) : groupedProjects.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-12 text-center h-96">
             <Building2 className="mx-auto h-12 w-12 text-muted-foreground" />
             <h3 className="mt-4 text-lg font-semibold">No Projects Found</h3>
@@ -76,16 +90,21 @@ export default function EvidencePage() {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-            {filteredProjects.map(project => (
-              <Card key={project.id} className="border-red-500/50 bg-red-500/5 hover:shadow-md transition-shadow cursor-pointer">
-                <CardHeader className="p-4">
-                  <CardTitle className="text-sm font-semibold leading-tight">{project.address}</CardTitle>
-                  {project.eNumber && <CardDescription className="text-xs pt-1">E: {project.eNumber}</CardDescription>}
-                </CardHeader>
-              </Card>
-            ))}
-          </div>
+          groupedProjects.map(([contractName, projectGroup]) => (
+            <div key={contractName}>
+              <h2 className="text-xl font-semibold mb-4 capitalize">{contractName}</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                {projectGroup.map(project => (
+                  <Card key={project.id} className="border-red-500/50 bg-red-500/5 hover:shadow-md transition-shadow cursor-pointer">
+                    <CardHeader className="p-4">
+                      <CardTitle className="text-sm font-semibold leading-tight">{project.address}</CardTitle>
+                      {project.eNumber && <CardDescription className="text-xs pt-1">E: {project.eNumber}</CardDescription>}
+                    </CardHeader>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          ))
         )}
       </CardContent>
     </Card>
