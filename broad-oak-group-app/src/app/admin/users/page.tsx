@@ -285,7 +285,7 @@ export default function UserManagementPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                        {isOwner && user.uid !== currentUserProfile?.uid && user.role !== 'owner' ? (
+                        {isOwner && user.uid !== currentUserProfile?.uid ? (
                             <Select
                                 value={user.role}
                                 onValueChange={(value) => handleRoleChange(user.uid, value as UserProfile['role'])}
@@ -366,7 +366,7 @@ export default function UserManagementPage() {
             <CardContent className="text-sm space-y-3">
                 <div className="flex items-center gap-2">
                   <strong className="shrink-0">Role:</strong>
-                  {isOwner && user.uid !== currentUserProfile?.uid && user.role !== 'owner' ? (
+                  {isOwner && user.uid !== currentUserProfile?.uid ? (
                       <Select
                           value={user.role}
                           onValueChange={(value) => handleRoleChange(user.uid, value as UserProfile['role'])}
@@ -495,9 +495,3 @@ export default function UserManagementPage() {
     </Card>
   );
 }
-
-    
-
-    
-
-    
