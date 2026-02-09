@@ -15,6 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { BarChart, Trophy } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { RoleKpiDashboard } from './role-kpi-dashboard';
 
 const getInitials = (name?: string) => {
     if (!name) return '??';
@@ -132,8 +133,8 @@ export function PerformanceDashboard() {
     };
   }, []);
 
-  const { operativesData, otherStaffData } = useMemo(() => {
-    if (loading) return { operativesData: [], otherStaffData: [] };
+  const { operativesData } = useMemo(() => {
+    if (loading) return { operativesData: [] };
 
     const calculateMetrics = (users: UserProfile[]): PerformanceMetric[] => {
         const today = startOfToday();
@@ -173,11 +174,9 @@ export function PerformanceDashboard() {
     };
     
     const operatives = allUsers.filter(u => u.role === 'user' || u.role === 'TLO');
-    const otherStaff = allUsers.filter(u => ['admin', 'owner', 'manager'].includes(u.role));
-
+    
     return {
         operativesData: calculateMetrics(operatives),
-        otherStaffData: calculateMetrics(otherStaff),
     }
 
   }, [loading, allShifts, allUsers, allPhotos]);
@@ -213,7 +212,7 @@ export function PerformanceDashboard() {
                     <PerformanceTable users={operativesData} />
                 </TabsContent>
                 <TabsContent value="other-staff" className="mt-6">
-                    <PerformanceTable users={otherStaffData} />
+                    <RoleKpiDashboard allShifts={allShifts} allUsers={allUsers} />
                 </TabsContent>
             </Tabs>
         )}

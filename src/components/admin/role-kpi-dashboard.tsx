@@ -28,11 +28,11 @@ interface RoleKpiDashboardProps {
 }
 
 const DEFAULT_ROLES: (UserProfile['role'])[] = ['manager', 'TLO'];
-const LS_SHIFT_TASKS_KEY = 'shiftTaskCompletion';
+const LS_SHIFT_TASKS_KEY = 'shiftTaskCompletion_v2';
 
 export function RoleKpiDashboard({ allShifts, allUsers }: RoleKpiDashboardProps) {
   const [selectedRoles, setSelectedRoles] = useState<Set<UserProfile['role']>>(new Set(DEFAULT_ROLES));
-  const [shiftTaskData, setShiftTaskData] = useState<{[key: string]: number[]}>({});
+  const [shiftTaskData, setShiftTaskData] = useState<{[key: string]: object}>({});
   
   useEffect(() => {
     try {
@@ -70,7 +70,8 @@ export function RoleKpiDashboard({ allShifts, allUsers }: RoleKpiDashboardProps)
           const completionRate = rateCalculationTotal > 0 ? (completed / rateCalculationTotal) * 100 : 0;
           
           const tasksDone = userShifts.reduce((acc, shift) => {
-              return acc + (shiftTaskData[shift.id]?.length || 0);
+              const shiftTasks = shiftTaskData[shift.id] || {};
+              return acc + Object.keys(shiftTasks).length;
           }, 0);
 
           return {
