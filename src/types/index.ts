@@ -1,11 +1,21 @@
 import type { Timestamp } from 'firebase/firestore';
 
-export type ShiftStatus = 'pending-confirmation' | 'confirmed' | 'on-site' | 'completed' | 'incomplete' | 'rejected';
+/* =========================
+   Shifts
+   ========================= */
+
+export type ShiftStatus =
+  | 'pending-confirmation'
+  | 'confirmed'
+  | 'on-site'
+  | 'completed'
+  | 'incomplete'
+  | 'rejected';
 
 export interface Shift {
   id: string;
   userId: string;
-  userName?: string; // Add the user's name directly to the shift
+  userName?: string;
   date: Timestamp;
   type: 'am' | 'pm' | 'all-day';
   status: ShiftStatus;
@@ -18,6 +28,10 @@ export interface Shift {
   createdAt: Timestamp;
   confirmedAt?: Timestamp;
 }
+
+/* =========================
+   Users
+   ========================= */
 
 export interface UserProfile {
   uid: string;
@@ -32,8 +46,12 @@ export interface UserProfile {
   trade?: string;
 }
 
+/* =========================
+   Projects
+   ========================= */
+
 export interface Project {
-  id: string; // Firestore document ID
+  id: string;
   address: string;
   eNumber?: string;
   council?: string;
@@ -48,9 +66,9 @@ export interface ProjectFile {
   id: string;
   name: string;
   url: string;
-  fullPath: string; // Full path in Firebase Storage for deletion
-  size?: number; // Optional size in bytes
-  type?: string; // Optional MIME type
+  fullPath: string;
+  size?: number;
+  type?: string;
   uploadedAt: Timestamp;
   uploaderId: string;
   uploaderName: string;
@@ -60,13 +78,17 @@ export interface HealthAndSafetyFile {
   id: string;
   name: string;
   url: string;
-  fullPath: string; // Full path in Firebase Storage for deletion
-  size?: number; // Optional size in bytes
-  type?: string; // Optional MIME type
+  fullPath: string;
+  size?: number;
+  type?: string;
   uploadedAt: Timestamp;
   uploaderId: string;
   uploaderName: string;
 }
+
+/* =========================
+   Announcements
+   ========================= */
 
 export interface Announcement {
   id: string;
@@ -79,10 +101,14 @@ export interface Announcement {
 }
 
 export interface Acknowledgement {
-    id: string; // This will be the user's UID
-    userName: string;
-    acknowledgedAt: Timestamp;
+  id: string;
+  userName: string;
+  acknowledgedAt: Timestamp;
 }
+
+/* =========================
+   Trades & Performance
+   ========================= */
 
 export interface Trade {
   id: string;
@@ -107,6 +133,10 @@ export interface PerformanceMetric {
   failedToCloseShifts: number;
 }
 
+/* =========================
+   Unavailability
+   ========================= */
+
 export interface Unavailability {
   id: string;
   userId: string;
@@ -115,4 +145,29 @@ export interface Unavailability {
   endDate: Timestamp;
   reason: 'Holiday' | 'Sickness' | 'Other';
   createdAt: Timestamp;
+}
+
+/* =========================
+   Push Notifications
+   ========================= */
+
+export interface PushSubscriptionPayload {
+  endpoint: string;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+}
+
+export interface VapidKeyResponse {
+  publicKey: string;
+}
+
+export interface SetStatusRequest {
+  enabled: boolean;
+}
+
+export interface GenericResponse {
+  success: boolean;
+  message?: string;
 }
