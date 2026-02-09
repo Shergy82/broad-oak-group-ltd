@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -152,6 +153,7 @@ function FileUploader({ project, userProfile }: { project: Project; userProfile:
   const [isUploading, setIsUploading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const { toast } = useToast();
+  const [evidenceTag, setEvidenceTag] = useState('');
 
   const handleFileUpload = (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -162,7 +164,7 @@ function FileUploader({ project, userProfile }: { project: Project; userProfile:
       const storageRef = ref(storage, storagePath);
       
       const metadata = {
-        contentDisposition: 'attachment', // This is the crucial part
+        contentDisposition: 'attachment',
       };
 
       const uploadTask = uploadBytesResumable(storageRef, file, metadata);
@@ -178,7 +180,7 @@ function FileUploader({ project, userProfile }: { project: Project; userProfile:
           async () => {
             try {
               const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-              await addDoc(collection(db, `projects/${project.id}/files`), {
+              const fileData: any = {
                 name: file.name,
                 url: downloadURL,
                 fullPath: storagePath,
@@ -187,7 +189,13 @@ function FileUploader({ project, userProfile }: { project: Project; userProfile:
                 uploadedAt: serverTimestamp(),
                 uploaderId: userProfile.uid,
                 uploaderName: userProfile.name,
-              });
+              };
+
+              if (evidenceTag.trim()) {
+                fileData.evidenceTag = evidenceTag.trim();
+              }
+
+              await addDoc(collection(db, `projects/${project.id}/files`), fileData);
               resolve();
             } catch (dbError) {
               console.error(`Failed to save file info for ${file.name} to Firestore:`, dbError);
@@ -199,7 +207,10 @@ function FileUploader({ project, userProfile }: { project: Project; userProfile:
     });
 
     Promise.all(uploadPromises)
-      .then(() => toast({ title: 'Success', description: `${files.length} file(s) uploaded successfully.` }))
+      .then(() => {
+        toast({ title: 'Success', description: `${files.length} file(s) uploaded successfully.` });
+        setEvidenceTag('');
+      })
       .catch(() => toast({ variant: 'destructive', title: 'Upload Failed', description: 'One or more files failed to upload. Please try again.' }))
       .finally(() => setIsUploading(false));
   };
@@ -230,9 +241,9 @@ function FileUploader({ project, userProfile }: { project: Project; userProfile:
     >
         <UploadCloud className="h-12 w-12 text-muted-foreground" />
         <h3 className="mt-2 text-sm font-medium text-foreground">
-            Drag & drop files here
+            Drag & drop or <Label htmlFor={`file-upload-${project.id}`} className="cursor-pointer text-primary underline">browse</Label>
         </h3>
-        <p className="mt-1 text-xs text-muted-foreground">or click to select files</p>
+        <p className="mt-1 text-xs text-muted-foreground">Upload files to this project</p>
         <Input 
             id={`file-upload-${project.id}`}
             type="file" 
@@ -241,9 +252,20 @@ function FileUploader({ project, userProfile }: { project: Project; userProfile:
             onChange={(e) => handleFileUpload(e.target.files)}
             disabled={isUploading}
         />
-        <Button asChild variant="link" className="mt-2">
-            <Label htmlFor={`file-upload-${project.id}`} className="cursor-pointer">Browse files</Label>
-        </Button>
+        
+        <div className="w-full space-y-2 mt-4 text-left">
+            <Label htmlFor={`evidence-tag-${project.id}`}>Evidence Tag (Optional)</Label>
+            <Input 
+                id={`evidence-tag-${project.id}`}
+                placeholder="e.g., boiler-photo"
+                value={evidenceTag}
+                onChange={(e) => setEvidenceTag(e.target.value)}
+                onClick={(e) => e.stopPropagation()} 
+                className="bg-background"
+            />
+            <p className="text-xs text-muted-foreground px-1">Apply a tag to link uploads to a checklist item.</p>
+        </div>
+        
         {isUploading && <div className="mt-4 flex items-center gap-2"><Spinner /> Uploading...</div>}
     </div>
   );
@@ -680,3 +702,4 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
     
 
     
+

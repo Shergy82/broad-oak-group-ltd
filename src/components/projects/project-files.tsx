@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -52,6 +53,7 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
+  const [evidenceTag, setEvidenceTag] = useState('');
 
   useEffect(() => {
     if (!db || !project) return;
@@ -100,7 +102,7 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
           async () => {
             try {
               const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-              await addDoc(collection(db, `projects/${project.id}/files`), {
+              const fileData: any = {
                 name: file.name,
                 url: downloadURL,
                 fullPath: storagePath,
@@ -109,7 +111,13 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
                 uploadedAt: serverTimestamp(),
                 uploaderId: userProfile.uid,
                 uploaderName: userProfile.name,
-              });
+              };
+
+              if (evidenceTag.trim()) {
+                fileData.evidenceTag = evidenceTag.trim();
+              }
+
+              await addDoc(collection(db, `projects/${project.id}/files`), fileData);
               resolve();
             } catch (dbError) {
               console.error(`Failed to save file info for ${file.name} to Firestore:`, dbError);
@@ -121,7 +129,10 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
     });
 
     Promise.all(uploadPromises)
-      .then(() => toast({ title: 'Success', description: `${filesToUpload.length} file(s) uploaded successfully.` }))
+      .then(() => {
+        toast({ title: 'Success', description: `${filesToUpload.length} file(s) uploaded successfully.` });
+        setEvidenceTag('');
+      })
       .catch(() => toast({ variant: 'destructive', title: 'Upload Failed', description: 'One or more files failed to upload. Please check your project permissions and try again.' }))
       .finally(() => {
           setIsUploading(false);
@@ -239,7 +250,19 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
             </Table>
         </div>
       )}
-      <div className="pt-2">
+      <div className="pt-2 space-y-3">
+        <div className="space-y-2 text-left">
+            <Label htmlFor={`evidence-tag-user-${project.id}`}>Evidence Tag (Optional)</Label>
+            <Input 
+                id={`evidence-tag-user-${project.id}`}
+                placeholder="e.g., boiler-photo"
+                value={evidenceTag}
+                onChange={(e) => setEvidenceTag(e.target.value)}
+                className="bg-background"
+            />
+            <p className="text-xs text-muted-foreground px-1">Apply a tag to link uploads to a checklist item.</p>
+        </div>
+
         <Input
           id={`file-upload-user-${project.id}`}
           type="file"
