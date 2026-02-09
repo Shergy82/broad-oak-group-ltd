@@ -86,6 +86,15 @@ export default function EvidencePage() {
 
 
   const projectsWithEvidence: ProjectWithEvidence[] = useMemo(() => {
+    const simplifyTag = (tag: string | undefined): string => {
+      if (!tag) return '';
+      return tag
+        .trim()
+        .toLowerCase()
+        .replace(/s$/, '') // remove plural s
+        .replace(/[-_ ]/g, ''); // remove separators
+    };
+
     return projects.map(project => {
         const checklist = evidenceChecklists.get(project.contract || '');
         const files = projectFiles.get(project.id) || [];
@@ -95,7 +104,11 @@ export default function EvidencePage() {
         }
 
         const evidenceStatus = checklist.items.map(item => {
-            const isComplete = files.some(file => file.evidenceTag?.trim().toLowerCase() === item.text?.trim().toLowerCase());
+            const simplifiedChecklistText = simplifyTag(item.text);
+            const isComplete = files.some(file => {
+              const simplifiedFileTag = simplifyTag(file.evidenceTag);
+              return simplifiedFileTag && simplifiedChecklistText && simplifiedFileTag === simplifiedChecklistText;
+            });
             return { text: item.text, isComplete };
         });
 
