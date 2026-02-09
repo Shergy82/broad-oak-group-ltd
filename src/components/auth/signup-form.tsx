@@ -84,7 +84,6 @@ export function SignUpForm({ onSignupSuccess }: SignUpFormProps) {
           status: 'pending-approval', // New users start as pending
           createdAt: serverTimestamp(),
           operativeId: '', // Add empty operativeId field
-          department: '',
       });
 
       onSignupSuccess();
