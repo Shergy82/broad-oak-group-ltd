@@ -12,6 +12,7 @@ import {
   where,
   Timestamp,
   serverTimestamp,
+  limit,
 } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
 import { Button } from '@/components/ui/button';
@@ -630,40 +631,66 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
 
           const onConfirm = async () => {
             const batch = writeBatch(firestore);
-
             const projectsRef = collection(firestore, 'projects');
-            const existingProjectsSnapshot = await getDocs(projectsRef);
-            const existingProjectAddresses = new Set(
-              existingProjectsSnapshot.docs.map((d) => (d.data() as Project).address)
-            );
+            
+            // --- Project Creation/Update Logic ---
+            const allImportedShifts = [...toCreate, ...toUpdate.map(u => u.new)];
+            const projectInfoFromImport = new Map<string, ParsedShift>();
+            allImportedShifts.forEach(shift => {
+                if (shift.address) {
+                    projectInfoFromImport.set(shift.address, shift);
+                }
+            });
 
+            if (projectInfoFromImport.size > 0) {
+                const projectAddresses = Array.from(projectInfoFromImport.keys());
+                // Firestore 'in' query is limited to 30 items
+                for (let i = 0; i < projectAddresses.length; i += 30) {
+                    const chunk = projectAddresses.slice(i, i + 30);
+                    const existingProjectsQuery = query(projectsRef, where('address', 'in', chunk));
+                    const existingProjectsSnap = await getDocs(existingProjectsQuery);
+                    
+                    const foundAddresses = new Set<string>();
+                    existingProjectsSnap.forEach(docSnap => {
+                        const project = docSnap.data() as Project;
+                        foundAddresses.add(project.address);
+                        const importInfo = projectInfoFromImport.get(project.address);
+                        if (importInfo && project.contract !== importInfo.contract) {
+                            batch.update(docSnap.ref, { contract: importInfo.contract });
+                        }
+                    });
+
+                    chunk.forEach(address => {
+                        if (!foundAddresses.has(address)) {
+                             const info = projectInfoFromImport.get(address);
+                             if (info) {
+                                const reviewDate = new Date();
+                                reviewDate.setDate(reviewDate.getDate() + 28);
+                                batch.set(doc(projectsRef), {
+                                    address: info.address,
+                                    eNumber: info.eNumber || '',
+                                    manager: info.manager || '',
+                                    contract: info.contract || '',
+                                    createdAt: serverTimestamp(),
+                                    createdBy: userProfile.name,
+                                    creatorId: userProfile.uid,
+                                    nextReviewDate: Timestamp.fromDate(reviewDate),
+                                });
+                             }
+                        }
+                    });
+                }
+            }
+
+            // --- Shift Creation/Update/Deletion ---
             toCreate.forEach((shift) => {
               const newShiftData = {
                 ...shift,
                 date: Timestamp.fromDate(shift.date),
-                status: 'pending-confirmation',
+                status: 'pending-confirmation' as ShiftStatus,
                 createdAt: serverTimestamp(),
               };
               batch.set(doc(collection(firestore, 'shifts')), newShiftData);
-
-              if (shift.address && !existingProjectAddresses.has(shift.address)) {
-                const reviewDate = new Date();
-                reviewDate.setDate(reviewDate.getDate() + 28);
-
-                const newProject = {
-                  address: shift.address,
-                  eNumber: shift.eNumber || '',
-                  manager: shift.manager || '',
-                  contract: shift.contract || '',
-                  createdAt: serverTimestamp(),
-                  createdBy: userProfile.name,
-                  creatorId: userProfile.uid,
-                  nextReviewDate: Timestamp.fromDate(reviewDate),
-                };
-
-                batch.set(doc(projectsRef), newProject);
-                existingProjectAddresses.add(shift.address);
-              }
             });
 
             toUpdate.forEach(({ old, new: newShift }) => {
@@ -681,10 +708,8 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
               batch.delete(doc(firestore, 'shifts', shift.id));
             });
 
-            if (toCreate.length > 0 || toUpdate.length > 0 || toDelete.length > 0) {
-              await batch.commit();
-            }
-
+            await batch.commit();
+            
             const parts: string[] = [];
             if (toCreate.length > 0) parts.push(`created ${toCreate.length} new shift(s)`);
             if (toUpdate.length > 0) parts.push(`updated ${toUpdate.length} shift(s)`);
@@ -720,7 +745,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
         } catch (err: any) {
           console.error('Import failed:', err);
           setError(err?.message || 'An unexpected error occurred during import.');
-          onImportComplete([], async () => {});
+          onImportComplete([], async () => {}, undefined);
         } finally {
           setIsUploading(false);
         }

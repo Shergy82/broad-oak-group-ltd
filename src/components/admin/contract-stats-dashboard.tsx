@@ -76,7 +76,7 @@ export function ContractStatsDashboard() {
     const statsByContract: { [key: string]: ContractStats } = {};
 
     filteredShifts.forEach(shift => {
-      const contractName = shift.contract || 'Unassigned';
+      const contractName = shift.contract || 'Uncategorized';
 
       if (!statsByContract[contractName]) {
         statsByContract[contractName] = {
