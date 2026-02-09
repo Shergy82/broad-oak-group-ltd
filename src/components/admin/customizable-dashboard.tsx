@@ -115,7 +115,15 @@ export function CustomizableDashboard() {
       )
   }
 
-  const widgetsToRender = ALL_WIDGETS.filter(w => enabledWidgets.has(w.key));
+  const largeWidgetKeys: WidgetKey[] = ['performance', 'contracts', 'tasks', 'projects'];
+  const smallWidgets = ALL_WIDGETS.filter(
+    w => enabledWidgets.has(w.key) && !largeWidgetKeys.includes(w.key)
+  );
+  const largeWidgets = ALL_WIDGETS.filter(
+    w => enabledWidgets.has(w.key) && largeWidgetKeys.includes(w.key)
+  );
+  const widgetsToRender = [...smallWidgets, ...largeWidgets];
+
 
   return (
     <div className="space-y-6">
@@ -152,11 +160,37 @@ export function CustomizableDashboard() {
        </div>
        
        {widgetsToRender.length > 0 ? (
-           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                {widgetsToRender.map(widget => {
-                    const Component = WIDGET_COMPONENTS[widget.key];
-                    return <Component key={widget.key} userProfile={userProfile} />;
-                })}
+           <div className="space-y-6">
+                {smallWidgets.length > 0 && (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                        {smallWidgets.map(widget => {
+                            const Component = WIDGET_COMPONENTS[widget.key];
+                            return <Component key={widget.key} userProfile={userProfile} />;
+                        })}
+                    </div>
+                )}
+                
+                {largeWidgets.length > 0 && (
+                    <div className="space-y-6">
+                        {largeWidgets.map(widget => {
+                            const Component = WIDGET_COMPONENTS[widget.key];
+                            if (widget.key === 'projects') {
+                                return (
+                                    <Card key={widget.key}>
+                                        <CardHeader>
+                                            <CardTitle>{widget.title}</CardTitle>
+                                            <CardDescription>{widget.description}</CardDescription>
+                                        </CardHeader>
+                                        <CardContent>
+                                            <Component userProfile={userProfile} />
+                                        </CardContent>
+                                    </Card>
+                                )
+                            }
+                            return <Component key={widget.key} userProfile={userProfile} />;
+                        })}
+                    </div>
+                )}
            </div>
        ) : (
             <Card className="col-span-full">
