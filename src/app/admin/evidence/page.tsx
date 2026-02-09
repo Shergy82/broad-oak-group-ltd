@@ -98,40 +98,45 @@ export default function EvidencePage() {
 
 
   const projectsWithEvidence: ProjectWithEvidence[] = useMemo(() => {
-    const getWords = (text: string | undefined): Set<string> => {
+    // This function breaks text into a set of normalized words.
+    // e.g., "Electric Board-Photos" -> {"electric", "board", "photo"}
+    const getNormalizedWords = (text: string | undefined): Set<string> => {
         if (!text) return new Set();
-        // Simplify, split into words, remove plurals, filter out empty strings
         return new Set(
-            text.toLowerCase()
-                .split(/[\s-]+/)
+            text
+                .toLowerCase()
+                // Split on spaces, hyphens, or underscores
+                .split(/[\s-_]+/) 
+                // Remove any characters that aren't letters or numbers
                 .map(word => word.replace(/[^a-z0-9]/g, ''))
+                // Handle simple plurals by removing a trailing 's'
                 .map(word => word.endsWith('s') ? word.slice(0, -1) : word)
+                // Filter out any empty strings that might result
                 .filter(Boolean)
         );
     };
 
+    // This function determines if a file's tag matches a checklist item.
     const isMatch = (checklistText: string, fileTag: string | undefined): boolean => {
-        const checklistWords = getWords(checklistText);
-        const tagWords = getWords(fileTag);
+        const checklistWords = getNormalizedWords(checklistText);
+        const tagWords = getNormalizedWords(fileTag);
 
-        if (tagWords.size === 0) return false;
+        // If either text is empty, there's no match.
+        if (tagWords.size === 0 || checklistWords.size === 0) {
+            return false;
+        }
 
-        // Check if all words in the tag are present in the checklist item's words
+        // The logic: every word in the (usually shorter) tag must be present 
+        // in the (usually more descriptive) checklist item's words.
         for (const tagWord of tagWords) {
-            let foundMatch = false;
-            for (const checklistWord of checklistWords) {
-                // Allow for partial matches, e.g., 'boiler' in 'boilers'
-                if (checklistWord.includes(tagWord) || tagWord.includes(checklistWord)) {
-                    foundMatch = true;
-                    break;
-                }
-            }
-            if (!foundMatch) {
-                return false;
+            if (!checklistWords.has(tagWord)) {
+                return false; // A word from the tag is missing from the checklist item.
             }
         }
+        
+        // All words from the tag were found in the checklist item.
         return true;
-    }
+    };
 
 
     return projects.map(project => {
