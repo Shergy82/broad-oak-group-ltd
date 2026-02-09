@@ -27,7 +27,7 @@ interface RoleKpiDashboardProps {
   allUsers: UserProfile[];
 }
 
-const DEFAULT_ROLES: (UserProfile['role'])[] = ['manager', 'TLO'];
+const DEFAULT_ROLES: (UserProfile['role'])[] = ['manager', 'TLO', 'admin', 'owner'];
 const LS_SHIFT_TASKS_KEY = 'shiftTaskCompletion_v2';
 
 export function RoleKpiDashboard({ allShifts, allUsers }: RoleKpiDashboardProps) {
