@@ -19,6 +19,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Spinner } from '@/components/shared/spinner';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Label } from '@/components/ui/label';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 
 export default function UserManagementPage() {
@@ -27,7 +28,7 @@ export default function UserManagementPage() {
   const { userProfile: currentUserProfile } = useUserProfile();
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
-  const [showPendingOnly, setShowPendingOnly] = useState(false);
+  const [activeTab, setActiveTab] = useState('all');
   
   const isOwner = currentUserProfile?.role === 'owner';
   const isPrivilegedUser = isOwner || currentUserProfile?.role === 'admin' || currentUserProfile?.role === 'manager' || currentUserProfile?.role === 'TLO';
@@ -66,14 +67,14 @@ export default function UserManagementPage() {
   const pendingUsers = useMemo(() => users.filter(user => user.status === 'pending-approval'), [users]);
 
   const usersToDisplay = useMemo(() => {
-    const sourceUsers = showPendingOnly ? pendingUsers : users;
+    const sourceUsers = activeTab === 'pending' ? pendingUsers : users;
     if (!searchTerm) {
       return sourceUsers;
     }
     return sourceUsers.filter(user =>
       user.name.toLowerCase().includes(searchTerm.toLowerCase())
     );
-  }, [users, pendingUsers, showPendingOnly, searchTerm]);
+  }, [users, pendingUsers, activeTab, searchTerm]);
 
 
   const adminAndManagerUsers = useMemo(() => usersToDisplay.filter(user =>
@@ -288,6 +289,13 @@ export default function UserManagementPage() {
 
   const renderUserGrid = (userList: UserProfile[], categoryTitle: string) => {
     if (userList.length === 0) {
+      if (activeTab === 'pending') {
+         return (
+          <div className="border border-dashed rounded-lg p-8 text-center text-muted-foreground">
+            <p>No pending applications in this category.</p>
+          </div>
+        );
+      }
       return (
         <div className="border border-dashed rounded-lg p-8 text-center text-muted-foreground">
           <p>No users in this category.</p>
@@ -386,12 +394,6 @@ export default function UserManagementPage() {
                         className="w-full sm:w-64 pl-10"
                     />
                 </div>
-                {pendingUsers.length > 0 && isOwner && (
-                    <Button variant={showPendingOnly ? "secondary" : "outline"} onClick={() => setShowPendingOnly(!showPendingOnly)} className="w-full sm:w-auto">
-                        New Users
-                        <Badge className="ml-2 bg-amber-500 text-white hover:bg-amber-500">{pendingUsers.length}</Badge>
-                    </Button>
-                )}
                 <Button variant="outline" onClick={handleDownloadPdf} disabled={loading || users.length === 0} className="w-full sm:w-auto">
                     <Download className="mr-2 h-4 w-4" />
                     Directory
@@ -415,21 +417,53 @@ export default function UserManagementPage() {
               </p>
             </div>
         ) : (
-          <div className="space-y-8">
-            <div>
-                <h3 className="text-xl font-semibold mb-4">
-                    {showPendingOnly ? `Pending Management (${adminAndManagerUsers.length})` : `Management`}
-                </h3>
-                {renderUserGrid(adminAndManagerUsers, 'Management')}
-            </div>
-
-            <div>
-                <h3 className="text-xl font-semibold mb-4">
-                    {showPendingOnly ? `Pending Engineers (${engineerUsers.length})` : `Engineers`}
-                </h3>
-                {renderUserGrid(engineerUsers, 'Engineers')}
-            </div>
-          </div>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="all">All Users</TabsTrigger>
+              <TabsTrigger value="pending">
+                Pending Applications
+                {pendingUsers.length > 0 && (
+                  <Badge className="ml-2 bg-amber-500 text-white hover:bg-amber-500">{pendingUsers.length}</Badge>
+                )}
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="all" className="mt-6">
+              <div className="space-y-8">
+                <div>
+                    <h3 className="text-xl font-semibold mb-4">Management</h3>
+                    {renderUserGrid(adminAndManagerUsers, 'Management')}
+                </div>
+                <div>
+                    <h3 className="text-xl font-semibold mb-4">Engineers</h3>
+                    {renderUserGrid(engineerUsers, 'Engineers')}
+                </div>
+              </div>
+            </TabsContent>
+            <TabsContent value="pending" className="mt-6">
+               <div className="space-y-8">
+                  {usersToDisplay.length > 0 ? (
+                    <>
+                      <div>
+                          <h3 className="text-xl font-semibold mb-4">Management</h3>
+                          {renderUserGrid(adminAndManagerUsers, 'Management')}
+                      </div>
+                      <div>
+                          <h3 className="text-xl font-semibold mb-4">Engineers</h3>
+                          {renderUserGrid(engineerUsers, 'Engineers')}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center">
+                      <Users className="mx-auto h-12 w-12 text-muted-foreground" />
+                      <h3 className="mt-4 text-lg font-semibold">No Pending Applications</h3>
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        There are no new user registrations to approve.
+                      </p>
+                    </div>
+                  )}
+               </div>
+            </TabsContent>
+          </Tabs>
         )}
       </CardContent>
     </Card>
