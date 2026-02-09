@@ -26,6 +26,7 @@ import { format } from 'date-fns';
 import { Input } from '@/components/ui/input';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Spinner } from '@/components/shared/spinner';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 
 export default function UserManagementPage() {
@@ -261,7 +262,7 @@ export default function UserManagementPage() {
               <TableHead>Role</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Trade</TableHead>
-              {isOwner && <TableHead className="text-right">Actions</TableHead>}
+              <TableHead className="text-right">Actions</TableHead>
               </TableRow>
           </TableHeader>
           <TableBody>
@@ -286,9 +287,9 @@ export default function UserManagementPage() {
                     </TableCell>
                     <TableCell>
                         {user.role === 'owner' ? (
-                            <Badge variant="default">Owner</Badge>
-                        ) : (isOwner && currentUserProfile?.uid !== user.uid) ? (
-                            <Select
+                            <Badge variant="default" className="capitalize">Owner</Badge>
+                        ) : isOwner ? (
+                             <Select
                                 value={user.role}
                                 onValueChange={(value) => handleRoleChange(user.uid, value as UserProfile['role'])}
                             >
@@ -304,9 +305,7 @@ export default function UserManagementPage() {
                                 </SelectContent>
                             </Select>
                         ) : (
-                            <Badge variant={user.role === 'admin' ? 'secondary' : 'outline'} className="capitalize">
-                                {user.role === 'user' ? 'Engineer' : user.role}
-                            </Badge>
+                            <Badge variant={user.role === 'admin' || user.role === 'manager' ? 'secondary' : 'outline'} className="capitalize">{user.role === 'user' ? 'Engineer' : user.role}</Badge>
                         )}
                     </TableCell>
                     <TableCell>
@@ -326,26 +325,47 @@ export default function UserManagementPage() {
                           )}
                       </TableCell>
                     <TableCell className="text-right">
-                        {isOwner && user.uid !== currentUserProfile?.uid && user.role !== 'owner' && (
+                        {isOwner && user.uid !== currentUserProfile?.uid && (
                           <div className="flex gap-2 justify-end">
-                            <Button variant="outline" size="sm" onClick={() => handleUserStatusChange(user.uid, user.status)}>
-                                {user.status === 'suspended' || user.status === 'pending-approval' ? 'Activate' : 'Suspend'}
-                            </Button>
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button variant="destructive" size="sm"><Trash2 className="h-4 w-4" /></Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                                  <AlertDialogDescription>This will permanently delete the user "{user.name}". This action cannot be undone.</AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                  <AlertDialogAction onClick={() => handleDeleteUser(user.uid)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
+                            {user.role === 'owner' ? (
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button variant="secondary" size="sm">Manage</Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent>
+                                        <DropdownMenuLabel>Change Role</DropdownMenuLabel>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuRadioGroup value={user.role} onValueChange={(value) => handleRoleChange(user.uid, value as UserProfile['role'])}>
+                                            <DropdownMenuRadioItem value="user">Engineer</DropdownMenuRadioItem>
+                                            <DropdownMenuRadioItem value="TLO">TLO</DropdownMenuRadioItem>
+                                            <DropdownMenuRadioItem value="manager">Manager</DropdownMenuRadioItem>
+                                            <DropdownMenuRadioItem value="admin">Admin</DropdownMenuRadioItem>
+                                            <DropdownMenuRadioItem value="owner">Owner</DropdownMenuRadioItem>
+                                        </DropdownMenuRadioGroup>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            ) : (
+                                <>
+                                <Button variant="outline" size="sm" onClick={() => handleUserStatusChange(user.uid, user.status)}>
+                                    {user.status === 'suspended' || user.status === 'pending-approval' ? 'Activate' : 'Suspend'}
+                                </Button>
+                                <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                    <Button variant="destructive" size="sm"><Trash2 className="h-4 w-4" /></Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                    <AlertDialogDescription>This will permanently delete the user "{user.name}". This action cannot be undone.</AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction onClick={() => handleDeleteUser(user.uid)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+                                    </AlertDialogFooter>
+                                </AlertDialogContent>
+                                </AlertDialog>
+                                </>
+                            )}
                           </div>
                         )}
                     </TableCell>
@@ -371,28 +391,26 @@ export default function UserManagementPage() {
                 <div className="flex items-center gap-2">
                   <strong className="shrink-0">Role:</strong>
                   {user.role === 'owner' ? (
-                        <Badge variant="default">Owner</Badge>
-                    ) : (isOwner && currentUserProfile?.uid !== user.uid) ? (
-                        <Select
-                            value={user.role}
-                            onValueChange={(value) => handleRoleChange(user.uid, value as UserProfile['role'])}
-                        >
-                            <SelectTrigger className="h-8 text-xs">
-                                <SelectValue placeholder="Set Role" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="user">Engineer</SelectItem>
-                                <SelectItem value="TLO">TLO</SelectItem>
-                                <SelectItem value="manager">Manager</SelectItem>
-                                <SelectItem value="admin">Admin</SelectItem>
-                                <SelectItem value="owner">Owner</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    ) : (
-                        <Badge variant={user.role === 'admin' ? 'secondary' : 'outline'} className="capitalize">
-                            {user.role === 'user' ? 'Engineer' : user.role}
-                        </Badge>
-                    )}
+                    <Badge variant="default" className="capitalize">Owner</Badge>
+                  ) : isOwner ? (
+                      <Select
+                          value={user.role}
+                          onValueChange={(value) => handleRoleChange(user.uid, value as UserProfile['role'])}
+                      >
+                          <SelectTrigger className="h-8 text-xs">
+                              <SelectValue placeholder="Set Role" />
+                          </SelectTrigger>
+                          <SelectContent>
+                              <SelectItem value="user">Engineer</SelectItem>
+                              <SelectItem value="TLO">TLO</SelectItem>
+                              <SelectItem value="manager">Manager</SelectItem>
+                              <SelectItem value="admin">Admin</SelectItem>
+                              <SelectItem value="owner">Owner</SelectItem>
+                          </SelectContent>
+                      </Select>
+                  ) : (
+                      <Badge variant={user.role === 'admin' || user.role === 'manager' ? 'secondary' : 'outline'} className="capitalize">{user.role === 'user' ? 'Engineer' : user.role}</Badge>
+                  )}
               </div>
                 
                 {isPrivilegedUser && (
@@ -420,23 +438,42 @@ export default function UserManagementPage() {
                   </>
                 )}
             </CardContent>
-            {isOwner && user.uid !== currentUserProfile?.uid && user.role !== 'owner' &&(
-              <CardFooter className="grid grid-cols-2 gap-2 p-2 bg-muted/20">
-                <Button variant="outline" size="sm" onClick={() => handleUserStatusChange(user.uid, user.status)} className="w-full">
-                    {user.status === 'suspended' || user.status === 'pending-approval' ? 'Activate' : 'Suspend'}
-                </Button>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="destructive" size="sm" className="w-full"><Trash2 className="mr-2 h-4 w-4" /> Delete</Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader><AlertDialogTitle>Are you sure?</AlertDialogTitle><AlertDialogDescription>This will permanently delete "{user.name}".</AlertDialogDescription></AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => handleDeleteUser(user.uid)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+            {isOwner && user.uid !== currentUserProfile?.uid && (
+              <CardFooter className="grid grid-cols-1 gap-2 p-2 bg-muted/20">
+                 {user.role === 'owner' ? (
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                        <Button variant="secondary" size="sm" className="w-full">Manage</Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent>
+                            <DropdownMenuRadioGroup value={user.role} onValueChange={(value) => handleRoleChange(user.uid, value as UserProfile['role'])}>
+                                <DropdownMenuRadioItem value="user">Engineer</DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem value="TLO">TLO</DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem value="manager">Manager</DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem value="admin">Admin</DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem value="owner">Owner</DropdownMenuRadioItem>
+                            </DropdownMenuRadioGroup>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                 ) : (
+                    <div className="grid grid-cols-2 gap-2">
+                        <Button variant="outline" size="sm" onClick={() => handleUserStatusChange(user.uid, user.status)} className="w-full">
+                            {user.status === 'suspended' || user.status === 'pending-approval' ? 'Activate' : 'Suspend'}
+                        </Button>
+                        <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                            <Button variant="destructive" size="sm" className="w-full"><Trash2 className="mr-2 h-4 w-4" /> Delete</Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                            <AlertDialogHeader><AlertDialogTitle>Are you sure?</AlertDialogTitle><AlertDialogDescription>This will permanently delete "{user.name}".</AlertDialogDescription></AlertDialogHeader>
+                            <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => handleDeleteUser(user.uid)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                        </AlertDialog>
+                    </div>
+                 )}
               </CardFooter>
             )}
           </Card>
