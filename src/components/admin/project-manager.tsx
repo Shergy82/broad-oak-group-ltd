@@ -21,7 +21,7 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { format } from 'date-fns';
+import { format, addDays } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -461,8 +461,7 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
     const q = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const allProjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project));
-      const activeProjects = allProjects.filter(p => !p.deletionScheduledAt);
-      setProjects(activeProjects);
+      setProjects(allProjects);
       setLoading(false);
     }, (error) => {
       console.error("Error fetching projects:", error);
@@ -601,41 +600,48 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                 </TableHeader>
                 <TableBody>
                     {filteredProjects.map(project => (
-                        <TableRow key={project.id}>
-                        <TableCell className="font-medium">{project.address}</TableCell>
-                        <TableCell>{project.eNumber}</TableCell>
-                        <TableCell>{project.manager}</TableCell>
-                        <TableCell>{project.createdAt ? format(project.createdAt.toDate(), 'dd/MM/yyyy') : 'N/A'}</TableCell>
-                        <TableCell>{project.nextReviewDate ? format(project.nextReviewDate.toDate(), 'dd/MM/yyyy') : 'N/A'}</TableCell>
-                        <TableCell className="text-right space-x-2">
-                            <Button variant="outline" size="sm" onClick={() => handleManageFiles(project)}>
-                            <FolderOpen className="mr-2 h-4 w-4" />
-                            Files
-                            </Button>
-                            {['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role) && (
-                                 <AlertDialog>
-                                    <AlertDialogTrigger asChild>
-                                        <Button variant="destructive" size="sm">
-                                            <Trash2 className="mr-2 h-4 w-4" /> Delete
-                                        </Button>
-                                    </AlertDialogTrigger>
-                                    <AlertDialogContent>
-                                        <AlertDialogHeader>
-                                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                                            <AlertDialogDescription>
-                                                This will permanently delete the project <span className="font-semibold">"{project.address}"</span> and all of its associated files. This action cannot be undone.
-                                            </AlertDialogDescription>
-                                        </AlertDialogHeader>
-                                        <AlertDialogFooter>
-                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                            <AlertDialogAction onClick={() => handleDeleteProject(project)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                                                Delete Project
-                                            </AlertDialogAction>
-                                        </AlertDialogFooter>
-                                    </AlertDialogContent>
-                                </AlertDialog>
-                            )}
-                        </TableCell>
+                        <TableRow key={project.id} className={project.deletionScheduledAt ? "bg-red-50 dark:bg-red-950/30" : ""}>
+                            <TableCell className="font-medium">
+                                {project.address}
+                                {project.deletionScheduledAt && (
+                                <p className="text-xs text-destructive font-medium mt-1">
+                                    Scheduled for deletion on {format(addDays(project.deletionScheduledAt.toDate(), 7), 'dd/MM/yyyy')}
+                                </p>
+                                )}
+                            </TableCell>
+                            <TableCell>{project.eNumber}</TableCell>
+                            <TableCell>{project.manager}</TableCell>
+                            <TableCell>{project.createdAt ? format(project.createdAt.toDate(), 'dd/MM/yyyy') : 'N/A'}</TableCell>
+                            <TableCell>{project.nextReviewDate ? format(project.nextReviewDate.toDate(), 'dd/MM/yyyy') : 'N/A'}</TableCell>
+                            <TableCell className="text-right space-x-2">
+                                <Button variant="outline" size="sm" onClick={() => handleManageFiles(project)} disabled={!!project.deletionScheduledAt}>
+                                <FolderOpen className="mr-2 h-4 w-4" />
+                                Files
+                                </Button>
+                                {['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role) && (
+                                    <AlertDialog>
+                                        <AlertDialogTrigger asChild>
+                                            <Button variant="destructive" size="sm" disabled={!!project.deletionScheduledAt}>
+                                                <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                            </Button>
+                                        </AlertDialogTrigger>
+                                        <AlertDialogContent>
+                                            <AlertDialogHeader>
+                                                <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                                <AlertDialogDescription>
+                                                    This will permanently delete the project <span className="font-semibold">"{project.address}"</span> and all of its associated files. This action cannot be undone.
+                                                </AlertDialogDescription>
+                                            </AlertDialogHeader>
+                                            <AlertDialogFooter>
+                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                <AlertDialogAction onClick={() => handleDeleteProject(project)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                                    Delete Project
+                                                </AlertDialogAction>
+                                            </AlertDialogFooter>
+                                        </AlertDialogContent>
+                                    </AlertDialog>
+                                )}
+                            </TableCell>
                         </TableRow>
                     ))}
                 </TableBody>
@@ -645,7 +651,7 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
             {/* Mobile Card View */}
             <div className="grid gap-4 md:hidden">
                 {filteredProjects.map(project => (
-                    <Card key={project.id}>
+                    <Card key={project.id} className={project.deletionScheduledAt ? "border-destructive bg-destructive/10" : ""}>
                         <CardHeader>
                             <CardTitle>{project.address}</CardTitle>
                             <CardDescription>E-Number: {project.eNumber || 'N/A'}</CardDescription>
@@ -654,16 +660,21 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                              <div><strong>Manager:</strong> {project.manager || 'N/A'}</div>
                              <div><strong>Created:</strong> {project.createdAt ? format(project.createdAt.toDate(), 'dd/MM/yyyy') : 'N/A'}</div>
                              <div><strong>Next Review:</strong> {project.nextReviewDate ? format(project.nextReviewDate.toDate(), 'dd/MM/yyyy') : 'N/A'}</div>
+                             {project.deletionScheduledAt && (
+                                <div className="mt-2 text-sm text-destructive font-semibold border-t pt-2">
+                                    Scheduled for deletion on {format(addDays(project.deletionScheduledAt.toDate(), 7), 'dd/MM/yyyy')}
+                                </div>
+                                )}
                         </CardContent>
                         <CardFooter className="grid grid-cols-2 gap-2">
-                            <Button variant="outline" className="w-full" onClick={() => handleManageFiles(project)}>
+                            <Button variant="outline" className="w-full" onClick={() => handleManageFiles(project)} disabled={!!project.deletionScheduledAt}>
                                 <FolderOpen className="mr-2 h-4 w-4" />
                                 Manage Files
                             </Button>
                              {['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role) && (
                                 <AlertDialog>
                                     <AlertDialogTrigger asChild>
-                                        <Button variant="destructive" className="w-full">
+                                        <Button variant="destructive" className="w-full" disabled={!!project.deletionScheduledAt}>
                                             <Trash2 className="mr-2 h-4 w-4" /> Delete
                                         </Button>
                                     </AlertDialogTrigger>
