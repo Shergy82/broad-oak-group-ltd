@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/dialog';
 import { Badge } from '../ui/badge';
 import { ScrollArea } from '../ui/scroll-area';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
 
 interface AvailableUser {
@@ -69,49 +70,52 @@ const UserAvatarList = ({ users, category, onUserClick }: { users: AvailableUser
         );
     }
     return (
-        <div className="w-full rounded-md border p-4">
-            <div className="flex flex-wrap gap-x-6 gap-y-4">
-                {filteredUsers.map((availableUser) => {
-                    const { user, shifts, availability } = availableUser;
-                    
-                    const uniqueAddresses = [...new Set(shifts.map(s => s.address).filter(Boolean))];
-                    
-                    const isClickable = availability !== 'full';
-                    return (
-                        <div 
-                            key={user.uid} 
-                            className={cn(
-                                "flex flex-col items-center text-center gap-2 w-24",
-                                isClickable && "cursor-pointer rounded-md p-1 hover:bg-muted"
-                            )}
-                            onClick={() => isClickable && onUserClick(availableUser)}
-                        >
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+            {filteredUsers.map((availableUser) => {
+                const { user, shifts, availability } = availableUser;
+                
+                const uniqueAddresses = [...new Set(shifts.map(s => s.address).filter(Boolean))];
+                
+                const isClickable = availability !== 'full';
+                return (
+                    <Card 
+                        key={user.uid} 
+                        className={cn(
+                            "overflow-hidden text-center",
+                            isClickable && "cursor-pointer transition-all hover:shadow-md hover:border-primary/50"
+                        )}
+                        onClick={() => isClickable && onUserClick(availableUser)}
+                    >
+                        <CardContent className="p-4 flex flex-col items-center justify-center gap-3">
                             <Avatar className="h-16 w-16 text-lg">
                                 <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
                             </Avatar>
-                            <div className="flex flex-col">
-                                <p className="text-sm font-medium truncate w-full">{user.name}</p>
+                            <div className="flex flex-col items-center space-y-1">
+                                <p className="text-sm font-semibold truncate w-full max-w-[150px]">{user.name}</p>
                                 {uniqueAddresses.length > 0 && (
-                                    <div className="flex flex-col items-center justify-center gap-1 text-xs text-muted-foreground">
-                                        <MapPin className="h-3 w-3 shrink-0" />
-                                        {uniqueAddresses.length === 1 ? (
-                                            <span className="truncate">{uniqueAddresses[0]}</span>
-                                        ) : (
-                                            <div className="flex flex-col">
-                                                {uniqueAddresses.map(addr => extractPostcode(addr)).filter(Boolean).map((postcode, idx) => (
-                                                    <span key={idx} className="truncate">{postcode}</span>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
+                                    <TooltipProvider>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                                    <MapPin className="h-3 w-3 shrink-0" />
+                                                    <span className="truncate max-w-[120px]">
+                                                        {uniqueAddresses.length === 1 ? extractPostcode(uniqueAddresses[0]) || uniqueAddresses[0] : `${uniqueAddresses.length} locations`}
+                                                    </span>
+                                                </div>
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                                {uniqueAddresses.map((addr, i) => <p key={i}>{addr}</p>)}
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </TooltipProvider>
                                 )}
-                                {availability === 'am' && <p className="text-xs font-semibold text-sky-600">AM Free</p>}
-                                {availability === 'pm' && <p className="text-xs font-semibold text-orange-600">PM Free</p>}
                             </div>
-                        </div>
-                    )
-                })}
-            </div>
+                            {availability === 'am' && <Badge variant="outline" className="text-sky-600 border-sky-200 bg-sky-50 dark:bg-sky-900/50 dark:text-sky-300 dark:border-sky-800">AM Free</Badge>}
+                            {availability === 'pm' && <Badge variant="outline" className="text-orange-600 border-orange-200 bg-orange-50 dark:bg-orange-900/50 dark:text-orange-300 dark:border-orange-800">PM Free</Badge>}
+                        </CardContent>
+                    </Card>
+                )
+            })}
         </div>
     )
 }
