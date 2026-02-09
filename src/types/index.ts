@@ -44,6 +44,7 @@ export interface UserProfile {
   employmentType?: 'direct' | 'subbie';
   operativeId?: string;
   trade?: string;
+  department?: string;
 }
 
 /* =========================
