@@ -285,7 +285,7 @@ export default function UserManagementPage() {
     return (
       <Tabs defaultValue={userList[0].uid} className="w-full">
         <ScrollArea className="w-full whitespace-nowrap">
-          <TabsList>
+          <TabsList className="justify-start">
             {userList.map((user) => (
               <TabsTrigger key={user.uid} value={user.uid} className="gap-2">
                 <Avatar className="h-6 w-6">
@@ -345,20 +345,22 @@ export default function UserManagementPage() {
                         ) : ( <p className="text-sm text-muted-foreground pt-2">{user.operativeId || 'N/A'}</p> )}
                     </div>
                     
-                    {/* Trade */}
-                     <div className="space-y-1.5">
-                        <Label>Trade</Label>
+                    {/* Trade / Dept */}
+                    <div className="space-y-1.5">
+                        <Label>Trade / Department</Label>
+                        <div className="flex gap-2">
                         {isPrivilegedUser ? (
-                          <Input defaultValue={user.trade || ''} onBlur={(e) => handleTradeChange(user.uid, e.target.value)} placeholder="Set Trade" className="w-[180px]"/>
-                        ) : ( <p className="text-sm text-muted-foreground pt-2">{user.trade || 'N/A'}</p> )}
-                    </div>
-                    
-                    {/* Department */}
-                     <div className="space-y-1.5">
-                        <Label>Department</Label>
-                        {isPrivilegedUser ? (
-                          <Input defaultValue={user.department || ''} onBlur={(e) => handleDepartmentChange(user.uid, e.target.value)} placeholder="Set Department" className="w-[180px]"/>
-                        ) : ( <p className="text-sm text-muted-foreground pt-2">{user.department || 'N/A'}</p> )}
+                          <>
+                            <Input defaultValue={user.trade || ''} onBlur={(e) => handleTradeChange(user.uid, e.target.value)} placeholder="Set Trade" className="w-[180px]"/>
+                            <Input defaultValue={user.department || ''} onBlur={(e) => handleDepartmentChange(user.uid, e.target.value)} placeholder="Set Department" className="w-[180px]"/>
+                          </>
+                        ) : ( 
+                            <div className="flex gap-2 pt-2">
+                                <p className="text-sm text-muted-foreground">{user.trade || 'N/A'}</p>
+                                <p className="text-sm text-muted-foreground">/ {user.department || 'N/A'}</p>
+                            </div>
+                        )}
+                        </div>
                     </div>
                  </div>
               </CardContent>
@@ -438,3 +440,5 @@ export default function UserManagementPage() {
     </Card>
   );
 }
+
+  
