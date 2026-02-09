@@ -4,12 +4,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { functions, httpsCallable } from '@/lib/firebase';
+
 import type {
   PushSubscriptionPayload,
   VapidKeyResponse,
-  SetStatusRequest,
   GenericResponse,
 } from '@/types';
+
+/* =========================
+   Helpers
+   ========================= */
 
 /**
  * Convert base64 (URL-safe) VAPID public key to Uint8Array for PushManager
@@ -19,25 +23,50 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
   const rawData = atob(base64);
   const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
   return outputArray;
 }
 
-// Stable-ish short id from endpoint so the same device/browser maps to the same record.
+/**
+ * Stable-ish short id from endpoint so the same device/browser maps to the same record.
+ */
 function endpointToId(endpoint: string) {
   let h = 0;
-  for (let i = 0; i < endpoint.length; i++) h = (h * 31 + endpoint.charCodeAt(i)) | 0;
+  for (let i = 0; i < endpoint.length; i++) {
+    h = (h * 31 + endpoint.charCodeAt(i)) | 0;
+  }
   return Math.abs(h).toString(36);
 }
 
 function fmtCallableError(err: any): string {
-  // Firebase callable errors usually have: code, message, details
   const code = err?.code || err?.name;
   const msg = err?.message || String(err);
   const details =
-    err?.details ? (typeof err.details === 'string' ? err.details : JSON.stringify(err.details)) : '';
+    err?.details
+      ? typeof err.details === 'string'
+        ? err.details
+        : JSON.stringify(err.details)
+      : '';
   return [code, msg, details].filter(Boolean).join(' | ');
 }
+
+/* =========================
+   Correct request contract
+   ========================= */
+
+type SetNotificationStatusRequest = {
+  status: 'subscribed' | 'unsubscribed';
+  uid: string;
+  subId: string;
+  subscription?: PushSubscriptionPayload;
+  endpoint?: string;
+};
+
+/* =========================
+   Hook
+   ========================= */
 
 export function usePushNotifications() {
   const { toast } = useToast();
@@ -52,7 +81,11 @@ export function usePushNotifications() {
 
   const isSupported = useMemo(() => {
     if (typeof window === 'undefined') return false;
-    return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+    return (
+      'serviceWorker' in navigator &&
+      'PushManager' in window &&
+      'Notification' in window
+    );
   }, []);
 
   const refreshLocalSubscriptionState = useCallback(async () => {
@@ -96,7 +129,8 @@ export function usePushNotifications() {
         toast({
           variant: 'destructive',
           title: 'Notification Error',
-          description: 'Could not load notification configuration from the server.',
+          description:
+            'Could not load notification configuration from the server.',
         });
       } finally {
         setIsKeyLoading(false);
@@ -105,6 +139,10 @@ export function usePushNotifications() {
 
     void fetchKey();
   }, [isSupported, functions, toast]);
+
+  /* =========================
+     Subscribe
+     ========================= */
 
   const subscribe = useCallback(async () => {
     if (!isSupported || !user || !vapidKey || !functions) {
@@ -119,7 +157,6 @@ export function usePushNotifications() {
     setIsSubscribing(true);
 
     try {
-      // Permission
       const currentPermission = await Notification.requestPermission();
       setPermission(currentPermission);
 
@@ -131,7 +168,6 @@ export function usePushNotifications() {
         return;
       }
 
-      // SW registration + subscription
       const registration = await navigator.serviceWorker.ready;
       const existing = await registration.pushManager.getSubscription();
 
@@ -145,33 +181,20 @@ export function usePushNotifications() {
         }));
 
       const subJson = subscription.toJSON() as PushSubscriptionPayload;
-
-      // Callable
-      type SetStatusRequestExt = SetStatusRequest & { uid: string; subId: string };
-
-      const setStatus = httpsCallable<SetStatusRequestExt, GenericResponse>(
-        functions,
-        'setNotificationStatus'
-      );
-
       const subId = `${user.uid}_${endpointToId(subscription.endpoint)}`;
 
-      console.log('[push] calling setNotificationStatus(subscribed)', {
-        uid: user.uid,
-        subId,
-        endpoint: subscription.endpoint,
-      });
+      const setStatus = httpsCallable<
+        SetNotificationStatusRequest,
+        GenericResponse
+      >(functions, 'setNotificationStatus');
 
-      const res = await setStatus({
+      await setStatus({
         status: 'subscribed',
         uid: user.uid,
         subId,
         subscription: subJson,
       });
 
-      console.log('[push] setNotificationStatus result:', res?.data);
-
-      // Confirm by re-reading local subscription (browser-side)
       await refreshLocalSubscriptionState();
 
       toast({
@@ -187,12 +210,15 @@ export function usePushNotifications() {
         variant: 'destructive',
       });
 
-      // keep UI honest
       await refreshLocalSubscriptionState();
     } finally {
       setIsSubscribing(false);
     }
   }, [isSupported, user, vapidKey, functions, toast, refreshLocalSubscriptionState]);
+
+  /* =========================
+     Unsubscribe
+     ========================= */
 
   const unsubscribe = useCallback(async () => {
     if (!isSupported || !user || !functions) return;
@@ -215,28 +241,19 @@ export function usePushNotifications() {
       const endpoint = subscription.endpoint;
       await subscription.unsubscribe();
 
-      type SetStatusRequestExt = SetStatusRequest & { uid: string; subId: string };
-      const setStatus = httpsCallable<SetStatusRequestExt, GenericResponse>(
-        functions,
-        'setNotificationStatus'
-      );
-
       const subId = `${user.uid}_${endpointToId(endpoint)}`;
 
-      console.log('[push] calling setNotificationStatus(unsubscribed)', {
-        uid: user.uid,
-        subId,
-        endpoint,
-      });
+      const setStatus = httpsCallable<
+        SetNotificationStatusRequest,
+        GenericResponse
+      >(functions, 'setNotificationStatus');
 
-      const res = await setStatus({
+      await setStatus({
         status: 'unsubscribed',
         uid: user.uid,
         subId,
         endpoint,
-      } as any);
-
-      console.log('[push] setNotificationStatus result:', res?.data);
+      });
 
       await refreshLocalSubscriptionState();
 
