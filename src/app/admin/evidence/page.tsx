@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { collection, onSnapshot, query, orderBy, doc, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, doc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Project, EvidenceChecklist, ProjectFile } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -24,61 +24,68 @@ interface ProjectWithEvidence extends Project {
 export default function EvidencePage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [evidenceChecklists, setEvidenceChecklists] = useState<Map<string, EvidenceChecklist>>(new Map());
-  const [allFiles, setAllFiles] = useState<ProjectFile[]>([]);
+  const [allFiles, setAllFiles] = useState<Map<string, ProjectFile>>(new Map());
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [editingChecklist, setEditingChecklist] = useState<string | null>(null);
 
+  // Effect 1: Listen to primary data sources (projects and checklists).
   useEffect(() => {
-    if (!db) {
-      setLoading(false);
-      return;
-    }
-
+    setLoading(true);
     const projectsQuery = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
-    const unsubProjects = onSnapshot(projectsQuery, (projectsSnapshot) => {
-      const fetchedProjects = projectsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project));
-      setProjects(fetchedProjects);
-
-      if (fetchedProjects.length > 0) {
-        const fetchAllFiles = async () => {
-          const allProjectFiles: ProjectFile[] = [];
-          for (const project of fetchedProjects) {
-            const filesQuery = query(collection(db, `projects/${project.id}/files`));
-            const filesSnapshot = await getDocs(filesQuery);
-            filesSnapshot.forEach(doc => {
-              allProjectFiles.push({ id: doc.id, ...doc.data() } as ProjectFile);
-            });
-          }
-          setAllFiles(allProjectFiles);
-          setLoading(false);
-        };
-        
-        fetchAllFiles();
-      } else {
-        setAllFiles([]);
-        setLoading(false);
-      }
-    }, (error) => {
-      console.error("Error fetching projects:", error);
-      setLoading(false);
-    });
+    const unsubProjects = onSnapshot(projectsQuery, 
+      (snapshot) => setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project))),
+      (err) => console.error("Error fetching projects:", err)
+    );
 
     const checklistsQuery = query(collection(db, 'evidence_checklists'));
     const unsubChecklists = onSnapshot(checklistsQuery, (snapshot) => {
         const checklistsMap = new Map<string, EvidenceChecklist>();
-        snapshot.docs.forEach(doc => {
-            checklistsMap.set(doc.id, doc.data() as EvidenceChecklist);
-        });
+        snapshot.docs.forEach(doc => checklistsMap.set(doc.id, doc.data() as EvidenceChecklist));
         setEvidenceChecklists(checklistsMap);
     });
-
 
     return () => {
         unsubProjects();
         unsubChecklists();
     };
   }, []);
+
+  // Effect 2: Listen to all file subcollections based on the current projects.
+  // This provides real-time updates for newly uploaded evidence.
+  useEffect(() => {
+    if (projects.length === 0) {
+        setLoading(false); // Stop loading if there are no projects to listen to.
+        return;
+    }
+
+    const allUnsubscribers: (() => void)[] = [];
+    
+    projects.forEach(project => {
+      const filesQuery = query(collection(db, `projects/${project.id}/files`));
+      const unsubscribe = onSnapshot(filesQuery, (filesSnapshot) => {
+        setAllFiles(prevFiles => {
+          const newFiles = new Map(prevFiles);
+          filesSnapshot.docChanges().forEach((change) => {
+            const fileData = { id: change.doc.id, ...change.doc.data() } as ProjectFile;
+            if (change.type === "removed") {
+              newFiles.delete(change.doc.id);
+            } else {
+              newFiles.set(change.doc.id, fileData);
+            }
+          });
+          return newFiles;
+        });
+      });
+      allUnsubscribers.push(unsubscribe);
+    });
+
+    setLoading(false); // We have set up listeners, so we can show the UI.
+
+    return () => {
+      allUnsubscribers.forEach(unsub => unsub());
+    };
+  }, [projects]);
 
 
   const projectsWithEvidence: ProjectWithEvidence[] = useMemo(() => {
@@ -112,7 +119,7 @@ export default function EvidencePage() {
     };
 
     const projectFilesMap = new Map<string, ProjectFile[]>();
-    allFiles.forEach(file => {
+    Array.from(allFiles.values()).forEach(file => {
       const pathParts = file.fullPath?.split('/');
       if (pathParts && pathParts.length >= 3 && pathParts[0] === 'project_files') {
         const projectId = pathParts[1];
@@ -127,7 +134,7 @@ export default function EvidencePage() {
         const checklist = evidenceChecklists.get(project.contract || '');
         const files = projectFilesMap.get(project.id) || [];
         
-        if (!checklist || !checklist.items) {
+        if (!checklist || !checklist.items || checklist.items.length === 0) {
             return { ...project, evidenceStatus: [], isComplete: true };
         }
 
