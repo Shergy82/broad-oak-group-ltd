@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot, query, doc, updateDoc } from 'firebase/firestore';
 import { db, functions } from '@/lib/firebase';
 import { httpsCallable } from 'firebase/functions';
@@ -14,7 +14,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Download, Users, Trash2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { format } from 'date-fns';
 import { Input } from '@/components/ui/input';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Spinner } from '@/components/shared/spinner';
@@ -27,6 +26,7 @@ export default function UserManagementPage() {
   const [loading, setLoading] = useState(true);
   const { userProfile: currentUserProfile } = useUserProfile();
   const { toast } = useToast();
+  const [showPendingOnly, setShowPendingOnly] = useState(false);
   
   const isOwner = currentUserProfile?.role === 'owner';
   const isPrivilegedUser = isOwner || currentUserProfile?.role === 'admin' || currentUserProfile?.role === 'manager' || currentUserProfile?.role === 'TLO';
@@ -62,12 +62,22 @@ export default function UserManagementPage() {
     return () => unsubscribe();
   }, [currentUserProfile, toast]);
 
-  const adminAndManagerUsers = users.filter(user =>
+  const pendingUsers = useMemo(() => users.filter(user => user.status === 'pending-approval'), [users]);
+
+  const usersToDisplay = useMemo(() => {
+    if (showPendingOnly) {
+      return pendingUsers;
+    }
+    return users;
+  }, [users, showPendingOnly, pendingUsers]);
+
+  const adminAndManagerUsers = useMemo(() => usersToDisplay.filter(user =>
     ['admin', 'owner', 'manager', 'TLO'].includes(user.role)
-  );
-  const engineerUsers = users.filter(user =>
-    ['user'].includes(user.role)
-  );
+  ), [usersToDisplay]);
+
+  const engineerUsers = useMemo(() => usersToDisplay.filter(user =>
+    user.role === 'user'
+  ), [usersToDisplay]);
   
   const getStatusBadge = (status?: 'active' | 'suspended' | 'pending-approval') => {
       switch (status) {
@@ -147,7 +157,7 @@ export default function UserManagementPage() {
     doc.text(`User Directory`, 14, 22);
     doc.setFontSize(11);
     doc.setTextColor(100);
-    doc.text(`Generated on: ${format(generationDate, 'PPP p')}`, 14, 28);
+    doc.text(`Generated on: ${new Date(generationDate).toLocaleDateString()}`, 14, 28);
     
     let finalY = 35;
 
@@ -185,7 +195,7 @@ export default function UserManagementPage() {
     generateTableForType('Subcontractors (Subbies)', subbieUsers);
     generateTableForType('Unassigned', unassignedUsers);
     
-    doc.save(`user_directory_${format(generationDate, 'yyyy-MM-dd')}.pdf`);
+    doc.save(`user_directory_${new Date(generationDate).toISOString().slice(0,10)}.pdf`);
   };
 
   const handleUserStatusChange = async (uid: string, currentStatus: 'active' | 'suspended' | 'pending-approval' = 'pending-approval') => {
@@ -275,7 +285,7 @@ export default function UserManagementPage() {
     if (userList.length === 0) {
       return (
         <div className="border border-dashed rounded-lg p-8 text-center text-muted-foreground">
-          <p>No users in the {categoryTitle.toLowerCase()} category.</p>
+          <p>No users in this category.</p>
         </div>
       );
     }
@@ -284,47 +294,46 @@ export default function UserManagementPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
         {userList.map((user) => (
           <Card key={user.uid} className="flex flex-col text-center">
-            <CardContent className="p-6 flex-grow flex flex-col items-center">
-                <Avatar className="h-24 w-24 text-3xl mb-4">
+            <CardHeader className="relative">
+                <div className="absolute top-3 right-3">{getStatusBadge(user.status)}</div>
+                <Avatar className="h-24 w-24 text-3xl mx-auto mb-4">
                     <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
                 </Avatar>
                 <h3 className="text-xl font-semibold">{user.name}</h3>
-                <p className="text-muted-foreground capitalize">{user.trade || user.role}</p>
-                <div className="my-4">{getStatusBadge(user.status)}</div>
-
-                <div className="space-y-4 text-left w-full flex-grow">
-                    <div className="space-y-1.5">
-                        <Label className="text-xs">Role</Label>
-                        {isOwner && user.uid !== currentUserProfile?.uid ? (
-                        <Select value={user.role} onValueChange={(value) => handleRoleChange(user.uid, value as UserProfile['role'])}>
-                            <SelectTrigger className="w-full h-8 text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="user">Engineer</SelectItem>
-                                <SelectItem value="TLO">TLO</SelectItem>
-                                <SelectItem value="manager">Manager</SelectItem>
-                                <SelectItem value="admin">Admin</SelectItem>
-                                <SelectItem value="owner">Owner</SelectItem>
-                            </SelectContent>
-                        </Select>
-                        ) : (
-                        <p className="text-sm capitalize font-medium p-2 border rounded-md bg-muted/50 h-8 flex items-center">{user.role}</p>
-                        )}
-                    </div>
-                    <div className="space-y-1.5">
-                        <Label className="text-xs">Operative ID</Label>
-                        {isPrivilegedUser ? (
-                            <Input defaultValue={user.operativeId || ''} onBlur={(e) => handleOperativeIdChange(user.uid, e.target.value)} placeholder="Set ID" className="h-8 text-xs"/>
-                        ) : ( <p className="text-sm p-2 border rounded-md bg-muted/50 h-8 flex items-center">{user.operativeId || 'N/A'}</p> )}
-                    </div>
-                    <div className="space-y-1.5">
-                        <Label className="text-xs">Trade / Department</Label>
-                        {isPrivilegedUser ? (
-                            <div className="flex gap-2">
-                                <Input defaultValue={user.trade || ''} onBlur={(e) => handleTradeChange(user.uid, e.target.value)} placeholder="Trade" className="h-8 text-xs"/>
-                                <Input defaultValue={user.department || ''} onBlur={(e) => handleDepartmentChange(user.uid, e.target.value)} placeholder="Dept" className="h-8 text-xs"/>
-                            </div>
-                        ) : ( <p className="text-sm p-2 border rounded-md bg-muted/50 h-8 flex items-center">{user.trade || 'N/A'} / {user.department || 'N/A'}</p> )}
-                    </div>
+                <p className="text-muted-foreground capitalize text-sm">{user.trade || user.role}</p>
+            </CardHeader>
+            <CardContent className="p-6 flex-grow flex flex-col items-center space-y-4">
+                <div className="space-y-1.5 text-left w-full flex-grow">
+                    <Label className="text-xs">Role</Label>
+                    {isOwner && user.uid !== currentUserProfile?.uid ? (
+                    <Select value={user.role} onValueChange={(value) => handleRoleChange(user.uid, value as UserProfile['role'])}>
+                        <SelectTrigger className="w-full h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="user">Engineer</SelectItem>
+                            <SelectItem value="TLO">TLO</SelectItem>
+                            <SelectItem value="manager">Manager</SelectItem>
+                            <SelectItem value="admin">Admin</SelectItem>
+                            <SelectItem value="owner">Owner</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    ) : (
+                    <p className="text-sm capitalize font-medium p-2 border rounded-md bg-muted/50 h-8 flex items-center">{user.role}</p>
+                    )}
+                </div>
+                <div className="space-y-1.5 text-left w-full flex-grow">
+                    <Label className="text-xs">Operative ID</Label>
+                    {isPrivilegedUser ? (
+                        <Input defaultValue={user.operativeId || ''} onBlur={(e) => handleOperativeIdChange(user.uid, e.target.value)} placeholder="Set ID" className="h-8 text-xs"/>
+                    ) : ( <p className="text-sm p-2 border rounded-md bg-muted/50 h-8 flex items-center">{user.operativeId || 'N/A'}</p> )}
+                </div>
+                <div className="space-y-1.5 text-left w-full flex-grow">
+                    <Label className="text-xs">Trade / Department</Label>
+                    {isPrivilegedUser ? (
+                        <div className="flex gap-2">
+                            <Input defaultValue={user.trade || ''} onBlur={(e) => handleTradeChange(user.uid, e.target.value)} placeholder="Trade" className="h-8 text-xs"/>
+                            <Input defaultValue={user.department || ''} onBlur={(e) => handleDepartmentChange(user.uid, e.target.value)} placeholder="Dept" className="h-8 text-xs"/>
+                        </div>
+                    ) : ( <p className="text-sm p-2 border rounded-md bg-muted/50 h-8 flex items-center">{user.trade || 'N/A'} / {user.department || 'N/A'}</p> )}
                 </div>
             </CardContent>
             {isOwner && user.uid !== currentUserProfile?.uid && (
@@ -363,6 +372,12 @@ export default function UserManagementPage() {
                 </CardDescription>
             </div>
             <div className="flex gap-2">
+                {pendingUsers.length > 0 && isOwner && (
+                    <Button variant={showPendingOnly ? "secondary" : "outline"} onClick={() => setShowPendingOnly(!showPendingOnly)}>
+                        New Users
+                        <Badge className="ml-2 bg-amber-500 text-white hover:bg-amber-500">{pendingUsers.length}</Badge>
+                    </Button>
+                )}
                 <Button variant="outline" onClick={handleDownloadPdf} disabled={loading || users.length === 0}>
                     <Download className="mr-2 h-4 w-4" />
                     Directory
@@ -388,12 +403,16 @@ export default function UserManagementPage() {
         ) : (
           <div className="space-y-8">
             <div>
-                <h3 className="text-xl font-semibold mb-4">Management</h3>
+                <h3 className="text-xl font-semibold mb-4">
+                    {showPendingOnly ? `Pending Management (${adminAndManagerUsers.length})` : `Management`}
+                </h3>
                 {renderUserGrid(adminAndManagerUsers, 'Management')}
             </div>
 
             <div>
-                <h3 className="text-xl font-semibold mb-4">Engineers</h3>
+                <h3 className="text-xl font-semibold mb-4">
+                    {showPendingOnly ? `Pending Engineers (${engineerUsers.length})` : `Engineers`}
+                </h3>
                 {renderUserGrid(engineerUsers, 'Engineers')}
             </div>
           </div>
@@ -402,5 +421,3 @@ export default function UserManagementPage() {
     </Card>
   );
 }
-
-    
