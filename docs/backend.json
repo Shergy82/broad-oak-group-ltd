@@ -71,6 +71,41 @@
         }
       },
       "required": ["userId", "userName", "startDate", "endDate", "reason", "createdAt"]
+    },
+    "EvidenceChecklist": {
+      "title": "Evidence Checklist",
+      "description": "A list of required evidence items for a specific contract.",
+      "type": "object",
+      "properties": {
+        "contractName": {
+          "type": "string",
+          "description": "The name of the contract this checklist applies to."
+        },
+        "items": {
+          "type": "array",
+          "description": "A list of evidence items.",
+          "items": {
+            "$ref": "#/entities/EvidenceChecklistItem"
+          }
+        }
+      },
+      "required": ["contractName"]
+    },
+    "EvidenceChecklistItem": {
+      "title": "Evidence Checklist Item",
+      "description": "A single item in an evidence checklist.",
+      "type": "object",
+      "properties": {
+        "id": {
+            "type": "string",
+            "description": "A unique identifier for the checklist item."
+        },
+        "text": {
+          "type": "string",
+          "description": "The description of the evidence item."
+        }
+      },
+      "required": ["id", "text"]
     }
   },
   "auth": {
@@ -88,6 +123,12 @@
             "$ref": "#/entities/Unavailability"
         },
         "description": "Stores unavailability records for all users."
+    },
+    "/evidence_checklists/{contractName}": {
+      "schema": {
+        "$ref": "#/entities/EvidenceChecklist"
+      },
+      "description": "Stores the evidence checklists for each contract."
     }
   }
 }

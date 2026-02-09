@@ -13,7 +13,7 @@ service cloud.firestore {
 
     function isPrivilegedUser(uid) {
       return signedIn() &&
-        (role(uid) == 'admin' || role(uid) == 'owner' || role(uid) == 'manager');
+        (role(uid) == 'admin' || role(uid) == 'owner' || role(uid) == 'manager' || role(uid) == 'TLO');
     }
 
     // ---- USERS ----
@@ -98,6 +98,12 @@ service cloud.firestore {
     match /health_and_safety_files/{id} {
       allow read: if signedIn();
       allow create, update, delete: if role(request.auth.uid) == 'owner';
+    }
+    
+    // ---- EVIDENCE CHECKLISTS ----
+    match /evidence_checklists/{contractName} {
+        allow read: if signedIn();
+        allow write: if isPrivilegedUser(request.auth.uid);
     }
 
   }
