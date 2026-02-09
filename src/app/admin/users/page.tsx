@@ -24,7 +24,7 @@ import { Download, Users, Trash2 } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { format } from 'date-fns';
 import { Input } from '@/components/ui/input';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Spinner } from '@/components/shared/spinner';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
@@ -122,6 +122,24 @@ export default function UserManagementPage() {
         toast({ title: "Success", description: "User trade updated." });
     } catch (error: any) {
         toast({ variant: "destructive", title: "Update Failed", description: error.message || "Could not update trade." });
+    }
+  };
+
+  const handleDepartmentChange = async (uid: string, department: string) => {
+    if (!isPrivilegedUser) {
+        toast({ variant: "destructive", title: "Permission Denied", description: "You cannot change the department." });
+        return;
+    }
+    if (!db) {
+      toast({ variant: 'destructive', title: 'Database not configured' });
+      return;
+    }
+    const userDocRef = doc(db, 'users', uid);
+    try {
+        await updateDoc(userDocRef, { department });
+        toast({ title: "Success", description: "User department updated." });
+    } catch (error: any) {
+        toast({ variant: "destructive", title: "Update Failed", description: error.message || "Could not update department." });
     }
   };
   
@@ -262,6 +280,7 @@ export default function UserManagementPage() {
               <TableHead>Role</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Trade</TableHead>
+              <TableHead>Department</TableHead>
               <TableHead className="text-right">Actions</TableHead>
               </TableRow>
           </TableHeader>
@@ -286,27 +305,27 @@ export default function UserManagementPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                        {user.role === 'owner' ? (
-                            <Badge variant="default" className="capitalize">Owner</Badge>
-                        ) : isOwner ? (
-                             <Select
-                                value={user.role}
-                                onValueChange={(value) => handleRoleChange(user.uid, value as UserProfile['role'])}
-                            >
-                                <SelectTrigger className="h-8 text-xs w-[110px]">
-                                    <SelectValue placeholder="Set Role" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="user">Engineer</SelectItem>
-                                    <SelectItem value="TLO">TLO</SelectItem>
-                                    <SelectItem value="manager">Manager</SelectItem>
-                                    <SelectItem value="admin">Admin</SelectItem>
-                                    <SelectItem value="owner">Owner</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        ) : (
-                            <Badge variant={user.role === 'admin' || user.role === 'manager' ? 'secondary' : 'outline'} className="capitalize">{user.role === 'user' ? 'Engineer' : user.role}</Badge>
-                        )}
+                      {user.role === 'owner' ? (
+                          <Badge variant="default" className="capitalize">Owner</Badge>
+                      ) : isOwner ? (
+                           <Select
+                              value={user.role}
+                              onValueChange={(value) => handleRoleChange(user.uid, value as UserProfile['role'])}
+                          >
+                              <SelectTrigger className="h-8 text-xs w-[110px]">
+                                  <SelectValue placeholder="Set Role" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                  <SelectItem value="user">Engineer</SelectItem>
+                                  <SelectItem value="TLO">TLO</SelectItem>
+                                  <SelectItem value="manager">Manager</SelectItem>
+                                  <SelectItem value="admin">Admin</SelectItem>
+                                  <SelectItem value="owner">Owner</SelectItem>
+                              </SelectContent>
+                          </Select>
+                      ) : (
+                          <Badge variant={user.role === 'admin' || user.role === 'manager' ? 'secondary' : 'outline'} className="capitalize">{user.role === 'user' ? 'Engineer' : user.role}</Badge>
+                      )}
                     </TableCell>
                     <TableCell>
                         {getStatusBadge(user.status)}
@@ -324,6 +343,19 @@ export default function UserManagementPage() {
                           user.trade || <Badge variant="outline">N/A</Badge>
                           )}
                       </TableCell>
+                    <TableCell>
+                      {isPrivilegedUser ? (
+                        <Input
+                          defaultValue={user.department || ''}
+                          onBlur={(e) => handleDepartmentChange(user.uid, e.target.value)}
+                          className="h-8 w-32"
+                          placeholder="Set Department"
+                          disabled={!isPrivilegedUser}
+                        />
+                      ) : (
+                        user.department || <Badge variant="outline">N/A</Badge>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">
                         {isOwner && user.uid !== currentUserProfile?.uid && (
                           <div className="flex gap-2 justify-end">
@@ -432,6 +464,16 @@ export default function UserManagementPage() {
                           onBlur={(e) => handleTradeChange(user.uid, e.target.value)}
                           className="h-8"
                           placeholder="Set Trade"
+                          disabled={!isPrivilegedUser}
+                      />
+                    </div>
+                     <div className="flex items-center gap-2 pt-2">
+                      <strong className="shrink-0">Dept:</strong>
+                      <Input
+                          defaultValue={user.department || ''}
+                          onBlur={(e) => handleDepartmentChange(user.uid, e.target.value)}
+                          className="h-8"
+                          placeholder="Set Department"
                           disabled={!isPrivilegedUser}
                       />
                     </div>
