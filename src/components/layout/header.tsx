@@ -33,6 +33,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { GlobalShiftImporter } from '@/components/admin/global-shift-importer';
 
 export function Header() {
   const { user } = useAuth();
@@ -58,9 +59,15 @@ export function Header() {
   };
 
   return (
-    <header className="sticky top-0 flex h-16 items-center gap-4 border-b bg-background/80 backdrop-blur-sm px-4 md:px-6 z-50">
-      <Logo />
-      <div className="flex w-full items-center justify-end gap-2 md:gap-4">
+    <header className="sticky top-0 flex h-16 items-center justify-between gap-4 border-b bg-background/80 backdrop-blur-sm px-4 md:px-6 z-50">
+      <div className="flex items-center gap-4">
+        <Logo />
+        {isPrivilegedUser && userProfile && (
+          <GlobalShiftImporter userProfile={userProfile} />
+        )}
+      </div>
+
+      <div className="flex items-center gap-2 md:gap-4">
         {user && (
           <>
             <NotificationButton />

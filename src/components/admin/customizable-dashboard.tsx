@@ -10,7 +10,6 @@ import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { LayoutGrid, Settings, AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ShiftImporter } from './shift-importer';
 import { AvailabilityOverview } from './availability-overview';
 import { PerformanceDashboard } from './performance-dashboard';
 import { ContractStatsDashboard } from './contract-stats-dashboard';
@@ -18,7 +17,7 @@ import { TaskManager } from './task-manager';
 import { ProjectManager } from './project-manager';
 import { Spinner } from '../shared/spinner';
 
-type WidgetKey = 'importer' | 'availability' | 'performance' | 'contracts' | 'tasks' | 'projects';
+type WidgetKey = 'availability' | 'performance' | 'contracts' | 'tasks' | 'projects';
 
 interface Widget {
   key: WidgetKey;
@@ -27,7 +26,6 @@ interface Widget {
 }
 
 const ALL_WIDGETS: Widget[] = [
-  { key: 'importer', title: 'Shift Importer', description: 'Bulk import shifts from an Excel file.' },
   { key: 'availability', title: 'Today\'s Availability', description: 'Quick overview of operative availability today.' },
   { key: 'performance', title: 'Operative Performance', description: 'KPIs for all users, ranked.' },
   { key: 'contracts', title: 'Contract Dashboard', description: 'High-level statistics for each contract.' },
@@ -38,7 +36,6 @@ const ALL_WIDGETS: Widget[] = [
 const LS_KEY = 'admin_dashboard_widgets_v2';
 
 const WIDGET_COMPONENTS: Record<WidgetKey, React.ComponentType<{ userProfile: UserProfile }>> = {
-    importer: ShiftImporter,
     availability: AvailabilityOverview as any,
     performance: PerformanceDashboard as any,
     contracts: ContractStatsDashboard as any,
@@ -62,11 +59,11 @@ export function CustomizableDashboard() {
         setEnabledWidgets(new Set(validKeys));
       } else {
         // Default widgets
-        setEnabledWidgets(new Set(['importer', 'availability', 'projects']));
+        setEnabledWidgets(new Set(['availability', 'projects']));
       }
     } catch (e) {
       console.error("Failed to load dashboard config from localStorage", e);
-      setEnabledWidgets(new Set(['importer', 'availability', 'projects']));
+      setEnabledWidgets(new Set(['availability', 'projects']));
     }
   }, []);
 
