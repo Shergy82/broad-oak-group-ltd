@@ -18,8 +18,6 @@ import { format } from 'date-fns';
 import { Input } from '@/components/ui/input';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Spinner } from '@/components/shared/spinner';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Label } from '@/components/ui/label';
 
@@ -273,7 +271,7 @@ export default function UserManagementPage() {
       .toUpperCase();
   };
 
-  const renderUserTabs = (userList: UserProfile[], categoryTitle: string) => {
+  const renderUserGrid = (userList: UserProfile[], categoryTitle: string) => {
     if (userList.length === 0) {
       return (
         <div className="border border-dashed rounded-lg p-8 text-center text-muted-foreground">
@@ -283,110 +281,74 @@ export default function UserManagementPage() {
     }
 
     return (
-      <Tabs defaultValue={userList[0].uid} className="w-full">
-        <ScrollArea className="w-full whitespace-nowrap">
-          <TabsList className="justify-start">
-            {userList.map((user) => (
-              <TabsTrigger key={user.uid} value={user.uid} className="gap-2">
-                <Avatar className="h-6 w-6">
-                  <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
-                </Avatar>
-                {user.name}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-          <ScrollBar orientation="horizontal" />
-        </ScrollArea>
-        
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
         {userList.map((user) => (
-          <TabsContent key={user.uid} value={user.uid} className="mt-4">
-            <Card>
-              <CardHeader>
-                <div className="flex items-start gap-4">
-                    <Avatar className="h-20 w-20 text-xl">
-                      <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
-                    </Avatar>
-                    <div className="flex-grow">
-                        <CardTitle className="text-2xl">{user.name}</CardTitle>
-                        <CardDescription>{user.email}</CardDescription>
-                        <CardDescription>{user.phoneNumber || 'No phone number'}</CardDescription>
-                        <div className="mt-2">{getStatusBadge(user.status)}</div>
+          <Card key={user.uid} className="flex flex-col text-center">
+            <CardContent className="p-6 flex-grow flex flex-col items-center">
+                <Avatar className="h-24 w-24 text-3xl mb-4">
+                    <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
+                </Avatar>
+                <h3 className="text-xl font-semibold">{user.name}</h3>
+                <p className="text-muted-foreground capitalize">{user.trade || user.role}</p>
+                <div className="my-4">{getStatusBadge(user.status)}</div>
+
+                <div className="space-y-4 text-left w-full flex-grow">
+                    <div className="space-y-1.5">
+                        <Label className="text-xs">Role</Label>
+                        {isOwner && user.uid !== currentUserProfile?.uid ? (
+                        <Select value={user.role} onValueChange={(value) => handleRoleChange(user.uid, value as UserProfile['role'])}>
+                            <SelectTrigger className="w-full h-8 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="user">Engineer</SelectItem>
+                                <SelectItem value="TLO">TLO</SelectItem>
+                                <SelectItem value="manager">Manager</SelectItem>
+                                <SelectItem value="admin">Admin</SelectItem>
+                                <SelectItem value="owner">Owner</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        ) : (
+                        <p className="text-sm capitalize font-medium p-2 border rounded-md bg-muted/50 h-8 flex items-center">{user.role}</p>
+                        )}
+                    </div>
+                    <div className="space-y-1.5">
+                        <Label className="text-xs">Operative ID</Label>
+                        {isPrivilegedUser ? (
+                            <Input defaultValue={user.operativeId || ''} onBlur={(e) => handleOperativeIdChange(user.uid, e.target.value)} placeholder="Set ID" className="h-8 text-xs"/>
+                        ) : ( <p className="text-sm p-2 border rounded-md bg-muted/50 h-8 flex items-center">{user.operativeId || 'N/A'}</p> )}
+                    </div>
+                    <div className="space-y-1.5">
+                        <Label className="text-xs">Trade / Department</Label>
+                        {isPrivilegedUser ? (
+                            <div className="flex gap-2">
+                                <Input defaultValue={user.trade || ''} onBlur={(e) => handleTradeChange(user.uid, e.target.value)} placeholder="Trade" className="h-8 text-xs"/>
+                                <Input defaultValue={user.department || ''} onBlur={(e) => handleDepartmentChange(user.uid, e.target.value)} placeholder="Dept" className="h-8 text-xs"/>
+                            </div>
+                        ) : ( <p className="text-sm p-2 border rounded-md bg-muted/50 h-8 flex items-center">{user.trade || 'N/A'} / {user.department || 'N/A'}</p> )}
                     </div>
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {/* Role */}
-                    <div className="space-y-1.5">
-                        <Label>Role</Label>
-                        <div>
-                            {isOwner && user.uid !== currentUserProfile?.uid ? (
-                            <Select value={user.role} onValueChange={(value) => handleRoleChange(user.uid, value as UserProfile['role'])}>
-                                <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="user">Engineer</SelectItem>
-                                    <SelectItem value="TLO">TLO</SelectItem>
-                                    <SelectItem value="manager">Manager</SelectItem>
-                                    <SelectItem value="admin">Admin</SelectItem>
-                                    <SelectItem value="owner">Owner</SelectItem>
-                                </SelectContent>
-                            </Select>
-                            ) : (
-                            <Badge variant={user.role === 'owner' ? 'default' : 'secondary'} className="capitalize text-sm p-2">{user.role}</Badge>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Operative ID */}
-                     <div className="space-y-1.5">
-                        <Label>Operative ID</Label>
-                        {isPrivilegedUser ? (
-                          <Input defaultValue={user.operativeId || ''} onBlur={(e) => handleOperativeIdChange(user.uid, e.target.value)} placeholder="Set ID" className="w-[180px]"/>
-                        ) : ( <p className="text-sm text-muted-foreground pt-2">{user.operativeId || 'N/A'}</p> )}
-                    </div>
-                    
-                    {/* Trade / Dept */}
-                    <div className="space-y-1.5">
-                        <Label>Trade / Department</Label>
-                        <div className="flex gap-2">
-                        {isPrivilegedUser ? (
-                          <>
-                            <Input defaultValue={user.trade || ''} onBlur={(e) => handleTradeChange(user.uid, e.target.value)} placeholder="Set Trade" className="w-[180px]"/>
-                            <Input defaultValue={user.department || ''} onBlur={(e) => handleDepartmentChange(user.uid, e.target.value)} placeholder="Set Department" className="w-[180px]"/>
-                          </>
-                        ) : ( 
-                            <div className="flex gap-2 pt-2">
-                                <p className="text-sm text-muted-foreground">{user.trade || 'N/A'}</p>
-                                <p className="text-sm text-muted-foreground">/ {user.department || 'N/A'}</p>
-                            </div>
-                        )}
-                        </div>
-                    </div>
-                 </div>
-              </CardContent>
-              {isOwner && user.uid !== currentUserProfile?.uid && (
-                <CardFooter className="bg-muted/50 p-4 border-t justify-end">
-                  <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => handleUserStatusChange(user.uid, user.status)}>
-                          {user.status === 'suspended' || user.status === 'pending-approval' ? 'Activate' : 'Suspend'}
-                      </Button>
-                      <AlertDialog>
-                          <AlertDialogTrigger asChild><Button variant="destructive" size="sm"><Trash2 className="mr-2 h-4 w-4" /> Delete User</Button></AlertDialogTrigger>
-                          <AlertDialogContent>
-                              <AlertDialogHeader><AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle><AlertDialogDescription>This will permanently delete the user "{user.name}" and all their associated data. This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
-                              <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                  <AlertDialogAction onClick={() => handleDeleteUser(user.uid)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
-                              </AlertDialogFooter>
-                          </AlertDialogContent>
-                      </AlertDialog>
-                  </div>
-                </CardFooter>
-              )}
-            </Card>
-          </TabsContent>
+            </CardContent>
+            {isOwner && user.uid !== currentUserProfile?.uid && (
+            <CardFooter className="p-4 border-t w-full mt-auto">
+                <div className="grid grid-cols-2 gap-2 w-full">
+                    <Button variant="outline" size="sm" onClick={() => handleUserStatusChange(user.uid, user.status)} className="w-full">
+                        {user.status === 'suspended' || user.status === 'pending-approval' ? 'Activate' : 'Suspend'}
+                    </Button>
+                    <AlertDialog>
+                        <AlertDialogTrigger asChild><Button variant="destructive" size="sm" className="w-full"><Trash2 className="mr-2 h-4 w-4" /> Delete</Button></AlertDialogTrigger>
+                        <AlertDialogContent>
+                            <AlertDialogHeader><AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle><AlertDialogDescription>This will permanently delete the user "{user.name}" and all their associated data. This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => handleDeleteUser(user.uid)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
+                </div>
+            </CardFooter>
+            )}
+          </Card>
         ))}
-      </Tabs>
+      </div>
     );
   };
   
@@ -427,12 +389,12 @@ export default function UserManagementPage() {
           <div className="space-y-8">
             <div>
                 <h3 className="text-xl font-semibold mb-4">Management</h3>
-                {renderUserTabs(adminAndManagerUsers, 'Management')}
+                {renderUserGrid(adminAndManagerUsers, 'Management')}
             </div>
 
             <div>
                 <h3 className="text-xl font-semibold mb-4">Engineers</h3>
-                {renderUserTabs(engineerUsers, 'Engineers')}
+                {renderUserGrid(engineerUsers, 'Engineers')}
             </div>
           </div>
         )}
@@ -441,4 +403,4 @@ export default function UserManagementPage() {
   );
 }
 
-  
+    
