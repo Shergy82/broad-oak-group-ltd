@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -170,10 +169,17 @@ function EvidenceReportGenerator({ project, files, onGenerated }: EvidenceReport
 function ProjectEvidenceCard({ project, checklist }: { project: Project; checklist: EvidenceChecklist | undefined }) {
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(true);
+  const [evidenceState, setEvidenceState] = useState<'incomplete' | 'ready' | 'generated'>('incomplete');
+  const [isClient, setIsClient] = useState(false);
+
   const { userProfile } = useUserProfile();
   const { toast } = useToast();
-  const [pdfGenerated, setPdfGenerated] = useState(false);
-  const [isClient, setIsClient] = useState(false);
+  
+  const LOCAL_STORAGE_KEY = 'evidence_pdf_generated_projects_v3';
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   useEffect(() => {
     setLoadingFiles(true);
@@ -191,39 +197,39 @@ function ProjectEvidenceCard({ project, checklist }: { project: Project; checkli
   }, [project.id]);
 
   useEffect(() => {
-    setIsClient(true);
-    try {
-      const generatedPdfs = JSON.parse(localStorage.getItem('evidence_pdf_generated_projects_v2') || '[]');
-      if (generatedPdfs.includes(project.id)) {
-        setPdfGenerated(true);
+    if (!isClient || loadingFiles) return;
+
+    const isChecklistMet = (() => {
+        if (!checklist || !checklist.items || checklist.items.length === 0) {
+            return true;
+        }
+        return checklist.items.every(item => 
+            files.some(file => isMatch(item.text, file.evidenceTag))
+        );
+    })();
+
+    const generatedPdfs = JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY) || '[]');
+    const isPdfGenerated = generatedPdfs.includes(project.id);
+    
+    if (!isChecklistMet) {
+      setEvidenceState('incomplete');
+    } else {
+      if (isPdfGenerated) {
+        setEvidenceState('generated');
+      } else {
+        setEvidenceState('ready');
       }
-    } catch (e) {
-      console.error("Failed to read from local storage", e);
     }
-  }, [project.id]);
+  }, [files, checklist, isClient, project.id, loadingFiles]);
 
-  const { evidenceStatus, isComplete } = useMemo(() => {
-    if (!checklist || !checklist.items || checklist.items.length === 0) {
-      return { evidenceStatus: [], isComplete: true };
-    }
-
-    const status = checklist.items.map(item => {
-      const itemIsComplete = files.some(file => isMatch(item.text, file.evidenceTag));
-      return { text: item.text, isComplete: itemIsComplete };
-    });
-
-    const overallComplete = status.every(s => s.isComplete);
-    return { evidenceStatus: status, isComplete: overallComplete };
-  }, [files, checklist]);
-  
   const onPdfGenerated = () => {
-    setPdfGenerated(true);
     try {
-      const generatedPdfs = JSON.parse(localStorage.getItem('evidence_pdf_generated_projects_v2') || '[]');
+      const generatedPdfs = JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY) || '[]');
       if (!generatedPdfs.includes(project.id)) {
         generatedPdfs.push(project.id);
-        localStorage.setItem('evidence_pdf_generated_projects_v2', JSON.stringify(generatedPdfs));
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(generatedPdfs));
       }
+      setEvidenceState('generated');
     } catch (e) {
       console.error("Failed to write to local storage", e);
     }
@@ -255,17 +261,34 @@ function ProjectEvidenceCard({ project, checklist }: { project: Project; checkli
     }
   };
 
-  const cardColorClass = !isComplete
-    ? 'bg-red-200 border-red-500' // Darker Red
-    : pdfGenerated
-    ? 'bg-green-200 border-green-500' // Green
-    : 'bg-orange-200 border-orange-500'; // Orange
+  const { evidenceStatus } = useMemo(() => {
+    if (!checklist || !checklist.items || checklist.items.length === 0) {
+      return { evidenceStatus: [] };
+    }
+    const status = checklist.items.map(item => {
+      const itemIsComplete = files.some(file => isMatch(item.text, file.evidenceTag));
+      return { text: item.text, isComplete: itemIsComplete };
+    });
+    return { evidenceStatus: status };
+  }, [files, checklist]);
+
+  const cardColorClass = {
+    incomplete: 'bg-red-400 border-red-700',
+    ready: 'bg-orange-400 border-orange-700',
+    generated: 'bg-green-400 border-green-700',
+  }[evidenceState];
+
+  const textColorClass = {
+    incomplete: 'text-red-950',
+    ready: 'text-orange-950',
+    generated: 'text-green-950',
+  }[evidenceState];
 
   return (
     <Card className={cn("hover:shadow-md transition-shadow flex flex-col", cardColorClass)}>
       <CardHeader className="p-4 pb-2">
-        <CardTitle className="text-sm font-semibold leading-tight">{project.address}</CardTitle>
-        {project.eNumber && <CardDescription className="text-xs pt-1 text-card-foreground/80">E: {project.eNumber}</CardDescription>}
+        <CardTitle className={cn("text-sm font-semibold leading-tight", textColorClass)}>{project.address}</CardTitle>
+        {project.eNumber && <CardDescription className={cn("text-xs pt-1 opacity-80", textColorClass)}>E: {project.eNumber}</CardDescription>}
       </CardHeader>
       <CardContent className="p-4 pt-2 flex-grow">
         {loadingFiles ? (
@@ -275,19 +298,19 @@ function ProjectEvidenceCard({ project, checklist }: { project: Project; checkli
         ) : evidenceStatus.length > 0 ? (
           <div className="space-y-1">
             {evidenceStatus.map(item => (
-                <div key={item.text} className={cn("flex items-center gap-2 text-xs", item.isComplete ? "text-muted-foreground" : "font-semibold text-red-800")}>
-                    {item.isComplete ? <CheckCircle className="h-3 w-3 text-green-600"/> : <XCircle className="h-3 w-3 text-red-700"/>}
+                <div key={item.text} className={cn("flex items-center gap-2 text-xs", item.isComplete ? cn(textColorClass, "opacity-70") : cn("font-semibold", textColorClass))}>
+                    {item.isComplete ? <CheckCircle className="h-3 w-3 opacity-90"/> : <XCircle className="h-3 w-3"/>}
                     <span>{item.text}</span>
                 </div>
             ))}
           </div>
-        ) : <p className="text-xs text-muted-foreground italic">No evidence checklist for this contract.</p>}
+        ) : <p className="text-xs italic">No evidence checklist for this contract.</p>}
       </CardContent>
       <CardFooter className="p-2 border-t mt-auto">
-        {isClient && isComplete && !pdfGenerated && (
+        {evidenceState === 'ready' && (
           <EvidenceReportGenerator project={project} files={files} onGenerated={onPdfGenerated} />
         )}
-        {isClient && isComplete && pdfGenerated && (
+        {evidenceState === 'generated' && (
            <AlertDialog>
               <AlertDialogTrigger asChild>
                   <Button variant="destructive" size="sm" className="w-full">
@@ -437,5 +460,3 @@ export default function EvidencePage() {
     </>
   );
 }
-
-    
