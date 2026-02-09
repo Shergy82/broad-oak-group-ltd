@@ -1,14 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import type { UserProfile } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { LayoutGrid, Settings, AlertTriangle } from 'lucide-react';
+import { LayoutGrid, Settings, AlertTriangle, ArrowUp, ArrowDown, X, Plus } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { AvailabilityOverview } from './availability-overview';
 import { PerformanceDashboard } from './performance-dashboard';
@@ -33,7 +32,7 @@ const ALL_WIDGETS: Widget[] = [
   { key: 'projects', title: 'Project Management', description: 'Create projects and manage files.' },
 ];
 
-const LS_KEY = 'admin_dashboard_widgets_v2';
+const LS_KEY = 'admin_dashboard_widgets_v3'; // Version up to avoid format conflicts
 
 const WIDGET_COMPONENTS: Record<WidgetKey, React.ComponentType<{ userProfile: UserProfile }>> = {
     availability: AvailabilityOverview as any,
@@ -46,8 +45,10 @@ const WIDGET_COMPONENTS: Record<WidgetKey, React.ComponentType<{ userProfile: Us
 
 export function CustomizableDashboard() {
   const { userProfile, loading: profileLoading } = useUserProfile();
-  const [enabledWidgets, setEnabledWidgets] = useState<Set<WidgetKey>>(new Set(['importer']));
+  const [widgetConfig, setWidgetConfig] = useState<WidgetKey[]>(['availability', 'projects']);
   const [isClient, setIsClient] = useState(false);
+
+  const enabledWidgets = useMemo(() => new Set(widgetConfig), [widgetConfig]);
 
   useEffect(() => {
     setIsClient(true);
@@ -55,37 +56,54 @@ export function CustomizableDashboard() {
       const stored = localStorage.getItem(LS_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
-        const validKeys = parsed.filter((key: any) => ALL_WIDGETS.some(w => w.key === key));
-        setEnabledWidgets(new Set(validKeys));
+        if (Array.isArray(parsed)) {
+            const validKeys = parsed.filter((key: any) => ALL_WIDGETS.some(w => w.key === key));
+            setWidgetConfig(validKeys);
+        }
       } else {
         // Default widgets
-        setEnabledWidgets(new Set(['availability', 'projects']));
+        setWidgetConfig(['availability', 'projects']);
       }
     } catch (e) {
       console.error("Failed to load dashboard config from localStorage", e);
-      setEnabledWidgets(new Set(['availability', 'projects']));
+      setWidgetConfig(['availability', 'projects']);
     }
   }, []);
 
   useEffect(() => {
     if (isClient) {
       try {
-        localStorage.setItem(LS_KEY, JSON.stringify(Array.from(enabledWidgets)));
+        localStorage.setItem(LS_KEY, JSON.stringify(widgetConfig));
       } catch (e) {
         console.error("Failed to save dashboard config to localStorage", e);
       }
     }
-  }, [enabledWidgets, isClient]);
+  }, [widgetConfig, isClient]);
 
   const handleWidgetToggle = (key: WidgetKey, checked: boolean) => {
-    setEnabledWidgets(prev => {
-      const newSet = new Set(prev);
-      if (checked) {
-        newSet.add(key);
-      } else {
-        newSet.delete(key);
-      }
-      return newSet;
+    setWidgetConfig(prev => {
+        if (checked) {
+            return prev.includes(key) ? prev : [...prev, key];
+        } else {
+            return prev.filter(k => k !== key);
+        }
+    });
+  };
+
+  const handleMove = (key: WidgetKey, direction: 'up' | 'down') => {
+    setWidgetConfig(prev => {
+        const currentIndex = prev.indexOf(key);
+        if (currentIndex === -1) return prev;
+
+        const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+        if (newIndex < 0 || newIndex >= prev.length) return prev;
+
+        const newConfig = [...prev];
+        const temp = newConfig[currentIndex];
+        newConfig[currentIndex] = newConfig[newIndex];
+        newConfig[newIndex] = temp;
+        
+        return newConfig;
     });
   };
 
@@ -112,15 +130,9 @@ export function CustomizableDashboard() {
       )
   }
 
-  const largeWidgetKeys: WidgetKey[] = ['performance', 'contracts', 'tasks', 'projects'];
-  const smallWidgets = ALL_WIDGETS.filter(
-    w => enabledWidgets.has(w.key) && !largeWidgetKeys.includes(w.key)
-  );
-  const largeWidgets = ALL_WIDGETS.filter(
-    w => enabledWidgets.has(w.key) && largeWidgetKeys.includes(w.key)
-  );
-  const widgetsToRender = [...smallWidgets, ...largeWidgets];
-
+  const widgetsToRender = widgetConfig.map(key => ALL_WIDGETS.find(w => w.key === key)).filter((w): w is Widget => !!w);
+  const enabledInOrder = widgetsToRender;
+  const disabledButAvailable = ALL_WIDGETS.filter(w => !enabledWidgets.has(w.key));
 
   return (
     <div className="space-y-6">
@@ -130,26 +142,54 @@ export function CustomizableDashboard() {
             <DialogTrigger asChild>
                 <Button variant="outline"><Settings className="mr-2 h-4 w-4" /> Customize Dashboard</Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-w-2xl">
                 <DialogHeader>
                     <DialogTitle>Customize Dashboard</DialogTitle>
-                    <DialogDescription>Select the widgets you want to display on your control panel.</DialogDescription>
+                    <DialogDescription>Select and reorder the widgets you want to display on your control panel.</DialogDescription>
                 </DialogHeader>
-                <ScrollArea className="max-h-96 pr-4">
-                    <div className="space-y-4 py-4">
-                        {ALL_WIDGETS.map(widget => (
-                            <div key={widget.key} className="flex items-start space-x-3 rounded-md border p-4">
-                               <Checkbox 
-                                   id={widget.key} 
-                                   checked={enabledWidgets.has(widget.key)} 
-                                   onCheckedChange={(checked) => handleWidgetToggle(widget.key, !!checked)}
-                               />
-                                <div className="grid gap-1.5 leading-none">
-                                    <Label htmlFor={widget.key} className="font-medium cursor-pointer">{widget.title}</Label>
-                                    <p className="text-sm text-muted-foreground">{widget.description}</p>
-                                </div>
+                <ScrollArea className="max-h-[60vh] -mx-4 px-4">
+                    <div className="py-4 space-y-6">
+                        <div>
+                            <h4 className="mb-2 font-semibold text-muted-foreground">Enabled Widgets</h4>
+                            <div className="space-y-2 rounded-md border p-2">
+                                {enabledInOrder.length > 0 ? enabledInOrder.map((widget, index) => (
+                                    <div key={widget.key} className="flex items-center justify-between p-2 rounded-md hover:bg-muted">
+                                        <div className="grid gap-1.5 leading-none">
+                                            <Label className="font-medium">{widget.title}</Label>
+                                            <p className="text-sm text-muted-foreground">{widget.description}</p>
+                                        </div>
+                                        <div className="flex items-center gap-1 shrink-0">
+                                            <Button variant="ghost" size="icon" className="h-8 w-8" disabled={index === 0} onClick={() => handleMove(widget.key, 'up')}>
+                                                <ArrowUp className="h-4 w-4" />
+                                            </Button>
+                                            <Button variant="ghost" size="icon" className="h-8 w-8" disabled={index === enabledInOrder.length - 1} onClick={() => handleMove(widget.key, 'down')}>
+                                                <ArrowDown className="h-4 w-4" />
+                                            </Button>
+                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/70 hover:text-destructive" onClick={() => handleWidgetToggle(widget.key, false)}>
+                                                <X className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )) : <p className="p-4 text-center text-sm text-muted-foreground">No widgets enabled. Add some from the list below.</p>}
                             </div>
-                        ))}
+                        </div>
+                        
+                        <div>
+                            <h4 className="mb-2 font-semibold text-muted-foreground">Available Widgets</h4>
+                            <div className="space-y-2 rounded-md border p-2">
+                                {disabledButAvailable.length > 0 ? disabledButAvailable.map(widget => (
+                                    <div key={widget.key} className="flex items-center justify-between p-2 rounded-md hover:bg-muted">
+                                        <div className="grid gap-1.5 leading-none">
+                                            <Label className="font-medium">{widget.title}</Label>
+                                            <p className="text-sm text-muted-foreground">{widget.description}</p>
+                                        </div>
+                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-green-600" onClick={() => handleWidgetToggle(widget.key, true)}>
+                                            <Plus className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                )) : <p className="p-4 text-center text-sm text-muted-foreground">All available widgets are enabled.</p>}
+                            </div>
+                        </div>
                     </div>
                 </ScrollArea>
             </DialogContent>
@@ -158,43 +198,30 @@ export function CustomizableDashboard() {
        
        {widgetsToRender.length > 0 ? (
            <div className="space-y-6">
-                {smallWidgets.length > 0 && (
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                        {smallWidgets.map(widget => {
-                            const Component = WIDGET_COMPONENTS[widget.key];
-                            return <Component key={widget.key} userProfile={userProfile} />;
-                        })}
-                    </div>
-                )}
-                
-                {largeWidgets.length > 0 && (
-                    <div className="space-y-6">
-                        {largeWidgets.map(widget => {
-                            const Component = WIDGET_COMPONENTS[widget.key];
-                            if (widget.key === 'projects') {
-                                return (
-                                    <Card key={widget.key}>
-                                        <CardHeader>
-                                            <CardTitle>{widget.title}</CardTitle>
-                                            <CardDescription>{widget.description}</CardDescription>
-                                        </CardHeader>
-                                        <CardContent>
-                                            <Component userProfile={userProfile} />
-                                        </CardContent>
-                                    </Card>
-                                )
-                            }
-                            return <Component key={widget.key} userProfile={userProfile} />;
-                        })}
-                    </div>
-                )}
+                {widgetsToRender.map(widget => {
+                    const Component = WIDGET_COMPONENTS[widget.key];
+                    if (widget.key === 'projects') {
+                        return (
+                            <Card key={widget.key}>
+                                <CardHeader>
+                                    <CardTitle>{widget.title}</CardTitle>
+                                    <CardDescription>{widget.description}</CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                    <Component userProfile={userProfile} />
+                                </CardContent>
+                            </Card>
+                        )
+                    }
+                    return <Component key={widget.key} userProfile={userProfile} />;
+                })}
            </div>
        ) : (
             <Card className="col-span-full">
                 <CardContent className="p-12 text-center">
                     <LayoutGrid className="mx-auto h-12 w-12 text-muted-foreground" />
                     <h3 className="mt-4 text-lg font-semibold">Dashboard is Empty</h3>
-                    <p className="mt-2 text-sm text-muted-foreground">Use the "Customize Dashboard" button to add some widgets.</p>
+                    <p className="mt-2 text-sm text-muted-foreground">Use the "Customize Dashboard" button to add and arrange widgets.</p>
                 </CardContent>
             </Card>
        )}
