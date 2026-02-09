@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { collection, onSnapshot, query, orderBy, doc, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 import { db, functions, httpsCallable } from '@/lib/firebase';
 import type { Project, EvidenceChecklist, ProjectFile, UserProfile } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -18,7 +18,7 @@ import { useToast } from '@/hooks/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
-import { format } from 'date-fns';
+import { format, differenceInDays } from 'date-fns';
 
 const isMatch = (checklistText: string, fileTag: string | undefined): boolean => {
     if (!fileTag || !checklistText) return false;
@@ -166,45 +166,21 @@ function EvidenceReportGenerator({ project, files, onGenerated }: EvidenceReport
   );
 }
 
-function ProjectEvidenceCard({ project, checklist }: { project: Project; checklist: EvidenceChecklist | undefined }) {
-  const [files, setFiles] = useState<ProjectFile[]>([]);
-  const [loadingFiles, setLoadingFiles] = useState(true);
-  const [generatedPdfProjects, setGeneratedPdfProjects] = useState<string[]>([]);
+interface ProjectEvidenceCardProps {
+  project: Project;
+  checklist: EvidenceChecklist | undefined;
+  files: ProjectFile[];
+  loadingFiles: boolean;
+  generatedPdfProjects: string[];
+  onPdfGenerated: (projectId: string) => void;
+}
+
+function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generatedPdfProjects, onPdfGenerated }: ProjectEvidenceCardProps) {
   const { userProfile } = useUserProfile();
   const { toast } = useToast();
   
-  const LOCAL_STORAGE_KEY = 'evidence_pdf_generated_projects_v5';
-
-  useEffect(() => {
-    try {
-        const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
-        if (stored) {
-            setGeneratedPdfProjects(JSON.parse(stored));
-        }
-    } catch (e) {
-        console.error("Failed to load generated PDF list", e);
-    }
-  }, []);
-
-  useEffect(() => {
-    setLoadingFiles(true);
-    const filesQuery = query(collection(db, `projects/${project.id}/files`));
-    const unsubscribe = onSnapshot(filesQuery, (snapshot) => {
-      const fetchedFiles = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ProjectFile));
-      setFiles(fetchedFiles);
-      setLoadingFiles(false);
-    }, (error) => {
-      console.error(`Error fetching files for project ${project.id}:`, error);
-      setLoadingFiles(false);
-    });
-
-    return () => unsubscribe();
-  }, [project.id]);
-
   const evidenceState = useMemo<'incomplete' | 'ready' | 'generated'>(() => {
-    if (loadingFiles) {
-        return 'incomplete';
-    }
+    if (loadingFiles) return 'incomplete';
     
     const isChecklistMet = (() => {
         if (!checklist || !checklist.items || checklist.items.length === 0) {
@@ -217,28 +193,15 @@ function ProjectEvidenceCard({ project, checklist }: { project: Project; checkli
     
     const isPdfGenerated = generatedPdfProjects.includes(project.id);
     
-    if (!isChecklistMet) {
-        return 'incomplete';
-    } 
-    
-    if (isPdfGenerated) {
-        return 'generated';
-    } else {
-        return 'ready';
-    }
+    if (!isChecklistMet) return 'incomplete';
+    if (isPdfGenerated) return 'generated';
+    return 'ready';
   }, [files, checklist, loadingFiles, generatedPdfProjects, project.id]);
 
-  const onPdfGenerated = () => {
-    setGeneratedPdfProjects(prev => {
-        const newGenerated = [...new Set([...prev, project.id])];
-        try {
-            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(newGenerated));
-        } catch (e) {
-            console.error("Failed to write to local storage", e);
-        }
-        return newGenerated;
-    });
-  }
+  const daysOpen = useMemo(() => {
+    if (!project.createdAt) return null;
+    return differenceInDays(new Date(), project.createdAt.toDate());
+  }, [project.createdAt]);
 
   const handleDeleteProject = async () => {
     if (!userProfile || !['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role)) {
@@ -291,25 +254,34 @@ function ProjectEvidenceCard({ project, checklist }: { project: Project; checkli
         <CardTitle className={cn("text-sm font-semibold leading-tight", textColorClass)}>{project.address}</CardTitle>
         {project.eNumber && <CardDescription className={cn("text-xs pt-1 opacity-80", textColorClass)}>E: {project.eNumber}</CardDescription>}
       </CardHeader>
-      <CardContent className="p-4 pt-2 flex-grow">
+      <CardContent className="p-4 pt-2 flex-grow flex flex-col justify-between">
         {loadingFiles ? (
           <div className="flex justify-center items-center h-16">
             <Spinner size="sm" />
           </div>
-        ) : evidenceStatus.length > 0 ? (
-          <div className="space-y-1">
-            {evidenceStatus.map(item => (
-                <div key={item.text} className={cn("flex items-center gap-2 text-xs", item.isComplete ? cn(textColorClass, "opacity-70") : cn("font-semibold", textColorClass))}>
-                    {item.isComplete ? <CheckCircle className="h-3 w-3 opacity-90"/> : <XCircle className="h-3 w-3"/>}
-                    <span>{item.text}</span>
-                </div>
-            ))}
+        ) : (
+          <div>
+            {evidenceStatus.length > 0 ? (
+              <div className="space-y-1">
+                {evidenceStatus.map(item => (
+                    <div key={item.text} className={cn("flex items-center gap-2 text-xs", item.isComplete ? cn(textColorClass, "opacity-70") : cn("font-semibold", textColorClass))}>
+                        {item.isComplete ? <CheckCircle className="h-3 w-3 opacity-90"/> : <XCircle className="h-3 w-3"/>}
+                        <span>{item.text}</span>
+                    </div>
+                ))}
+              </div>
+            ) : <p className={cn("text-xs italic", textColorClass)}>No evidence checklist for this contract.</p>}
           </div>
-        ) : <p className={cn("text-xs italic", textColorClass)}>No evidence checklist for this contract.</p>}
+        )}
+        {daysOpen !== null && (
+            <div className="text-right text-xs mt-2 opacity-80 text-white">
+                <span className="font-bold">{daysOpen}</span> days open
+            </div>
+        )}
       </CardContent>
       <CardFooter className="p-2 border-t mt-auto">
         {evidenceState === 'ready' && (
-          <EvidenceReportGenerator project={project} files={files} onGenerated={onPdfGenerated} />
+          <EvidenceReportGenerator project={project} files={files} onGenerated={() => onPdfGenerated(project.id)} />
         )}
         {evidenceState === 'generated' && (
            <AlertDialog>
@@ -343,13 +315,40 @@ export default function EvidencePage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [editingChecklist, setEditingChecklist] = useState<string | null>(null);
 
+  const [filesByProject, setFilesByProject] = useState<Map<string, ProjectFile[]>>(new Map());
+  const LOCAL_STORAGE_KEY = 'evidence_pdf_generated_projects_v5';
+  const [generatedPdfProjects, setGeneratedPdfProjects] = useState<string[]>([]);
+
+  useEffect(() => {
+    try {
+        const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
+        if (stored) {
+            setGeneratedPdfProjects(JSON.parse(stored));
+        }
+    } catch (e) {
+        console.error("Failed to load generated PDF list", e);
+    }
+  }, []);
+  
+  const onPdfGenerated = (projectId: string) => {
+    setGeneratedPdfProjects(prev => {
+        const newGenerated = [...new Set([...prev, projectId])];
+        try {
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(newGenerated));
+        } catch (e) {
+            console.error("Failed to write to local storage", e);
+        }
+        return newGenerated;
+    });
+  }
+
   useEffect(() => {
     setLoading(true);
     const projectsQuery = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
     const unsubProjects = onSnapshot(projectsQuery, 
       (snapshot) => {
           setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project)));
-          setLoading(false);
+          if (snapshot.docs.length === 0) setLoading(false);
       },
       (err) => {
           console.error("Error fetching projects:", err);
@@ -370,6 +369,32 @@ export default function EvidencePage() {
     };
   }, []);
 
+  useEffect(() => {
+    if(projects.length === 0) {
+        setFilesByProject(new Map());
+        return;
+    };
+
+    const unsubscribers = projects.map(project => {
+        const q = query(collection(db, `projects/${project.id}/files`));
+        return onSnapshot(q, (snapshot) => {
+            const files = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ProjectFile));
+            setFilesByProject(prev => new Map(prev).set(project.id, files));
+        });
+    });
+
+    return () => unsubscribers.forEach(unsub => unsub());
+  }, [projects]);
+
+  useEffect(() => {
+    if (projects.length > 0 && filesByProject.size < projects.length) {
+        setLoading(true);
+    } else {
+        setLoading(false);
+    }
+  }, [projects, filesByProject]);
+
+
   const filteredProjects = useMemo(() => {
     if (!searchTerm) return projects;
     return projects.filter(project =>
@@ -379,16 +404,60 @@ export default function EvidencePage() {
   }, [projects, searchTerm]);
 
   const groupedProjects = useMemo(() => {
-    const groups: { [key: string]: Project[] } = {};
-    filteredProjects.forEach(project => {
-      const groupName = project.contract || 'Uncategorized';
-      if (!groups[groupName]) {
-        groups[groupName] = [];
-      }
-      groups[groupName].push(project);
+    if (loading) return [];
+
+    const getDaysOpen = (project: Project): number => {
+        if (!project.createdAt) return 0;
+        return differenceInDays(new Date(), project.createdAt.toDate());
+    }
+
+    const enrichedProjects = filteredProjects.map(project => {
+        const checklist = evidenceChecklists.get(project.contract || '');
+        const projectFiles = filesByProject.get(project.id) || [];
+        
+        const isChecklistMet = !checklist || !checklist.items || checklist.items.length === 0 || 
+            checklist.items.every(item => 
+                projectFiles.some(file => isMatch(item.text, file.evidenceTag))
+            );
+
+        let evidenceState: 'incomplete' | 'ready' | 'generated' = 'incomplete';
+        if (isChecklistMet) {
+            if (generatedPdfProjects.includes(project.id)) {
+                evidenceState = 'generated';
+            } else {
+                evidenceState = 'ready';
+            }
+        }
+
+        return {
+            ...project,
+            evidenceState,
+            daysOpen: getDaysOpen(project)
+        };
+    });
+
+    const priorityOrder = { 'ready': 1, 'incomplete': 2, 'generated': 3 };
+    enrichedProjects.sort((a, b) => {
+        const statePriorityA = priorityOrder[a.evidenceState];
+        const statePriorityB = priorityOrder[b.evidenceState];
+
+        if (statePriorityA !== statePriorityB) {
+            return statePriorityA - statePriorityB;
+        }
+        
+        return b.daysOpen - a.daysOpen;
+    });
+
+    const groups: { [key: string]: typeof enrichedProjects } = {};
+    enrichedProjects.forEach(project => {
+        const groupName = project.contract || 'Uncategorized';
+        if (!groups[groupName]) {
+            groups[groupName] = [];
+        }
+        groups[groupName].push(project);
     });
     return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
-  }, [filteredProjects]);
+  }, [filteredProjects, filesByProject, evidenceChecklists, loading, generatedPdfProjects]);
 
 
   return (
@@ -443,6 +512,10 @@ export default function EvidencePage() {
                         key={project.id}
                         project={project}
                         checklist={evidenceChecklists.get(project.contract || '')}
+                        files={filesByProject.get(project.id) || []}
+                        loadingFiles={loading}
+                        generatedPdfProjects={generatedPdfProjects}
+                        onPdfGenerated={onPdfGenerated}
                     />
                   ))}
                 </div>
@@ -461,5 +534,3 @@ export default function EvidencePage() {
     </>
   );
 }
-
-    
