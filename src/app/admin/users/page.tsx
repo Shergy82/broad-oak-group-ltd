@@ -285,7 +285,9 @@ export default function UserManagementPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                        {isOwner && user.uid !== currentUserProfile?.uid ? (
+                        {user.role === 'owner' ? (
+                            <Badge variant="default">Owner</Badge>
+                        ) : (isOwner && currentUserProfile?.uid !== user.uid) ? (
                             <Select
                                 value={user.role}
                                 onValueChange={(value) => handleRoleChange(user.uid, value as UserProfile['role'])}
@@ -302,7 +304,9 @@ export default function UserManagementPage() {
                                 </SelectContent>
                             </Select>
                         ) : (
-                            <Badge variant={user.role === 'owner' ? 'default' : user.role === 'admin' ? 'secondary' : 'outline'} className="capitalize">{user.role === 'user' ? 'Engineer' : user.role}</Badge>
+                            <Badge variant={user.role === 'admin' ? 'secondary' : 'outline'} className="capitalize">
+                                {user.role === 'user' ? 'Engineer' : user.role}
+                            </Badge>
                         )}
                     </TableCell>
                     <TableCell>
@@ -322,7 +326,7 @@ export default function UserManagementPage() {
                           )}
                       </TableCell>
                     <TableCell className="text-right">
-                        {isOwner && user.uid !== currentUserProfile?.uid && (
+                        {isOwner && user.uid !== currentUserProfile?.uid && user.role !== 'owner' && (
                           <div className="flex gap-2 justify-end">
                             <Button variant="outline" size="sm" onClick={() => handleUserStatusChange(user.uid, user.status)}>
                                 {user.status === 'suspended' || user.status === 'pending-approval' ? 'Activate' : 'Suspend'}
@@ -366,25 +370,29 @@ export default function UserManagementPage() {
             <CardContent className="text-sm space-y-3">
                 <div className="flex items-center gap-2">
                   <strong className="shrink-0">Role:</strong>
-                  {isOwner && user.uid !== currentUserProfile?.uid ? (
-                      <Select
-                          value={user.role}
-                          onValueChange={(value) => handleRoleChange(user.uid, value as UserProfile['role'])}
-                      >
-                          <SelectTrigger className="h-8 text-xs">
-                              <SelectValue placeholder="Set Role" />
-                          </SelectTrigger>
-                          <SelectContent>
-                              <SelectItem value="user">Engineer</SelectItem>
-                              <SelectItem value="TLO">TLO</SelectItem>
-                              <SelectItem value="manager">Manager</SelectItem>
-                              <SelectItem value="admin">Admin</SelectItem>
-                              <SelectItem value="owner">Owner</SelectItem>
-                          </SelectContent>
-                      </Select>
-                  ) : (
-                      <Badge variant={user.role === 'owner' ? 'default' : user.role === 'admin' ? 'secondary' : 'outline'} className="capitalize">{user.role === 'user' ? 'Engineer' : user.role}</Badge>
-                  )}
+                  {user.role === 'owner' ? (
+                        <Badge variant="default">Owner</Badge>
+                    ) : (isOwner && currentUserProfile?.uid !== user.uid) ? (
+                        <Select
+                            value={user.role}
+                            onValueChange={(value) => handleRoleChange(user.uid, value as UserProfile['role'])}
+                        >
+                            <SelectTrigger className="h-8 text-xs">
+                                <SelectValue placeholder="Set Role" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="user">Engineer</SelectItem>
+                                <SelectItem value="TLO">TLO</SelectItem>
+                                <SelectItem value="manager">Manager</SelectItem>
+                                <SelectItem value="admin">Admin</SelectItem>
+                                <SelectItem value="owner">Owner</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    ) : (
+                        <Badge variant={user.role === 'admin' ? 'secondary' : 'outline'} className="capitalize">
+                            {user.role === 'user' ? 'Engineer' : user.role}
+                        </Badge>
+                    )}
               </div>
                 
                 {isPrivilegedUser && (
@@ -412,7 +420,7 @@ export default function UserManagementPage() {
                   </>
                 )}
             </CardContent>
-            {isOwner && user.uid !== currentUserProfile?.uid && (
+            {isOwner && user.uid !== currentUserProfile?.uid && user.role !== 'owner' &&(
               <CardFooter className="grid grid-cols-2 gap-2 p-2 bg-muted/20">
                 <Button variant="outline" size="sm" onClick={() => handleUserStatusChange(user.uid, user.status)} className="w-full">
                     {user.status === 'suspended' || user.status === 'pending-approval' ? 'Activate' : 'Suspend'}
@@ -495,9 +503,3 @@ export default function UserManagementPage() {
     </Card>
   );
 }
-
-    
-
-    
-
-    
