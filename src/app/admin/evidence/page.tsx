@@ -100,7 +100,8 @@ export default function EvidencePage() {
   const projectsWithEvidence: ProjectWithEvidence[] = useMemo(() => {
     const simplifyTag = (tag: string | undefined): string => {
       if (!tag) return '';
-      return tag.toLowerCase().replace(/[^a-z0-9]/g, '');
+      // Normalize by making lowercase, removing non-alphanumeric chars, and removing trailing 's' for plurals
+      return tag.toLowerCase().replace(/[^a-z0-9]/g, '').replace(/s$/, '');
     };
 
     return projects.map(project => {
