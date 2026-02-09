@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Download, Users, Trash2 } from 'lucide-react';
+import { Download, Users, Trash2, Search } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
@@ -26,6 +26,7 @@ export default function UserManagementPage() {
   const [loading, setLoading] = useState(true);
   const { userProfile: currentUserProfile } = useUserProfile();
   const { toast } = useToast();
+  const [searchTerm, setSearchTerm] = useState('');
   const [showPendingOnly, setShowPendingOnly] = useState(false);
   
   const isOwner = currentUserProfile?.role === 'owner';
@@ -65,11 +66,15 @@ export default function UserManagementPage() {
   const pendingUsers = useMemo(() => users.filter(user => user.status === 'pending-approval'), [users]);
 
   const usersToDisplay = useMemo(() => {
-    if (showPendingOnly) {
-      return pendingUsers;
+    const sourceUsers = showPendingOnly ? pendingUsers : users;
+    if (!searchTerm) {
+      return sourceUsers;
     }
-    return users;
-  }, [users, showPendingOnly, pendingUsers]);
+    return sourceUsers.filter(user =>
+      user.name.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [users, pendingUsers, showPendingOnly, searchTerm]);
+
 
   const adminAndManagerUsers = useMemo(() => usersToDisplay.filter(user =>
     ['admin', 'owner', 'manager', 'TLO'].includes(user.role)
@@ -371,14 +376,23 @@ export default function UserManagementPage() {
                     View and manage all users.
                 </CardDescription>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
+                <div className="relative w-full sm:w-auto">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                        placeholder="Search users..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full sm:w-64 pl-10"
+                    />
+                </div>
                 {pendingUsers.length > 0 && isOwner && (
-                    <Button variant={showPendingOnly ? "secondary" : "outline"} onClick={() => setShowPendingOnly(!showPendingOnly)}>
+                    <Button variant={showPendingOnly ? "secondary" : "outline"} onClick={() => setShowPendingOnly(!showPendingOnly)} className="w-full sm:w-auto">
                         New Users
                         <Badge className="ml-2 bg-amber-500 text-white hover:bg-amber-500">{pendingUsers.length}</Badge>
                     </Button>
                 )}
-                <Button variant="outline" onClick={handleDownloadPdf} disabled={loading || users.length === 0}>
+                <Button variant="outline" onClick={handleDownloadPdf} disabled={loading || users.length === 0} className="w-full sm:w-auto">
                     <Download className="mr-2 h-4 w-4" />
                     Directory
                 </Button>
@@ -421,4 +435,3 @@ export default function UserManagementPage() {
     </Card>
   );
 }
-
