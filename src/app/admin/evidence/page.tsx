@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { collection, onSnapshot, query, orderBy, doc, collectionGroup } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, doc, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Project, EvidenceChecklist, ProjectFile } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -24,7 +24,7 @@ interface ProjectWithEvidence extends Project {
 export default function EvidencePage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [evidenceChecklists, setEvidenceChecklists] = useState<Map<string, EvidenceChecklist>>(new Map());
-  const [projectFiles, setProjectFiles] = useState<Map<string, ProjectFile[]>>(new Map());
+  const [allFiles, setAllFiles] = useState<ProjectFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [editingChecklist, setEditingChecklist] = useState<string | null>(null);
@@ -35,23 +35,33 @@ export default function EvidencePage() {
       return;
     }
 
-    let projectsLoaded = false;
-    let checklistsLoaded = false;
-    let filesLoaded = false;
-    const checkLoading = () => {
-        if (projectsLoaded && checklistsLoaded && filesLoaded) setLoading(false);
-    }
-
     const projectsQuery = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
-    const unsubProjects = onSnapshot(projectsQuery, (snapshot) => {
-      const fetchedProjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project));
+    const unsubProjects = onSnapshot(projectsQuery, (projectsSnapshot) => {
+      const fetchedProjects = projectsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project));
       setProjects(fetchedProjects);
-      projectsLoaded = true;
-      checkLoading();
+
+      if (fetchedProjects.length > 0) {
+        const fetchAllFiles = async () => {
+          const allProjectFiles: ProjectFile[] = [];
+          for (const project of fetchedProjects) {
+            const filesQuery = query(collection(db, `projects/${project.id}/files`));
+            const filesSnapshot = await getDocs(filesQuery);
+            filesSnapshot.forEach(doc => {
+              allProjectFiles.push({ id: doc.id, ...doc.data() } as ProjectFile);
+            });
+          }
+          setAllFiles(allProjectFiles);
+          setLoading(false);
+        };
+        
+        fetchAllFiles();
+      } else {
+        setAllFiles([]);
+        setLoading(false);
+      }
     }, (error) => {
       console.error("Error fetching projects:", error);
-      projectsLoaded = true;
-      checkLoading();
+      setLoading(false);
     });
 
     const checklistsQuery = query(collection(db, 'evidence_checklists'));
@@ -61,87 +71,61 @@ export default function EvidencePage() {
             checklistsMap.set(doc.id, doc.data() as EvidenceChecklist);
         });
         setEvidenceChecklists(checklistsMap);
-        checklistsLoaded = true;
-        checkLoading();
-    });
-    
-    const filesQuery = query(collectionGroup(db, 'files'));
-    const unsubFiles = onSnapshot(filesQuery, (snapshot) => {
-        const filesByProject = new Map<string, ProjectFile[]>();
-        snapshot.docs.forEach(doc => {
-            const file = { id: doc.id, ...doc.data() } as ProjectFile;
-            const pathParts = doc.ref.path.split('/');
-            if (pathParts.length === 4 && pathParts[0] === 'projects' && pathParts[2] === 'files') {
-                const projectId = pathParts[1];
-                if (!filesByProject.has(projectId)) {
-                    filesByProject.set(projectId, []);
-                }
-                filesByProject.get(projectId)!.push(file);
-            }
-        });
-        setProjectFiles(filesByProject);
-        filesLoaded = true;
-        checkLoading();
-    }, (error) => {
-      console.error("Error fetching project files with collectionGroup:", error);
-      filesLoaded = true;
-      checkLoading();
     });
 
 
     return () => {
         unsubProjects();
         unsubChecklists();
-        unsubFiles();
     };
   }, []);
 
 
   const projectsWithEvidence: ProjectWithEvidence[] = useMemo(() => {
-    // This function breaks text into a set of normalized words.
-    // e.g., "Electric Board-Photos" -> {"electric", "board", "photo"}
     const getNormalizedWords = (text: string | undefined): Set<string> => {
         if (!text) return new Set();
         return new Set(
             text
                 .toLowerCase()
-                // Split on spaces, hyphens, or underscores
                 .split(/[\s-_]+/) 
-                // Remove any characters that aren't letters or numbers
                 .map(word => word.replace(/[^a-z0-9]/g, ''))
-                // Handle simple plurals by removing a trailing 's'
                 .map(word => word.endsWith('s') ? word.slice(0, -1) : word)
-                // Filter out any empty strings that might result
                 .filter(Boolean)
         );
     };
 
-    // This function determines if a file's tag matches a checklist item.
     const isMatch = (checklistText: string, fileTag: string | undefined): boolean => {
         const checklistWords = getNormalizedWords(checklistText);
         const tagWords = getNormalizedWords(fileTag);
 
-        // If either text is empty, there's no match.
         if (tagWords.size === 0 || checklistWords.size === 0) {
             return false;
         }
 
-        // The logic: every word in the (usually shorter) tag must be present 
-        // in the (usually more descriptive) checklist item's words.
         for (const tagWord of tagWords) {
             if (!checklistWords.has(tagWord)) {
-                return false; // A word from the tag is missing from the checklist item.
+                return false;
             }
         }
         
-        // All words from the tag were found in the checklist item.
         return true;
     };
 
+    const projectFilesMap = new Map<string, ProjectFile[]>();
+    allFiles.forEach(file => {
+      const pathParts = file.fullPath?.split('/');
+      if (pathParts && pathParts.length >= 3 && pathParts[0] === 'project_files') {
+        const projectId = pathParts[1];
+        if (!projectFilesMap.has(projectId)) {
+          projectFilesMap.set(projectId, []);
+        }
+        projectFilesMap.get(projectId)!.push(file);
+      }
+    });
 
     return projects.map(project => {
         const checklist = evidenceChecklists.get(project.contract || '');
-        const files = projectFiles.get(project.id) || [];
+        const files = projectFilesMap.get(project.id) || [];
         
         if (!checklist || !checklist.items) {
             return { ...project, evidenceStatus: [], isComplete: true };
@@ -155,7 +139,7 @@ export default function EvidencePage() {
         const isComplete = evidenceStatus.every(s => s.isComplete);
         return { ...project, evidenceStatus, isComplete };
     })
-  }, [projects, evidenceChecklists, projectFiles]);
+  }, [projects, evidenceChecklists, allFiles]);
 
 
   const filteredProjects = useMemo(() => {
