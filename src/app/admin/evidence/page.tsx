@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -94,7 +95,7 @@ export default function EvidencePage() {
         }
 
         const evidenceStatus = checklist.items.map(item => {
-            const isComplete = files.some(file => file.evidenceTag === item.text);
+            const isComplete = files.some(file => file.evidenceTag?.trim().toLowerCase() === item.text?.trim().toLowerCase());
             return { text: item.text, isComplete };
         });
 
