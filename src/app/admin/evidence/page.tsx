@@ -1,8 +1,7 @@
-
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { collection, onSnapshot, query, orderBy, doc } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, doc, collectionGroup } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Project, EvidenceChecklist, ProjectFile } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -35,15 +34,15 @@ export default function EvidencePage() {
       setLoading(false);
       return;
     }
-    const projectsQuery = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
-    const checklistsQuery = query(collection(db, 'evidence_checklists'));
 
     let projectsLoaded = false;
     let checklistsLoaded = false;
+    let filesLoaded = false;
     const checkLoading = () => {
-        if (projectsLoaded && checklistsLoaded) setLoading(false);
+        if (projectsLoaded && checklistsLoaded && filesLoaded) setLoading(false);
     }
 
+    const projectsQuery = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
     const unsubProjects = onSnapshot(projectsQuery, (snapshot) => {
       const fetchedProjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project));
       setProjects(fetchedProjects);
@@ -55,6 +54,7 @@ export default function EvidencePage() {
       checkLoading();
     });
 
+    const checklistsQuery = query(collection(db, 'evidence_checklists'));
     const unsubChecklists = onSnapshot(checklistsQuery, (snapshot) => {
         const checklistsMap = new Map<string, EvidenceChecklist>();
         snapshot.docs.forEach(doc => {
@@ -65,34 +65,42 @@ export default function EvidencePage() {
         checkLoading();
     });
     
-    // Unsubscribe from file listeners when component unmounts is complex with dynamic listeners.
-    // Given the page context, re-subscribing on project changes is acceptable.
-    const fileUnsubscribers: (() => void)[] = [];
-    projects.forEach(project => {
-      const filesQuery = query(collection(db, `projects/${project.id}/files`));
-      const unsub = onSnapshot(filesQuery, (fileSnapshot) => {
-        const files = fileSnapshot.docs.map(d => d.data() as ProjectFile);
-        setProjectFiles(prev => new Map(prev).set(project.id, files));
-      });
-      fileUnsubscribers.push(unsub);
+    const filesQuery = query(collectionGroup(db, 'files'));
+    const unsubFiles = onSnapshot(filesQuery, (snapshot) => {
+        const filesByProject = new Map<string, ProjectFile[]>();
+        snapshot.docs.forEach(doc => {
+            const file = { id: doc.id, ...doc.data() } as ProjectFile;
+            const pathParts = doc.ref.path.split('/');
+            if (pathParts.length === 4 && pathParts[0] === 'projects' && pathParts[2] === 'files') {
+                const projectId = pathParts[1];
+                if (!filesByProject.has(projectId)) {
+                    filesByProject.set(projectId, []);
+                }
+                filesByProject.get(projectId)!.push(file);
+            }
+        });
+        setProjectFiles(filesByProject);
+        filesLoaded = true;
+        checkLoading();
+    }, (error) => {
+      console.error("Error fetching project files with collectionGroup:", error);
+      filesLoaded = true;
+      checkLoading();
     });
+
 
     return () => {
         unsubProjects();
         unsubChecklists();
-        fileUnsubscribers.forEach(unsub => unsub());
+        unsubFiles();
     };
-  }, [projects]);
+  }, []);
 
 
   const projectsWithEvidence: ProjectWithEvidence[] = useMemo(() => {
     const simplifyTag = (tag: string | undefined): string => {
       if (!tag) return '';
-      return tag
-        .trim()
-        .toLowerCase()
-        .replace(/s$/, '') // remove plural s
-        .replace(/[-_ ]/g, ''); // remove separators
+      return tag.toLowerCase().replace(/[^a-z0-9]/g, '');
     };
 
     return projects.map(project => {
