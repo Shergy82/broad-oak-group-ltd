@@ -98,29 +98,39 @@ export default function EvidencePage() {
 
 
   const projectsWithEvidence: ProjectWithEvidence[] = useMemo(() => {
-    const simplify = (text: string | undefined): string => {
-        if (!text) return '';
-        // Make lowercase and remove all non-alphanumeric characters
-        return text.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const getWords = (text: string | undefined): Set<string> => {
+        if (!text) return new Set();
+        // Simplify, split into words, remove plurals, filter out empty strings
+        return new Set(
+            text.toLowerCase()
+                .split(/[\s-]+/)
+                .map(word => word.replace(/[^a-z0-9]/g, ''))
+                .map(word => word.endsWith('s') ? word.slice(0, -1) : word)
+                .filter(Boolean)
+        );
     };
 
     const isMatch = (checklistText: string, fileTag: string | undefined): boolean => {
-        const simplifiedText = simplify(checklistText);
-        const simplifiedTag = simplify(fileTag);
+        const checklistWords = getWords(checklistText);
+        const tagWords = getWords(fileTag);
 
-        if (!simplifiedText || !simplifiedTag) return false;
+        if (tagWords.size === 0) return false;
 
-        // To handle simple plurals like "photo" vs "photos", remove trailing 's'
-        const textSingular = simplifiedText.endsWith('s') ? simplifiedText.slice(0, -1) : simplifiedText;
-        const tagSingular = simplifiedTag.endsWith('s') ? simplifiedTag.slice(0, -1) : simplifiedTag;
-
-        // An exact match on the singular form is a success
-        if (textSingular === tagSingular) return true;
-        
-        // Also allow for cases where one contains the other, e.g. "frontofproperty" vs "front"
-        if (textSingular.includes(tagSingular) || tagSingular.includes(textSingular)) return true;
-
-        return false;
+        // Check if all words in the tag are present in the checklist item's words
+        for (const tagWord of tagWords) {
+            let foundMatch = false;
+            for (const checklistWord of checklistWords) {
+                // Allow for partial matches, e.g., 'boiler' in 'boilers'
+                if (checklistWord.includes(tagWord) || tagWord.includes(checklistWord)) {
+                    foundMatch = true;
+                    break;
+                }
+            }
+            if (!foundMatch) {
+                return false;
+            }
+        }
+        return true;
     }
 
 
