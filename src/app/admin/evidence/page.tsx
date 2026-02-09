@@ -98,11 +98,31 @@ export default function EvidencePage() {
 
 
   const projectsWithEvidence: ProjectWithEvidence[] = useMemo(() => {
-    const simplifyTag = (tag: string | undefined): string => {
-      if (!tag) return '';
-      // Normalize by making lowercase, removing non-alphanumeric chars, and removing trailing 's' for plurals
-      return tag.toLowerCase().replace(/[^a-z0-9]/g, '').replace(/s$/, '');
+    const simplify = (text: string | undefined): string => {
+        if (!text) return '';
+        // Make lowercase and remove all non-alphanumeric characters
+        return text.toLowerCase().replace(/[^a-z0-9]/g, '');
     };
+
+    const isMatch = (checklistText: string, fileTag: string | undefined): boolean => {
+        const simplifiedText = simplify(checklistText);
+        const simplifiedTag = simplify(fileTag);
+
+        if (!simplifiedText || !simplifiedTag) return false;
+
+        // To handle simple plurals like "photo" vs "photos", remove trailing 's'
+        const textSingular = simplifiedText.endsWith('s') ? simplifiedText.slice(0, -1) : simplifiedText;
+        const tagSingular = simplifiedTag.endsWith('s') ? simplifiedTag.slice(0, -1) : simplifiedTag;
+
+        // An exact match on the singular form is a success
+        if (textSingular === tagSingular) return true;
+        
+        // Also allow for cases where one contains the other, e.g. "frontofproperty" vs "front"
+        if (textSingular.includes(tagSingular) || tagSingular.includes(textSingular)) return true;
+
+        return false;
+    }
+
 
     return projects.map(project => {
         const checklist = evidenceChecklists.get(project.contract || '');
@@ -113,11 +133,7 @@ export default function EvidencePage() {
         }
 
         const evidenceStatus = checklist.items.map(item => {
-            const simplifiedChecklistText = simplifyTag(item.text);
-            const isComplete = files.some(file => {
-              const simplifiedFileTag = simplifyTag(file.evidenceTag);
-              return simplifiedFileTag && simplifiedChecklistText && simplifiedFileTag === simplifiedChecklistText;
-            });
+            const isComplete = files.some(file => isMatch(item.text, file.evidenceTag));
             return { text: item.text, isComplete };
         });
 
