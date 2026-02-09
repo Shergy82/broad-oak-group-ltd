@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -192,7 +193,7 @@ function ProjectEvidenceCard({ project, checklist }: { project: Project; checkli
   useEffect(() => {
     setIsClient(true);
     try {
-      const generatedPdfs = JSON.parse(localStorage.getItem('evidence_pdf_generated_projects') || '[]');
+      const generatedPdfs = JSON.parse(localStorage.getItem('evidence_pdf_generated_projects_v2') || '[]');
       if (generatedPdfs.includes(project.id)) {
         setPdfGenerated(true);
       }
@@ -218,10 +219,10 @@ function ProjectEvidenceCard({ project, checklist }: { project: Project; checkli
   const onPdfGenerated = () => {
     setPdfGenerated(true);
     try {
-      const generatedPdfs = JSON.parse(localStorage.getItem('evidence_pdf_generated_projects') || '[]');
+      const generatedPdfs = JSON.parse(localStorage.getItem('evidence_pdf_generated_projects_v2') || '[]');
       if (!generatedPdfs.includes(project.id)) {
         generatedPdfs.push(project.id);
-        localStorage.setItem('evidence_pdf_generated_projects', JSON.stringify(generatedPdfs));
+        localStorage.setItem('evidence_pdf_generated_projects_v2', JSON.stringify(generatedPdfs));
       }
     } catch (e) {
       console.error("Failed to write to local storage", e);
@@ -255,16 +256,16 @@ function ProjectEvidenceCard({ project, checklist }: { project: Project; checkli
   };
 
   const cardColorClass = !isComplete
-    ? 'border-red-800/50 bg-red-800/20'
+    ? 'bg-red-200 border-red-500' // Darker Red
     : pdfGenerated
-    ? 'border-green-500/50 bg-green-500/10'
-    : 'border-orange-500/50 bg-orange-500/10';
+    ? 'bg-green-200 border-green-500' // Green
+    : 'bg-orange-200 border-orange-500'; // Orange
 
   return (
     <Card className={cn("hover:shadow-md transition-shadow flex flex-col", cardColorClass)}>
       <CardHeader className="p-4 pb-2">
         <CardTitle className="text-sm font-semibold leading-tight">{project.address}</CardTitle>
-        {project.eNumber && <CardDescription className="text-xs pt-1">E: {project.eNumber}</CardDescription>}
+        {project.eNumber && <CardDescription className="text-xs pt-1 text-card-foreground/80">E: {project.eNumber}</CardDescription>}
       </CardHeader>
       <CardContent className="p-4 pt-2 flex-grow">
         {loadingFiles ? (
@@ -275,7 +276,7 @@ function ProjectEvidenceCard({ project, checklist }: { project: Project; checkli
           <div className="space-y-1">
             {evidenceStatus.map(item => (
                 <div key={item.text} className={cn("flex items-center gap-2 text-xs", item.isComplete ? "text-muted-foreground" : "font-semibold text-red-800")}>
-                    {item.isComplete ? <CheckCircle className="h-3 w-3 text-green-500"/> : <XCircle className="h-3 w-3 text-red-700"/>}
+                    {item.isComplete ? <CheckCircle className="h-3 w-3 text-green-600"/> : <XCircle className="h-3 w-3 text-red-700"/>}
                     <span>{item.text}</span>
                 </div>
             ))}
@@ -436,3 +437,5 @@ export default function EvidencePage() {
     </>
   );
 }
+
+    
