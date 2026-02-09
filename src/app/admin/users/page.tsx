@@ -278,8 +278,7 @@ export default function UserManagementPage() {
               <TableHead>Name</TableHead>
               <TableHead>Operative ID</TableHead>
               <TableHead>Role</TableHead>
-              <TableHead>Trade</TableHead>
-              <TableHead>Department</TableHead>
+              <TableHead>Trade / Department</TableHead>
               <TableHead className="text-right">Actions</TableHead>
               </TableRow>
           </TableHeader>
@@ -348,31 +347,30 @@ export default function UserManagementPage() {
                           <Badge variant={user.role === 'admin' || user.role === 'manager' || user.role === 'TLO' ? 'secondary' : 'outline'} className="capitalize">{user.role === 'user' ? 'Engineer' : user.role}</Badge>
                       )}
                     </TableCell>
-                      <TableCell>
-                          {isPrivilegedUser ? (
-                          <Input
-                              defaultValue={user.trade || ''}
-                              onBlur={(e) => handleTradeChange(user.uid, e.target.value)}
-                              className="h-8 w-32"
-                              placeholder="Set Trade"
-                              disabled={!isPrivilegedUser}
-                          />
-                          ) : (
-                          user.trade || <Badge variant="outline">N/A</Badge>
-                          )}
-                      </TableCell>
                     <TableCell>
-                      {isPrivilegedUser ? (
-                        <Input
-                          defaultValue={user.department || ''}
-                          onBlur={(e) => handleDepartmentChange(user.uid, e.target.value)}
-                          className="h-8 w-32"
-                          placeholder="Set Department"
-                          disabled={!isPrivilegedUser}
-                        />
-                      ) : (
-                        user.department || <Badge variant="outline">N/A</Badge>
-                      )}
+                        <div className="flex flex-col gap-2">
+                        {isPrivilegedUser ? (
+                            <>
+                            <Input
+                                defaultValue={user.trade || ''}
+                                onBlur={(e) => handleTradeChange(user.uid, e.target.value)}
+                                className="h-8 w-32"
+                                placeholder="Set Trade"
+                            />
+                            <Input
+                                defaultValue={user.department || ''}
+                                onBlur={(e) => handleDepartmentChange(user.uid, e.target.value)}
+                                className="h-8 w-32"
+                                placeholder="Set Department"
+                            />
+                            </>
+                        ) : (
+                            <>
+                            <div className="text-sm">{user.trade || <span className="text-muted-foreground">No Trade</span>}</div>
+                            <div className="text-sm">{user.department || <span className="text-muted-foreground">No Department</span>}</div>
+                            </>
+                        )}
+                        </div>
                     </TableCell>
                     <TableCell className="text-right">
                         {isOwner && user.uid !== currentUserProfile?.uid && user.role !== 'owner' && (
@@ -455,40 +453,45 @@ export default function UserManagementPage() {
                   )}
               </div>
                 
-                {isPrivilegedUser && (
-                  <>
-                    <div className="flex items-center gap-2 pt-2">
-                      <strong className="shrink-0">ID:</strong>
-                      <Input
-                          defaultValue={user.operativeId || ''}
-                          onBlur={(e) => handleOperativeIdChange(user.uid, e.target.value)}
-                          className="h-8"
-                          placeholder="Set ID"
-                          disabled={!isPrivilegedUser}
-                        />
+                <div className="space-y-3 pt-2">
+                    <div className="flex items-center gap-2">
+                        <strong className="shrink-0">ID:</strong>
+                        {isPrivilegedUser ? (
+                            <Input
+                                defaultValue={user.operativeId || ''}
+                                onBlur={(e) => handleOperativeIdChange(user.uid, e.target.value)}
+                                className="h-8"
+                                placeholder="Set ID"
+                            />
+                        ) : (
+                            <span className="text-muted-foreground">{user.operativeId || 'N/A'}</span>
+                        )}
                     </div>
-                    <div className="flex items-center gap-2 pt-2">
-                      <strong className="shrink-0">Trade:</strong>
-                      <Input
-                          defaultValue={user.trade || ''}
-                          onBlur={(e) => handleTradeChange(user.uid, e.target.value)}
-                          className="h-8"
-                          placeholder="Set Trade"
-                          disabled={!isPrivilegedUser}
-                      />
+                    <div className="flex flex-col gap-2 pt-2">
+                        <strong className="shrink-0">Trade / Department</strong>
+                        {isPrivilegedUser ? (
+                            <div className="space-y-2">
+                                <Input
+                                    defaultValue={user.trade || ''}
+                                    onBlur={(e) => handleTradeChange(user.uid, e.target.value)}
+                                    className="h-8"
+                                    placeholder="Set Trade"
+                                />
+                                <Input
+                                    defaultValue={user.department || ''}
+                                    onBlur={(e) => handleDepartmentChange(user.uid, e.target.value)}
+                                    className="h-8"
+                                    placeholder="Set Department"
+                                />
+                            </div>
+                        ) : (
+                            <div className="space-y-1 text-muted-foreground pl-2">
+                                <div>{user.trade || 'No Trade'}</div>
+                                <div>{user.department || 'No Department'}</div>
+                            </div>
+                        )}
                     </div>
-                     <div className="flex items-center gap-2 pt-2">
-                      <strong className="shrink-0">Dept:</strong>
-                      <Input
-                          defaultValue={user.department || ''}
-                          onBlur={(e) => handleDepartmentChange(user.uid, e.target.value)}
-                          className="h-8"
-                          placeholder="Set Department"
-                          disabled={!isPrivilegedUser}
-                      />
-                    </div>
-                  </>
-                )}
+                </div>
             </CardContent>
             {isOwner && user.uid !== currentUserProfile?.uid && user.role !== 'owner' && (
               <CardFooter className="p-2 bg-muted/20">
