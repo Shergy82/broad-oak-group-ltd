@@ -19,6 +19,7 @@ import {
   getDocs,
   where,
   updateDoc,
+  deleteField,
 } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { format, addDays } from 'date-fns';
@@ -45,7 +46,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/shared/spinner';
 import { useToast } from '@/hooks/use-toast';
-import { PlusCircle, UploadCloud, File as FileIcon, Trash2, FolderOpen, Download, Trash, FileArchive, Image as ImageIcon } from 'lucide-react';
+import { PlusCircle, UploadCloud, File as FileIcon, Trash2, FolderOpen, Download, Trash, FileArchive, Image as ImageIcon, RotateCw } from 'lucide-react';
 import type { Project, ProjectFile, UserProfile } from '@/types';
 import { cn } from '@/lib/utils';
 import {
@@ -507,6 +508,24 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
     }
   };
 
+  const handleCancelDeletion = async (project: Project) => {
+    toast({ title: 'Cancelling Deletion...', description: 'Please wait.' });
+    try {
+        const projectRef = doc(db, 'projects', project.id);
+        await updateDoc(projectRef, {
+            deletionScheduledAt: deleteField()
+        });
+        toast({ title: 'Success', description: 'Project deletion has been cancelled.' });
+    } catch (error: any) {
+        console.error("Error cancelling project deletion:", error);
+        toast({ 
+            variant: 'destructive', 
+            title: 'Cancellation Failed', 
+            description: error.message || 'An unknown error occurred.' 
+        });
+    }
+  };
+
   const handleDeleteAllProjects = async () => {
     if (!functions) {
         toast({ variant: 'destructive', title: 'Error', description: 'Firebase Functions service is not available.' });
@@ -614,32 +633,38 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                             <TableCell>{project.createdAt ? format(project.createdAt.toDate(), 'dd/MM/yyyy') : 'N/A'}</TableCell>
                             <TableCell>{project.nextReviewDate ? format(project.nextReviewDate.toDate(), 'dd/MM/yyyy') : 'N/A'}</TableCell>
                             <TableCell className="text-right space-x-2">
-                                <Button variant="outline" size="sm" onClick={() => handleManageFiles(project)} disabled={!!project.deletionScheduledAt}>
+                                <Button variant="outline" size="sm" onClick={() => handleManageFiles(project)}>
                                 <FolderOpen className="mr-2 h-4 w-4" />
                                 Files
                                 </Button>
                                 {['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role) && (
-                                    <AlertDialog>
-                                        <AlertDialogTrigger asChild>
-                                            <Button variant="destructive" size="sm" disabled={!!project.deletionScheduledAt}>
-                                                <Trash2 className="mr-2 h-4 w-4" /> Delete
-                                            </Button>
-                                        </AlertDialogTrigger>
-                                        <AlertDialogContent>
-                                            <AlertDialogHeader>
-                                                <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                                                <AlertDialogDescription>
-                                                    This will permanently delete the project <span className="font-semibold">"{project.address}"</span> and all of its associated files. This action cannot be undone.
-                                                </AlertDialogDescription>
-                                            </AlertDialogHeader>
-                                            <AlertDialogFooter>
-                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                <AlertDialogAction onClick={() => handleDeleteProject(project)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                                                    Delete Project
-                                                </AlertDialogAction>
-                                            </AlertDialogFooter>
-                                        </AlertDialogContent>
-                                    </AlertDialog>
+                                    project.deletionScheduledAt ? (
+                                        <Button variant="secondary" size="sm" onClick={() => handleCancelDeletion(project)}>
+                                            <RotateCw className="mr-2 h-4 w-4" /> Cancel
+                                        </Button>
+                                    ) : (
+                                        <AlertDialog>
+                                            <AlertDialogTrigger asChild>
+                                                <Button variant="destructive" size="sm">
+                                                    <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                                </Button>
+                                            </AlertDialogTrigger>
+                                            <AlertDialogContent>
+                                                <AlertDialogHeader>
+                                                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                                    <AlertDialogDescription>
+                                                        This action schedules the project <span className="font-semibold">"{project.address}"</span> for permanent deletion in 7 days. It will be hidden from the evidence dashboard immediately.
+                                                    </AlertDialogDescription>
+                                                </AlertDialogHeader>
+                                                <AlertDialogFooter>
+                                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                    <AlertDialogAction onClick={() => handleDeleteProject(project)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                                        Schedule Deletion
+                                                    </AlertDialogAction>
+                                                </AlertDialogFooter>
+                                            </AlertDialogContent>
+                                        </AlertDialog>
+                                    )
                                 )}
                             </TableCell>
                         </TableRow>
@@ -666,33 +691,39 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                                 </div>
                                 )}
                         </CardContent>
-                        <CardFooter className="grid grid-cols-2 gap-2">
-                            <Button variant="outline" className="w-full" onClick={() => handleManageFiles(project)} disabled={!!project.deletionScheduledAt}>
+                        <CardFooter className="flex flex-col gap-2 items-stretch">
+                            <Button variant="outline" className="w-full" onClick={() => handleManageFiles(project)}>
                                 <FolderOpen className="mr-2 h-4 w-4" />
                                 Manage Files
                             </Button>
                              {['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role) && (
-                                <AlertDialog>
-                                    <AlertDialogTrigger asChild>
-                                        <Button variant="destructive" className="w-full" disabled={!!project.deletionScheduledAt}>
-                                            <Trash2 className="mr-2 h-4 w-4" /> Delete
-                                        </Button>
-                                    </AlertDialogTrigger>
-                                    <AlertDialogContent>
-                                        <AlertDialogHeader>
-                                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                                            <AlertDialogDescription>
-                                                This will permanently delete the project <span className="font-semibold">"{project.address}"</span> and all of its associated files. This action cannot be undone.
-                                            </AlertDialogDescription>
-                                        </AlertDialogHeader>
-                                        <AlertDialogFooter>
-                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                            <AlertDialogAction onClick={() => handleDeleteProject(project)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                                                Delete Project
-                                            </AlertDialogAction>
-                                        </AlertDialogFooter>
-                                    </AlertDialogContent>
-                                </AlertDialog>
+                                project.deletionScheduledAt ? (
+                                    <Button variant="secondary" className="w-full" onClick={() => handleCancelDeletion(project)}>
+                                        <RotateCw className="mr-2 h-4 w-4" /> Cancel Deletion
+                                    </Button>
+                                ) : (
+                                    <AlertDialog>
+                                        <AlertDialogTrigger asChild>
+                                            <Button variant="destructive" className="w-full">
+                                                <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                            </Button>
+                                        </AlertDialogTrigger>
+                                        <AlertDialogContent>
+                                            <AlertDialogHeader>
+                                                <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                                <AlertDialogDescription>
+                                                   This action schedules the project <span className="font-semibold">"{project.address}"</span> for permanent deletion in 7 days. It will be hidden from the evidence dashboard immediately.
+                                                </AlertDialogDescription>
+                                            </AlertDialogHeader>
+                                            <AlertDialogFooter>
+                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                <AlertDialogAction onClick={() => handleDeleteProject(project)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                                    Schedule Deletion
+                                                </AlertDialogAction>
+                                            </AlertDialogFooter>
+                                        </AlertDialogContent>
+                                    </AlertDialog>
+                                )
                             )}
                         </CardFooter>
                     </Card>
