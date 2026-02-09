@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { EvidenceChecklistManager } from '@/components/admin/evidence-checklist-manager';
 import { cn } from '@/lib/utils';
 import { Spinner } from '@/components/shared/spinner';
+import { Badge } from '@/components/ui/badge';
 
 
 const isMatch = (checklistText: string, fileTag: string | undefined): boolean => {
@@ -23,7 +24,7 @@ const isMatch = (checklistText: string, fileTag: string | undefined): boolean =>
                 .toLowerCase()
                 .split(/[\s-_]+/)
                 .map(word => word.replace(/[^a-z0-9]/g, ''))
-                .map(word => word.endsWith('s') ? word.slice(0, -1) : word) // simple plural removal
+                .map(word => word.endsWith('s') ? word.slice(0, -1) : word)
                 .filter(Boolean)
         );
 
@@ -79,6 +80,10 @@ function ProjectEvidenceCard({ project, checklist }: { project: Project; checkli
     return { evidenceStatus: status, isComplete: overallComplete };
   }, [files, checklist]);
 
+  const existingTags = useMemo(() => {
+      return files.map(f => f.evidenceTag).filter((tag): tag is string => !!tag);
+  }, [files]);
+
   return (
     <Card className={cn("hover:shadow-md transition-shadow", isComplete ? 'border-green-500/50 bg-green-500/5' : 'border-red-500/50 bg-red-500/5')}>
       <CardHeader className="p-4 pb-2">
@@ -100,6 +105,18 @@ function ProjectEvidenceCard({ project, checklist }: { project: Project; checkli
             ))}
           </div>
         ) : <p className="text-xs text-muted-foreground italic">No evidence checklist for this contract.</p>}
+        
+        {existingTags.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-dashed">
+                <p className="text-xs font-semibold text-muted-foreground">DEBUG: Found Tags</p>
+                <div className="flex flex-wrap gap-1 mt-1">
+                    {existingTags.map((tag, i) => (
+                        <Badge key={i} variant="outline" className="font-mono text-[10px]">{tag}</Badge>
+                    ))}
+                </div>
+            </div>
+        )}
+
       </CardContent>
     </Card>
   );
