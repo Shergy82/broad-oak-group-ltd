@@ -291,6 +291,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
     if (!file || taskIndexString === null) return;
 
     const taskIndex = parseInt(taskIndexString, 10);
+    const task = tradeTasks[taskIndex];
     setIsUploadingPhoto(taskIndex);
 
     try {
@@ -318,7 +319,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
       const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
 
       await addDoc(collection(db, `projects/${projectId}/files`), {
-        name: `Task Photo - ${tradeTasks[taskIndex].text} - ${format(new Date(), 'yyyy-MM-dd')}`,
+        name: `Task Photo - ${task.text} - ${format(new Date(), 'yyyy-MM-dd')}`,
         url: downloadURL,
         fullPath: storagePath,
         size: file.size,
@@ -326,6 +327,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
         uploadedAt: serverTimestamp(),
         uploaderId: userProfile?.uid || "system",
         uploaderName: userProfile.name,
+        evidenceTag: task.evidenceTag || '',
       });
 
       const newStatuses = { ...taskStatuses };

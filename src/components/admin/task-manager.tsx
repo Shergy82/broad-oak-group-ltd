@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { PlusCircle, Trash2, Camera } from 'lucide-react';
+import { PlusCircle, Trash2, Camera, Tags } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
@@ -21,6 +21,7 @@ export function TaskManager() {
   const [newTradeName, setNewTradeName] = useState('');
   const [newSubTaskText, setNewSubTaskText] = useState<{ [key: string]: string }>({});
   const [newSubTaskPhotoRequired, setNewSubTaskPhotoRequired] = useState<{ [key: string]: boolean }>({});
+  const [newSubTaskEvidenceTag, setNewSubTaskEvidenceTag] = useState<{ [key: string]: string }>({});
   const { toast } = useToast();
 
   useEffect(() => {
@@ -78,22 +79,29 @@ export function TaskManager() {
   };
 
   const handleAddTask = async (tradeId: string) => {
-    const taskName = newSubTaskText[tradeId]?.trim();
-    if (!taskName) {
+    const taskText = newSubTaskText[tradeId]?.trim();
+    if (!taskText) {
       toast({ variant: 'destructive', title: 'Task name cannot be empty.' });
       return;
     }
     if (!db) return;
 
     const photoRequired = newSubTaskPhotoRequired[tradeId] || false;
+    const evidenceTag = newSubTaskEvidenceTag[tradeId]?.trim() || '';
     const tradeDocRef = doc(db, 'trade_tasks', tradeId);
+    
+    const newTask: TradeTask = { text: taskText, photoRequired };
+    if (photoRequired && evidenceTag) {
+        newTask.evidenceTag = evidenceTag;
+    }
 
     try {
       await updateDoc(tradeDocRef, {
-        tasks: arrayUnion({ text: taskName, photoRequired })
+        tasks: arrayUnion(newTask)
       });
       setNewSubTaskText({ ...newSubTaskText, [tradeId]: '' });
       setNewSubTaskPhotoRequired({ ...newSubTaskPhotoRequired, [tradeId]: false });
+      setNewSubTaskEvidenceTag({ ...newSubTaskEvidenceTag, [tradeId]: '' });
       toast({ title: 'Success', description: `Task added.` });
     } catch (error) {
       console.error('Error adding task: ', error);
@@ -177,23 +185,35 @@ export function TaskManager() {
                 </AccordionTrigger>
                 <AccordionContent className="p-4 bg-muted/30 rounded-b-md">
                   <div className="space-y-4">
-                    <div className="space-y-2">
+                    <div className="space-y-3 p-3 border bg-background rounded-md">
                       <Input
                         placeholder="Add a new sub-task..."
                         value={newSubTaskText[trade.id] || ''}
                         onChange={(e) => setNewSubTaskText({ ...newSubTaskText, [trade.id]: e.target.value })}
                         onKeyPress={(e) => e.key === 'Enter' && handleAddTask(trade.id)}
                       />
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
                         <div className="flex items-center space-x-2">
                           <Checkbox
                             id={`photo-required-${trade.id}`}
                             checked={newSubTaskPhotoRequired[trade.id] || false}
                             onCheckedChange={(checked) => setNewSubTaskPhotoRequired({ ...newSubTaskPhotoRequired, [trade.id]: !!checked })}
                           />
-                          <Label htmlFor={`photo-required-${trade.id}`} className="text-sm text-muted-foreground">Photo Required</Label>
+                          <Label htmlFor={`photo-required-${trade.id}`} className="text-sm">Photo Required</Label>
                         </div>
-                        <Button size="sm" onClick={() => handleAddTask(trade.id)}>
+                        
+                        {newSubTaskPhotoRequired[trade.id] && (
+                            <div className="flex items-center gap-2 w-full sm:w-auto">
+                                <Tags className="h-4 w-4 text-muted-foreground" />
+                                <Input 
+                                    placeholder="Evidence Tag (e.g., boiler-photo)"
+                                    value={newSubTaskEvidenceTag[trade.id] || ''}
+                                    onChange={(e) => setNewSubTaskEvidenceTag({...newSubTaskEvidenceTag, [trade.id]: e.target.value})}
+                                    className="h-8"
+                                />
+                            </div>
+                        )}
+                        <Button size="sm" onClick={() => handleAddTask(trade.id)} className="w-full sm:w-auto">
                           Add Task
                         </Button>
                       </div>
@@ -205,9 +225,17 @@ export function TaskManager() {
                             key={index}
                             className="flex items-center justify-between p-2 bg-background rounded-md border"
                           >
-                            <div className="flex items-center gap-2">
-                              <span>{task.text}</span>
-                              {task.photoRequired && <Camera className="h-4 w-4 text-muted-foreground" />}
+                            <div className="flex flex-col">
+                                <div className="flex items-center gap-2">
+                                  <span>{task.text}</span>
+                                  {task.photoRequired && <Camera className="h-4 w-4 text-muted-foreground" />}
+                                </div>
+                                {task.evidenceTag && (
+                                    <div className="flex items-center gap-1 mt-1">
+                                        <Tags className="h-3 w-3 text-muted-foreground" />
+                                        <p className="text-xs text-muted-foreground font-mono bg-muted px-1.5 py-0.5 rounded">{task.evidenceTag}</p>
+                                    </div>
+                                )}
                             </div>
                             <Button
                               variant="ghost"

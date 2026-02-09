@@ -74,6 +74,7 @@ export interface ProjectFile {
   uploadedAt: Timestamp;
   uploaderId: string;
   uploaderName: string;
+  evidenceTag?: string;
 }
 
 export interface HealthAndSafetyFile {
@@ -121,7 +122,18 @@ export interface Trade {
 export interface TradeTask {
   text: string;
   photoRequired: boolean;
+  evidenceTag?: string;
 }
+
+export interface EvidenceChecklist {
+    contractName: string;
+    items: EvidenceChecklistItem[];
+}
+export interface EvidenceChecklistItem {
+    id: string;
+    text: string;
+}
+
 
 export interface PerformanceMetric {
   userId: string;

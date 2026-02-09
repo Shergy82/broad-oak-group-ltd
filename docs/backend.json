@@ -32,6 +32,10 @@
         "photoRequired": {
           "type": "boolean",
           "description": "Whether a photo is required upon completion of this task."
+        },
+        "evidenceTag": {
+          "type": "string",
+          "description": "A tag used to link a photo task to an evidence checklist item."
         }
       },
       "required": ["text", "photoRequired"]
@@ -102,7 +106,7 @@
         },
         "text": {
           "type": "string",
-          "description": "The description of the evidence item."
+          "description": "The description of the evidence item. This text is used as the 'tag' to match against uploaded files."
         }
       },
       "required": ["id", "text"]
