@@ -36,7 +36,7 @@ export default function UserManagementPage() {
   const { toast } = useToast();
   
   const isOwner = currentUserProfile?.role === 'owner';
-  const isPrivilegedUser = isOwner || currentUserProfile?.role === 'admin' || currentUserProfile?.role === 'manager';
+  const isPrivilegedUser = isOwner || currentUserProfile?.role === 'admin' || currentUserProfile?.role === 'manager' || currentUserProfile?.role === 'TLO';
 
   useEffect(() => {
     if (!currentUserProfile || !db) {
@@ -70,10 +70,10 @@ export default function UserManagementPage() {
   }, [currentUserProfile, toast]);
 
   const adminAndManagerUsers = users.filter(user =>
-    ['admin', 'owner', 'manager'].includes(user.role)
+    ['admin', 'owner', 'manager', 'TLO'].includes(user.role)
   );
-  const engineerAndTLOUsers = users.filter(user =>
-    ['user', 'TLO'].includes(user.role)
+  const engineerUsers = users.filter(user =>
+    ['user'].includes(user.role)
   );
   
   const getStatusBadge = (status?: 'active' | 'suspended' | 'pending-approval') => {
@@ -527,9 +527,9 @@ export default function UserManagementPage() {
             </div>
 
             <div>
-                <h3 className="text-xl font-semibold mb-4">Engineers & TLOs</h3>
-                {engineerAndTLOUsers.length > 0 ? (
-                    renderUserTable(engineerAndTLOUsers)
+                <h3 className="text-xl font-semibold mb-4">Engineers</h3>
+                {engineerUsers.length > 0 ? (
+                    renderUserTable(engineerUsers)
                 ) : (
                     <p className="text-sm text-muted-foreground">No users in this category.</p>
                 )}

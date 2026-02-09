@@ -24,7 +24,7 @@ export default function RootPage() {
 
     if (!userProfile) return;
 
-    const isPrivileged = ['admin', 'owner', 'manager'].includes(
+    const isPrivileged = ['admin', 'owner', 'manager', 'TLO'].includes(
       (userProfile.role || '').toLowerCase()
     );
 

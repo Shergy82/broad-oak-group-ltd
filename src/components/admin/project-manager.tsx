@@ -43,7 +43,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/shared/spinner';
 import { useToast } from '@/hooks/use-toast';
-import { PlusCircle, UploadCloud, File as FileIcon, Trash2, FolderOpen, Download, Trash } from 'lucide-react';
+import { PlusCircle, UploadCloud, File as FileIcon, Trash2, FolderOpen, Download, Trash, FileArchive, Image as ImageIcon } from 'lucide-react';
 import type { Project, ProjectFile, UserProfile } from '@/types';
 import { cn } from '@/lib/utils';
 import {
@@ -59,7 +59,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
-import { ProjectReportGenerator } from './project-report-generator';
+import jsPDF from 'jspdf';
 
 
 const projectSchema = z.object({
@@ -253,6 +253,7 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
     const [files, setFiles] = useState<ProjectFile[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const { toast } = useToast();
+    const [isZipping, setIsZipping] = useState(false);
 
     useEffect(() => {
         if (!project) return;
@@ -267,6 +268,31 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
         });
         return () => unsubscribe();
     }, [project]);
+
+    const handleZipAndDownload = async () => {
+        if (!project || !functions || files.length === 0) {
+            toast({ variant: 'destructive', title: 'Error', description: 'Required services not available or no files to zip.'});
+            return;
+        }
+        setIsZipping(true);
+        toast({ title: 'Zipping files...', description: 'Please wait, this may take a moment for large projects.' });
+
+        try {
+            const zipProjectFilesFn = httpsCallable<{ projectId: string }, { downloadUrl: string }>(functions, 'zipProjectFiles');
+            const result = await zipProjectFilesFn({ projectId: project.id });
+            const { downloadUrl } = result.data;
+            
+            toast({ title: 'Zip created!', description: 'Your download will begin shortly.' });
+            // Trigger the download by navigating to the signed URL
+            window.location.href = downloadUrl;
+        } catch (error: any) {
+            console.error("Error zipping files:", error);
+            toast({ variant: 'destructive', title: 'Zipping Failed', description: error.message || 'Could not create zip file. Check the function logs.' });
+        } finally {
+            setIsZipping(false);
+        }
+    };
+
 
     const handleDeleteFile = async (file: ProjectFile) => {
         if (!project || !functions) {
@@ -294,16 +320,10 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
     
     const getFileViewUrl = (file: ProjectFile): string => {
         const officeExtensions = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
-        const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
         const fileExtension = file.name.split('.').pop()?.toLowerCase();
 
-        if (fileExtension) {
-            if (officeExtensions.includes(fileExtension) || fileExtension === 'pdf') {
-                return `https://docs.google.com/gview?url=${encodeURIComponent(file.url)}&embedded=true`;
-            }
-            if (imageExtensions.includes(fileExtension)) {
-                return `https://images.weserv.nl/?url=${encodeURIComponent(file.url)}`;
-            }
+        if (fileExtension && officeExtensions.includes(fileExtension)) {
+            return `https://docs.google.com/gview?url=${encodeURIComponent(file.url)}&embedded=true`;
         }
         return file.url;
     };
@@ -324,7 +344,18 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                         <FileUploader project={project} userProfile={userProfile} />
                     </div>
                     <div className="space-y-4">
-                        <h4 className="font-semibold">Existing Files</h4>
+                        <div className="flex items-center justify-between">
+                            <h4 className="font-semibold">Existing Files</h4>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={handleZipAndDownload}
+                                disabled={isLoading || isZipping || files.length === 0}
+                            >
+                                {isZipping ? <Spinner /> : <FileArchive className="mr-2" />}
+                                Zip & Download All
+                            </Button>
+                        </div>
                         {isLoading ? <Skeleton className="h-48 w-full" /> : files.length === 0 ? (
                             <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-muted-foreground/30 rounded-lg text-center h-full">
                                 <FileIcon className="h-12 w-12 text-muted-foreground" />
@@ -356,7 +387,7 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                                                           <Download className="h-4 w-4" />
                                                       </Button>
                                                     </a>
-                                                     {(userProfile.uid === file.uploaderId || ['admin', 'owner', 'manager'].includes(userProfile.role)) && (
+                                                     {(userProfile.uid === file.uploaderId || ['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role)) && (
                                                         <AlertDialog>
                                                             <AlertDialogTrigger asChild>
                                                                 <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10">
@@ -384,11 +415,6 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                         )}
                     </div>
                 </div>
-                 {['admin', 'owner'].includes(userProfile.role) && (
-                    <div className="mt-6 pt-6 border-t">
-                        <ProjectReportGenerator project={project} files={files} />
-                    </div>
-                )}
             </DialogContent>
         </Dialog>
     );
@@ -435,7 +461,7 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
   };
   
   const handleDeleteProject = async (project: Project) => {
-    if (!['admin', 'owner', 'manager'].includes(userProfile.role)) {
+    if (!['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role)) {
         toast({ variant: 'destructive', title: 'Permission Denied', description: 'You do not have permission to delete projects.' });
         return;
     }
@@ -564,7 +590,7 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                             <FolderOpen className="mr-2 h-4 w-4" />
                             Files
                             </Button>
-                            {['admin', 'owner', 'manager'].includes(userProfile.role) && (
+                            {['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role) && (
                                  <AlertDialog>
                                     <AlertDialogTrigger asChild>
                                         <Button variant="destructive" size="sm">
@@ -612,7 +638,7 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                                 <FolderOpen className="mr-2 h-4 w-4" />
                                 Manage Files
                             </Button>
-                             {['admin', 'owner', 'manager'].includes(userProfile.role) && (
+                             {['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role) && (
                                 <AlertDialog>
                                     <AlertDialogTrigger asChild>
                                         <Button variant="destructive" className="w-full">

@@ -27,7 +27,7 @@ export default function AnnouncementAcksAdminPage() {
 
   // IMPORTANT: don't block UI on profileLoading; treat missing profile as non-privileged
   const role = (userProfile?.role || '').toLowerCase();
-  const isPrivileged = role === 'owner' || role === 'admin' || role === 'manager';
+  const isPrivileged = role === 'owner' || role === 'admin' || role === 'manager' || role === 'tlo';
 
   useEffect(() => {
     async function load() {

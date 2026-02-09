@@ -213,7 +213,7 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
                             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => downloadFile(file.fullPath)}>
                                 <Download className="h-4 w-4" />
                             </Button>
-                            {(userProfile.uid === file.uploaderId || ['admin', 'owner'].includes(userProfile.role)) && (
+                            {(userProfile.uid === file.uploaderId || ['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role)) && (
                                 <AlertDialog>
                                     <AlertDialogTrigger asChild>
                                         <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10">

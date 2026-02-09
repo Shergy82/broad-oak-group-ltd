@@ -1,0 +1,104 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function role(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data.role;
+    }
+
+    function isPrivilegedUser(uid) {
+      return signedIn() &&
+        (role(uid) == 'admin' || role(uid) == 'owner' || role(uid) == 'manager' || role(uid) == 'TLO');
+    }
+
+    // ---- USERS ----
+    match /users/{userId} {
+      allow create: if signedIn() && request.auth.uid == userId;
+
+      allow read: if signedIn() &&
+        (request.auth.uid == userId || isPrivilegedUser(request.auth.uid));
+
+      allow update: if signedIn() &&
+        (request.auth.uid == userId || isPrivilegedUser(request.auth.uid));
+
+      allow delete: if role(request.auth.uid) == 'owner';
+
+      allow list: if isPrivilegedUser(request.auth.uid);
+
+      // ---- PUSH SUBSCRIPTIONS ----
+      match /pushSubscriptions/{docId} {
+        allow read, write, delete: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+
+    // ---- SHIFTS ----
+    match /shifts/{shiftId} {
+      allow read: if signedIn();
+      allow create, delete: if isPrivilegedUser(request.auth.uid);
+
+      allow update: if signedIn() &&
+        (
+          (resource.data.userId == request.auth.uid &&
+           request.resource.data.userId == request.auth.uid)
+          || isPrivilegedUser(request.auth.uid)
+        );
+    }
+
+    // ---- PROJECTS ----
+    match /projects/{projectId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isPrivilegedUser(request.auth.uid);
+
+      match /files/{fileId} {
+        allow read, create: if signedIn();
+        allow delete: if isPrivilegedUser(request.auth.uid)
+          || resource.data.uploaderId == request.auth.uid;
+      }
+    }
+
+    // ---- ANNOUNCEMENTS ----
+    match /announcements/{id} {
+      allow read: if signedIn();
+      allow create, update, delete: if isPrivilegedUser(request.auth.uid);
+    }
+
+    // ---- ANNOUNCEMENT ACKNOWLEDGEMENTS ----
+    // Your app writes to: announcementAcknowledgements/{announcementId}_{uid}
+    match /announcementAcknowledgements/{docId} {
+      allow read: if signedIn();
+
+      // Only allow a user to create/update/delete their own acknowledgement
+      allow create, update, delete: if signedIn()
+        && request.resource.data.userId == request.auth.uid;
+    }
+
+    // ---- SETTINGS ----
+    match /settings/{id} {
+      allow read, write: if role(request.auth.uid) == 'owner';
+    }
+
+    // ---- TRADE TASKS ----
+    match /trade_tasks/{id} {
+      allow read: if signedIn();
+      allow write: if isPrivilegedUser(request.auth.uid);
+    }
+
+    // ---- UNAVAILABILITY ----
+    match /unavailability/{id} {
+      allow read: if signedIn();
+      allow write: if isPrivilegedUser(request.auth.uid);
+    }
+
+    // ---- HEALTH & SAFETY FILES ----
+    match /health_and_safety_files/{id} {
+      allow read: if signedIn();
+      allow create, update, delete: if role(request.auth.uid) == 'owner';
+    }
+
+  }
+}

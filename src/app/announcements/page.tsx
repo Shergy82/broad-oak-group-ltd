@@ -27,7 +27,7 @@ export default function AnnouncementsPage() {
   const [hideAcknowledged, setHideAcknowledged] = useState(true);
 
   const role = (userProfile?.role || '').toLowerCase();
-  const isPrivileged = role === 'owner' || role === 'admin' || role === 'manager';
+  const isPrivileged = role === 'owner' || role === 'admin' || role === 'manager' || role === 'tlo';
 
   useEffect(() => {
     if (!isAuthLoading && !user) router.replace('/dashboard');
