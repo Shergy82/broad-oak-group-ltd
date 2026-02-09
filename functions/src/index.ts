@@ -2,6 +2,7 @@ import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
 import { onCall, HttpsError, onRequest } from "firebase-functions/v2/https";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
+import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as webPush from "web-push";
 import * as crypto from "crypto";
 
@@ -458,4 +459,66 @@ export const getNotificationStatus = onCall({ region: "europe-west2" }, async (r
 
   return { subscribed: !snap.empty };
 });
+
+export const cleanupDeletedProjects = onSchedule({
+    schedule: "every 24 hours",
+    region: "europe-west2",
+    timeoutSeconds: 540,
+    memory: "512MiB",
+}, async () => {
+    logger.log("Starting cleanup for projects scheduled for deletion.");
+    
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const sevenDaysAgoTimestamp = admin.firestore.Timestamp.fromDate(sevenDaysAgo);
+
+    const projectsToDeleteQuery = db.collection('projects')
+        .where('deletionScheduledAt', '<=', sevenDaysAgoTimestamp);
+
+    const snapshot = await projectsToDeleteQuery.get();
+
+    if (snapshot.empty) {
+        logger.log("No projects found for cleanup.");
+        return null;
+    }
+
+    const bucket = admin.storage().bucket();
+
+    const deletionPromises = snapshot.docs.map(async (projectDoc) => {
+        const projectId = projectDoc.id;
+        logger.log(`Processing project for deletion: ${projectId}`);
+        
+        // 1. Delete files from Cloud Storage
+        const prefix = `project_files/${projectId}/`;
+        try {
+            await bucket.deleteFiles({ prefix });
+            logger.log(`Storage files deleted for project ${projectId} with prefix: ${prefix}`);
+        } catch (e: any) {
+            if (e.code === 404) {
+                logger.log(`No storage files to delete for project ${projectId} with prefix: ${prefix}`);
+            } else {
+                logger.error(`Error deleting storage files for project ${projectId}`, e);
+            }
+        }
+        
+        // 2. Delete 'files' subcollection in Firestore
+        const filesSubcollectionRef = projectDoc.ref.collection('files');
+        const filesSnapshot = await filesSubcollectionRef.limit(500).get();
+        if (!filesSnapshot.empty) {
+            const batch = db.batch();
+            filesSnapshot.docs.forEach(fileDoc => batch.delete(fileDoc.ref));
+            await batch.commit();
+            logger.log(`'files' subcollection batch deleted for project ${projectId}`);
+        }
+        
+        // 3. Delete the project document itself
+        await projectDoc.ref.delete();
+        logger.log(`Project document ${projectId} deleted successfully.`);
+    });
+
+    await Promise.all(deletionPromises);
+    logger.log(`Cleanup finished. Processed ${snapshot.size} project(s) for deletion.`);
+    return null;
+});
+
 export { serveFile } from "./files";

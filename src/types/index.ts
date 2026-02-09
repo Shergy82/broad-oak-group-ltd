@@ -62,6 +62,7 @@ export interface Project {
   creatorId?: string;
   nextReviewDate?: Timestamp;
   contract?: string;
+  deletionScheduledAt?: Timestamp;
 }
 
 export interface ProjectFile {

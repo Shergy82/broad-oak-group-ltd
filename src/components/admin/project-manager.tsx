@@ -18,6 +18,7 @@ import {
   Timestamp,
   getDocs,
   where,
+  updateDoc,
 } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { format } from 'date-fns';
@@ -459,7 +460,9 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
   useEffect(() => {
     const q = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project)));
+      const allProjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project));
+      const activeProjects = allProjects.filter(p => !p.deletionScheduledAt);
+      setProjects(activeProjects);
       setLoading(false);
     }, (error) => {
       console.error("Error fetching projects:", error);
@@ -487,23 +490,20 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
         toast({ variant: 'destructive', title: 'Permission Denied', description: 'You do not have permission to delete projects.' });
         return;
     }
-     if (!functions) {
-        toast({ variant: 'destructive', title: 'Error', description: 'Firebase Functions service is not available.' });
-        return;
-    }
 
-    toast({ title: 'Deleting Project...', description: 'This may take a moment. The page will update automatically.' });
+    toast({ title: 'Scheduling Deletion...', description: `Project "${project.address}" will be permanently deleted in 7 days.` });
     try {
-        const deleteProjectAndFilesFn = httpsCallable<{projectId: string}>(functions, 'deleteProjectAndFiles');
-        await deleteProjectAndFilesFn({ projectId: project.id });
-        
-        toast({ title: 'Success', description: 'Project and all its files have been deleted.' });
+        const projectRef = doc(db, 'projects', project.id);
+        await updateDoc(projectRef, {
+            deletionScheduledAt: serverTimestamp()
+        });
+        toast({ title: 'Success', description: 'Project scheduled for deletion.' });
     } catch (error: any) {
-        console.error("Error calling deleteProjectAndFiles function:", error);
+        console.error("Error scheduling project for deletion:", error);
         toast({ 
             variant: 'destructive', 
-            title: 'Deletion Failed', 
-            description: error.message || 'An unknown error occurred. Please check the function logs in the Firebase Console.' 
+            title: 'Scheduling Failed', 
+            description: error.message || 'An unknown error occurred.' 
         });
     }
   };
@@ -702,4 +702,3 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
     
 
     
-

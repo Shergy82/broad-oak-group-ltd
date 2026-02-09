@@ -3,7 +3,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db, functions, httpsCallable } from '@/lib/firebase';
 import type { Project, EvidenceChecklist, ProjectFile, UserProfile } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -209,24 +209,22 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
         toast({ variant: 'destructive', title: 'Permission Denied', description: 'You do not have permission to delete projects.' });
         return;
     }
-     if (!functions) {
-        toast({ variant: 'destructive', title: 'Error', description: 'Firebase Functions service is not available.' });
-        return;
-    }
-
-    toast({ title: 'Deleting Project...', description: 'This may take a moment.' });
+    
+    toast({ title: "Scheduling Deletion...", description: `Project will be removed from this view and permanently deleted in 7 days.` });
+    
     try {
-        const deleteProjectAndFilesFn = httpsCallable<{projectId: string}>(functions, 'deleteProjectAndFiles');
-        await deleteProjectAndFilesFn({ projectId: project.id });
-        
-        toast({ title: 'Success', description: 'Project and all its files have been deleted.' });
+      const projectRef = doc(db, 'projects', project.id);
+      await updateDoc(projectRef, {
+        deletionScheduledAt: serverTimestamp()
+      });
+      toast({ title: "Success", description: "Project scheduled for deletion." });
     } catch (error: any) {
-        console.error("Error calling deleteProjectAndFiles function:", error);
-        toast({ 
-            variant: 'destructive', 
-            title: 'Deletion Failed', 
-            description: error.message || 'An unknown error occurred. Please check the function logs in the Firebase Console.' 
-        });
+      console.error("Error scheduling project for deletion:", error);
+      toast({ 
+        variant: 'destructive', 
+        title: 'Scheduling Failed', 
+        description: error.message || 'An unknown error occurred.' 
+      });
     }
   };
 
@@ -348,7 +346,9 @@ export default function EvidencePage() {
     const projectsQuery = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
     const unsubProjects = onSnapshot(projectsQuery, 
       (snapshot) => {
-          setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project)));
+          const allProjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project));
+          const activeProjects = allProjects.filter(p => !p.deletionScheduledAt);
+          setProjects(activeProjects);
           if (snapshot.docs.length === 0) setLoading(false);
       },
       (err) => {
