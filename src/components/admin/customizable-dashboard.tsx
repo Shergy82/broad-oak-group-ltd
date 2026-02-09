@@ -15,8 +15,12 @@ import { ContractStatsDashboard } from './contract-stats-dashboard';
 import { TaskManager } from './task-manager';
 import { ProjectManager } from './project-manager';
 import { Spinner } from '../shared/spinner';
+import { ShiftScheduleOverview } from './shift-schedule-overview';
+import { HealthAndSafetyFileList } from '../health-and-safety/file-list';
+import { Faq } from '../landing/faq';
+import { UserManagement } from './user-management';
 
-type WidgetKey = 'availability' | 'performance' | 'contracts' | 'tasks' | 'projects';
+type WidgetKey = 'availability' | 'performance' | 'contracts' | 'tasks' | 'projects' | 'schedule' | 'users' | 'healthAndSafety' | 'help';
 
 interface Widget {
   key: WidgetKey;
@@ -26,26 +30,34 @@ interface Widget {
 
 const ALL_WIDGETS: Widget[] = [
   { key: 'availability', title: 'Today\'s Availability', description: 'Quick overview of operative availability today.' },
+  { key: 'schedule', title: 'Team Schedule', description: 'A real-time overview of all upcoming shifts for the team.' },
   { key: 'performance', title: 'Operative Performance', description: 'KPIs for all users, ranked.' },
   { key: 'contracts', title: 'Contract Dashboard', description: 'High-level statistics for each contract.' },
   { key: 'tasks', title: 'Task Management', description: 'Create and manage reusable tasks.' },
   { key: 'projects', title: 'Project Management', description: 'Create projects and manage files.' },
+  { key: 'users', title: 'User Management', description: 'View and manage all user accounts.' },
+  { key: 'healthAndSafety', title: 'Health & Safety', description: 'View and manage H&S documents.' },
+  { key: 'help', title: 'Help & Support', description: 'Frequently asked questions.' },
 ];
 
-const LS_KEY = 'admin_dashboard_widgets_v3'; // Version up to avoid format conflicts
+const LS_KEY = 'admin_dashboard_widgets_v4';
 
 const WIDGET_COMPONENTS: Record<WidgetKey, React.ComponentType<{ userProfile: UserProfile }>> = {
     availability: AvailabilityOverview as any,
     performance: PerformanceDashboard as any,
     contracts: ContractStatsDashboard as any,
     tasks: TaskManager as any,
-    projects: ProjectManager
+    projects: ProjectManager,
+    schedule: ShiftScheduleOverview,
+    users: UserManagement as any,
+    healthAndSafety: HealthAndSafetyFileList,
+    help: Faq as any,
 };
 
 
 export function CustomizableDashboard() {
   const { userProfile, loading: profileLoading } = useUserProfile();
-  const [widgetConfig, setWidgetConfig] = useState<WidgetKey[]>(['availability', 'projects']);
+  const [widgetConfig, setWidgetConfig] = useState<WidgetKey[]>(['availability', 'projects', 'schedule']);
   const [isClient, setIsClient] = useState(false);
 
   const enabledWidgets = useMemo(() => new Set(widgetConfig), [widgetConfig]);
@@ -62,11 +74,11 @@ export function CustomizableDashboard() {
         }
       } else {
         // Default widgets
-        setWidgetConfig(['availability', 'projects']);
+        setWidgetConfig(['availability', 'projects', 'schedule']);
       }
     } catch (e) {
       console.error("Failed to load dashboard config from localStorage", e);
-      setWidgetConfig(['availability', 'projects']);
+      setWidgetConfig(['availability', 'projects', 'schedule']);
     }
   }, []);
 
@@ -200,20 +212,17 @@ export function CustomizableDashboard() {
            <div className="space-y-6">
                 {widgetsToRender.map(widget => {
                     const Component = WIDGET_COMPONENTS[widget.key];
-                    if (widget.key === 'projects') {
-                        return (
-                            <Card key={widget.key}>
-                                <CardHeader>
-                                    <CardTitle>{widget.title}</CardTitle>
-                                    <CardDescription>{widget.description}</CardDescription>
-                                </CardHeader>
-                                <CardContent>
-                                    <Component userProfile={userProfile} />
-                                </CardContent>
-                            </Card>
-                        )
-                    }
-                    return <Component key={widget.key} userProfile={userProfile} />;
+                    return (
+                        <Card key={widget.key}>
+                            <CardHeader>
+                                <CardTitle>{widget.title}</CardTitle>
+                                <CardDescription>{widget.description}</CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <Component userProfile={userProfile} />
+                            </CardContent>
+                        </Card>
+                    )
                 })}
            </div>
        ) : (
