@@ -165,20 +165,26 @@ function EvidenceReportGenerator({ project, files, onGenerated }: EvidenceReport
   );
 }
 
-
 function ProjectEvidenceCard({ project, checklist }: { project: Project; checklist: EvidenceChecklist | undefined }) {
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(true);
-  const [evidenceState, setEvidenceState] = useState<'incomplete' | 'ready' | 'generated'>('incomplete');
   const [isClient, setIsClient] = useState(false);
-
+  const [generatedPdfProjects, setGeneratedPdfProjects] = useState<string[]>([]);
   const { userProfile } = useUserProfile();
   const { toast } = useToast();
   
-  const LOCAL_STORAGE_KEY = 'evidence_pdf_generated_projects_v3';
+  const LOCAL_STORAGE_KEY = 'evidence_pdf_generated_projects_v4';
 
   useEffect(() => {
     setIsClient(true);
+    try {
+        const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
+        if (stored) {
+            setGeneratedPdfProjects(JSON.parse(stored));
+        }
+    } catch (e) {
+        console.error("Failed to load generated PDF list", e);
+    }
   }, []);
 
   useEffect(() => {
@@ -196,9 +202,11 @@ function ProjectEvidenceCard({ project, checklist }: { project: Project; checkli
     return () => unsubscribe();
   }, [project.id]);
 
-  useEffect(() => {
-    if (!isClient || loadingFiles) return;
-
+  const evidenceState = useMemo(() => {
+    if (loadingFiles || !isClient) {
+        return 'incomplete';
+    }
+    
     const isChecklistMet = (() => {
         if (!checklist || !checklist.items || checklist.items.length === 0) {
             return true;
@@ -207,29 +215,25 @@ function ProjectEvidenceCard({ project, checklist }: { project: Project; checkli
             files.some(file => isMatch(item.text, file.evidenceTag))
         );
     })();
-
-    const generatedPdfs = JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY) || '[]');
-    const isPdfGenerated = generatedPdfs.includes(project.id);
+    
+    const isPdfGenerated = generatedPdfProjects.includes(project.id);
     
     if (!isChecklistMet) {
-      setEvidenceState('incomplete');
+        return 'incomplete';
     } else {
-      if (isPdfGenerated) {
-        setEvidenceState('generated');
-      } else {
-        setEvidenceState('ready');
-      }
+        if (isPdfGenerated) {
+            return 'generated';
+        } else {
+            return 'ready';
+        }
     }
-  }, [files, checklist, isClient, project.id, loadingFiles]);
+  }, [files, checklist, loadingFiles, isClient, generatedPdfProjects, project.id]);
 
   const onPdfGenerated = () => {
     try {
-      const generatedPdfs = JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY) || '[]');
-      if (!generatedPdfs.includes(project.id)) {
-        generatedPdfs.push(project.id);
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(generatedPdfs));
-      }
-      setEvidenceState('generated');
+      const newGenerated = [...new Set([...generatedPdfProjects, project.id])];
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(newGenerated));
+      setGeneratedPdfProjects(newGenerated);
     } catch (e) {
       console.error("Failed to write to local storage", e);
     }
@@ -273,16 +277,12 @@ function ProjectEvidenceCard({ project, checklist }: { project: Project; checkli
   }, [files, checklist]);
 
   const cardColorClass = {
-    incomplete: 'bg-red-400 border-red-700',
-    ready: 'bg-orange-400 border-orange-700',
-    generated: 'bg-green-400 border-green-700',
+    incomplete: 'bg-red-600 border-red-800',
+    ready: 'bg-orange-500 border-orange-700',
+    generated: 'bg-green-600 border-green-800',
   }[evidenceState];
 
-  const textColorClass = {
-    incomplete: 'text-red-950',
-    ready: 'text-orange-950',
-    generated: 'text-green-950',
-  }[evidenceState];
+  const textColorClass = 'text-white';
 
   return (
     <Card className={cn("hover:shadow-md transition-shadow flex flex-col", cardColorClass)}>
@@ -304,7 +304,7 @@ function ProjectEvidenceCard({ project, checklist }: { project: Project; checkli
                 </div>
             ))}
           </div>
-        ) : <p className="text-xs italic">No evidence checklist for this contract.</p>}
+        ) : <p className={cn("text-xs italic", textColorClass)}>No evidence checklist for this contract.</p>}
       </CardContent>
       <CardFooter className="p-2 border-t mt-auto">
         {evidenceState === 'ready' && (
