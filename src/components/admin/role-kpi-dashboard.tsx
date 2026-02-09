@@ -47,7 +47,8 @@ export function RoleKpiDashboard({ allShifts, allUsers }: RoleKpiDashboardProps)
 
   const availableRoles = useMemo(() => {
     const roles = new Set(allUsers.map(u => u.role));
-    return Array.from(roles).sort();
+    const rolesToExclude: UserProfile['role'][] = ['user'];
+    return Array.from(roles).filter(role => !rolesToExclude.includes(role)).sort();
   }, [allUsers]);
 
   const performanceDataByRole = useMemo(() => {
