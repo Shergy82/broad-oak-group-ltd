@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -252,7 +253,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
     <Card className={cn("hover:shadow-md transition-shadow flex flex-col", cardColorClass)}>
       <CardHeader className="p-4 pb-2">
         <CardTitle className={cn("text-sm font-semibold leading-tight", textColorClass)}>{project.address}</CardTitle>
-        {project.eNumber && <CardDescription className={cn("text-xs pt-1 opacity-80", textColorClass)}>E: {project.eNumber}</CardDescription>}
+        {project.eNumber && <CardDescription className={cn("text-xs pt-1 opacity-80", textColorClass)}>{project.eNumber}</CardDescription>}
       </CardHeader>
       <CardContent className="p-4 pt-2 flex-grow flex flex-col justify-between">
         {loadingFiles ? (
@@ -534,3 +535,5 @@ export default function EvidencePage() {
     </>
   );
 }
+
+    
