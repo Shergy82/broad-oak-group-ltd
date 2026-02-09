@@ -22,6 +22,7 @@ import {
   Fingerprint,
   Building2,
   ListChecks,
+  FileArchive,
 } from 'lucide-react';
 import { NotificationButton } from '../shared/notification-button';
 import {
@@ -158,6 +159,10 @@ export function Header() {
                     <DropdownMenuItem onClick={() => router.push('/admin/users')} className="cursor-pointer">
                       <UserCog className="mr-2" />
                       <span>User Management</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => router.push('/admin/evidence')} className="cursor-pointer">
+                      <FileArchive className="mr-2" />
+                      <span>Evidence</span>
                     </DropdownMenuItem>
                   </>
                 )}
