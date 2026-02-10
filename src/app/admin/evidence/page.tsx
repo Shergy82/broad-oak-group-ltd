@@ -1,14 +1,13 @@
-
-
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { collection, onSnapshot, query, orderBy, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { db, functions, httpsCallable } from '@/lib/firebase';
+import { collection, onSnapshot, query, orderBy, doc, updateDoc, serverTimestamp, addDoc } from 'firebase/firestore';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { db, storage } from '@/lib/firebase';
 import type { Project, EvidenceChecklist, ProjectFile, UserProfile } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Building2, Search, Pencil, CheckCircle, XCircle, Download, Trash2, RotateCw } from 'lucide-react';
+import { Building2, Search, Pencil, CheckCircle, XCircle, Download, Trash2, RotateCw, Camera } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { EvidenceChecklistManager } from '@/components/admin/evidence-checklist-manager';
@@ -17,22 +16,20 @@ import { Spinner } from '@/components/shared/spinner';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { useToast } from '@/hooks/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
 import { format, differenceInDays } from 'date-fns';
 import { Dialog, DialogDescription, DialogHeader, DialogTitle, DialogContent } from '@/components/ui/dialog';
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '@/components/ui/carousel';
 import Image from 'next/image';
+import { MultiPhotoCamera } from '@/components/shared/multi-photo-camera';
 
 const isMatch = (checklistText: string, fileTag: string | undefined): boolean => {
     if (!fileTag || !checklistText) return false;
 
-    // 1. Normalize both strings: lowercase, remove non-alphanumeric (but keep spaces), trim.
     const normalize = (text: string): string => {
         return text
             .toLowerCase()
-            .replace(/[^a-z0-9\s-]/g, '') // Allow letters, numbers, spaces, hyphens
-            .replace(/[\s-_]+/g, ' ') // Standardize separators to a single space
+            .replace(/[^a-z0-9\s-]/g, '') 
+            .replace(/[\s-_]+/g, ' ') 
             .trim();
     }
 
@@ -41,11 +38,9 @@ const isMatch = (checklistText: string, fileTag: string | undefined): boolean =>
 
     if (!normalizedChecklist) return false;
 
-    // 2. Split into words.
     const checklistWords = normalizedChecklist.split(' ');
     const tagWords = normalizedTag.split(' ');
 
-    // 3. Every word from the checklist must be found in the tag.
     return checklistWords.every(checklistWord => tagWords.includes(checklistWord));
 };
 
@@ -61,6 +56,8 @@ function EvidenceReportGenerator({ project, files, onGenerated }: EvidenceReport
 
   const generatePdf = async () => {
     setIsGenerating(true);
+
+    const { default: jsPDF } = await import('jspdf');
 
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.width;
@@ -157,6 +154,10 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
     const [viewerOpen, setViewerOpen] = useState(false);
     const [selectedItem, setSelectedItem] = useState<{ text: string; photos: ProjectFile[] } | null>(null);
 
+    const [isCameraOpen, setIsCameraOpen] = useState(false);
+    const [selectedCameraItem, setSelectedCameraItem] = useState<{ text: string, count: number } | null>(null);
+
+
     const evidenceState = useMemo<'incomplete' | 'ready' | 'generated'>(() => {
         if (loadingFiles) return 'incomplete';
 
@@ -229,6 +230,60 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
         }
     };
 
+    const handleTakePhoto = (itemText: string, requiredCount: number) => {
+        setSelectedCameraItem({ text: itemText, count: requiredCount });
+        setIsCameraOpen(true);
+    };
+
+    const handleUploadFromCamera = async (filesToUpload: File[]) => {
+        if (!userProfile || !selectedCameraItem) return;
+
+        toast({ title: 'Uploading photos...', description: 'Please wait.' });
+
+        const uploadPromises = filesToUpload.map(file => {
+            const storagePath = `project_files/${project.id}/${Date.now()}-${file.name}`;
+            const storageRef = ref(storage, storagePath);
+            
+            const uploadTask = uploadBytesResumable(storageRef, file);
+
+            return new Promise<void>((resolve, reject) => {
+                uploadTask.on(
+                    'state_changed',
+                    null,
+                    (error) => reject(error),
+                    async () => {
+                        try {
+                            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+                            await addDoc(collection(db, `projects/${project.id}/files`), {
+                                name: file.name,
+                                url: downloadURL,
+                                fullPath: storagePath,
+                                size: file.size,
+                                type: file.type,
+                                uploadedAt: serverTimestamp(),
+                                uploaderId: userProfile.uid,
+                                uploaderName: userProfile.name,
+                                evidenceTag: selectedCameraItem.text || ''
+                            });
+                            resolve();
+                        } catch (dbError) {
+                            reject(dbError);
+                        }
+                    }
+                );
+            });
+        });
+
+        try {
+            await Promise.all(uploadPromises);
+            toast({ title: 'Success', description: `${filesToUpload.length} photo(s) uploaded.` });
+        } catch (error) {
+            console.error("Error uploading photos from camera:", error);
+            toast({ variant: 'destructive', title: 'Upload Failed', description: 'One or more photos failed to upload.' });
+        }
+    };
+
+
     const cardColorClass = {
         incomplete: 'bg-red-800 border-red-950',
         ready: 'bg-orange-600 border-orange-800',
@@ -258,12 +313,17 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                                             {item.isComplete ?
                                                 <button onClick={() => handleViewPhotos(item.text, item.photos)} className="flex items-center gap-2 text-left w-full hover:underline">
                                                     <CheckCircle className="h-3 w-3 opacity-90 shrink-0" />
-                                                    <span className="truncate">{item.text} ({item.photoCount}/{item.photoCount})</span>
+                                                    <span className="truncate">{item.text} ({item.uploadedCount}/{item.photoCount})</span>
                                                 </button>
                                                 :
-                                                <div className="flex items-center gap-2 text-left w-full">
+                                                <div className="flex items-center justify-between gap-2 text-left w-full">
+                                                  <div className="flex items-center gap-2">
                                                     <XCircle className="h-3 w-3 shrink-0" />
                                                     <span className="truncate">{item.text} ({item.uploadedCount}/{item.photoCount})</span>
+                                                  </div>
+                                                  <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0 text-white" onClick={() => handleTakePhoto(item.text, item.photoCount)}>
+                                                      <Camera className="h-4 w-4" />
+                                                  </Button>
                                                 </div>
                                             }
                                         </div>
@@ -308,6 +368,16 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                     )}
                 </CardFooter>
             </Card>
+
+            {selectedCameraItem && (
+                <MultiPhotoCamera
+                    open={isCameraOpen}
+                    onOpenChange={setIsCameraOpen}
+                    requiredCount={selectedCameraItem.count}
+                    onUploadComplete={handleUploadFromCamera}
+                    taskName={selectedCameraItem.text}
+                />
+            )}
 
             {selectedItem && (
                 <Dialog open={viewerOpen} onOpenChange={setViewerOpen}>
@@ -439,7 +509,7 @@ export default function EvidencePage() {
         return onSnapshot(q, (snapshot) => {
             const files = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ProjectFile));
             setFilesByProject(prev => new Map(prev).set(project.id, files));
-            // When a file is deleted, check if we need to reset the generated status
+            
             const isGenerated = generatedPdfProjects.includes(project.id);
             if (isGenerated) {
                  const checklist = evidenceChecklists.get(project.contract || '');

@@ -60,6 +60,7 @@ import {
   AlertDialogTrigger,
 } from '../ui/alert-dialog';
 import { Checkbox } from '../ui/checkbox';
+import { MultiPhotoCamera } from '../shared/multi-photo-camera';
 
 interface ShiftCardProps {
   shift: Shift;
@@ -123,7 +124,6 @@ const statusDetails: {
   },
 };
 
-// ✅ Expired display override (UI-only)
 const expiredStatusInfo = {
   label: 'Expired',
   variant: 'outline' as const,
@@ -150,14 +150,13 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
   const [tradeTasks, setTradeTasks] = useState<TradeTask[]>([]);
   const [taskStatuses, setTaskStatuses] = useState<{ [key: number]: TaskStatus }>({});
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isUploadingPhoto, setIsUploadingPhoto] = useState<number | null>(null);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [selectedCameraTask, setSelectedCameraTask] = useState<{task: TradeTask, index: number} | null>(null);
 
-  // Normalize shift date to a local "date-only" for display & comparisons
+
   const d = shift.date.toDate();
   const shiftDate = new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
 
-  // ✅ Expired ONLY if before today AND NOT final status
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -170,7 +169,6 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
 
   const ShiftIcon = shiftTypeDetails[shift.type].icon;
 
-  // ✅ Override status display if expired (but never for completed/incomplete/rejected)
   const statusInfo = isExpired ? expiredStatusInfo : statusDetails[shift.status];
   const StatusIcon = statusInfo.icon;
 
@@ -241,11 +239,9 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
   const handleTaskToggle = (taskIndex: number) => {
     const task = tradeTasks[taskIndex];
     if (task.photoRequired && !taskStatuses[taskIndex]) {
-      if (fileInputRef.current) {
-        fileInputRef.current.setAttribute('data-task-index', taskIndex.toString());
-        fileInputRef.current.click();
-      }
-      return;
+        setSelectedCameraTask({ task, index: taskIndex });
+        setIsCameraOpen(true);
+        return;
     }
 
     const newStatuses = { ...taskStatuses };
@@ -285,15 +281,10 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
     updateAndStoreTaskStatuses(newStatuses);
   };
 
-  const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    const taskIndexString = event.target.getAttribute('data-task-index');
-    if (!file || taskIndexString === null) return;
-
-    const taskIndex = parseInt(taskIndexString, 10);
-    const task = tradeTasks[taskIndex];
-    setIsUploadingPhoto(taskIndex);
-
+  const handlePhotoUpload = async (filesToUpload: File[]) => {
+    if (!selectedCameraTask) return;
+    
+    setIsLoading(true);
     try {
       if (!db || !storage || !userProfile) throw new Error('Services not ready');
 
@@ -309,42 +300,52 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
         throw new Error('Project not found');
       }
       const projectId = projectSnapshot.docs[0].id;
+      
+      const uploadPromises = filesToUpload.map(file => {
+          const storagePath = `project_files/${projectId}/${Date.now()}-${file.name}`;
+          const storageRef = ref(storage, storagePath);
+          const uploadTask = uploadBytesResumable(storageRef, file);
 
-      const storagePath = `project_files/${projectId}/${Date.now()}-${file.name}`;
-      const storageRef = ref(storage, storagePath);
-      const uploadTask = uploadBytesResumable(storageRef, file);
+          return new Promise<void>(async (resolve, reject) => {
+            try {
+              await uploadTask;
+              const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
 
-      await uploadTask;
-
-      const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-
-      await addDoc(collection(db, `projects/${projectId}/files`), {
-        name: `Task Photo - ${task.text} - ${format(new Date(), 'yyyy-MM-dd')}`,
-        url: downloadURL,
-        fullPath: storagePath,
-        size: file.size,
-        type: file.type,
-        uploadedAt: serverTimestamp(),
-        uploaderId: userProfile?.uid || "system",
-        uploaderName: userProfile.name,
-        evidenceTag: task.evidenceTag || '',
+              await addDoc(collection(db, `projects/${projectId}/files`), {
+                name: file.name,
+                url: downloadURL,
+                fullPath: storagePath,
+                size: file.size,
+                type: file.type,
+                uploadedAt: serverTimestamp(),
+                uploaderId: userProfile?.uid || "system",
+                uploaderName: userProfile.name,
+                evidenceTag: selectedCameraTask.task.evidenceTag || '',
+              });
+              resolve();
+            } catch (error) {
+                reject(error);
+            }
+          });
       });
+      
+      await Promise.all(uploadPromises);
 
       const newStatuses = { ...taskStatuses };
-      newStatuses[taskIndex] = { status: 'completed' };
+      newStatuses[selectedCameraTask.index] = { status: 'completed' };
       updateAndStoreTaskStatuses(newStatuses);
 
-      toast({ title: 'Photo Uploaded', description: 'The task has been marked as complete.' });
+      toast({ title: 'Photos Uploaded', description: `${filesToUpload.length} photo(s) uploaded and task completed.` });
     } catch (error: any) {
       console.error('Photo upload failed:', error);
       toast({
         variant: 'destructive',
         title: 'Upload Failed',
-        description: error.message || 'Could not upload the photo.',
+        description: error.message || 'Could not upload photos.',
       });
     } finally {
-      setIsUploadingPhoto(null);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      setIsLoading(false);
+      setSelectedCameraTask(null);
     }
   };
 
@@ -358,7 +359,6 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
       return;
     }
 
-    // ✅ Prevent changing expired shifts
     if (isExpired) {
       toast({
         variant: 'destructive',
@@ -372,7 +372,6 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
     try {
       const shiftRef = doc(db, 'shifts', shift.id);
 
-      // ✅ NEW: include who updated the shift + when + what action they took
       const updateData: {
         status: ShiftStatus;
         notes?: any;
@@ -443,7 +442,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
                   id={`task-${shift.id}-${index}`}
                   checked={status?.status === 'completed'}
                   onCheckedChange={() => handleTaskToggle(index)}
-                  disabled={isLoading || isUploadingPhoto === index || status?.status === 'rejected'}
+                  disabled={isLoading || status?.status === 'rejected'}
                   className="mt-1"
                 />
                 <div className="flex-grow">
@@ -457,10 +456,11 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
                       {task.text}
                     </span>
                     <div className="flex items-center gap-1">
-                      {isUploadingPhoto === index ? (
-                        <Spinner size="sm" />
-                      ) : (
-                        task.photoRequired && <Camera className="h-4 w-4 text-muted-foreground" />
+                      {task.photoRequired && (
+                        <div className="flex items-center gap-1 text-muted-foreground">
+                           <Camera className="h-4 w-4" />
+                           {task.photoCount && task.photoCount > 1 && <span className="text-xs">x{task.photoCount}</span>}
+                        </div>
                       )}
                       {status?.status !== 'rejected' && (
                         <Button
@@ -468,7 +468,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
                           size="icon"
                           className="h-6 w-6"
                           onClick={() => handleOpenRejectDialog(index)}
-                          disabled={isLoading || isUploadingPhoto === index}
+                          disabled={isLoading}
                         >
                           <XCircle className="h-4 w-4 text-destructive/70 hover:text-destructive" />
                         </Button>
@@ -495,14 +495,6 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
               </div>
             );
           })}
-          <input
-            type="file"
-            accept="image/*"
-            capture="environment"
-            ref={fileInputRef}
-            onChange={handlePhotoUpload}
-            className="hidden"
-          />
         </div>
       </div>
     );
@@ -553,20 +545,13 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
         {renderTaskList()}
 
         <CardFooter className="p-2 bg-muted/30 grid grid-cols-1 gap-2">
-          {/* ✅ Do not allow actions for expired shifts */}
           {!isExpired && shift.status === 'pending-confirmation' && (
             <Button
               onClick={() => handleUpdateStatus('confirmed')}
               className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
               disabled={isLoading}
             >
-              {isLoading ? (
-                <Spinner />
-              ) : (
-                <>
-                  <ThumbsUp className="mr-2 h-4 w-4" /> Accept Shift
-                </>
-              )}
+              {isLoading ? <Spinner /> : <><ThumbsUp className="mr-2 h-4 w-4" /> Accept Shift</>}
             </Button>
           )}
 
@@ -576,13 +561,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
               className="w-full bg-teal-500 text-white hover:bg-teal-600"
               disabled={isLoading}
             >
-              {isLoading ? (
-                <Spinner />
-              ) : (
-                <>
-                  <HardHat className="mr-2 h-4 w-4" /> On Site
-                </>
-              )}
+              {isLoading ? <Spinner /> : <><HardHat className="mr-2 h-4 w-4" /> On Site</>}
             </Button>
           )}
 
@@ -593,13 +572,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
                 className="w-full bg-green-500 text-white hover:bg-green-600"
                 disabled={isLoading || !allTasksCompleted}
               >
-                {isLoading ? (
-                  <Spinner />
-                ) : (
-                  <>
-                    <CheckCircle2 className="mr-2 h-4 w-4" /> Complete
-                  </>
-                )}
+                {isLoading ? <Spinner /> : <><CheckCircle2 className="mr-2 h-4 w-4" /> Complete</>}
               </Button>
               <Button
                 variant="destructive"
@@ -607,13 +580,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
                 className="w-full bg-amber-600 hover:bg-amber-700"
                 disabled={isLoading}
               >
-                {isLoading ? (
-                  <Spinner />
-                ) : (
-                  <>
-                    <XCircle className="mr-2 h-4 w-4" /> Incomplete
-                  </>
-                )}
+                {isLoading ? <Spinner /> : <><XCircle className="mr-2 h-4 w-4" /> Incomplete</>}
               </Button>
             </div>
           )}
@@ -626,13 +593,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
                 className="w-full"
                 disabled={isLoading}
               >
-                {isLoading ? (
-                  <Spinner />
-                ) : (
-                  <>
-                    <RotateCcw className="mr-2 h-4 w-4" /> Re-open
-                  </>
-                )}
+                {isLoading ? <Spinner /> : <><RotateCcw className="mr-2 h-4 w-4" /> Re-open</>}
               </Button>
 
               {onDismiss && (
@@ -661,6 +622,16 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
         </CardFooter>
       </Card>
 
+      {selectedCameraTask && (
+        <MultiPhotoCamera
+            open={isCameraOpen}
+            onOpenChange={setIsCameraOpen}
+            requiredCount={selectedCameraTask.task.photoCount || 1}
+            onUploadComplete={handlePhotoUpload}
+            taskName={selectedCameraTask.task.text}
+        />
+      )}
+
       <Dialog open={isNoteDialogOpen} onOpenChange={setIsNoteDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
@@ -682,9 +653,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsNoteDialogOpen(false)}>
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={() => setIsNoteDialogOpen(false)}>Cancel</Button>
             <Button
               onClick={() => handleIncompleteSubmit()}
               disabled={isLoading}
@@ -715,9 +684,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectNoteDialogOpen(false)}>
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={() => setRejectNoteDialogOpen(false)}>Cancel</Button>
             <Button onClick={handleRejectSubmit} disabled={isLoading} variant="destructive">
               {isLoading ? <Spinner /> : 'Submit Reason'}
             </Button>
