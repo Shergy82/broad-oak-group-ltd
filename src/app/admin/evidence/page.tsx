@@ -27,31 +27,28 @@ import Image from 'next/image';
 const isMatch = (checklistText: string, fileTag: string | undefined): boolean => {
     if (!fileTag || !checklistText) return false;
 
-    const normalize = (text: string): Set<string> =>
-        new Set(
-            text
-                .toLowerCase()
-                .split(/[\s-_]+/)
-                .map(word => word.replace(/[^a-z0-9]/g, ''))
-                .map(word => word.endsWith('s') ? word.slice(0, -1) : word)
-                .filter(Boolean)
-        );
-
-    const checklistWords = normalize(checklistText);
-    const tagWords = normalize(fileTag);
-
-    if (checklistWords.size === 0) {
-        return false;
+    // 1. Normalize both strings: lowercase, remove non-alphanumeric (but keep spaces), trim.
+    const normalize = (text: string): string => {
+        return text
+            .toLowerCase()
+            .replace(/[^a-z0-9\s-]/g, '') // Allow letters, numbers, spaces, hyphens
+            .replace(/[\s-_]+/g, ' ') // Standardize separators to a single space
+            .trim();
     }
 
-    for (const checklistWord of checklistWords) {
-        if (!tagWords.has(checklistWord)) {
-            return false;
-        }
-    }
+    const normalizedChecklist = normalize(checklistText);
+    const normalizedTag = normalize(fileTag);
 
-    return true;
+    if (!normalizedChecklist) return false;
+
+    // 2. Split into words.
+    const checklistWords = normalizedChecklist.split(' ');
+    const tagWords = normalizedTag.split(' ');
+
+    // 3. Every word from the checklist must be found in the tag.
+    return checklistWords.every(checklistWord => tagWords.includes(checklistWord));
 };
+
 
 interface EvidenceReportGeneratorProps {
   project: Project;
@@ -613,7 +610,3 @@ export default function EvidencePage() {
     </>
   );
 }
-
-    
-
-    
