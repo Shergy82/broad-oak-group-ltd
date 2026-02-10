@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -16,7 +17,7 @@ import { Spinner } from '@/components/shared/spinner';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { useToast } from '@/hooks/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { format, differenceInDays } from 'date-fns';
+import { format, differenceInDays, differenceInHours } from 'date-fns';
 import { Dialog, DialogDescription, DialogHeader, DialogTitle, DialogContent } from '@/components/ui/dialog';
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '@/components/ui/carousel';
 import Image from 'next/image';
@@ -183,8 +184,8 @@ function EvidenceReportGenerator({ project, files, onGenerated }: EvidenceReport
   };
 
   return (
-    <Button onClick={generatePdf} disabled={isGenerating} size="sm" className="w-full">
-      {isGenerating ? <Spinner /> : <><Download className="mr-2 h-4 w-4" /> Generate Evidence PDF</>}
+    <Button onClick={generatePdf} disabled={isGenerating} size="sm" className="w-full text-xs px-2 gap-1.5">
+      {isGenerating ? <Spinner /> : <><Download className="mr-2 h-4 w-4" /> Generate PDF</>}
     </Button>
   );
 }
@@ -230,9 +231,20 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
         return 'ready';
     }, [files, checklist, loadingFiles, generatedPdfProjects, project.id]);
 
-    const daysOpen = useMemo(() => {
+    const openDuration = useMemo(() => {
         if (!project.createdAt) return null;
-        return differenceInDays(new Date(), project.createdAt.toDate());
+        
+        const now = new Date();
+        const createdAt = project.createdAt.toDate();
+        const hours = differenceInHours(now, createdAt);
+
+        if (hours < 24) {
+            return { value: hours, unit: 'hour' };
+        }
+        
+        const days = differenceInDays(now, createdAt);
+        return { value: days, unit: 'day' };
+
     }, [project.createdAt]);
 
     const handleDeleteProject = async () => {
@@ -384,9 +396,9 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                             ) : <p className={cn("text-xs italic", textColorClass)}>No evidence checklist for this contract.</p>}
                         </div>
                     )}
-                    {daysOpen !== null && (
+                    {openDuration && (
                         <div className="text-right text-xs mt-2 opacity-80 text-white">
-                            <span className="font-bold">{daysOpen}</span> days open
+                            <span className="font-bold">{openDuration.value}</span> {openDuration.unit}{openDuration.value === 1 ? '' : 's'} open
                         </div>
                     )}
                 </CardContent>
@@ -732,3 +744,5 @@ export default function EvidencePage() {
     </>
   );
 }
+
+    
