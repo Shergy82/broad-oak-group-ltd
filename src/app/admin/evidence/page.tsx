@@ -63,22 +63,73 @@ function EvidenceReportGenerator({ project, files, onGenerated }: EvidenceReport
     const pageWidth = doc.internal.pageSize.width;
     const pageMargin = 14;
     
+    // --- Logo Setup ---
+    const logoSvg = `<svg width="28" height="28" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><g transform="translate(16,16)"><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#84cc16" transform="rotate(0)"/><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#22d3ee" transform="rotate(90)"/><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#f87171" transform="rotate(180)"/><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#fbbf24" transform="rotate(270)"/></g></svg>`;
+    const logoDataUrl = `data:image/svg+xml;base64,${btoa(logoSvg)}`;
+    
+    const pngDataUrl: string = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 56; // Double size for better quality
+        canvas.height = 56;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, 56, 56);
+          resolve(canvas.toDataURL('image/png'));
+        } else {
+          reject(new Error('Failed to get canvas context'));
+        }
+      };
+      img.onerror = () => reject(new Error('Failed to load SVG for conversion'));
+      img.src = logoDataUrl;
+    });
+
+    // --- Cover Page ---
+    // Logo
+    const logoWidth = 30;
+    const logoHeight = 30;
+    const logoX = (pageWidth - logoWidth) / 2;
+    doc.addImage(pngDataUrl, 'PNG', logoX, 40, logoWidth, logoHeight);
+    
+    // Company Name
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(45, 55, 72); // A dark gray
+    doc.text('BROAD OAK GROUP', pageWidth / 2, 85, { align: 'center' });
+
+    // Separator line
+    doc.setDrawColor(226, 232, 240); // slate-200
+    doc.setLineWidth(0.5);
+    doc.line(pageMargin, 95, pageWidth - pageMargin, 95);
+    
+    // Main Title
     doc.setFontSize(36);
     doc.setFont('helvetica', 'bold');
-    doc.text('Evidence Report', pageWidth / 2, 80, { align: 'center' });
+    doc.setTextColor(15, 23, 42); // slate-900
+    doc.text('Evidence Report', pageWidth / 2, 120, { align: 'center' });
+
+    // Project Details
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(51, 65, 85); // slate-700
+    
+    const addressLines = doc.splitTextToSize(project.address, pageWidth - (pageMargin * 4));
+    doc.text(addressLines, pageWidth / 2, 140, { align: 'center' });
 
     doc.setFontSize(22);
-    doc.setFont('helvetica', 'normal');
-    doc.text(project.address, pageWidth / 2, 100, { align: 'center' });
-    
-    doc.setFontSize(26);
     doc.setFont('helvetica', 'bold');
-    doc.text(project.eNumber || 'N/A', pageWidth / 2, 120, { align: 'center' });
+    doc.setTextColor(0, 0, 0);
+    doc.text(project.eNumber || 'N/A', pageWidth / 2, 165, { align: 'center' });
 
+    // Generated Date
+    const pageHeight = doc.internal.pageSize.height;
     doc.setFontSize(10);
-    doc.setTextColor(100, 116, 139);
-    doc.text(`Generated: ${format(new Date(), 'PPP')}`, pageWidth / 2, 140, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139); // slate-500
+    doc.text(`Generated: ${format(new Date(), 'PPP')}`, pageWidth / 2, pageHeight - 40, { align: 'center' });
 
+    // --- Photo Pages ---
     let finalY = 70;
     const photos = files.filter(f => f.type?.startsWith('image/'));
 
@@ -213,9 +264,10 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
         return checklist.items.map(item => {
             const matchingFiles = files.filter(file => file.type?.startsWith('image/') && isMatch(item.text, file.evidenceTag));
             const requiredCount = item.photoCount || 1;
+            const isComplete = matchingFiles.length >= requiredCount;
             return {
                 text: item.text,
-                isComplete: matchingFiles.length >= requiredCount,
+                isComplete,
                 photoCount: requiredCount,
                 uploadedCount: matchingFiles.length,
                 photos: matchingFiles
@@ -313,7 +365,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                                             {item.isComplete ?
                                                 <button onClick={() => handleViewPhotos(item.text, item.photos)} className="flex items-center gap-2 text-left w-full hover:underline">
                                                     <CheckCircle className="h-3 w-3 opacity-90 shrink-0" />
-                                                    <span className="truncate">{item.text} ({item.uploadedCount}/{item.photoCount})</span>
+                                                    <span className="truncate">{item.text} ({item.photoCount}/{item.photoCount})</span>
                                                 </button>
                                                 :
                                                 <div className="flex items-center justify-between gap-2 text-left w-full">
@@ -339,9 +391,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                     )}
                 </CardContent>
                 <CardFooter className="p-2 border-t mt-auto grid gap-2">
-                    {evidenceState === 'ready' && (
-                        <EvidenceReportGenerator project={project} files={files} onGenerated={() => onPdfGenerated(project.id)} />
-                    )}
+                    <EvidenceReportGenerator project={project} files={files} onGenerated={() => onPdfGenerated(project.id)} />
                     {evidenceState === 'generated' && (
                         <div className="grid grid-cols-2 gap-2">
                              <Button variant="secondary" size="sm" onClick={() => onResetStatus(project.id)}>
