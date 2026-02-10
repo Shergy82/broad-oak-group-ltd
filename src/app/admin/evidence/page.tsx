@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -17,7 +18,7 @@ import { Spinner } from '@/components/shared/spinner';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { useToast } from '@/hooks/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { format, differenceInDays, differenceInHours } from 'date-fns';
+import { format, differenceInDays, differenceInHours, differenceInMinutes } from 'date-fns';
 import { Dialog, DialogDescription, DialogHeader, DialogTitle, DialogContent } from '@/components/ui/dialog';
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '@/components/ui/carousel';
 import Image from 'next/image';
@@ -236,8 +237,13 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
         
         const now = new Date();
         const createdAt = project.createdAt.toDate();
-        const hours = differenceInHours(now, createdAt);
+        const minutes = differenceInMinutes(now, createdAt);
 
+        if (minutes < 60) {
+             return { value: minutes, unit: 'minute' };
+        }
+
+        const hours = differenceInHours(now, createdAt);
         if (hours < 24) {
             return { value: hours, unit: 'hour' };
         }
@@ -744,5 +750,3 @@ export default function EvidencePage() {
     </>
   );
 }
-
-    
