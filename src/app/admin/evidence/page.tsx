@@ -365,7 +365,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                                             {item.isComplete ?
                                                 <button onClick={() => handleViewPhotos(item.text, item.photos)} className="flex items-center gap-2 text-left w-full hover:underline">
                                                     <CheckCircle className="h-3 w-3 opacity-90 shrink-0" />
-                                                    <span className="truncate">{item.text} ({item.photoCount}/{item.photoCount})</span>
+                                                    <span className="truncate">{item.text} ({item.uploadedCount}/{item.photoCount})</span>
                                                 </button>
                                                 :
                                                 <div className="flex items-center justify-between gap-2 text-left w-full">
@@ -391,7 +391,9 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                     )}
                 </CardContent>
                 <CardFooter className="p-2 border-t mt-auto grid gap-2">
-                    <EvidenceReportGenerator project={project} files={files} onGenerated={() => onPdfGenerated(project.id)} />
+                    {evidenceState !== 'incomplete' && (
+                        <EvidenceReportGenerator project={project} files={files} onGenerated={() => onPdfGenerated(project.id)} />
+                    )}
                     {evidenceState === 'generated' && (
                         <div className="grid grid-cols-2 gap-2">
                              <Button variant="secondary" size="sm" onClick={() => onResetStatus(project.id)}>
