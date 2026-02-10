@@ -258,7 +258,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                                             {item.isComplete ?
                                                 <button onClick={() => handleViewPhotos(item.text, item.photos)} className="flex items-center gap-2 text-left w-full hover:underline">
                                                     <CheckCircle className="h-3 w-3 opacity-90 shrink-0" />
-                                                    <span className="truncate">{item.text} ({item.uploadedCount}/{item.photoCount})</span>
+                                                    <span className="truncate">{item.text} ({item.photoCount}/{item.photoCount})</span>
                                                 </button>
                                                 :
                                                 <div className="flex items-center gap-2 text-left w-full">
