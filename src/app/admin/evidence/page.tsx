@@ -8,7 +8,7 @@ import { db, functions, httpsCallable } from '@/lib/firebase';
 import type { Project, EvidenceChecklist, ProjectFile, UserProfile } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Building2, Search, Pencil, CheckCircle, XCircle, Download, Trash2 } from 'lucide-react';
+import { Building2, Search, Pencil, CheckCircle, XCircle, Download, Trash2, RotateCw } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { EvidenceChecklistManager } from '@/components/admin/evidence-checklist-manager';
@@ -20,11 +20,14 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import { format, differenceInDays } from 'date-fns';
+import { Dialog, DialogDescription, DialogHeader, DialogTitle, DialogContent } from '@/components/ui/dialog';
+import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '@/components/ui/carousel';
+import Image from 'next/image';
 
 const isMatch = (checklistText: string, fileTag: string | undefined): boolean => {
     if (!fileTag || !checklistText) return false;
 
-    const normalize = (text: string): Set<string> => 
+    const normalize = (text: string): Set<string> =>
         new Set(
             text
                 .toLowerCase()
@@ -40,13 +43,13 @@ const isMatch = (checklistText: string, fileTag: string | undefined): boolean =>
     if (tagWords.size === 0 || checklistWords.size === 0) {
         return false;
     }
-    
+
     for (const tagWord of tagWords) {
         if (!checklistWords.has(tagWord)) {
             return false;
         }
     }
-    
+
     return true;
 };
 
@@ -66,54 +69,28 @@ function EvidenceReportGenerator({ project, files, onGenerated }: EvidenceReport
     const pageWidth = doc.internal.pageSize.width;
     const pageMargin = 14;
     
-    const logoSvg = `<svg width="28" height="28" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><g transform="translate(16,16)"><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#84cc16" transform="rotate(0)"/><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#22d3ee" transform="rotate(90)"/><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#f87171" transform="rotate(180)"/><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#fbbf24" transform="rotate(270)"/></g></svg>`;
-    const logoDataUrl = `data:image/svg+xml;base64,${btoa(logoSvg)}`;
-    
-    const pngDataUrl: string = await new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = 28;
-        canvas.height = 28;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, 28, 28);
-          resolve(canvas.toDataURL('image/png'));
-        } else {
-          reject(new Error('Failed to get canvas context'));
-        }
-      };
-      img.onerror = () => reject(new Error('Failed to load SVG for conversion'));
-      img.src = logoDataUrl;
-    });
-    
-    doc.setFillColor(248, 250, 252);
-    doc.rect(0, 0, pageWidth, 28, 'F');
-    doc.addImage(pngDataUrl, 'PNG', pageMargin, 10, 8, 8);
+    doc.setFontSize(36);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(14);
-    doc.setTextColor(15, 23, 42);
-    doc.text('BROAD OAK GROUP', pageMargin + 12, 16);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.setTextColor(100, 116, 139);
-    doc.text('Live', pageMargin + 12, 21);
-    
-    doc.setFontSize(22);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Evidence Report', pageMargin, 45);
+    doc.text('Evidence Report', pageWidth / 2, 80, { align: 'center' });
 
-    doc.setFontSize(12);
+    doc.setFontSize(22);
     doc.setFont('helvetica', 'normal');
-    doc.text(project.address, pageMargin, 55);
+    doc.text(project.address, pageWidth / 2, 100, { align: 'center' });
+    
+    doc.setFontSize(26);
+    doc.setFont('helvetica', 'bold');
+    doc.text(project.eNumber || 'N/A', pageWidth / 2, 120, { align: 'center' });
+
     doc.setFontSize(10);
     doc.setTextColor(100, 116, 139);
-    doc.text(`E-Number: ${project.eNumber || 'N/A'} | Generated: ${format(new Date(), 'PPP')}`, pageMargin, 60);
+    doc.text(`Generated: ${format(new Date(), 'PPP')}`, pageWidth / 2, 140, { align: 'center' });
 
     let finalY = 70;
     const photos = files.filter(f => f.type?.startsWith('image/'));
 
     for (const photo of photos) {
+      doc.addPage();
+      finalY = pageMargin;
       try {
         const imageUrl = `https://images.weserv.nl/?url=${encodeURIComponent(photo.url)}`;
         const response = await fetch(imageUrl);
@@ -174,136 +151,208 @@ interface ProjectEvidenceCardProps {
   loadingFiles: boolean;
   generatedPdfProjects: string[];
   onPdfGenerated: (projectId: string) => void;
+  onResetStatus: (projectId: string) => void;
 }
 
-function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generatedPdfProjects, onPdfGenerated }: ProjectEvidenceCardProps) {
-  const { userProfile } = useUserProfile();
-  const { toast } = useToast();
-  
-  const evidenceState = useMemo<'incomplete' | 'ready' | 'generated'>(() => {
-    if (loadingFiles) return 'incomplete';
-    
-    const isChecklistMet = (() => {
-        if (!checklist || !checklist.items || checklist.items.length === 0) {
-            return true;
+function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generatedPdfProjects, onPdfGenerated, onResetStatus }: ProjectEvidenceCardProps) {
+    const { userProfile } = useUserProfile();
+    const { toast } = useToast();
+    const [viewerOpen, setViewerOpen] = useState(false);
+    const [selectedItem, setSelectedItem] = useState<{ text: string; photos: ProjectFile[] } | null>(null);
+
+    const evidenceState = useMemo<'incomplete' | 'ready' | 'generated'>(() => {
+        if (loadingFiles) return 'incomplete';
+
+        const isChecklistMet = (() => {
+            if (!checklist || !checklist.items || checklist.items.length === 0) {
+                return true;
+            }
+            return checklist.items.every(item => {
+                const requiredCount = item.photoCount || 1;
+                const matchingFiles = files.filter(file => isMatch(item.text, file.evidenceTag));
+                return matchingFiles.length >= requiredCount;
+            });
+        })();
+
+        const isPdfGenerated = generatedPdfProjects.includes(project.id);
+
+        if (!isChecklistMet) return 'incomplete';
+        if (isPdfGenerated) return 'generated';
+        return 'ready';
+    }, [files, checklist, loadingFiles, generatedPdfProjects, project.id]);
+
+    const daysOpen = useMemo(() => {
+        if (!project.createdAt) return null;
+        return differenceInDays(new Date(), project.createdAt.toDate());
+    }, [project.createdAt]);
+
+    const handleDeleteProject = async () => {
+        if (!userProfile || !['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role)) {
+            toast({ variant: 'destructive', title: 'Permission Denied', description: 'You do not have permission to delete projects.' });
+            return;
         }
-        return checklist.items.every(item => 
-            files.some(file => isMatch(item.text, file.evidenceTag))
-        );
-    })();
-    
-    const isPdfGenerated = generatedPdfProjects.includes(project.id);
-    
-    if (!isChecklistMet) return 'incomplete';
-    if (isPdfGenerated) return 'generated';
-    return 'ready';
-  }, [files, checklist, loadingFiles, generatedPdfProjects, project.id]);
 
-  const daysOpen = useMemo(() => {
-    if (!project.createdAt) return null;
-    return differenceInDays(new Date(), project.createdAt.toDate());
-  }, [project.createdAt]);
+        toast({ title: "Scheduling Deletion...", description: `Project will be removed from this view and permanently deleted in 7 days.` });
 
-  const handleDeleteProject = async () => {
-    if (!userProfile || !['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role)) {
-        toast({ variant: 'destructive', title: 'Permission Denied', description: 'You do not have permission to delete projects.' });
-        return;
-    }
-    
-    toast({ title: "Scheduling Deletion...", description: `Project will be removed from this view and permanently deleted in 7 days.` });
-    
-    try {
-      const projectRef = doc(db, 'projects', project.id);
-      await updateDoc(projectRef, {
-        deletionScheduledAt: serverTimestamp()
-      });
-      toast({ title: "Success", description: "Project scheduled for deletion." });
-    } catch (error: any) {
-      console.error("Error scheduling project for deletion:", error);
-      toast({ 
-        variant: 'destructive', 
-        title: 'Scheduling Failed', 
-        description: error.message || 'An unknown error occurred.' 
-      });
-    }
-  };
+        try {
+            const projectRef = doc(db, 'projects', project.id);
+            await updateDoc(projectRef, {
+                deletionScheduledAt: serverTimestamp()
+            });
+            toast({ title: "Success", description: "Project scheduled for deletion." });
+        } catch (error: any) {
+            console.error("Error scheduling project for deletion:", error);
+            toast({
+                variant: 'destructive',
+                title: 'Scheduling Failed',
+                description: error.message || 'An unknown error occurred.'
+            });
+        }
+    };
 
-  const { evidenceStatus } = useMemo(() => {
-    if (!checklist || !checklist.items || checklist.items.length === 0) {
-      return { evidenceStatus: [] };
-    }
-    const status = checklist.items.map(item => {
-      const itemIsComplete = files.some(file => isMatch(item.text, file.evidenceTag));
-      return { text: item.text, isComplete: itemIsComplete };
-    });
-    return { evidenceStatus: status };
-  }, [files, checklist]);
+    const evidenceStatus = useMemo(() => {
+        if (!checklist || !checklist.items) return [];
+        return checklist.items.map(item => {
+            const matchingFiles = files.filter(file => file.type?.startsWith('image/') && isMatch(item.text, file.evidenceTag));
+            const requiredCount = item.photoCount || 1;
+            return {
+                text: item.text,
+                isComplete: matchingFiles.length >= requiredCount,
+                photoCount: requiredCount,
+                uploadedCount: matchingFiles.length,
+                photos: matchingFiles
+            };
+        });
+    }, [files, checklist]);
 
-  const cardColorClass = {
-    incomplete: 'bg-red-800 border-red-950',
-    ready: 'bg-orange-600 border-orange-800',
-    generated: 'bg-green-700 border-green-900',
-  }[evidenceState];
+    const handleViewPhotos = (itemText: string, photos: ProjectFile[]) => {
+        if (photos.length > 0) {
+            setSelectedItem({ text: itemText, photos });
+            setViewerOpen(true);
+        }
+    };
 
-  const textColorClass = 'text-white';
+    const cardColorClass = {
+        incomplete: 'bg-red-800 border-red-950',
+        ready: 'bg-orange-600 border-orange-800',
+        generated: 'bg-green-700 border-green-900',
+    }[evidenceState];
 
-  return (
-    <Card className={cn("hover:shadow-md transition-shadow flex flex-col", cardColorClass)}>
-      <CardHeader className="p-4 pb-2">
-        <CardTitle className={cn("text-sm font-semibold leading-tight", textColorClass)}>{project.address}</CardTitle>
-        {project.eNumber && <CardDescription className={cn("text-xs pt-1 opacity-80", textColorClass)}>{project.eNumber}</CardDescription>}
-      </CardHeader>
-      <CardContent className="p-4 pt-2 flex-grow flex flex-col justify-between">
-        {loadingFiles ? (
-          <div className="flex justify-center items-center h-16">
-            <Spinner size="sm" />
-          </div>
-        ) : (
-          <div>
-            {evidenceStatus.length > 0 ? (
-              <div className="space-y-1">
-                {evidenceStatus.map(item => (
-                    <div key={item.text} className={cn("flex items-center gap-2 text-xs", item.isComplete ? cn(textColorClass, "opacity-70") : cn("font-semibold", textColorClass))}>
-                        {item.isComplete ? <CheckCircle className="h-3 w-3 opacity-90"/> : <XCircle className="h-3 w-3"/>}
-                        <span>{item.text}</span>
-                    </div>
-                ))}
-              </div>
-            ) : <p className={cn("text-xs italic", textColorClass)}>No evidence checklist for this contract.</p>}
-          </div>
-        )}
-        {daysOpen !== null && (
-            <div className="text-right text-xs mt-2 opacity-80 text-white">
-                <span className="font-bold">{daysOpen}</span> days open
-            </div>
-        )}
-      </CardContent>
-      <CardFooter className="p-2 border-t mt-auto">
-        {evidenceState === 'ready' && (
-          <EvidenceReportGenerator project={project} files={files} onGenerated={() => onPdfGenerated(project.id)} />
-        )}
-        {evidenceState === 'generated' && (
-           <AlertDialog>
-              <AlertDialogTrigger asChild>
-                  <Button variant="destructive" size="sm" className="w-full">
-                      <Trash2 className="mr-2 h-4 w-4" /> Delete Project
-                  </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                    <AlertDialogDescription>This will permanently delete the project and all its files. This action cannot be undone.</AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleDeleteProject} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete Project</AlertDialogAction>
-                  </AlertDialogFooter>
-              </AlertDialogContent>
-          </AlertDialog>
-        )}
-      </CardFooter>
-    </Card>
-  );
+    const textColorClass = 'text-white';
+
+    return (
+        <>
+            <Card className={cn("hover:shadow-md transition-shadow flex flex-col", cardColorClass)}>
+                <CardHeader className="p-4 pb-2">
+                    <CardTitle className={cn("text-sm font-semibold leading-tight", textColorClass)}>{project.address}</CardTitle>
+                    {project.eNumber && <CardDescription className={cn("text-xs pt-1 opacity-80", textColorClass)}>{project.eNumber}</CardDescription>}
+                </CardHeader>
+                <CardContent className="p-4 pt-2 flex-grow flex flex-col justify-between">
+                    {loadingFiles ? (
+                        <div className="flex justify-center items-center h-16">
+                            <Spinner size="sm" />
+                        </div>
+                    ) : (
+                        <div>
+                            {evidenceStatus.length > 0 ? (
+                                <div className="space-y-1">
+                                    {evidenceStatus.map(item => (
+                                        <div key={item.text} className={cn("flex items-center gap-2 text-xs", item.isComplete ? cn(textColorClass, "opacity-70") : cn("font-semibold", textColorClass))}>
+                                            {item.isComplete ?
+                                                <button onClick={() => handleViewPhotos(item.text, item.photos)} className="flex items-center gap-2 text-left w-full hover:underline">
+                                                    <CheckCircle className="h-3 w-3 opacity-90 shrink-0" />
+                                                    <span className="truncate">{item.text} ({item.uploadedCount}/{item.photoCount})</span>
+                                                </button>
+                                                :
+                                                <div className="flex items-center gap-2 text-left w-full">
+                                                    <XCircle className="h-3 w-3 shrink-0" />
+                                                    <span className="truncate">{item.text} ({item.uploadedCount}/{item.photoCount})</span>
+                                                </div>
+                                            }
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : <p className={cn("text-xs italic", textColorClass)}>No evidence checklist for this contract.</p>}
+                        </div>
+                    )}
+                    {daysOpen !== null && (
+                        <div className="text-right text-xs mt-2 opacity-80 text-white">
+                            <span className="font-bold">{daysOpen}</span> days open
+                        </div>
+                    )}
+                </CardContent>
+                <CardFooter className="p-2 border-t mt-auto grid gap-2">
+                    {evidenceState === 'ready' && (
+                        <EvidenceReportGenerator project={project} files={files} onGenerated={() => onPdfGenerated(project.id)} />
+                    )}
+                    {evidenceState === 'generated' && (
+                        <div className="grid grid-cols-2 gap-2">
+                             <Button variant="secondary" size="sm" onClick={() => onResetStatus(project.id)}>
+                                <RotateCw className="mr-2 h-4 w-4" /> More Evidence
+                            </Button>
+                            <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                    <Button variant="destructive" size="sm">
+                                        <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                    </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                        <AlertDialogDescription>This action schedules the project for permanent deletion in 7 days.</AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                        <AlertDialogAction onClick={handleDeleteProject} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Schedule Deletion</AlertDialogAction>
+                                    </AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
+                        </div>
+                    )}
+                </CardFooter>
+            </Card>
+
+            {selectedItem && (
+                <Dialog open={viewerOpen} onOpenChange={setViewerOpen}>
+                    <DialogContent className="max-w-4xl">
+                        <DialogHeader>
+                            <DialogTitle>Photos for: {selectedItem.text}</DialogTitle>
+                            <DialogDescription>
+                                {selectedItem.photos.length} photo(s) found for this evidence item on project: {project.address}.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <Carousel className="w-full">
+                            <CarouselContent>
+                                {selectedItem.photos.map((photo) => (
+                                    <CarouselItem key={photo.id}>
+                                        <div className="p-1">
+                                            <Card>
+                                                <CardContent className="flex aspect-video items-center justify-center p-0 relative overflow-hidden rounded-lg">
+                                                    <Image
+                                                        src={`https://images.weserv.nl/?url=${encodeURIComponent(photo.url)}`}
+                                                        alt={photo.name}
+                                                        fill
+                                                        className="object-contain"
+                                                    />
+                                                </CardContent>
+                                                 <CardFooter className="flex-col items-start text-sm text-muted-foreground p-3">
+                                                    <p><strong>File:</strong> {photo.name}</p>
+                                                    <p><strong>Uploaded by:</strong> {photo.uploaderName}</p>
+                                                    <p><strong>Date:</strong> {photo.uploadedAt ? format(photo.uploadedAt.toDate(), 'PPP p') : 'N/A'}</p>
+                                                </CardFooter>
+                                            </Card>
+                                        </div>
+                                    </CarouselItem>
+                                ))}
+                            </CarouselContent>
+                            <CarouselPrevious />
+                            <CarouselNext />
+                        </Carousel>
+                    </DialogContent>
+                </Dialog>
+            )}
+        </>
+    );
 }
 
 
@@ -340,6 +389,18 @@ export default function EvidencePage() {
         return newGenerated;
     });
   }
+  
+   const onResetStatus = (projectId: string) => {
+    setGeneratedPdfProjects(prev => {
+        const newGenerated = prev.filter(id => id !== projectId);
+        try {
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(newGenerated));
+        } catch (e) {
+            console.error("Failed to write to local storage", e);
+        }
+        return newGenerated;
+    });
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -381,11 +442,25 @@ export default function EvidencePage() {
         return onSnapshot(q, (snapshot) => {
             const files = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ProjectFile));
             setFilesByProject(prev => new Map(prev).set(project.id, files));
+            // When a file is deleted, check if we need to reset the generated status
+            const isGenerated = generatedPdfProjects.includes(project.id);
+            if (isGenerated) {
+                 const checklist = evidenceChecklists.get(project.contract || '');
+                 const isChecklistMet = !checklist || !checklist.items || checklist.items.length === 0 ||
+                    checklist.items.every(item => {
+                        const requiredCount = item.photoCount || 1;
+                        const matchingFiles = files.filter(file => isMatch(item.text, file.evidenceTag));
+                        return matchingFiles.length >= requiredCount;
+                    });
+                if (!isChecklistMet) {
+                    onResetStatus(project.id);
+                }
+            }
         });
     });
 
     return () => unsubscribers.forEach(unsub => unsub());
-  }, [projects]);
+  }, [projects, evidenceChecklists, generatedPdfProjects]);
 
   useEffect(() => {
     if (projects.length > 0 && filesByProject.size < projects.length) {
@@ -417,9 +492,11 @@ export default function EvidencePage() {
         const projectFiles = filesByProject.get(project.id) || [];
         
         const isChecklistMet = !checklist || !checklist.items || checklist.items.length === 0 || 
-            checklist.items.every(item => 
-                projectFiles.some(file => isMatch(item.text, file.evidenceTag))
-            );
+            checklist.items.every(item => {
+                const requiredCount = item.photoCount || 1;
+                const matchingFiles = projectFiles.filter(file => isMatch(item.text, file.evidenceTag));
+                return matchingFiles.length >= requiredCount;
+            });
 
         let evidenceState: 'incomplete' | 'ready' | 'generated' = 'incomplete';
         if (isChecklistMet) {
@@ -517,6 +594,7 @@ export default function EvidencePage() {
                         loadingFiles={loading}
                         generatedPdfProjects={generatedPdfProjects}
                         onPdfGenerated={onPdfGenerated}
+                        onResetStatus={onResetStatus}
                     />
                   ))}
                 </div>
