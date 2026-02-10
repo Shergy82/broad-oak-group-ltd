@@ -40,12 +40,12 @@ const isMatch = (checklistText: string, fileTag: string | undefined): boolean =>
     const checklistWords = normalize(checklistText);
     const tagWords = normalize(fileTag);
 
-    if (tagWords.size === 0 || checklistWords.size === 0) {
+    if (checklistWords.size === 0) {
         return false;
     }
 
-    for (const tagWord of tagWords) {
-        if (!checklistWords.has(tagWord)) {
+    for (const checklistWord of checklistWords) {
+        if (!tagWords.has(checklistWord)) {
             return false;
         }
     }
@@ -613,5 +613,7 @@ export default function EvidencePage() {
     </>
   );
 }
+
+    
 
     
