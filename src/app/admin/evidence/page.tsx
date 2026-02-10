@@ -63,7 +63,8 @@ function EvidenceReportGenerator({ project, files, onGenerated }: EvidenceReport
 
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.width;
-    const pageMargin = 14;
+    const pageHeight = doc.internal.pageSize.height;
+    const pageMargin = 15;
     
     // --- Logo Setup ---
     const logoSvg = `<svg width="28" height="28" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><g transform="translate(16,16)"><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#84cc16" transform="rotate(0)"/><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#22d3ee" transform="rotate(90)"/><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#f87171" transform="rotate(180)"/><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#fbbf24" transform="rotate(270)"/></g></svg>`;
@@ -88,97 +89,101 @@ function EvidenceReportGenerator({ project, files, onGenerated }: EvidenceReport
     });
 
     // --- Cover Page ---
-    // Logo
-    const logoWidth = 30;
-    const logoHeight = 30;
-    const logoX = (pageWidth - logoWidth) / 2;
-    doc.addImage(pngDataUrl, 'PNG', logoX, 40, logoWidth, logoHeight);
+    // Header bar
+    doc.setFillColor(241, 245, 249); // slate-100
+    doc.rect(0, 0, pageWidth, 30, 'F');
     
-    // Company Name
-    doc.setFontSize(16);
+    // Logo in header
+    doc.addImage(pngDataUrl, 'PNG', pageMargin, 8, 14, 14);
+    
+    // Company Name in header
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(45, 55, 72); // A dark gray
-    doc.text('BROAD OAK GROUP', pageWidth / 2, 85, { align: 'center' });
+    doc.setFontSize(16);
+    doc.setTextColor(15, 23, 42); // slate-900
+    doc.text('BROAD OAK GROUP', pageMargin + 18, 17);
 
-    // Separator line
-    doc.setDrawColor(226, 232, 240); // slate-200
-    doc.setLineWidth(0.5);
-    doc.line(pageMargin, 95, pageWidth - pageMargin, 95);
-    
     // Main Title
+    let currentY = 80;
     doc.setFontSize(36);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(15, 23, 42); // slate-900
-    doc.text('Evidence Report', pageWidth / 2, 120, { align: 'center' });
+    doc.text('Evidence Report', pageWidth / 2, currentY, { align: 'center' });
+    currentY += 20;
 
     // Project Details
-    doc.setFontSize(18);
+    doc.setFontSize(20);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(51, 65, 85); // slate-700
-    
-    const addressLines = doc.splitTextToSize(project.address, pageWidth - (pageMargin * 4));
-    doc.text(addressLines, pageWidth / 2, 140, { align: 'center' });
+    const addressLines = doc.splitTextToSize(project.address, pageWidth - (pageMargin * 6));
+    doc.text(addressLines, pageWidth / 2, currentY, { align: 'center' });
+    currentY += (addressLines.length * 10) + 10;
 
-    doc.setFontSize(22);
+    // E-Number and Contract
+    doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(0, 0, 0);
-    doc.text(project.eNumber || 'N/A', pageWidth / 2, 165, { align: 'center' });
+    doc.setTextColor(100, 116, 139); // slate-500
+    const detailText = `${project.contract || 'N/A Contract'} | ${project.eNumber || 'N/A E-Number'}`;
+    doc.text(detailText, pageWidth / 2, currentY, { align: 'center' });
 
-    // Generated Date
-    const pageHeight = doc.internal.pageSize.height;
+
+    // Generated Date (Footer)
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100, 116, 139); // slate-500
-    doc.text(`Generated: ${format(new Date(), 'PPP')}`, pageWidth / 2, pageHeight - 40, { align: 'center' });
+    doc.setTextColor(148, 163, 184); // slate-400
+    doc.text(`Generated: ${format(new Date(), 'PPP')}`, pageWidth / 2, pageHeight - 20, { align: 'center' });
+
 
     // --- Photo Pages ---
     let finalY = 70;
     const photos = files.filter(f => f.type?.startsWith('image/'));
 
-    for (const photo of photos) {
-      doc.addPage();
-      finalY = pageMargin;
-      try {
-        const imageUrl = `https://images.weserv.nl/?url=${encodeURIComponent(photo.url)}`;
-        const response = await fetch(imageUrl);
-        const blob = await response.blob();
-        const reader = new FileReader();
-        const dataUrl: string = await new Promise((resolve, reject) => {
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
+    if (photos.length > 0) {
+        doc.addPage();
+        finalY = pageMargin;
 
-        const imgProps = doc.getImageProperties(dataUrl);
-        const imgWidth = pageWidth - (pageMargin * 2);
-        const imgHeight = (imgProps.height * imgWidth) / imgProps.width;
+        for (const photo of photos) {
+          try {
+            const imageUrl = `https://images.weserv.nl/?url=${encodeURIComponent(photo.url)}`;
+            const response = await fetch(imageUrl);
+            const blob = await response.blob();
+            const reader = new FileReader();
+            const dataUrl: string = await new Promise((resolve, reject) => {
+              reader.onload = () => resolve(reader.result as string);
+              reader.onerror = reject;
+              reader.readAsDataURL(blob);
+            });
 
-        if (finalY + imgHeight + 20 > doc.internal.pageSize.height) {
-          doc.addPage();
-          finalY = pageMargin;
+            const imgProps = doc.getImageProperties(dataUrl);
+            const imgWidth = pageWidth - (pageMargin * 2);
+            const imgHeight = (imgProps.height * imgWidth) / imgProps.width;
+
+            if (finalY + imgHeight + 20 > doc.internal.pageSize.height) {
+              doc.addPage();
+              finalY = pageMargin;
+            }
+
+            doc.addImage(dataUrl, 'JPEG', pageMargin, finalY, imgWidth, imgHeight);
+            finalY += imgHeight + 5;
+
+            const captionText = `${photo.evidenceTag ? `Tag: ${photo.evidenceTag}` : photo.name} - Uploaded by ${photo.uploaderName}`;
+            doc.setFontSize(9);
+            doc.setTextColor(100, 116, 139);
+            doc.text(captionText, pageMargin, finalY);
+            finalY += 10;
+          } catch (e) {
+            console.error("Could not add image to PDF", e);
+            if (finalY + 10 > doc.internal.pageSize.height) {
+                doc.addPage();
+                finalY = pageMargin;
+            }
+            doc.setFontSize(9);
+            doc.setTextColor(255, 0, 0);
+            doc.text(`Failed to load image: ${photo.name}`, pageMargin, finalY);
+            finalY += 10;
+          }
         }
-
-        doc.addImage(dataUrl, 'JPEG', pageMargin, finalY, imgWidth, imgHeight);
-        finalY += imgHeight + 5;
-
-        const captionText = `${photo.evidenceTag ? `Tag: ${photo.evidenceTag}` : photo.name} - Uploaded by ${photo.uploaderName}`;
-        doc.setFontSize(9);
-        doc.setTextColor(100, 116, 139);
-        doc.text(captionText, pageMargin, finalY);
-        finalY += 10;
-      } catch (e) {
-        console.error("Could not add image to PDF", e);
-        if (finalY + 10 > doc.internal.pageSize.height) {
-            doc.addPage();
-            finalY = pageMargin;
-        }
-        doc.setFontSize(9);
-        doc.setTextColor(255, 0, 0);
-        doc.text(`Failed to load image: ${photo.name}`, pageMargin, finalY);
-        finalY += 10;
-      }
     }
-
+    
     doc.save(`evidence_${project.address.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
     setIsGenerating(false);
     onGenerated();
@@ -283,11 +288,13 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
             const matchingFiles = files.filter(file => file.type?.startsWith('image/') && isMatch(item.text, file.evidenceTag));
             const requiredCount = item.photoCount || 1;
             const isComplete = matchingFiles.length >= requiredCount;
+            const displayCount = isComplete ? requiredCount : matchingFiles.length;
             return {
                 text: item.text,
                 isComplete,
                 photoCount: requiredCount,
                 uploadedCount: matchingFiles.length,
+                displayCount,
                 photos: matchingFiles
             };
         });
@@ -383,13 +390,13 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                                             {item.isComplete ?
                                                 <button onClick={() => handleViewPhotos(item.text, item.photos)} className="flex items-center gap-2 text-left w-full hover:underline">
                                                     <CheckCircle className="h-3 w-3 opacity-90 shrink-0" />
-                                                    <span className="truncate">{item.text} ({item.photoCount}/{item.photoCount})</span>
+                                                    <span className="truncate">{item.text} ({item.displayCount}/{item.photoCount})</span>
                                                 </button>
                                                 :
                                                 <div className="flex items-center justify-between gap-2 text-left w-full">
                                                   <div className="flex items-center gap-2">
                                                     <XCircle className="h-3 w-3 shrink-0" />
-                                                    <span className="truncate">{item.text} ({item.uploadedCount}/{item.photoCount})</span>
+                                                    <span className="truncate">{item.text} ({item.displayCount}/{item.photoCount})</span>
                                                   </div>
                                                   <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0 text-white" onClick={() => handleTakePhoto(item.text, item.photoCount)}>
                                                       <Camera className="h-4 w-4" />
@@ -409,33 +416,35 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                     )}
                 </CardContent>
                 <CardFooter className="p-2 border-t mt-auto grid gap-2">
-                    {evidenceState !== 'incomplete' && (
-                        <EvidenceReportGenerator project={project} files={files} onGenerated={() => onPdfGenerated(project.id)} />
-                    )}
-                    {evidenceState === 'generated' && (
-                        <div className="grid grid-cols-2 gap-2">
-                             <Button variant="secondary" size="sm" className="text-xs px-2 gap-1.5" onClick={() => onResetStatus(project.id)}>
-                                <RotateCw className="h-4 w-4" /> More Evidence
-                            </Button>
-                            <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                    <Button variant="destructive" size="sm" className="text-xs px-2 gap-1.5">
-                                        <Trash2 className="h-4 w-4" /> Delete
-                                    </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                                        <AlertDialogDescription>This action schedules the project for permanent deletion in 7 days.</AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                        <AlertDialogAction onClick={handleDeleteProject} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Schedule Deletion</AlertDialogAction>
-                                    </AlertDialogFooter>
-                                </AlertDialogContent>
-                            </AlertDialog>
-                        </div>
-                    )}
+                     <div className="space-y-2">
+                        {evidenceState !== 'incomplete' && (
+                            <EvidenceReportGenerator project={project} files={files} onGenerated={() => onPdfGenerated(project.id)} />
+                        )}
+                        {evidenceState === 'generated' && (
+                            <div className="grid grid-cols-2 gap-2">
+                                <Button variant="secondary" size="sm" className="text-xs px-2 gap-1.5" onClick={() => onResetStatus(project.id)}>
+                                    <RotateCw className="h-4 w-4" /> More Evidence
+                                </Button>
+                                <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                        <Button variant="destructive" size="sm" className="text-xs px-2 gap-1.5">
+                                            <Trash2 className="h-4 w-4" /> Delete
+                                        </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                            <AlertDialogDescription>This action schedules the project for permanent deletion in 7 days.</AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                            <AlertDialogAction onClick={handleDeleteProject} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Schedule Deletion</AlertDialogAction>
+                                        </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                </AlertDialog>
+                            </div>
+                        )}
+                    </div>
                 </CardFooter>
             </Card>
 
