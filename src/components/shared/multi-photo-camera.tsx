@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
@@ -94,20 +95,33 @@ export function MultiPhotoCamera({ open, onOpenChange, requiredCount, onUploadCo
                 context.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
 
                 const location = await getGeolocation();
-                const timestamp = new Date().toLocaleString('en-GB');
+                const timestamp = new Date().toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'medium' });
 
-                // Add text overlay
-                const fontSize = Math.max(24, canvas.height * 0.03);
-                context.font = `${fontSize}px Arial`;
+                // --- Text Overlay ---
+                const fontSize = Math.max(18, Math.round(canvas.height * 0.025)); // Smaller font
+                const padding = Math.round(fontSize * 0.5);
+                const lineHeight = fontSize * 1.2;
+
+                context.font = `bold ${fontSize}px Arial`;
                 context.fillStyle = 'white';
                 context.strokeStyle = 'black';
-                context.lineWidth = 4;
+                context.lineWidth = Math.max(2, fontSize / 8); // Scale stroke with font size
                 context.textAlign = 'left';
                 context.textBaseline = 'bottom';
 
-                const text = `${timestamp}${location ? ` | Lat: ${location.coords.latitude.toFixed(5)}, Lon: ${location.coords.longitude.toFixed(5)}` : ''}`;
-                context.strokeText(text, 20, canvas.height - 20);
-                context.fillText(text, 20, canvas.height - 20);
+                const lines = [timestamp];
+                if (location) {
+                    lines.push(`Lat: ${location.coords.latitude.toFixed(5)}, Lon: ${location.coords.longitude.toFixed(5)}`);
+                }
+                
+                // Draw lines from bottom up
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i];
+                    const yPos = canvas.height - padding - (i * lineHeight);
+                    context.strokeText(line, padding, yPos);
+                    context.fillText(line, padding, yPos);
+                }
+                // --- End Text Overlay ---
 
                 const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
                 setPhotos(prev => [...prev, dataUrl]);
