@@ -1,12 +1,13 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { collection, onSnapshot, query, orderBy, doc } from 'firebase/firestore';
-import { db, functions, httpsCallable } from '@/lib/firebase';
+import { collection, onSnapshot, query, orderBy, doc, updateDoc, serverTimestamp, addDoc } from 'firebase/firestore';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { db, storage } from '@/lib/firebase';
 import type { Project, EvidenceChecklist, ProjectFile, UserProfile } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Building2, Search, Pencil, CheckCircle, XCircle, Download, Trash2 } from 'lucide-react';
+import { Building2, Search, Pencil, CheckCircle, XCircle, Download, Trash2, RotateCw, Camera } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { EvidenceChecklistManager } from '@/components/admin/evidence-checklist-manager';
@@ -15,38 +16,29 @@ import { Spinner } from '@/components/shared/spinner';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { useToast } from '@/hooks/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
-import { format } from 'date-fns';
+import { format, differenceInDays } from 'date-fns';
+import { Dialog, DialogDescription, DialogHeader, DialogTitle, DialogContent } from '@/components/ui/dialog';
+import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '@/components/ui/carousel';
+import Image from 'next/image';
+import { MultiPhotoCamera } from '@/components/shared/multi-photo-camera';
 
 const isMatch = (checklistText: string, fileTag: string | undefined): boolean => {
     if (!fileTag || !checklistText) return false;
 
-    const normalize = (text: string): Set<string> => 
-        new Set(
-            text
-                .toLowerCase()
-                .split(/[\s-_]+/)
-                .map(word => word.replace(/[^a-z0-9]/g, ''))
-                .map(word => word.endsWith('s') ? word.slice(0, -1) : word)
-                .filter(Boolean)
-        );
-
-    const checklistWords = normalize(checklistText);
-    const tagWords = normalize(fileTag);
-
-    if (tagWords.size === 0 || checklistWords.size === 0) {
-        return false;
+    const normalize = (text: string): string => {
+        return text
+            .toLowerCase()
+            .replace(/[^a-z0-9\s-]/g, '') 
+            .replace(/[\s-_]+/g, ' ') 
+            .trim();
     }
-    
-    for (const tagWord of tagWords) {
-        if (!checklistWords.has(tagWord)) {
-            return false;
-        }
-    }
-    
-    return true;
+
+    const checklistWords = normalize(checklistText).split(' ');
+    const tagWords = normalize(fileTag).split(' ');
+
+    return checklistWords.every(checklistWord => tagWords.includes(checklistWord));
 };
+
 
 interface EvidenceReportGeneratorProps {
   project: Project;
@@ -60,10 +52,13 @@ function EvidenceReportGenerator({ project, files, onGenerated }: EvidenceReport
   const generatePdf = async () => {
     setIsGenerating(true);
 
+    const { default: jsPDF } = await import('jspdf');
+
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.width;
     const pageMargin = 14;
-    
+
+    // --- Logo Setup ---
     const logoSvg = `<svg width="28" height="28" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><g transform="translate(16,16)"><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#84cc16" transform="rotate(0)"/><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#22d3ee" transform="rotate(90)"/><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#f87171" transform="rotate(180)"/><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#fbbf24" transform="rotate(270)"/></g></svg>`;
     const logoDataUrl = `data:image/svg+xml;base64,${btoa(logoSvg)}`;
     
@@ -71,11 +66,11 @@ function EvidenceReportGenerator({ project, files, onGenerated }: EvidenceReport
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        canvas.width = 28;
-        canvas.height = 28;
+        canvas.width = 56; // Double size for better quality
+        canvas.height = 56;
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          ctx.drawImage(img, 0, 0, 28, 28);
+          ctx.drawImage(img, 0, 0, 56, 56);
           resolve(canvas.toDataURL('image/png'));
         } else {
           reject(new Error('Failed to get canvas context'));
@@ -84,34 +79,58 @@ function EvidenceReportGenerator({ project, files, onGenerated }: EvidenceReport
       img.onerror = () => reject(new Error('Failed to load SVG for conversion'));
       img.src = logoDataUrl;
     });
+
+    // --- Cover Page ---
+    // Logo
+    const logoWidth = 30;
+    const logoHeight = 30;
+    const logoX = (pageWidth - logoWidth) / 2;
+    doc.addImage(pngDataUrl, 'PNG', logoX, 40, logoWidth, logoHeight);
     
-    doc.setFillColor(248, 250, 252);
-    doc.rect(0, 0, pageWidth, 28, 'F');
-    doc.addImage(pngDataUrl, 'PNG', pageMargin, 10, 8, 8);
+    // Company Name
+    doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(14);
-    doc.setTextColor(15, 23, 42);
-    doc.text('BROAD OAK GROUP', pageMargin + 12, 16);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.setTextColor(100, 116, 139);
-    doc.text('Live', pageMargin + 12, 21);
+    doc.setTextColor(45, 55, 72); // A dark gray
+    doc.text('BROAD OAK GROUP', pageWidth / 2, 85, { align: 'center' });
+
+    // Separator line
+    doc.setDrawColor(226, 232, 240); // slate-200
+    doc.setLineWidth(0.5);
+    doc.line(pageMargin, 95, pageWidth - pageMargin, 95);
     
+    // Main Title
+    doc.setFontSize(36);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42); // slate-900
+    doc.text('Evidence Report', pageWidth / 2, 120, { align: 'center' });
+
+    // Project Details
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(51, 65, 85); // slate-700
+    
+    const addressLines = doc.splitTextToSize(project.address, pageWidth - (pageMargin * 4));
+    doc.text(addressLines, pageWidth / 2, 140, { align: 'center' });
+
     doc.setFontSize(22);
     doc.setFont('helvetica', 'bold');
-    doc.text('Evidence Report', pageMargin, 45);
+    doc.setTextColor(0, 0, 0);
+    doc.text(project.eNumber || 'N/A', pageWidth / 2, 165, { align: 'center' });
 
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'normal');
-    doc.text(project.address, pageMargin, 55);
+    // Generated Date
+    const pageHeight = doc.internal.pageSize.height;
     doc.setFontSize(10);
-    doc.setTextColor(100, 116, 139);
-    doc.text(`E-Number: ${project.eNumber || 'N/A'} | Generated: ${format(new Date(), 'PPP')}`, pageMargin, 60);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139); // slate-500
+    doc.text(`Generated: ${format(new Date(), 'PPP')}`, pageWidth / 2, pageHeight - 40, { align: 'center' });
 
+    // --- Photo Pages ---
     let finalY = 70;
     const photos = files.filter(f => f.type?.startsWith('image/'));
 
     for (const photo of photos) {
+      doc.addPage();
+      finalY = pageMargin;
       try {
         const imageUrl = `https://images.weserv.nl/?url=${encodeURIComponent(photo.url)}`;
         const response = await fetch(imageUrl);
@@ -165,173 +184,289 @@ function EvidenceReportGenerator({ project, files, onGenerated }: EvidenceReport
   );
 }
 
-function ProjectEvidenceCard({ project, checklist }: { project: Project; checklist: EvidenceChecklist | undefined }) {
-  const [files, setFiles] = useState<ProjectFile[]>([]);
-  const [loadingFiles, setLoadingFiles] = useState(true);
-  const [isClient, setIsClient] = useState(false);
-  const [generatedPdfProjects, setGeneratedPdfProjects] = useState<string[]>([]);
-  const { userProfile } = useUserProfile();
-  const { toast } = useToast();
-  
-  const LOCAL_STORAGE_KEY = 'evidence_pdf_generated_projects_v4';
+interface ProjectEvidenceCardProps {
+  project: Project;
+  checklist: EvidenceChecklist | undefined;
+  files: ProjectFile[];
+  loadingFiles: boolean;
+  generatedPdfProjects: string[];
+  onPdfGenerated: (projectId: string) => void;
+  onResetStatus: (projectId: string) => void;
+}
 
-  useEffect(() => {
-    setIsClient(true);
-    try {
-        const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
-        if (stored) {
-            setGeneratedPdfProjects(JSON.parse(stored));
+function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generatedPdfProjects, onPdfGenerated, onResetStatus }: ProjectEvidenceCardProps) {
+    const { userProfile } = useUserProfile();
+    const { toast } = useToast();
+    const [viewerOpen, setViewerOpen] = useState(false);
+    const [selectedItem, setSelectedItem] = useState<{ text: string; photos: ProjectFile[] } | null>(null);
+
+    const [isCameraOpen, setIsCameraOpen] = useState(false);
+    const [selectedCameraItem, setSelectedCameraItem] = useState<{ text: string, count: number } | null>(null);
+
+
+    const evidenceState = useMemo<'incomplete' | 'ready' | 'generated'>(() => {
+        if (loadingFiles) return 'incomplete';
+
+        const isChecklistMet = (() => {
+            if (!checklist || !checklist.items || checklist.items.length === 0) {
+                return true;
+            }
+            return checklist.items.every(item => {
+                const requiredCount = item.photoCount || 1;
+                const matchingFiles = files.filter(file => isMatch(item.text, file.evidenceTag));
+                return matchingFiles.length >= requiredCount;
+            });
+        })();
+
+        const isPdfGenerated = generatedPdfProjects.includes(project.id);
+
+        if (!isChecklistMet) return 'incomplete';
+        if (isPdfGenerated) return 'generated';
+        return 'ready';
+    }, [files, checklist, loadingFiles, generatedPdfProjects, project.id]);
+
+    const daysOpen = useMemo(() => {
+        if (!project.createdAt) return null;
+        return differenceInDays(new Date(), project.createdAt.toDate());
+    }, [project.createdAt]);
+
+    const handleDeleteProject = async () => {
+        if (!userProfile || !['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role)) {
+            toast({ variant: 'destructive', title: 'Permission Denied', description: 'You do not have permission to delete projects.' });
+            return;
         }
-    } catch (e) {
-        console.error("Failed to load generated PDF list", e);
-    }
-  }, []);
 
-  useEffect(() => {
-    setLoadingFiles(true);
-    const filesQuery = query(collection(db, `projects/${project.id}/files`));
-    const unsubscribe = onSnapshot(filesQuery, (snapshot) => {
-      const fetchedFiles = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ProjectFile));
-      setFiles(fetchedFiles);
-      setLoadingFiles(false);
-    }, (error) => {
-      console.error(`Error fetching files for project ${project.id}:`, error);
-      setLoadingFiles(false);
-    });
+        toast({ title: "Scheduling Deletion...", description: `Project will be removed from this view and permanently deleted in 7 days.` });
 
-    return () => unsubscribe();
-  }, [project.id]);
-
-  const evidenceState = useMemo(() => {
-    if (loadingFiles || !isClient) {
-        return 'incomplete';
-    }
-    
-    const isChecklistMet = (() => {
-        if (!checklist || !checklist.items || checklist.items.length === 0) {
-            return true;
+        try {
+            const projectRef = doc(db, 'projects', project.id);
+            await updateDoc(projectRef, {
+                deletionScheduledAt: serverTimestamp()
+            });
+            toast({ title: "Success", description: "Project scheduled for deletion." });
+        } catch (error: any) {
+            console.error("Error scheduling project for deletion:", error);
+            toast({
+                variant: 'destructive',
+                title: 'Scheduling Failed',
+                description: error.message || 'An unknown error occurred.'
+            });
         }
-        return checklist.items.every(item => 
-            files.some(file => isMatch(item.text, file.evidenceTag))
-        );
-    })();
-    
-    const isPdfGenerated = generatedPdfProjects.includes(project.id);
-    
-    if (!isChecklistMet) {
-        return 'incomplete';
-    } else {
-        if (isPdfGenerated) {
-            return 'generated';
-        } else {
-            return 'ready';
-        }
-    }
-  }, [files, checklist, loadingFiles, isClient, generatedPdfProjects, project.id]);
+    };
 
-  const onPdfGenerated = () => {
-    try {
-      const newGenerated = [...new Set([...generatedPdfProjects, project.id])];
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(newGenerated));
-      setGeneratedPdfProjects(newGenerated);
-    } catch (e) {
-      console.error("Failed to write to local storage", e);
-    }
-  }
-
-  const handleDeleteProject = async () => {
-    if (!userProfile || !['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role)) {
-        toast({ variant: 'destructive', title: 'Permission Denied', description: 'You do not have permission to delete projects.' });
-        return;
-    }
-     if (!functions) {
-        toast({ variant: 'destructive', title: 'Error', description: 'Firebase Functions service is not available.' });
-        return;
-    }
-
-    toast({ title: 'Deleting Project...', description: 'This may take a moment.' });
-    try {
-        const deleteProjectAndFilesFn = httpsCallable<{projectId: string}>(functions, 'deleteProjectAndFiles');
-        await deleteProjectAndFilesFn({ projectId: project.id });
-        
-        toast({ title: 'Success', description: 'Project and all its files have been deleted.' });
-    } catch (error: any) {
-        console.error("Error calling deleteProjectAndFiles function:", error);
-        toast({ 
-            variant: 'destructive', 
-            title: 'Deletion Failed', 
-            description: error.message || 'An unknown error occurred. Please check the function logs in the Firebase Console.' 
+    const evidenceStatus = useMemo(() => {
+        if (!checklist || !checklist.items) return [];
+        return checklist.items.map(item => {
+            const matchingFiles = files.filter(file => file.type?.startsWith('image/') && isMatch(item.text, file.evidenceTag));
+            const requiredCount = item.photoCount || 1;
+            const isComplete = matchingFiles.length >= requiredCount;
+            return {
+                text: item.text,
+                isComplete,
+                photoCount: requiredCount,
+                uploadedCount: isComplete ? requiredCount : matchingFiles.length,
+                photos: matchingFiles
+            };
         });
-    }
-  };
+    }, [files, checklist]);
 
-  const { evidenceStatus } = useMemo(() => {
-    if (!checklist || !checklist.items || checklist.items.length === 0) {
-      return { evidenceStatus: [] };
-    }
-    const status = checklist.items.map(item => {
-      const itemIsComplete = files.some(file => isMatch(item.text, file.evidenceTag));
-      return { text: item.text, isComplete: itemIsComplete };
-    });
-    return { evidenceStatus: status };
-  }, [files, checklist]);
+    const handleViewPhotos = (itemText: string, photos: ProjectFile[]) => {
+        if (photos.length > 0) {
+            setSelectedItem({ text: itemText, photos });
+            setViewerOpen(true);
+        }
+    };
 
-  const cardColorClass = {
-    incomplete: 'bg-red-600 border-red-800',
-    ready: 'bg-orange-500 border-orange-700',
-    generated: 'bg-green-600 border-green-800',
-  }[evidenceState];
+    const handleTakePhoto = (itemText: string, requiredCount: number) => {
+        setSelectedCameraItem({ text: itemText, count: requiredCount });
+        setIsCameraOpen(true);
+    };
 
-  const textColorClass = 'text-white';
+    const handleUploadFromCamera = async (filesToUpload: File[]) => {
+        if (!userProfile || !selectedCameraItem) return;
 
-  return (
-    <Card className={cn("hover:shadow-md transition-shadow flex flex-col", cardColorClass)}>
-      <CardHeader className="p-4 pb-2">
-        <CardTitle className={cn("text-sm font-semibold leading-tight", textColorClass)}>{project.address}</CardTitle>
-        {project.eNumber && <CardDescription className={cn("text-xs pt-1 opacity-80", textColorClass)}>E: {project.eNumber}</CardDescription>}
-      </CardHeader>
-      <CardContent className="p-4 pt-2 flex-grow">
-        {loadingFiles ? (
-          <div className="flex justify-center items-center h-16">
-            <Spinner size="sm" />
-          </div>
-        ) : evidenceStatus.length > 0 ? (
-          <div className="space-y-1">
-            {evidenceStatus.map(item => (
-                <div key={item.text} className={cn("flex items-center gap-2 text-xs", item.isComplete ? cn(textColorClass, "opacity-70") : cn("font-semibold", textColorClass))}>
-                    {item.isComplete ? <CheckCircle className="h-3 w-3 opacity-90"/> : <XCircle className="h-3 w-3"/>}
-                    <span>{item.text}</span>
-                </div>
-            ))}
-          </div>
-        ) : <p className={cn("text-xs italic", textColorClass)}>No evidence checklist for this contract.</p>}
-      </CardContent>
-      <CardFooter className="p-2 border-t mt-auto">
-        {evidenceState === 'ready' && (
-          <EvidenceReportGenerator project={project} files={files} onGenerated={onPdfGenerated} />
-        )}
-        {evidenceState === 'generated' && (
-           <AlertDialog>
-              <AlertDialogTrigger asChild>
-                  <Button variant="destructive" size="sm" className="w-full">
-                      <Trash2 className="mr-2 h-4 w-4" /> Delete Project
-                  </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                    <AlertDialogDescription>This will permanently delete the project and all its files. This action cannot be undone.</AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleDeleteProject} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete Project</AlertDialogAction>
-                  </AlertDialogFooter>
-              </AlertDialogContent>
-          </AlertDialog>
-        )}
-      </CardFooter>
-    </Card>
-  );
+        toast({ title: 'Uploading photos...', description: 'Please wait.' });
+
+        const uploadPromises = filesToUpload.map(file => {
+            const storagePath = `project_files/${project.id}/${Date.now()}-${file.name}`;
+            const storageRef = ref(storage, storagePath);
+            
+            const uploadTask = uploadBytesResumable(storageRef, file);
+
+            return new Promise<void>((resolve, reject) => {
+                uploadTask.on(
+                    'state_changed',
+                    null,
+                    (error) => reject(error),
+                    async () => {
+                        try {
+                            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+                            await addDoc(collection(db, `projects/${project.id}/files`), {
+                                name: file.name,
+                                url: downloadURL,
+                                fullPath: storagePath,
+                                size: file.size,
+                                type: file.type,
+                                uploadedAt: serverTimestamp(),
+                                uploaderId: userProfile.uid,
+                                uploaderName: userProfile.name,
+                                evidenceTag: selectedCameraItem.text || ''
+                            });
+                            resolve();
+                        } catch (dbError) {
+                            reject(dbError);
+                        }
+                    }
+                );
+            });
+        });
+
+        try {
+            await Promise.all(uploadPromises);
+            toast({ title: 'Success', description: `${filesToUpload.length} photo(s) uploaded.` });
+        } catch (error) {
+            console.error("Error uploading photos from camera:", error);
+            toast({ variant: 'destructive', title: 'Upload Failed', description: 'One or more photos failed to upload.' });
+        }
+    };
+
+
+    const cardColorClass = {
+        incomplete: 'bg-red-800 border-red-950',
+        ready: 'bg-orange-600 border-orange-800',
+        generated: 'bg-green-700 border-green-900',
+    }[evidenceState];
+
+    const textColorClass = 'text-white';
+
+    return (
+        <>
+            <Card className={cn("hover:shadow-md transition-shadow flex flex-col", cardColorClass)}>
+                <CardHeader className="p-4 pb-2">
+                    <CardTitle className={cn("text-sm font-semibold leading-tight", textColorClass)}>{project.address}</CardTitle>
+                    {project.eNumber && <CardDescription className={cn("text-xs pt-1 opacity-80", textColorClass)}>{project.eNumber}</CardDescription>}
+                </CardHeader>
+                <CardContent className="p-4 pt-2 flex-grow flex flex-col justify-between">
+                    {loadingFiles ? (
+                        <div className="flex justify-center items-center h-16">
+                            <Spinner size="sm" />
+                        </div>
+                    ) : (
+                        <div>
+                            {evidenceStatus.length > 0 ? (
+                                <div className="space-y-1">
+                                    {evidenceStatus.map(item => (
+                                        <div key={item.text} className={cn("flex items-center gap-2 text-xs", item.isComplete ? cn(textColorClass, "opacity-70") : cn("font-semibold", textColorClass))}>
+                                            {item.isComplete ?
+                                                <button onClick={() => handleViewPhotos(item.text, item.photos)} className="flex items-center gap-2 text-left w-full hover:underline">
+                                                    <CheckCircle className="h-3 w-3 opacity-90 shrink-0" />
+                                                    <span className="truncate">{item.text} ({item.uploadedCount}/{item.photoCount})</span>
+                                                </button>
+                                                :
+                                                <div className="flex items-center justify-between gap-2 text-left w-full">
+                                                  <div className="flex items-center gap-2">
+                                                    <XCircle className="h-3 w-3 shrink-0" />
+                                                    <span className="truncate">{item.text} ({item.uploadedCount}/{item.photoCount})</span>
+                                                  </div>
+                                                  <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0 text-white" onClick={() => handleTakePhoto(item.text, item.photoCount)}>
+                                                      <Camera className="h-4 w-4" />
+                                                  </Button>
+                                                </div>
+                                            }
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : <p className={cn("text-xs italic", textColorClass)}>No evidence checklist for this contract.</p>}
+                        </div>
+                    )}
+                    {daysOpen !== null && (
+                        <div className="text-right text-xs mt-2 opacity-80 text-white">
+                            <span className="font-bold">{daysOpen}</span> days open
+                        </div>
+                    )}
+                </CardContent>
+                <CardFooter className="p-2 border-t mt-auto grid gap-2">
+                    {evidenceState === 'ready' && (
+                        <EvidenceReportGenerator project={project} files={files} onGenerated={() => onPdfGenerated(project.id)} />
+                    )}
+                    {evidenceState === 'generated' && (
+                        <div className="grid grid-cols-2 gap-2">
+                             <Button variant="secondary" size="sm" onClick={() => onResetStatus(project.id)}>
+                                <RotateCw className="mr-2 h-4 w-4" /> More Evidence
+                            </Button>
+                            <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                    <Button variant="destructive" size="sm">
+                                        <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                    </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                        <AlertDialogDescription>This action schedules the project for permanent deletion in 7 days.</AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                        <AlertDialogAction onClick={handleDeleteProject} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Schedule Deletion</AlertDialogAction>
+                                    </AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
+                        </div>
+                    )}
+                </CardFooter>
+            </Card>
+
+            {selectedCameraItem && (
+                <MultiPhotoCamera
+                    open={isCameraOpen}
+                    onOpenChange={setIsCameraOpen}
+                    requiredCount={selectedCameraItem.count}
+                    onUploadComplete={handleUploadFromCamera}
+                    taskName={selectedCameraItem.text}
+                />
+            )}
+
+            {selectedItem && (
+                <Dialog open={viewerOpen} onOpenChange={setViewerOpen}>
+                    <DialogContent className="max-w-4xl">
+                        <DialogHeader>
+                            <DialogTitle>Photos for: {selectedItem.text}</DialogTitle>
+                            <DialogDescription>
+                                {selectedItem.photos.length} photo(s) found for this evidence item on project: {project.address}.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <Carousel className="w-full">
+                            <CarouselContent>
+                                {selectedItem.photos.map((photo) => (
+                                    <CarouselItem key={photo.id}>
+                                        <div className="p-1">
+                                            <Card>
+                                                <CardContent className="flex aspect-video items-center justify-center p-0 relative overflow-hidden rounded-lg">
+                                                    <Image
+                                                        src={`https://images.weserv.nl/?url=${encodeURIComponent(photo.url)}`}
+                                                        alt={photo.name}
+                                                        fill
+                                                        className="object-contain"
+                                                    />
+                                                </CardContent>
+                                                 <CardFooter className="flex-col items-start text-sm text-muted-foreground p-3">
+                                                    <p><strong>File:</strong> {photo.name}</p>
+                                                    <p><strong>Uploaded by:</strong> {photo.uploaderName}</p>
+                                                    <p><strong>Date:</strong> {photo.uploadedAt ? format(photo.uploadedAt.toDate(), 'PPP p') : 'N/A'}</p>
+                                                </CardFooter>
+                                            </Card>
+                                        </div>
+                                    </CarouselItem>
+                                ))}
+                            </CarouselContent>
+                            <CarouselPrevious />
+                            <CarouselNext />
+                        </Carousel>
+                    </DialogContent>
+                </Dialog>
+            )}
+        </>
+    );
 }
 
 
@@ -342,13 +477,54 @@ export default function EvidencePage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [editingChecklist, setEditingChecklist] = useState<string | null>(null);
 
+  const [filesByProject, setFilesByProject] = useState<Map<string, ProjectFile[]>>(new Map());
+  const LOCAL_STORAGE_KEY = 'evidence_pdf_generated_projects_v5';
+  const [generatedPdfProjects, setGeneratedPdfProjects] = useState<string[]>([]);
+
+  useEffect(() => {
+    try {
+        const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
+        if (stored) {
+            setGeneratedPdfProjects(JSON.parse(stored));
+        }
+    } catch (e) {
+        console.error("Failed to load generated PDF list", e);
+    }
+  }, []);
+  
+  const onPdfGenerated = (projectId: string) => {
+    setGeneratedPdfProjects(prev => {
+        const newGenerated = [...new Set([...prev, projectId])];
+        try {
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(newGenerated));
+        } catch (e) {
+            console.error("Failed to write to local storage", e);
+        }
+        return newGenerated;
+    });
+  }
+  
+   const onResetStatus = (projectId: string) => {
+    setGeneratedPdfProjects(prev => {
+        const newGenerated = prev.filter(id => id !== projectId);
+        try {
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(newGenerated));
+        } catch (e) {
+            console.error("Failed to write to local storage", e);
+        }
+        return newGenerated;
+    });
+  };
+
   useEffect(() => {
     setLoading(true);
     const projectsQuery = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
     const unsubProjects = onSnapshot(projectsQuery, 
       (snapshot) => {
-          setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project)));
-          setLoading(false);
+          const allProjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project));
+          const activeProjects = allProjects.filter(p => !p.deletionScheduledAt);
+          setProjects(activeProjects);
+          if (snapshot.docs.length === 0) setLoading(false);
       },
       (err) => {
           console.error("Error fetching projects:", err);
@@ -369,6 +545,46 @@ export default function EvidencePage() {
     };
   }, []);
 
+  useEffect(() => {
+    if(projects.length === 0) {
+        setFilesByProject(new Map());
+        return;
+    };
+
+    const unsubscribers = projects.map(project => {
+        const q = query(collection(db, `projects/${project.id}/files`));
+        return onSnapshot(q, (snapshot) => {
+            const files = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ProjectFile));
+            setFilesByProject(prev => new Map(prev).set(project.id, files));
+            
+            const isGenerated = generatedPdfProjects.includes(project.id);
+            if (isGenerated) {
+                 const checklist = evidenceChecklists.get(project.contract || '');
+                 const isChecklistMet = !checklist || !checklist.items || checklist.items.length === 0 ||
+                    checklist.items.every(item => {
+                        const requiredCount = item.photoCount || 1;
+                        const matchingFiles = files.filter(file => isMatch(item.text, file.evidenceTag));
+                        return matchingFiles.length >= requiredCount;
+                    });
+                if (!isChecklistMet) {
+                    onResetStatus(project.id);
+                }
+            }
+        });
+    });
+
+    return () => unsubscribers.forEach(unsub => unsub());
+  }, [projects, evidenceChecklists, generatedPdfProjects]);
+
+  useEffect(() => {
+    if (projects.length > 0 && filesByProject.size < projects.length) {
+        setLoading(true);
+    } else {
+        setLoading(false);
+    }
+  }, [projects, filesByProject]);
+
+
   const filteredProjects = useMemo(() => {
     if (!searchTerm) return projects;
     return projects.filter(project =>
@@ -378,16 +594,62 @@ export default function EvidencePage() {
   }, [projects, searchTerm]);
 
   const groupedProjects = useMemo(() => {
-    const groups: { [key: string]: Project[] } = {};
-    filteredProjects.forEach(project => {
-      const groupName = project.contract || 'Uncategorized';
-      if (!groups[groupName]) {
-        groups[groupName] = [];
-      }
-      groups[groupName].push(project);
+    if (loading) return [];
+
+    const getDaysOpen = (project: Project): number => {
+        if (!project.createdAt) return 0;
+        return differenceInDays(new Date(), project.createdAt.toDate());
+    }
+
+    const enrichedProjects = filteredProjects.map(project => {
+        const checklist = evidenceChecklists.get(project.contract || '');
+        const projectFiles = filesByProject.get(project.id) || [];
+        
+        const isChecklistMet = !checklist || !checklist.items || checklist.items.length === 0 || 
+            checklist.items.every(item => {
+                const requiredCount = item.photoCount || 1;
+                const matchingFiles = projectFiles.filter(file => isMatch(item.text, file.evidenceTag));
+                return matchingFiles.length >= requiredCount;
+            });
+
+        let evidenceState: 'incomplete' | 'ready' | 'generated' = 'incomplete';
+        if (isChecklistMet) {
+            if (generatedPdfProjects.includes(project.id)) {
+                evidenceState = 'generated';
+            } else {
+                evidenceState = 'ready';
+            }
+        }
+
+        return {
+            ...project,
+            evidenceState,
+            daysOpen: getDaysOpen(project)
+        };
+    });
+
+    const priorityOrder = { 'ready': 1, 'incomplete': 2, 'generated': 3 };
+    enrichedProjects.sort((a, b) => {
+        const statePriorityA = priorityOrder[a.evidenceState];
+        const statePriorityB = priorityOrder[b.evidenceState];
+
+        if (statePriorityA !== statePriorityB) {
+            return statePriorityA - statePriorityB;
+        }
+        
+        return b.daysOpen - a.daysOpen;
+    });
+
+    const groups: { [key: string]: typeof enrichedProjects } = {};
+    enrichedProjects.forEach(project => {
+        const groupName = project.contract || 'Uncategorized';
+        if (!groups[groupName]) {
+            groups[groupName] = [];
+        }
+        groups[groupName].push(project);
     });
     return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
-  }, [filteredProjects]);
+  }, [filteredProjects, filesByProject, evidenceChecklists, loading, generatedPdfProjects]);
 
 
   return (
@@ -442,6 +704,11 @@ export default function EvidencePage() {
                         key={project.id}
                         project={project}
                         checklist={evidenceChecklists.get(project.contract || '')}
+                        files={filesByProject.get(project.id) || []}
+                        loadingFiles={loading}
+                        generatedPdfProjects={generatedPdfProjects}
+                        onPdfGenerated={onPdfGenerated}
+                        onResetStatus={onResetStatus}
                     />
                   ))}
                 </div>
