@@ -33,8 +33,13 @@ const isMatch = (checklistText: string, fileTag: string | undefined): boolean =>
             .trim();
     }
 
-    const checklistWords = normalize(checklistText).split(' ');
-    const tagWords = normalize(fileTag).split(' ');
+    const normalizedChecklist = normalize(checklistText);
+    const normalizedTag = normalize(fileTag);
+
+    if (!normalizedChecklist) return false;
+
+    const checklistWords = normalizedChecklist.split(' ');
+    const tagWords = normalizedTag.split(' ');
 
     return checklistWords.every(checklistWord => tagWords.includes(checklistWord));
 };
@@ -57,7 +62,7 @@ function EvidenceReportGenerator({ project, files, onGenerated }: EvidenceReport
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.width;
     const pageMargin = 14;
-
+    
     // --- Logo Setup ---
     const logoSvg = `<svg width="28" height="28" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><g transform="translate(16,16)"><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#84cc16" transform="rotate(0)"/><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#22d3ee" transform="rotate(90)"/><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#f87171" transform="rotate(180)"/><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#fbbf24" transform="rotate(270)"/></g></svg>`;
     const logoDataUrl = `data:image/svg+xml;base64,${btoa(logoSvg)}`;
@@ -264,7 +269,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                 text: item.text,
                 isComplete,
                 photoCount: requiredCount,
-                uploadedCount: isComplete ? requiredCount : matchingFiles.length,
+                uploadedCount: matchingFiles.length,
                 photos: matchingFiles
             };
         });
@@ -386,9 +391,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                     )}
                 </CardContent>
                 <CardFooter className="p-2 border-t mt-auto grid gap-2">
-                    {evidenceState === 'ready' && (
-                        <EvidenceReportGenerator project={project} files={files} onGenerated={() => onPdfGenerated(project.id)} />
-                    )}
+                    <EvidenceReportGenerator project={project} files={files} onGenerated={() => onPdfGenerated(project.id)} />
                     {evidenceState === 'generated' && (
                         <div className="grid grid-cols-2 gap-2">
                              <Button variant="secondary" size="sm" onClick={() => onResetStatus(project.id)}>
