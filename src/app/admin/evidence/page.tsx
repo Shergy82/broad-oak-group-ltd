@@ -68,7 +68,7 @@ function EvidenceReportGenerator({ project, files, onGenerated }: EvidenceReport
     const logoDataUrl = `data:image/svg+xml;base64,${btoa(logoSvg)}`;
     
     const pngDataUrl: string = await new Promise((resolve, reject) => {
-      const img = new Image();
+      const img = new window.Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
         canvas.width = 56; // Double size for better quality
