@@ -75,10 +75,34 @@ export function MultiPhotoCamera({ open, onOpenChange, requiredCount, onUploadCo
             if ('geolocation' in navigator) {
                 navigator.geolocation.getCurrentPosition(
                     (position) => resolve(position),
-                    () => resolve(null),
+                    (error) => {
+                        let errorMessage = 'Could not determine your location.';
+                        switch(error.code) {
+                            case error.PERMISSION_DENIED:
+                                errorMessage = 'Location access was denied. Please enable it in your browser settings.';
+                                break;
+                            case error.POSITION_UNAVAILABLE:
+                                errorMessage = 'Location information is unavailable on this device.';
+                                break;
+                            case error.TIMEOUT:
+                                errorMessage = 'The request to get your location timed out.';
+                                break;
+                        }
+                        toast({
+                            variant: 'destructive',
+                            title: 'Geolocation Failed',
+                            description: errorMessage,
+                        });
+                        resolve(null)
+                    },
                     { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
                 );
             } else {
+                toast({
+                    variant: 'destructive',
+                    title: 'Geolocation Not Supported',
+                    description: 'Your browser does not support geolocation.',
+                });
                 resolve(null);
             }
         });
@@ -98,21 +122,22 @@ export function MultiPhotoCamera({ open, onOpenChange, requiredCount, onUploadCo
                 const timestamp = new Date().toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'medium' });
 
                 // --- Text Overlay ---
-                const fontSize = Math.max(18, Math.round(canvas.height * 0.025)); // Smaller font
+                const fontSize = Math.max(18, Math.round(canvas.height * 0.025));
                 const padding = Math.round(fontSize * 0.5);
                 const lineHeight = fontSize * 1.2;
 
                 context.font = `bold ${fontSize}px Arial`;
                 context.fillStyle = 'white';
                 context.strokeStyle = 'black';
-                context.lineWidth = Math.max(2, fontSize / 8); // Scale stroke with font size
+                context.lineWidth = Math.max(2, fontSize / 8);
                 context.textAlign = 'left';
                 context.textBaseline = 'bottom';
 
-                const lines = [timestamp];
+                const lines = [];
                 if (location) {
                     lines.push(`Lat: ${location.coords.latitude.toFixed(5)}, Lon: ${location.coords.longitude.toFixed(5)}`);
                 }
+                lines.push(timestamp);
                 
                 // Draw lines from bottom up
                 for (let i = 0; i < lines.length; i++) {
