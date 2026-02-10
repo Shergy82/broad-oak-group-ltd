@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -22,6 +21,7 @@ export function TaskManager() {
   const [newSubTaskText, setNewSubTaskText] = useState<{ [key: string]: string }>({});
   const [newSubTaskPhotoRequired, setNewSubTaskPhotoRequired] = useState<{ [key: string]: boolean }>({});
   const [newSubTaskEvidenceTag, setNewSubTaskEvidenceTag] = useState<{ [key: string]: string }>({});
+  const [newSubTaskPhotoCount, setNewSubTaskPhotoCount] = useState<{ [key: string]: number }>({});
   const { toast } = useToast();
 
   useEffect(() => {
@@ -88,11 +88,15 @@ export function TaskManager() {
 
     const photoRequired = newSubTaskPhotoRequired[tradeId] || false;
     const evidenceTag = newSubTaskEvidenceTag[tradeId]?.trim() || '';
+    const photoCount = newSubTaskPhotoCount[tradeId] || 1;
     const tradeDocRef = doc(db, 'trade_tasks', tradeId);
     
     const newTask: TradeTask = { text: taskText, photoRequired };
     if (photoRequired && evidenceTag) {
         newTask.evidenceTag = evidenceTag;
+    }
+    if (photoRequired && photoCount > 0) {
+        newTask.photoCount = photoCount;
     }
 
     try {
@@ -102,6 +106,7 @@ export function TaskManager() {
       setNewSubTaskText({ ...newSubTaskText, [tradeId]: '' });
       setNewSubTaskPhotoRequired({ ...newSubTaskPhotoRequired, [tradeId]: false });
       setNewSubTaskEvidenceTag({ ...newSubTaskEvidenceTag, [tradeId]: '' });
+      setNewSubTaskPhotoCount({ ...newSubTaskPhotoCount, [tradeId]: 1 });
       toast({ title: 'Success', description: `Task added.` });
     } catch (error) {
       console.error('Error adding task: ', error);
@@ -199,24 +204,38 @@ export function TaskManager() {
                             checked={newSubTaskPhotoRequired[trade.id] || false}
                             onCheckedChange={(checked) => setNewSubTaskPhotoRequired({ ...newSubTaskPhotoRequired, [trade.id]: !!checked })}
                           />
-                          <Label htmlFor={`photo-required-${trade.id}`} className="text-sm">Photo Required</Label>
+                          <Label htmlFor={`photo-required-${trade.id}`} className="text-sm font-normal">Photo Required</Label>
                         </div>
                         
                         {newSubTaskPhotoRequired[trade.id] && (
-                            <div className="flex items-center gap-2 w-full sm:w-auto">
-                                <Tags className="h-4 w-4 text-muted-foreground" />
-                                <Input 
-                                    placeholder="Evidence Tag (e.g., boiler-photo)"
-                                    value={newSubTaskEvidenceTag[trade.id] || ''}
-                                    onChange={(e) => setNewSubTaskEvidenceTag({...newSubTaskEvidenceTag, [trade.id]: e.target.value})}
-                                    className="h-8"
-                                />
+                            <div className="flex-grow flex flex-col sm:flex-row gap-4 items-center">
+                                <div className="flex items-center gap-2">
+                                    <Input
+                                        id={`photo-count-${trade.id}`}
+                                        type="number"
+                                        min="1"
+                                        value={newSubTaskPhotoCount[trade.id] || 1}
+                                        onChange={(e) => setNewSubTaskPhotoCount({ ...newSubTaskPhotoCount, [trade.id]: Math.max(1, parseInt(e.target.value, 10) || 1)})}
+                                        className="w-20 h-8"
+                                    />
+                                    <Label htmlFor={`photo-count-${trade.id}`} className="text-sm text-muted-foreground whitespace-nowrap">photo(s)</Label>
+                                </div>
+                                 <div className="flex items-center gap-2 w-full flex-grow">
+                                    <Tags className="h-4 w-4 text-muted-foreground" />
+                                    <Input 
+                                        placeholder="Evidence Tag (e.g., boiler-photo)"
+                                        value={newSubTaskEvidenceTag[trade.id] || ''}
+                                        onChange={(e) => setNewSubTaskEvidenceTag({...newSubTaskEvidenceTag, [trade.id]: e.target.value})}
+                                        className="h-8 flex-grow"
+                                    />
+                                </div>
                             </div>
                         )}
-                        <Button size="sm" onClick={() => handleAddTask(trade.id)} className="w-full sm:w-auto">
+                        
+                        <Button size="sm" onClick={() => handleAddTask(trade.id)} className="w-full sm:w-auto mt-2 sm:mt-0">
                           Add Task
                         </Button>
-                      </div>
+                    </div>
                     </div>
                     {trade.tasks?.length > 0 && (
                       <ul className="space-y-2">
@@ -229,6 +248,9 @@ export function TaskManager() {
                                 <div className="flex items-center gap-2">
                                   <span>{task.text}</span>
                                   {task.photoRequired && <Camera className="h-4 w-4 text-muted-foreground" />}
+                                   {task.photoCount && task.photoCount > 1 && (
+                                    <span className="text-xs text-muted-foreground">({task.photoCount} photos)</span>
+                                  )}
                                 </div>
                                 {task.evidenceTag && (
                                     <div className="flex items-center gap-1 mt-1">
