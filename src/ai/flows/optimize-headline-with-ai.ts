@@ -24,11 +24,11 @@ export type AskAIAssistantOutput = z.infer<typeof AskAIAssistantOutputSchema>;
 export async function askAIAssistant(
   input: AskAIAssistantInput
 ): Promise<AskAIAssistantOutput> {
-  return generalAssistantFlow(input);
+  return askAIAssistantFlow(input);
 }
 
-const prompt = ai.definePrompt({
-  name: 'generalAssistantPrompt',
+const askAIAssistantPrompt = ai.definePrompt({
+  name: 'askAIAssistantPrompt',
   input: {schema: AskAIAssistantInputSchema},
   output: {schema: AskAIAssistantOutputSchema},
   prompt: `You are a helpful AI assistant for tradespeople (plumbers, electricians, etc.) working for a company called Broad Oak Group. Your goal is to provide clear, concise, and practical help.
@@ -41,14 +41,14 @@ const prompt = ai.definePrompt({
   - If asked for instructions (e.g., "how to change a tap"), provide a simple, step-by-step guide.`,
 });
 
-const generalAssistantFlow = ai.defineFlow(
+const askAIAssistantFlow = ai.defineFlow(
   {
-    name: 'generalAssistantFlow',
+    name: 'askAIAssistantFlow',
     inputSchema: AskAIAssistantInputSchema,
     outputSchema: AskAIAssistantOutputSchema,
   },
   async input => {
-    const {output} = await prompt(input);
+    const {output} = await askAIAssistantPrompt(input);
     return output!;
   }
 );
