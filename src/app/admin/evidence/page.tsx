@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -74,11 +72,11 @@ function EvidenceReportGenerator({ project, files, onGenerated }: EvidenceReport
       const img = new window.Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        canvas.width = 56; // Double size for better quality
-        canvas.height = 56;
+        canvas.width = 64; // Double size for better quality
+        canvas.height = 64;
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          ctx.drawImage(img, 0, 0, 56, 56);
+          ctx.drawImage(img, 0, 0, 64, 64);
           resolve(canvas.toDataURL('image/png'));
         } else {
           reject(new Error('Failed to get canvas context'));
@@ -89,99 +87,131 @@ function EvidenceReportGenerator({ project, files, onGenerated }: EvidenceReport
     });
 
     // --- Cover Page ---
-    // Header bar
-    doc.setFillColor(241, 245, 249); // slate-100
-    doc.rect(0, 0, pageWidth, 30, 'F');
+    let currentY = 50;
+    const logoWidth = 40;
+    const logoHeight = 40;
+    const logoX = (pageWidth - logoWidth) / 2;
+    doc.addImage(pngDataUrl, 'PNG', logoX, currentY, logoWidth, logoHeight);
+    currentY += logoHeight + 10;
     
-    // Logo in header
-    doc.addImage(pngDataUrl, 'PNG', pageMargin, 8, 14, 14);
-    
-    // Company Name in header
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(16);
-    doc.setTextColor(15, 23, 42); // slate-900
-    doc.text('BROAD OAK GROUP', pageMargin + 18, 17);
+    doc.setFontSize(18);
+    doc.setTextColor(45, 55, 72); 
+    doc.text('BROAD OAK GROUP', pageWidth / 2, currentY, { align: 'center' });
+    currentY += 10;
 
-    // Main Title
-    let currentY = 80;
-    doc.setFontSize(36);
+    doc.setDrawColor(226, 232, 240); // slate-200
+    doc.setLineWidth(0.5);
+    doc.line(pageMargin, currentY, pageWidth - pageMargin, currentY);
+    currentY += 20;
+
+    doc.setFontSize(32);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(15, 23, 42); // slate-900
     doc.text('Evidence Report', pageWidth / 2, currentY, { align: 'center' });
     currentY += 20;
 
-    // Project Details
-    doc.setFontSize(20);
+    doc.setFontSize(16);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(51, 65, 85); // slate-700
     const addressLines = doc.splitTextToSize(project.address, pageWidth - (pageMargin * 6));
     doc.text(addressLines, pageWidth / 2, currentY, { align: 'center' });
-    currentY += (addressLines.length * 10) + 10;
+    currentY += (addressLines.length * 8) + 10;
 
-    // E-Number and Contract
     doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(100, 116, 139); // slate-500
     const detailText = `${project.contract || 'N/A Contract'} | ${project.eNumber || 'N/A E-Number'}`;
     doc.text(detailText, pageWidth / 2, currentY, { align: 'center' });
 
-
-    // Generated Date (Footer)
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(148, 163, 184); // slate-400
     doc.text(`Generated: ${format(new Date(), 'PPP')}`, pageWidth / 2, pageHeight - 20, { align: 'center' });
 
-
     // --- Photo Pages ---
-    let finalY = 70;
     const photos = files.filter(f => f.type?.startsWith('image/'));
 
     if (photos.length > 0) {
-        doc.addPage();
-        finalY = pageMargin;
+      const groupedPhotos = new Map<string, ProjectFile[]>();
+      photos.forEach(photo => {
+          const tag = photo.evidenceTag || 'Uncategorized';
+          if (!groupedPhotos.has(tag)) {
+              groupedPhotos.set(tag, []);
+          }
+          groupedPhotos.get(tag)!.push(photo);
+      });
+      const sortedGroups = new Map([...groupedPhotos.entries()].sort());
 
-        for (const photo of photos) {
-          try {
-            const imageUrl = `https://images.weserv.nl/?url=${encodeURIComponent(photo.url)}`;
-            const response = await fetch(imageUrl);
-            const blob = await response.blob();
-            const reader = new FileReader();
-            const dataUrl: string = await new Promise((resolve, reject) => {
-              reader.onload = () => resolve(reader.result as string);
-              reader.onerror = reject;
-              reader.readAsDataURL(blob);
-            });
+      doc.addPage();
+      let finalY = pageMargin;
 
-            const imgProps = doc.getImageProperties(dataUrl);
-            const imgWidth = pageWidth - (pageMargin * 2);
-            const imgHeight = (imgProps.height * imgWidth) / imgProps.width;
-
-            if (finalY + imgHeight + 20 > doc.internal.pageSize.height) {
+      const addPageIfNeeded = (requiredHeight: number) => {
+          if (finalY + requiredHeight > pageHeight - pageMargin) {
               doc.addPage();
               finalY = pageMargin;
-            }
-
-            doc.addImage(dataUrl, 'JPEG', pageMargin, finalY, imgWidth, imgHeight);
-            finalY += imgHeight + 5;
-
-            const captionText = `${photo.evidenceTag ? `Tag: ${photo.evidenceTag}` : photo.name} - Uploaded by ${photo.uploaderName}`;
-            doc.setFontSize(9);
-            doc.setTextColor(100, 116, 139);
-            doc.text(captionText, pageMargin, finalY);
-            finalY += 10;
-          } catch (e) {
-            console.error("Could not add image to PDF", e);
-            if (finalY + 10 > doc.internal.pageSize.height) {
-                doc.addPage();
-                finalY = pageMargin;
-            }
-            doc.setFontSize(9);
-            doc.setTextColor(255, 0, 0);
-            doc.text(`Failed to load image: ${photo.name}`, pageMargin, finalY);
-            finalY += 10;
           }
-        }
+      };
+
+      for (const [tag, photosInGroup] of sortedGroups.entries()) {
+          addPageIfNeeded(20); // space for header
+          doc.setFontSize(16);
+          doc.setFont('helvetica', 'bold');
+          doc.text(tag, pageMargin, finalY);
+          finalY += 12;
+
+          for (const photo of photosInGroup) {
+              try {
+                  const imageUrl = `https://images.weserv.nl/?url=${encodeURIComponent(photo.url)}`;
+                  const response = await fetch(imageUrl);
+                  const blob = await response.blob();
+                  const reader = new FileReader();
+                  const dataUrl: string = await new Promise((resolve, reject) => {
+                      reader.onload = () => resolve(reader.result as string);
+                      reader.onerror = reject;
+                      reader.readAsDataURL(blob);
+                  });
+
+                  const imgProps = doc.getImageProperties(dataUrl);
+                  const imgWidth = pageWidth - (pageMargin * 2);
+                  const imgHeight = (imgProps.height * imgWidth) / imgProps.width;
+                  
+                  const maxHeight = 110; // Max height per image to fit two
+                  let renderHeight = imgHeight;
+                  let renderWidth = imgWidth;
+
+                  if (renderHeight > maxHeight) {
+                      renderWidth = (renderWidth * maxHeight) / renderHeight;
+                      renderHeight = maxHeight;
+                  }
+                  
+                  const captionText = `${photo.evidenceTag ? `Tag: ${photo.evidenceTag}` : photo.name} - Uploaded by ${photo.uploaderName}`;
+                  const captionLines = doc.splitTextToSize(captionText, renderWidth);
+                  const captionHeight = (doc.getLineHeight() * captionLines.length) / doc.internal.scaleFactor;
+                  const totalBlockHeight = renderHeight + captionHeight + 10;
+                  
+                  addPageIfNeeded(totalBlockHeight);
+                  
+                  const centeredX = (pageWidth - renderWidth) / 2;
+                  doc.addImage(dataUrl, 'JPEG', centeredX, finalY, renderWidth, renderHeight);
+                  finalY += renderHeight + 5;
+
+                  doc.setFontSize(9);
+                  doc.setTextColor(100, 116, 139);
+                  doc.text(captionLines, centeredX, finalY);
+                  finalY += captionHeight + 5;
+
+              } catch (e) {
+                console.error("Could not add image to PDF", e);
+                addPageIfNeeded(10);
+                doc.setFontSize(9);
+                doc.setTextColor(255, 0, 0);
+                doc.text(`Failed to load image: ${photo.name}`, pageMargin, finalY);
+                finalY += 10;
+              }
+          }
+           finalY += 10; // Space between groups
+      }
     }
     
     doc.save(`evidence_${project.address.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
