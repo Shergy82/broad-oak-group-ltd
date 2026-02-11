@@ -6,12 +6,12 @@
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
-export const AskAIAssistantInputSchema = z.object({
+const AskAIAssistantInputSchema = z.object({
   query: z.string().describe("The user's question or prompt."),
 });
 export type AskAIAssistantInput = z.infer<typeof AskAIAssistantInputSchema>;
 
-export const AskAIAssistantOutputSchema = z.object({
+const AskAIAssistantOutputSchema = z.object({
   response: z.string().describe('The AI-generated answer.'),
 });
 export type AskAIAssistantOutput = z.infer<typeof AskAIAssistantOutputSchema>;
@@ -29,7 +29,7 @@ export async function askAIAssistant(
     - If you are asked for real-time, location-specific information (like "what's the nearest plumbing merchants"), you MUST state that you cannot access live location data. You can, however, provide a general list of popular UK-based suppliers for that trade.
     - Keep your answers direct and to the point.
     - If asked for instructions (e.g., "how to change a tap"), provide a simple, step-by-step guide.`,
-    model: 'gemini-1.5-flash-latest',
+    model: 'googleai/gemini-1.5-flash-latest',
     config: {
       temperature: 0.5,
     },
