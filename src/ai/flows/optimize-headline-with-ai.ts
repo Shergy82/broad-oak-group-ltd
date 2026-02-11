@@ -30,7 +30,7 @@ export async function askAIAssistant(
 const askAIAssistantPrompt = ai.definePrompt({
   name: 'askAIAssistantPrompt',
   input: {schema: AskAIAssistantInputSchema},
-  output: {schema: AskAIAssistantOutputSchema},
+  // No output schema, to get a raw text response
   prompt: `You are a helpful AI assistant for tradespeople (plumbers, electricians, etc.) working for a company called Broad Oak Group. Your goal is to provide clear, concise, and practical help.
 
   User's query: {{{query}}}
@@ -48,7 +48,11 @@ const askAIAssistantFlow = ai.defineFlow(
     outputSchema: AskAIAssistantOutputSchema,
   },
   async input => {
-    const {output} = await askAIAssistantPrompt(input);
-    return output!;
+    const llmResponse = await askAIAssistantPrompt(input);
+    
+    // Manually construct the output to match the schema
+    return {
+        response: llmResponse.text,
+    };
   }
 );
