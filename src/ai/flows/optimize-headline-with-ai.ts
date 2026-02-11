@@ -29,7 +29,7 @@ export async function askAIAssistant(
     - If you are asked for real-time, location-specific information (like "what's the nearest plumbing merchants"), you MUST state that you cannot access live location data. You can, however, provide a general list of popular UK-based suppliers for that trade.
     - Keep your answers direct and to the point.
     - If asked for instructions (e.g., "how to change a tap"), provide a simple, step-by-step guide.`,
-    model: 'gemini-1.5-flash-latest',
+    model: 'googleai/gemini-1.5-flash-latest',
     config: {
       temperature: 0.5,
     },
