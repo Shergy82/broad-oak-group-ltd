@@ -1,102 +1,115 @@
-"use client";
+'use client';
 
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
-import { Wand2, Loader2, Sparkles } from "lucide-react";
-import { getAiAssistantResponse } from "@/app/actions";
-import { useToast } from "@/hooks/use-toast";
-import { Label } from "@/components/ui/label";
+import { useState, useEffect } from 'react';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '@/lib/firebase';
+import { Spinner } from '@/components/shared/spinner';
 
-export default function AiPage() {
-  const [isLoading, setIsLoading] = useState(false);
-  const [query, setQuery] = useState("");
-  const [response, setResponse] = useState("");
-  const { toast } = useToast();
+export default function AIAssistantPage() {
+  const [query, setQuery] = useState('');
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [results, setResults] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!query.trim()) {
-        toast({
-            variant: "destructive",
-            title: "Query is empty",
-            description: "Please enter a question or prompt.",
-        });
-        return;
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      setError('Geolocation not supported.');
+      return;
     }
 
-    setIsLoading(true);
-    setResponse("");
-    const result = await getAiAssistantResponse({ query });
-    setIsLoading(false);
-    
-    if (result.error) {
-      toast({
-        variant: "destructive",
-        title: "An error occurred",
-        description: result.error,
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setCoords({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        });
+      },
+      () => {
+        setError('Location permission denied.');
+      }
+    );
+  }, []);
+
+  const handleSearch = async () => {
+    if (!query) return;
+
+    if (!coords) {
+      setError('Location not available yet.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError('');
+      setResults([]);
+
+      const findMerchants = httpsCallable(functions, 'aiMerchantFinder');
+
+      const res: any = await findMerchants({
+        message: query,
+        lat: coords.lat,
+        lng: coords.lng,
       });
-    } else if (result.response) {
-      setResponse(result.response);
+
+      setResults(res.data.results || []);
+    } catch (err) {
+      console.error(err);
+      setError('Unable to fetch merchants.');
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>AI Assistant</CardTitle>
-        <CardDescription>
-          Your general-purpose AI helper. Ask for instructions, find information, or get help with a task.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="grid md:grid-cols-2 gap-8 items-start">
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-                <Label htmlFor="ai-query">Your Question</Label>
-                <Textarea
-                    id="ai-query"
-                    placeholder="e.g., How do I change a compression fitting on a copper pipe?"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    rows={5}
-                />
-            </div>
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Wand2 className="mr-2 h-4 w-4" />
-              )}
-              Ask AI
-            </Button>
-          </form>
+    <div className="max-w-3xl mx-auto p-4 sm:p-6 space-y-6">
+      <div>
+        <h1 className="text-2xl sm:text-3xl font-bold">AI Assistant</h1>
+        <p className="text-gray-600">
+          Search for trusted trades and suppliers instantly.
+        </p>
+      </div>
 
-          <div className="space-y-2">
-             <Label>AI Response</Label>
-            <div className="rounded-lg border bg-muted min-h-[220px] flex items-center justify-center p-4">
-              <div className="w-full">
-                {isLoading && (
-                  <div className="flex flex-col items-center justify-center text-muted-foreground">
-                    <Loader2 className="h-8 w-8 animate-spin mb-4 text-primary" />
-                    <p>Thinking...</p>
-                  </div>
-                )}
-                {!isLoading && !response && (
-                  <div className="flex flex-col items-center justify-center text-center text-muted-foreground">
-                    <Sparkles className="h-8 w-8 mb-4 text-primary/50" />
-                    <p>The AI's response will appear here.</p>
-                  </div>
-                )}
-                {response && (
-                  <div className="whitespace-pre-wrap text-sm">{response}</div>
-                )}
-              </div>
+      {/* Responsive Search Section */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="e.g. plumber, electrician, roofing contractor"
+          className="w-full border rounded px-4 py-3 text-base"
+        />
+
+        <button
+          onClick={handleSearch}
+          className="w-full sm:w-auto bg-black text-white px-6 py-3 rounded"
+        >
+          Search
+        </button>
+      </div>
+
+      {loading && <Spinner size="sm" />}
+
+      {error && <div className="text-red-500">{error}</div>}
+
+      {results.length > 0 && (
+        <div className="space-y-4">
+          {results.map((m, i) => (
+            <div key={i} className="border rounded p-4 space-y-2">
+              <div className="font-semibold text-lg">{m.name}</div>
+              <div>⭐ {m.rating ?? 'N/A'}</div>
+              <div>{m.address}</div>
+              <a
+                href={m.mapsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 underline"
+              >
+                View on Maps
+              </a>
             </div>
-          </div>
+          ))}
         </div>
-      </CardContent>
-    </Card>
+      )}
+    </div>
   );
 }

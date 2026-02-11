@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 
 import { Providers } from '@/components/providers';
 import { Header } from '@/components/layout/header';
@@ -47,6 +47,14 @@ export const metadata: Metadata = {
   },
 };
 
+/**
+ * This is the CORRECT way to define viewport in Next.js App Router
+ */
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+};
+
 export default function RootLayout({
   children,
 }: {
@@ -54,23 +62,8 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="h-full">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link
-          rel="preconnect"
-          href="https://fonts.gstatic.com"
-          crossOrigin="anonymous"
-        />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap"
-          rel="stylesheet"
-        />
-        <meta name="theme-color" content="#ffffff" />
-      </head>
-
       <body className="font-body antialiased h-full">
         <Providers>
-          {/* Global announcement gate modal */}
           <PendingAnnouncementModal />
 
           <div className="min-h-screen flex flex-col">
