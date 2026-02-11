@@ -48,11 +48,12 @@ export const metadata: Metadata = {
 };
 
 /**
- * This is the CORRECT way to define viewport in Next.js App Router
+ * Proper viewport for PWA + standalone mode
  */
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
+  viewportFit: 'cover', // critical for iOS standalone mode
 };
 
 export default function RootLayout({
@@ -62,15 +63,15 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="h-full">
-      <body className="font-body antialiased h-full">
+      <body className="h-full font-body antialiased overflow-x-hidden bg-background">
         <Providers>
           <PendingAnnouncementModal />
 
-          <div className="min-h-screen flex flex-col">
+          <div className="flex min-h-screen flex-col">
             <Header />
 
-            <main className="flex-1">
-              <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <main className="flex-1 w-full">
+              <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-6">
                 {children}
               </div>
             </main>
