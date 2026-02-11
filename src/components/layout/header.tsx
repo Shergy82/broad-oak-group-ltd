@@ -23,6 +23,7 @@ import {
   Building2,
   ListChecks,
   FileArchive,
+  Wand2,
 } from 'lucide-react';
 import { NotificationButton } from '../shared/notification-button';
 import {
@@ -113,6 +114,10 @@ export function Header() {
                 <DropdownMenuItem onClick={() => router.push('/stats')} className="cursor-pointer">
                   <TrendingUp className="mr-2" />
                   <span>Stats</span>
+                </DropdownMenuItem>
+                 <DropdownMenuItem onClick={() => router.push('/ai')} className="cursor-pointer">
+                  <Wand2 className="mr-2" />
+                  <span>AI Assistant</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => router.push('/projects')} className="cursor-pointer">
                   <Briefcase className="mr-2" />
