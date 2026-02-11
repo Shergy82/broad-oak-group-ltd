@@ -1,60 +1,51 @@
 'use server';
 
 /**
- * @fileOverview An AI agent that suggests alternative headlines for a landing page.
+ * @fileOverview A general purpose AI assistant for tradespeople.
  *
- * - optimizeHeadlineWithAI - A function that takes a draft headline and returns AI-powered suggestions.
- * - OptimizeHeadlineWithAIInput - The input type for the optimizeHeadlineWithAI function.
- * - OptimizeHeadlineWithAIOutput - The return type for the optimizeHeadlineWithAI function.
+ * - askAIAssistant - A function that takes a user's query and returns a helpful response.
+ * - AskAIAssistantInput - The input type for the askAIAssistant function.
+ * - AskAIAssistantOutput - The return type for the askAIAssistant function.
  */
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
-const OptimizeHeadlineWithAIInputSchema = z.object({
-  draftHeadline: z
-    .string()
-    .describe('The draft headline for the landing page.'),
-  productDescription: z.string().describe('A description of the product or service.'),
-  targetAudience: z.string().describe('The target audience for the landing page.'),
+const AskAIAssistantInputSchema = z.object({
+  query: z.string().describe("The user's question or prompt."),
 });
-export type OptimizeHeadlineWithAIInput = z.infer<
-  typeof OptimizeHeadlineWithAIInputSchema
->;
+export type AskAIAssistantInput = z.infer<typeof AskAIAssistantInputSchema>;
 
-const OptimizeHeadlineWithAIOutputSchema = z.object({
-  suggestions: z
-    .array(z.string())
-    .describe('AI-powered suggestions for alternative headlines.'),
+const AskAIAssistantOutputSchema = z.object({
+  response: z.string().describe('The AI-generated answer.'),
 });
-export type OptimizeHeadlineWithAIOutput = z.infer<
-  typeof OptimizeHeadlineWithAIOutputSchema
->;
+export type AskAIAssistantOutput = z.infer<typeof AskAIAssistantOutputSchema>;
 
-export async function optimizeHeadlineWithAI(
-  input: OptimizeHeadlineWithAIInput
-): Promise<OptimizeHeadlineWithAIOutput> {
-  return optimizeHeadlineWithAIFlow(input);
+export async function askAIAssistant(
+  input: AskAIAssistantInput
+): Promise<AskAIAssistantOutput> {
+  return generalAssistantFlow(input);
 }
 
 const prompt = ai.definePrompt({
-  name: 'optimizeHeadlinePrompt',
-  input: {schema: OptimizeHeadlineWithAIInputSchema},
-  output: {schema: OptimizeHeadlineWithAIOutputSchema},
-  prompt: `You are a marketing expert specializing in creating high-converting landing page headlines.
+  name: 'generalAssistantPrompt',
+  input: {schema: AskAIAssistantInputSchema},
+  output: {schema: AskAIAssistantOutputSchema},
+  prompt: `You are a helpful AI assistant for tradespeople (plumbers, electricians, etc.) working for a company called Broad Oak Group. Your goal is to provide clear, concise, and practical help.
 
-  Given the following information, suggest 3 alternative headlines that are more likely to increase conversions.  Be concise and to the point.
+  User's query: {{{query}}}
 
-  Draft Headline: {{{draftHeadline}}}
-  Product Description: {{{productDescription}}}
-  Target Audience: {{{targetAudience}}}`,
+  IMPORTANT:
+  - If you are asked for real-time, location-specific information (like "what's the nearest plumbing merchants"), you MUST state that you cannot access live location data. You can, however, provide a general list of popular UK-based suppliers for that trade.
+  - Keep your answers direct and to the point.
+  - If asked for instructions (e.g., "how to change a tap"), provide a simple, step-by-step guide.`,
 });
 
-const optimizeHeadlineWithAIFlow = ai.defineFlow(
+const generalAssistantFlow = ai.defineFlow(
   {
-    name: 'optimizeHeadlineWithAIFlow',
-    inputSchema: OptimizeHeadlineWithAIInputSchema,
-    outputSchema: OptimizeHeadlineWithAIOutputSchema,
+    name: 'generalAssistantFlow',
+    inputSchema: AskAIAssistantInputSchema,
+    outputSchema: AskAIAssistantOutputSchema,
   },
   async input => {
     const {output} = await prompt(input);
