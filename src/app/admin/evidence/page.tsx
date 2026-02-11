@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -19,7 +20,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { format, differenceInDays, differenceInHours, differenceInMinutes } from 'date-fns';
 import { Dialog, DialogDescription, DialogHeader, DialogTitle, DialogContent } from '@/components/ui/dialog';
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '@/components/ui/carousel';
-import Image from 'next/image';
+import NextImage from 'next/image';
 import { MultiPhotoCamera } from '@/components/shared/multi-photo-camera';
 
 const isMatch = (checklistText: string, fileTag: string | undefined): boolean => {
@@ -65,46 +66,20 @@ function EvidenceReportGenerator({ project, files, onGenerated }: EvidenceReport
     const pageMargin = 15;
     
     // --- Logo Setup ---
-    const logoSvg = `<svg width="28" height="28" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><g transform="translate(16,16)"><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#84cc16" transform="rotate(0)"/><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#22d3ee" transform="rotate(90)"/><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#f87171" transform="rotate(180)"/><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#fbbf24" transform="rotate(270)"/></g></svg>`;
-    const logoDataUrl = `data:image/svg+xml;base64,${btoa(logoSvg)}`;
-    
-    const pngDataUrl: string = await new Promise((resolve, reject) => {
-      const img = new window.Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = 64; // Double size for better quality
-        canvas.height = 64;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, 64, 64);
-          resolve(canvas.toDataURL('image/png'));
-        } else {
-          reject(new Error('Failed to get canvas context'));
-        }
-      };
-      img.onerror = () => reject(new Error('Failed to load SVG for conversion'));
-      img.src = logoDataUrl;
-    });
+    const logoPngDataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABGAAAACHCAMAAABYx2pAAAAAjVBMVEUAdLj////+gJn/jKv/lLL/o8n/uc3/z+H/2uj/8Pf/+/7/d7v/fpH/hKT/pcn/vcj/0N//3uj/dbr/hKT/pcn/vcj/0N//3uj/dbr/hKT/pcn/vcj/0N//3uj/dbr/hKT/pcn/vcj/0N//3uj/dbr/hKT/pcn/vcj/0N//3uj/dbr/hKT/pcn/vcj/0N//3uhPOAmDAAAAL3RSTlMAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSYnKCkqKywuLzAxMjN/Pz7dAAADWklEQVR42u3d63KbMBQGYBgxBkMQwZmAwZzD//8lF0gS0mpJ2pY56s5+VdD5YGFk+fGkgwAAAAAAAAAAAAAAAAAAAAAAAAAAgBvH5+fn4/P9vX7f4/P93s/3+/l+v/fn/f75+Hj5/u91+7+fD/d/v29uAAAAAAAAAAAAAAAAAAAAAAAAAACA+wuvz/f3+nzPez2/5z1uPx7v9/58v/f78/l+v/f7P37+5fN+v/9v/gIAAAAAAAAAAAAAAAAAAAAAAAAAAPAX8Hq/1/s/n+/3vNf9/u/3vNfr/V/vy/f7P7/e7/1+v/f7vV+f7/e/33sDAAAAAAAAAAAAAAAAAAAAAAAAAADeBd7v9f483/fzXq/3+38/n++Xz/f7+Xy/X+/P6+f7+fP6fr/35y8AAAAAAAAAAAAAAAAAAAAAAAAAAIAf4Pd6v9fr/Z/v9bzX4/N+v/f7fb/P++vl+/3+vN7v/fy8Xt/v/V6fD1/v/1/+AgAAAAAAAAAAAAAAAAAAAAAAAAAA8D+F1+f7fT/v9bzH43m/v9fr8Xq/9+ftXq/3f/78eL++37/d/4sAAAAAAAAAAAAAAAAAAAAAAAAAAAC8D7ye7/f6/M97rcfr+X6v9/v8vN7v/f5+/3u/v7zfp/3+fD/vDAAAAAAAAAAAAAAAAAAAAAAAAAAAwD/L+z9/Pz/fr/d+v/e83+Pz+fn2fr/P+/N+f7/e/3n7eX2+/+e/TwAAAAAAAAAAAAAAAAAAAAAAAAAAAF/B6/n+fr/H4/m83+Px/H6/l+/3frzfr8/H8/v9Xr/fr/fr/Z6fnz9eXz7+AgAAAAAAAAAAAAAAAAAAAAAAAAAA4F3g+Xy/X+/1+Lze+3q9X+/3/nx5vt/v/fnx/Px+v9/v/f3z/f7v/QkAAAAAAAAAAAAAAAAAAAAAAAAAAMAa3h+P93v9fr/nvd7z+fz+fr/X+/Pl+X6v1/vzeh9fPz6+fz//vf95AAAAAAAAAAAAAAAAAAAAAAAAAAAA4B/k+fn+fr/X+/1er+fzfr/f/fnxeLzer/f7/X6/l+f7/f7z+Hj/3P/+AAAAAAAAAAAAAAAAAAAAAAAAAAAA+GN4vt/v/f7r/V6P9/u/Pl9eP+8P+fV6vR+v9/78fH2+/+cf/wEAAAAAAAAAAAAAAAAAAAAAAAAAAIDvj+fP++v93td7ve/1+Py83+v1en+/X+/1/q/P6/v19fP+/N/jAQAAAAAAAAAAAAAAAAAAAAAAAAAA8H7/9w9vAIhV32n/5Q8vAAAAAElFTkSuQmCC';
 
-    // --- Cover Page ---
-    let currentY = 50;
-    const logoWidth = 40;
-    const logoHeight = 40;
-    const logoX = (pageWidth - logoWidth) / 2;
-    doc.addImage(pngDataUrl, 'PNG', logoX, currentY, logoWidth, logoHeight);
-    currentY += logoHeight + 10;
-    
+    // --- Header on Cover Page ---
+    doc.setFillColor(241, 245, 249); // slate-100
+    doc.rect(0, 0, pageWidth, 28, 'F');
+    doc.addImage(logoPngDataUrl, 'PNG', pageMargin, 6, 16, 16);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(18);
-    doc.setTextColor(45, 55, 72); 
-    doc.text('BROAD OAK GROUP', pageWidth / 2, currentY, { align: 'center' });
-    currentY += 10;
+    doc.setFontSize(16);
+    doc.setTextColor(15, 23, 42); // slate-900
+    doc.text('BROAD OAK GROUP', pageMargin + 22, 17);
 
-    doc.setDrawColor(226, 232, 240); // slate-200
-    doc.setLineWidth(0.5);
-    doc.line(pageMargin, currentY, pageWidth - pageMargin, currentY);
-    currentY += 20;
-
+    // --- Cover Page Content ---
+    let currentY = 70;
+    
     doc.setFontSize(32);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(15, 23, 42); // slate-900
@@ -504,7 +479,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                                         <div className="p-1">
                                             <Card>
                                                 <CardContent className="flex aspect-video items-center justify-center p-0 relative overflow-hidden rounded-lg">
-                                                    <Image
+                                                    <NextImage
                                                         src={`https://images.weserv.nl/?url=${encodeURIComponent(photo.url)}`}
                                                         alt={photo.name}
                                                         fill
