@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from 'next';
 import { Providers } from '@/components/providers';
 import { Header } from '@/components/layout/header';
 import { PendingAnnouncementModal } from '@/components/announcements/pending-announcement-modal';
+import { ServiceWorkerRegistrar } from '@/components/service-worker-registrar';
 
 import './globals.css';
 
@@ -47,13 +48,10 @@ export const metadata: Metadata = {
   },
 };
 
-/**
- * Proper viewport for PWA + standalone mode
- */
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  viewportFit: 'cover', // critical for iOS standalone mode
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({
@@ -65,6 +63,9 @@ export default function RootLayout({
     <html lang="en" className="h-full">
       <body className="h-full font-body antialiased overflow-x-hidden bg-background">
         <Providers>
+          {/* ✅ CLIENT-ONLY SERVICE WORKER REGISTRATION */}
+          <ServiceWorkerRegistrar />
+
           <PendingAnnouncementModal />
 
           <div className="flex min-h-screen flex-col">

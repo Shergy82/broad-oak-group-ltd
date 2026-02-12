@@ -3,7 +3,12 @@
 import { usePushNotifications } from '@/hooks/use-push-notifications';
 import { Button } from '../ui/button';
 import { Bell, BellOff } from 'lucide-react';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '../ui/tooltip';
 import { Spinner } from './spinner';
 
 export function NotificationButton() {
@@ -15,9 +20,10 @@ export function NotificationButton() {
     subscribe,
     unsubscribe,
   } = usePushNotifications();
-  
+
+  // If push is not supported at all, do not render
   if (!isSupported) {
-    return null; // Don't render the button if push is not supported at all.
+    return null;
   }
 
   const handleToggle = () => {
@@ -49,7 +55,7 @@ export function NotificationButton() {
             variant="ghost"
             size="icon"
             onClick={handleToggle}
-            disabled={isSubscribing || permission === 'denied'}
+            disabled={permission === 'denied'}
             aria-label="Toggle Notifications"
           >
             {getIcon()}
