@@ -8,6 +8,7 @@ import { useUserProfile } from '@/hooks/use-user-profile';
 import { Logo } from '../shared/logo';
 import { Button } from '@/components/ui/button';
 import {
+  Bell,
   Briefcase,
   Calendar,
   HardHat,
@@ -140,6 +141,10 @@ export function Header() {
                     <DropdownMenuItem onClick={() => router.push('/admin/control-panel')} className="cursor-pointer">
                       <Shield className="mr-2" />
                       <span>Control Panel</span>
+                    </DropdownMenuItem>
+                     <DropdownMenuItem onClick={() => router.push('/admin/notifications')} className="cursor-pointer">
+                      <Bell className="mr-2" />
+                      <span>Notifications</span>
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => router.push('/schedule')} className="cursor-pointer">
                       <Users className="mr-2" />
