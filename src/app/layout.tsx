@@ -3,7 +3,6 @@ import type { Metadata, Viewport } from 'next';
 import { Providers } from '@/components/providers';
 import { Header } from '@/components/layout/header';
 import { PendingAnnouncementModal } from '@/components/announcements/pending-announcement-modal';
-import { ServiceWorkerRegistrar } from '@/components/service-worker-registrar';
 
 import './globals.css';
 
@@ -63,9 +62,6 @@ export default function RootLayout({
     <html lang="en" className="h-full">
       <body className="h-full font-body antialiased overflow-x-hidden bg-background">
         <Providers>
-          {/* ✅ CLIENT-ONLY SERVICE WORKER REGISTRATION */}
-          <ServiceWorkerRegistrar />
-
           <PendingAnnouncementModal />
 
           <div className="flex min-h-screen flex-col">

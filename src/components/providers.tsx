@@ -9,7 +9,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <AuthProvider>
       <UserProfileProvider>
-        {/* ✅ MUST live inside a client component */}
+        {/* ✅ SINGLE, CORRECT SERVICE WORKER REGISTRATION */}
         <ServiceWorkerRegistrar />
 
         {children}

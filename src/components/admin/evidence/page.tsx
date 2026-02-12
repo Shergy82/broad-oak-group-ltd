@@ -137,9 +137,10 @@ function EvidenceReportGenerator({ project, files, onGenerated }: EvidenceReport
       doc.addPage();
       finalY = pageMargin;
       try {
-        const imageUrl = `https://images.weserv.nl/?url=${encodeURIComponent(photo.url)}`;
-        const response = await fetch(imageUrl);
-        const blob = await response.blob();
+        const response = await fetch(
+            `/api/file?path=${encodeURIComponent(photo.fullPath)}`
+          );
+          const blob = await response.blob();          
         const reader = new FileReader();
         const dataUrl: string = await new Promise((resolve, reject) => {
           reader.onload = () => resolve(reader.result as string);
@@ -445,12 +446,10 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                                         <div className="p-1">
                                             <Card>
                                                 <CardContent className="flex aspect-video items-center justify-center p-0 relative overflow-hidden rounded-lg">
-                                                    <Image
-                                                        src={`https://images.weserv.nl/?url=${encodeURIComponent(photo.url)}`}
-                                                        alt={photo.name}
-                                                        fill
-                                                        className="object-contain"
-                                                    />
+                                                <Image
+  src={`/api/file?path=${encodeURIComponent(photo.fullPath)}`}
+  ...
+/>
                                                 </CardContent>
                                                  <CardFooter className="flex-col items-start text-sm text-muted-foreground p-3">
                                                     <p><strong>File:</strong> {photo.name}</p>

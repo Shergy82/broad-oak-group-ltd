@@ -1,9 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { httpsCallable } from 'firebase/functions';
+
+import { functions } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
-import { functions, httpsCallable } from '@/lib/firebase';
+
 import type {
   PushSubscriptionPayload,
   VapidKeyResponse,
@@ -18,7 +21,7 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
   const rawData = atob(base64);
-  return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+  return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
 }
 
 function endpointToId(endpoint: string) {
@@ -33,6 +36,10 @@ function fmtCallableError(err: any): string {
   return err?.message || String(err);
 }
 
+/* =========================
+   Callable types
+   ========================= */
+
 type SetNotificationStatusRequest = {
   status: 'subscribed' | 'unsubscribed';
   uid: string;
@@ -40,6 +47,20 @@ type SetNotificationStatusRequest = {
   subscription?: PushSubscriptionPayload;
   endpoint?: string;
 };
+
+/* =========================
+   Callables (SINGLETONS)
+   ========================= */
+
+const getVapidPublicKeyFn = httpsCallable<unknown, VapidKeyResponse>(
+  functions,
+  'getVapidPublicKey'
+);
+
+const setNotificationStatusFn = httpsCallable<
+  SetNotificationStatusRequest,
+  GenericResponse
+>(functions, 'setNotificationStatus');
 
 /* =========================
    Hook
@@ -64,6 +85,10 @@ export function usePushNotifications() {
     );
   }, []);
 
+  /* =========================
+     Local state sync
+     ========================= */
+
   const refreshLocalSubscriptionState = useCallback(async () => {
     try {
       const reg = await navigator.serviceWorker.ready;
@@ -74,25 +99,30 @@ export function usePushNotifications() {
     }
   }, []);
 
+  /* =========================
+     Permission + state init
+     ========================= */
+
   useEffect(() => {
     if (!isSupported) {
       setPermission('unsupported');
       return;
     }
+
     setPermission(Notification.permission);
     void refreshLocalSubscriptionState();
   }, [isSupported, refreshLocalSubscriptionState]);
 
+  /* =========================
+     Load VAPID key
+     ========================= */
+
   useEffect(() => {
-    if (!isSupported || !functions) return;
+    if (!isSupported) return;
 
     const loadKey = async () => {
       try {
-        const fn = httpsCallable<unknown, VapidKeyResponse>(
-          functions,
-          'getVapidPublicKey'
-        );
-        const res = await fn();
+        const res = await getVapidPublicKeyFn();
         setVapidKey(res.data.publicKey);
       } catch {
         toast({
@@ -104,14 +134,14 @@ export function usePushNotifications() {
     };
 
     void loadKey();
-  }, [isSupported, functions, toast]);
+  }, [isSupported, toast]);
 
   /* =========================
-     Subscribe (FIXED)
+     Subscribe
      ========================= */
 
   const subscribe = useCallback(async () => {
-    if (!isSupported || !user || !vapidKey || !functions) {
+    if (!isSupported || !user || !vapidKey) {
       toast({
         title: 'Cannot Subscribe',
         description: 'Required services are not ready.',
@@ -120,40 +150,32 @@ export function usePushNotifications() {
       return;
     }
 
-    // HARD RESET (prevents permanent spinner)
-    setIsSubscribing(false);
     setIsSubscribing(true);
 
     try {
       let perm = Notification.permission;
 
-// iOS / PWA SAFE: only request if still default
-if (perm === 'default') {
-  try {
-    perm = await Notification.requestPermission();
-  } catch {
-    perm = Notification.permission;
-  }
-}
+      if (perm === 'default') {
+        try {
+          perm = await Notification.requestPermission();
+        } catch {
+          perm = Notification.permission;
+        }
+      }
 
-setPermission(perm);
+      setPermission(perm);
 
-if (perm !== 'granted') {
-  toast({
-    title: 'Permission Required',
-    description: 'Please enable notifications in browser settings.',
-    variant: 'destructive',
-  });
-  setIsSubscribing(false);
-  return;
-}
+      if (perm !== 'granted') {
+        toast({
+          title: 'Permission Required',
+          description: 'Please enable notifications in browser settings.',
+          variant: 'destructive',
+        });
+        return;
+      }
 
-const reg = await Promise.race([
-  navigator.serviceWorker.ready,
-  new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('Service worker ready timeout')), 3000)
-  ),
-]);
+      const reg = await navigator.serviceWorker.ready;
+
       const existing = await reg.pushManager.getSubscription();
 
       const subscription =
@@ -165,12 +187,7 @@ const reg = await Promise.race([
 
       const subId = `${user.uid}_${endpointToId(subscription.endpoint)}`;
 
-      const setStatus = httpsCallable<
-        SetNotificationStatusRequest,
-        GenericResponse
-      >(functions, 'setNotificationStatus');
-
-      await setStatus({
+      await setNotificationStatusFn({
         status: 'subscribed',
         uid: user.uid,
         subId,
@@ -193,14 +210,20 @@ const reg = await Promise.race([
     } finally {
       setIsSubscribing(false);
     }
-  }, [isSupported, user, vapidKey, functions, toast, refreshLocalSubscriptionState]);
+  }, [
+    isSupported,
+    user,
+    vapidKey,
+    toast,
+    refreshLocalSubscriptionState,
+  ]);
 
   /* =========================
      Unsubscribe
      ========================= */
 
   const unsubscribe = useCallback(async () => {
-    if (!isSupported || !user || !functions) return;
+    if (!isSupported || !user) return;
 
     setIsSubscribing(true);
 
@@ -218,12 +241,7 @@ const reg = await Promise.race([
 
       const subId = `${user.uid}_${endpointToId(endpoint)}`;
 
-      const setStatus = httpsCallable<
-        SetNotificationStatusRequest,
-        GenericResponse
-      >(functions, 'setNotificationStatus');
-
-      await setStatus({
+      await setNotificationStatusFn({
         status: 'unsubscribed',
         uid: user.uid,
         subId,
@@ -246,7 +264,11 @@ const reg = await Promise.race([
     } finally {
       setIsSubscribing(false);
     }
-  }, [isSupported, user, functions, toast, refreshLocalSubscriptionState]);
+  }, [isSupported, user, toast, refreshLocalSubscriptionState]);
+
+  /* =========================
+     Public API
+     ========================= */
 
   return {
     isSupported,
