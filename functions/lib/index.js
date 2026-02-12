@@ -33,11 +33,12 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.serveFile = exports.getNotificationStatus = exports.onShiftWrite = exports.deleteAllShifts = exports.sendTestNotificationHttp = exports.setNotificationStatus = exports.getVapidPublicKey = void 0;
+exports.serveFile = exports.cleanupDeletedProjects = exports.getNotificationStatus = exports.onShiftWrite = exports.deleteAllShifts = exports.sendTestNotificationHttp = exports.setNotificationStatus = exports.getVapidPublicKey = void 0;
 const admin = __importStar(require("firebase-admin"));
 const logger = __importStar(require("firebase-functions/logger"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
+const scheduler_1 = require("firebase-functions/v2/scheduler");
 const webPush = __importStar(require("web-push"));
 const crypto = __importStar(require("crypto"));
 if (admin.apps.length === 0)
@@ -422,6 +423,51 @@ exports.getNotificationStatus = (0, https_1.onCall)({ region: "europe-west2" }, 
         .limit(1)
         .get();
     return { subscribed: !snap.empty };
+});
+exports.cleanupDeletedProjects = (0, scheduler_1.onSchedule)({
+    schedule: "every 24 hours",
+    region: "europe-west2",
+    timeoutSeconds: 540,
+    memory: "512MiB",
+}, async (event) => {
+    logger.log("Starting cleanup for projects scheduled for deletion.");
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const sevenDaysAgoTimestamp = admin.firestore.Timestamp.fromDate(sevenDaysAgo);
+    const projectsToDeleteQuery = db
+        .collection("projects")
+        .where("deletionScheduledAt", "<=", sevenDaysAgoTimestamp);
+    const snapshot = await projectsToDeleteQuery.get();
+    if (snapshot.empty) {
+        logger.log("No projects found for cleanup.");
+        return; // IMPORTANT: no return null
+    }
+    const bucket = admin.storage().bucket();
+    const deletionPromises = snapshot.docs.map(async (projectDoc) => {
+        const projectId = projectDoc.id;
+        logger.log(`Processing project for deletion: ${projectId}`);
+        const prefix = `project_files/${projectId}/`;
+        try {
+            await bucket.deleteFiles({ prefix });
+            logger.log(`Storage files deleted for project ${projectId}`);
+        }
+        catch (e) {
+            if (e.code !== 404) {
+                logger.error(`Error deleting storage files for project ${projectId}`, e);
+            }
+        }
+        const filesSubcollectionRef = projectDoc.ref.collection("files");
+        const filesSnapshot = await filesSubcollectionRef.limit(500).get();
+        if (!filesSnapshot.empty) {
+            const batch = db.batch();
+            filesSnapshot.docs.forEach((fileDoc) => batch.delete(fileDoc.ref));
+            await batch.commit();
+        }
+        await projectDoc.ref.delete();
+        logger.log(`Project document ${projectId} deleted successfully.`);
+    });
+    await Promise.all(deletionPromises);
+    logger.log(`Cleanup finished. Processed ${snapshot.size} project(s).`);
 });
 var files_1 = require("./files");
 Object.defineProperty(exports, "serveFile", { enumerable: true, get: function () { return files_1.serveFile; } });

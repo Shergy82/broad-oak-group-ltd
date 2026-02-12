@@ -51,48 +51,54 @@ async function sendWebPushToUser(uid: string, payloadObj: any) {
   }
 
   const payload = JSON.stringify(payloadObj);
+  const subscriptions = snap.docs.map((d) => ({
+    id: d.id,
+    ref: d.ref,
+    ...d.data(),
+  }));
+
+  const results = await Promise.allSettled(
+    subscriptions.map(async (subDoc) => {
+      const subData = (
+        subDoc?.subscription && subDoc?.subscription?.endpoint
+          ? subDoc.subscription
+          : { endpoint: subDoc.endpoint, keys: subDoc.keys }
+      ) as webPush.PushSubscription;
+
+      if (!subData?.endpoint || !subData?.keys?.p256dh || !subData?.keys?.auth) {
+        // This is an invalid subscription object, we can't even attempt to send.
+        throw new Error(`Invalid subscription object for doc ${subDoc.id}`);
+      }
+
+      return webPush.sendNotification(subData, payload);
+    })
+  );
 
   let sent = 0;
   let removed = 0;
 
-  for (const docSnap of snap.docs) {
-    const data = docSnap.data() as any;
-
-    // Support both shapes:
-    // - { endpoint, keys }
-    // - { subscription: { endpoint, keys } }
-    const sub: webPush.PushSubscription =
-      data?.subscription && data?.subscription?.endpoint
-        ? data.subscription
-        : {
-            endpoint: data.endpoint,
-            keys: data.keys,
-          };
-
-    if (!sub?.endpoint || !sub?.keys?.p256dh || !sub?.keys?.auth) {
-      logger.warn("Invalid subscription doc; deleting", { uid, id: docSnap.id });
-      await docSnap.ref.delete();
-      removed++;
-      continue;
-    }
-
-    try {
-      await webPush.sendNotification(sub, payload);
+  for (const [i, result] of results.entries()) {
+    if (result.status === "fulfilled") {
       sent++;
-    } catch (err: any) {
-      const code = err?.statusCode;
+    } else {
+      // status is 'rejected'
+      const error = result.reason as any;
+      const subId = subscriptions[i].id;
+      logger.error("Push send FAILED", { uid, subId, msg: error.message });
 
-      if (code === 404 || code === 410) {
-        await docSnap.ref.delete();
+      // Check if the subscription is expired/invalid and delete it
+      if (error?.statusCode === 404 || error?.statusCode === 410) {
+        logger.log(`Stale subscription found (subId: ${subId}). Deleting.`);
+        await subscriptions[i].ref.delete().catch((e) => logger.error("Failed to delete stale subscription", e));
         removed++;
-      } else {
-        logger.error("Push failed", err);
       }
     }
   }
 
+  logger.info("Push send complete", { uid, sent, removed, total: snap.size });
   return { sent, removed };
 }
+
 
 function londonMidnightUtcMs(now: Date = new Date()): number {
   const parts = new Intl.DateTimeFormat("en-GB", {
@@ -460,65 +466,65 @@ export const getNotificationStatus = onCall({ region: "europe-west2" }, async (r
   return { subscribed: !snap.empty };
 });
 
-export const cleanupDeletedProjects = onSchedule({
+export const cleanupDeletedProjects = onSchedule(
+  {
     schedule: "every 24 hours",
     region: "europe-west2",
     timeoutSeconds: 540,
     memory: "512MiB",
-}, async () => {
+  },
+  async (event) => {
     logger.log("Starting cleanup for projects scheduled for deletion.");
-    
+
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     const sevenDaysAgoTimestamp = admin.firestore.Timestamp.fromDate(sevenDaysAgo);
 
-    const projectsToDeleteQuery = db.collection('projects')
-        .where('deletionScheduledAt', '<=', sevenDaysAgoTimestamp);
+    const projectsToDeleteQuery = db
+      .collection("projects")
+      .where("deletionScheduledAt", "<=", sevenDaysAgoTimestamp);
 
     const snapshot = await projectsToDeleteQuery.get();
 
     if (snapshot.empty) {
-        logger.log("No projects found for cleanup.");
-        return null;
+      logger.log("No projects found for cleanup.");
+      return; // IMPORTANT: no return null
     }
 
     const bucket = admin.storage().bucket();
 
     const deletionPromises = snapshot.docs.map(async (projectDoc) => {
-        const projectId = projectDoc.id;
-        logger.log(`Processing project for deletion: ${projectId}`);
-        
-        // 1. Delete files from Cloud Storage
-        const prefix = `project_files/${projectId}/`;
-        try {
-            await bucket.deleteFiles({ prefix });
-            logger.log(`Storage files deleted for project ${projectId} with prefix: ${prefix}`);
-        } catch (e: any) {
-            if (e.code === 404) {
-                logger.log(`No storage files to delete for project ${projectId} with prefix: ${prefix}`);
-            } else {
-                logger.error(`Error deleting storage files for project ${projectId}`, e);
-            }
+      const projectId = projectDoc.id;
+      logger.log(`Processing project for deletion: ${projectId}`);
+
+      const prefix = `project_files/${projectId}/`;
+
+      try {
+        await bucket.deleteFiles({ prefix });
+        logger.log(`Storage files deleted for project ${projectId}`);
+      } catch (e: any) {
+        if (e.code !== 404) {
+          logger.error(`Error deleting storage files for project ${projectId}`, e);
         }
-        
-        // 2. Delete 'files' subcollection in Firestore
-        const filesSubcollectionRef = projectDoc.ref.collection('files');
-        const filesSnapshot = await filesSubcollectionRef.limit(500).get();
-        if (!filesSnapshot.empty) {
-            const batch = db.batch();
-            filesSnapshot.docs.forEach(fileDoc => batch.delete(fileDoc.ref));
-            await batch.commit();
-            logger.log(`'files' subcollection batch deleted for project ${projectId}`);
-        }
-        
-        // 3. Delete the project document itself
-        await projectDoc.ref.delete();
-        logger.log(`Project document ${projectId} deleted successfully.`);
+      }
+
+      const filesSubcollectionRef = projectDoc.ref.collection("files");
+      const filesSnapshot = await filesSubcollectionRef.limit(500).get();
+
+      if (!filesSnapshot.empty) {
+        const batch = db.batch();
+        filesSnapshot.docs.forEach((fileDoc) => batch.delete(fileDoc.ref));
+        await batch.commit();
+      }
+
+      await projectDoc.ref.delete();
+      logger.log(`Project document ${projectId} deleted successfully.`);
     });
 
     await Promise.all(deletionPromises);
-    logger.log(`Cleanup finished. Processed ${snapshot.size} project(s) for deletion.`);
-    return null;
-});
+
+    logger.log(`Cleanup finished. Processed ${snapshot.size} project(s).`);
+  }
+);
 
 export { serveFile } from "./files";
