@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useRouter } from 'next/navigation';
@@ -60,15 +61,17 @@ export function Header() {
   };
 
   return (
-    <header className="sticky top-0 flex h-16 items-center justify-between gap-4 border-b bg-background/80 backdrop-blur-sm px-4 md:px-6 z-50">
-      <div className="flex items-center gap-4">
+    <header className="sticky top-0 flex items-start justify-between gap-4 border-b bg-background/80 backdrop-blur-sm px-4 md:px-6 z-50 py-3">
+      <div className="flex flex-col items-start">
         <Logo />
         {isPrivilegedUser && userProfile && (
-          <GlobalShiftImporter userProfile={userProfile} />
+          <div className="pl-9 pt-1">
+            <GlobalShiftImporter userProfile={userProfile} />
+          </div>
         )}
       </div>
 
-      <div className="flex items-center gap-2 md:gap-4">
+      <div className="flex items-center gap-2 md:gap-4 pt-1">
         {user && (
           <>
             <NotificationButton />
