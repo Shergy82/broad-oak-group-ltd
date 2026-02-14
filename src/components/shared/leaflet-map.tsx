@@ -28,29 +28,45 @@ const customIcon = new Icon({
 const LeafletMap = ({ locations }: LeafletMapProps) => {
     const [positions, setPositions] = useState<Position[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         const geocodeAddresses = async () => {
             setLoading(true);
+            setError(null);
             const newPositions: Position[] = [];
+            const apiKey = process.env.NEXT_PUBLIC_MAPS_API_KEY;
+
+            if (!apiKey) {
+                setError("Google Maps API key is missing. Please check your environment variables.");
+                setLoading(false);
+                return;
+            }
+
             for (const location of locations) {
                 if (!location.address) continue;
                 try {
                     const query = `${location.address}, ${location.council || ''}`;
-                    const response = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`);
+                    const response = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${apiKey}`);
+                    
                     if (!response.ok) {
                         console.error(`Geocoding failed for ${location.address} with status: ${response.status}`);
                         continue;
                     }
                     const data = await response.json();
-                    if (data && data.length > 0) {
+                    if (data.status === 'OK' && data.results && data.results.length > 0) {
+                        const { lat, lng } = data.results[0].geometry.location;
                         newPositions.push({
-                            lat: parseFloat(data[0].lat),
-                            lng: parseFloat(data[0].lon),
+                            lat,
+                            lng,
                             address: location.address,
                         });
+                    } else {
+                        console.warn(`Geocoding failed for ${location.address}: ${data.status} - ${data.error_message || ''}`);
+                        if (data.status === 'REQUEST_DENIED') {
+                            setError('Geocoding API is not enabled. Please enable it in the Google Cloud Console.');
+                        }
                     }
-                    await new Promise(resolve => setTimeout(resolve, 1000));
                 } catch (error) {
                     console.error('Geocoding error:', error);
                 }
@@ -76,6 +92,15 @@ const LeafletMap = ({ locations }: LeafletMapProps) => {
             </div>
         );
     }
+    
+    if (error) {
+        return (
+             <div className="h-full w-full flex flex-col items-center justify-center bg-destructive/10 text-destructive p-4 rounded-lg">
+                <p className="font-semibold">Map Error</p>
+                <p className="text-sm text-center">{error}</p>
+            </div>
+        )
+    }
 
     if (locations.length > 0 && positions.length === 0 && !loading) {
         return (
@@ -90,7 +115,7 @@ const LeafletMap = ({ locations }: LeafletMapProps) => {
             center={positions.length > 0 ? [positions[0].lat, positions[0].lng] : defaultCenter} 
             zoom={locations.length > 1 ? 8 : 12} 
             style={{ height: '100%', width: '100%', borderRadius: 'inherit' }}
-            scrollWheelZoom={true} // Enable scroll wheel zoom without Ctrl
+            scrollWheelZoom={true}
         >
             <TileLayer
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
