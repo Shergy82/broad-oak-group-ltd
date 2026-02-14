@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
@@ -7,7 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { askAIAssistant } from '@/ai/flows/general-assistant';
 import { Spinner } from '@/components/shared/spinner';
 import { Sparkles } from 'lucide-react';
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, query as firestoreQuery, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Project } from '@/types';
 
@@ -19,7 +20,7 @@ export default function StaffAIPage() {
 
   useEffect(() => {
     if (!db) return;
-    const projectsQuery = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
+    const projectsQuery = firestoreQuery(collection(db, 'projects'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(projectsQuery, (snapshot) => {
       const activeProjects = snapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() } as Project))
