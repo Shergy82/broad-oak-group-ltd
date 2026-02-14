@@ -1,46 +1,54 @@
-'use server';
-/**
- * @fileOverview A general purpose AI assistant for tradespeople.
- */
+"use server";
 
-import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import { ai } from "@/ai/genkit";
+import { z } from "genkit";
 
-export const AskAIAssistantInputSchema = z.object({
-  query: z.string().describe("The user's question or prompt."),
+/* =========================
+ *  Schema
+ * ========================= */
+
+export const OptimizeHeadlineWithAIInputSchema = z.object({
+  headline: z.string().min(1),
 });
-export type AskAIAssistantInput = z.infer<typeof AskAIAssistantInputSchema>;
+export type OptimizeHeadlineWithAIInput = z.infer<
+  typeof OptimizeHeadlineWithAIInputSchema
+>;
 
-export const AskAIAssistantOutputSchema = z.object({
-  response: z.string().describe('The AI-generated answer.'),
-});
-export type AskAIAssistantOutput = z.infer<typeof AskAIAssistantOutputSchema>;
+/* =========================
+ *  Exported Function (REQUIRED)
+ * ========================= */
 
-export async function askAIAssistant(
-  input: AskAIAssistantInput
-): Promise<AskAIAssistantOutput> {
-  
-  const llmResponse = await ai.generate({
-    prompt: `You are a helpful AI assistant for tradespeople (plumbers, electricians, etc.) working for a company called Broad Oak Group. Your goal is to provide clear, concise, and practical help.
+export async function optimizeHeadlineWithAI(
+  input: OptimizeHeadlineWithAIInput
+): Promise<string[]> {
+  const parsed = OptimizeHeadlineWithAIInputSchema.parse(input);
 
-    User's query: ${input.query}
-
-    IMPORTANT:
-    - If you are asked for real-time, location-specific information (like "what's the nearest plumbing merchants"), you MUST state that you cannot access live location data. You can, however, provide a general list of popular UK-based suppliers for that trade.
-    - Keep your answers direct and to the point.
-    - If asked for instructions (e.g., "how to change a tap"), provide a simple, step-by-step guide.`,
-    model: 'googleai/gemini-1.5-flash-latest',
+  const result = await ai.generate({
+    model: "googleai/gemini-1.5-flash-latest",
+    prompt: [
+      "You are a professional copywriting assistant.",
+      "Improve the following headline and return 5 concise alternatives.",
+      "",
+      `Headline: ${parsed.headline}`,
+      "",
+      "Rules:",
+      "- Keep suggestions short",
+      "- Professional tone",
+      "- No emojis",
+      "- Return each suggestion on a new line",
+    ].join("\n"),
     config: {
-      temperature: 0.5,
+      temperature: 0.6,
     },
   });
 
-  const responseText = llmResponse.text;
-  if (responseText === undefined) {
-      throw new Error('Received an empty response from the AI model.');
+  if (!result.text) {
+    throw new Error("AI returned no response");
   }
 
-  return {
-    response: responseText,
-  };
+  return result.text
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 5);
 }
