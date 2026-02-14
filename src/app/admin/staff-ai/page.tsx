@@ -49,8 +49,8 @@ export default function StaffAIPage() {
 
   const mapUrl = useMemo(() => {
     if (locations.length > 0) {
-      // Use the first location as the focal point for the map
-      return `https://maps.google.com/maps?q=${encodeURIComponent(locations[0].address)}&t=&z=14&ie=UTF8&iwloc=&output=embed`;
+      const query = locations.map(loc => `(${loc.address})`).join(' OR ');
+      return `https://maps.google.com/maps?q=${encodeURIComponent(query)}&t=&z=11&ie=UTF8&iwloc=&output=embed`;
     }
     // Default view when no locations are loaded
     return `https://maps.google.com/maps?q=${encodeURIComponent('Broad Oak Group')}&t=&z=14&ie=UTF8&iwloc=&output=embed`;
