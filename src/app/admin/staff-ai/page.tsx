@@ -51,21 +51,15 @@ export default function StaffAIPage() {
   }
 
   const mapUrl = useMemo(() => {
-    const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
-    if (!apiKey) {
-        console.error("Google Maps API key is missing. The map may not display correctly.");
-        return `https://maps.google.com/maps?q=${encodeURIComponent('Broad Oak Group')}&t=&z=14&ie=UTF8&iwloc=&output=embed`;
-    }
-
-    if (projects.length === 0) {
-      return `https://www.google.com/maps/embed/v1/place?key=${apiKey}&q=${encodeURIComponent('Broad Oak Group, Cheadle, UK')}`;
-    }
+    // The error "Google Maps Platform rejected your request" means the "Maps Embed API" 
+    // is not enabled on your API project. You need to enable it in the Google Cloud Console
+    // to see multiple project pins.
     
-    // Using the search mode of the embed API and more specific addresses to improve pin accuracy.
-    const queryStr = projects.map(p => `${p.address}, ${p.council || ''}`).join(' | ');
-
-    return `https://www.google.com/maps/embed/v1/search?key=${apiKey}&q=${encodeURIComponent(queryStr)}`;
-  }, [projects]);
+    // As a temporary fix to prevent the error, the map will now show the main office location.
+    // To enable the API and see all project pins, visit this URL and enable the API for your project:
+    // https://console.cloud.google.com/apis/library/maps-embed-backend.googleapis.com
+    return `https://maps.google.com/maps?q=${encodeURIComponent('Broad Oak Group, Cheadle, UK')}&t=&z=14&ie=UTF8&iwloc=&output=embed`;
+  }, []);
 
   return (
     <Card>
