@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useRouter } from 'next/navigation';
@@ -24,6 +23,7 @@ import {
   Building2,
   ListChecks,
   FileArchive,
+  BotMessageSquare,
 } from 'lucide-react';
 import { NotificationButton } from '../shared/notification-button';
 import {
@@ -95,6 +95,10 @@ export function Header() {
                 <DropdownMenuItem onClick={() => router.push('/dashboard')} className="cursor-pointer">
                   <Calendar className="mr-2" />
                   <span>Dashboard</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => router.push('/ai')} className="cursor-pointer">
+                  <BotMessageSquare className="mr-2" />
+                  <span>AI Assistant</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => router.push('/site-schedule')} className="cursor-pointer">
                   <Building2 className="mr-2" />
