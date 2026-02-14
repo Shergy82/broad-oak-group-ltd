@@ -356,7 +356,14 @@ export function UserManagement() {
                     <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
                 </Avatar>
                 <h3 className="text-xl font-semibold">{user.name}</h3>
-                <p className="text-muted-foreground capitalize text-sm">{user.trade || user.role}</p>
+                {user.phoneNumber ? (
+                  <a href={`tel:${user.phoneNumber}`} className="text-sm text-muted-foreground hover:underline">
+                    {user.phoneNumber}
+                  </a>
+                ) : (
+                  <p className="text-sm text-muted-foreground italic">No phone number</p>
+                )}
+                <p className="text-muted-foreground capitalize text-sm pt-1">{user.trade || user.role}</p>
             </CardHeader>
             <CardContent className="p-6 flex-grow flex flex-col items-center space-y-4">
                 <div className="space-y-1.5 text-left w-full flex-grow">
