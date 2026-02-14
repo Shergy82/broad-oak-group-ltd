@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { useState, useMemo } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { askAIAssistant } from '@/ai/flows/general-assistant';
@@ -47,15 +47,24 @@ export default function StaffAIPage() {
     setQuery(presetQuery);
   }
 
+  const mapUrl = useMemo(() => {
+    if (locations.length > 0) {
+      // Use the first location as the focal point for the map
+      return `https://maps.google.com/maps?q=${encodeURIComponent(locations[0].address)}&t=&z=14&ie=UTF8&iwloc=&output=embed`;
+    }
+    // Default view when no locations are loaded
+    return `https://maps.google.com/maps?q=London,UK&t=&z=10&ie=UTF8&iwloc=&output=embed`;
+  }, [locations]);
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>Staff AI Assistant</CardTitle>
         <CardDescription>
-          Ask questions or get help with tasks. The AI is tailored to assist tradespeople at Broad Oak Group.
+          Ask questions or get help with tasks. The map below shows work locations when available.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-6">
         <form onSubmit={handleSubmit} className="space-y-4">
           <Textarea
             placeholder="e.g., How do I correctly install a compression fitting on a copper pipe?"
@@ -88,33 +97,21 @@ export default function StaffAIPage() {
           </div>
         )}
 
-        {locations.length > 0 && !isLoading && (
-            <div className="pt-4 space-y-4">
-                 <h3 className="font-semibold mb-2">Today's Work Locations:</h3>
-                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {locations.map((loc, index) => (
-                        <Card key={index}>
-                            <CardHeader>
-                                <CardTitle className="text-base">{loc.userName}</CardTitle>
-                                <CardDescription>{loc.task}</CardDescription>
-                            </CardHeader>
-                            <CardContent className="text-sm">
-                                <p>{loc.address}</p>
-                                <p className="capitalize text-muted-foreground">{loc.type.replace('-', ' ')}</p>
-                            </CardContent>
-                            <CardFooter>
-                                <Button asChild variant="link" className="p-0 h-auto">
-                                    <a href={`https://www.google.com/maps?q=${encodeURIComponent(loc.address)}`} target="_blank" rel="noopener noreferrer">
-                                        View on Map <MapPin className="ml-2 h-4 w-4" />
-                                    </a>
-                                </Button>
-                            </CardFooter>
-                        </Card>
-                    ))}
-                 </div>
-            </div>
-        )}
-
+        <div>
+             <h3 className="font-semibold mb-2">Work Locations Map</h3>
+             <div className="aspect-video w-full border rounded-lg overflow-hidden">
+                <iframe
+                    key={mapUrl} // Re-render iframe when URL changes
+                    width="100%"
+                    height="100%"
+                    style={{ border: 0 }}
+                    loading="lazy"
+                    allowFullScreen
+                    referrerPolicy="no-referrer-when-downgrade"
+                    src={mapUrl}
+                ></iframe>
+             </div>
+        </div>
       </CardContent>
     </Card>
   );
