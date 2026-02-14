@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -8,7 +9,7 @@ import { db, storage } from '@/lib/firebase';
 import type { Project, EvidenceChecklist, ProjectFile, UserProfile } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Building2, Search, Pencil, CheckCircle, XCircle, Download, Trash2, RotateCw, Camera } from 'lucide-react';
+import { Building2, Search, Pencil, CheckCircle, XCircle, Download, Trash2, RotateCw, Camera, Expand } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { EvidenceChecklistManager } from '@/components/admin/evidence-checklist-manager';
@@ -258,6 +259,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
     const { toast } = useToast();
     const [viewerOpen, setViewerOpen] = useState(false);
     const [selectedItem, setSelectedItem] = useState<{ text: string; photos: ProjectFile[] } | null>(null);
+    const [enlargedPhoto, setEnlargedPhoto] = useState<ProjectFile | null>(null);
 
     const [isCameraOpen, setIsCameraOpen] = useState(false);
     const [selectedCameraItem, setSelectedCameraItem] = useState<{ text: string, count: number } | null>(null);
@@ -520,13 +522,19 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                                     <CarouselItem key={photo.id}>
                                         <div className="p-1">
                                             <Card>
-                                                <CardContent className="flex aspect-video items-center justify-center p-0 relative overflow-hidden rounded-lg">
+                                                <CardContent 
+                                                    className="flex aspect-video items-center justify-center p-0 relative overflow-hidden rounded-lg cursor-pointer group"
+                                                    onClick={() => setEnlargedPhoto(photo)}
+                                                >
                                                     <NextImage
                                                         src={`https://images.weserv.nl/?url=${encodeURIComponent(photo.url)}`}
                                                         alt={photo.name}
                                                         fill
-                                                        className="object-contain"
+                                                        className="object-contain transition-transform duration-300 group-hover:scale-105"
                                                     />
+                                                    <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                                                        <Expand className="h-10 w-10 text-white" />
+                                                    </div>
                                                 </CardContent>
                                                  <CardFooter className="flex-col items-start text-sm text-muted-foreground p-3">
                                                     <p><strong>File:</strong> {photo.name}</p>
@@ -541,6 +549,19 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                             <CarouselPrevious />
                             <CarouselNext />
                         </Carousel>
+                    </DialogContent>
+                </Dialog>
+            )}
+
+            {enlargedPhoto && (
+                <Dialog open={!!enlargedPhoto} onOpenChange={() => setEnlargedPhoto(null)}>
+                    <DialogContent className="max-w-[90vw] max-h-[90vh] h-auto w-auto p-2 bg-transparent border-none shadow-none">
+                         <NextImage
+                            src={`https://images.weserv.nl/?url=${encodeURIComponent(enlargedPhoto.url)}`}
+                            alt={enlargedPhoto.name}
+                            fill
+                            className="object-contain"
+                        />
                     </DialogContent>
                 </Dialog>
             )}
