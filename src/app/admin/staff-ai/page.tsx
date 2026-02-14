@@ -53,7 +53,7 @@ export default function StaffAIPage() {
       return `https://maps.google.com/maps?q=${encodeURIComponent(locations[0].address)}&t=&z=14&ie=UTF8&iwloc=&output=embed`;
     }
     // Default view when no locations are loaded
-    return `https://maps.google.com/maps?q=st10%202el&t=&z=14&ie=UTF8&iwloc=&output=embed`;
+    return `https://maps.google.com/maps?q=${encodeURIComponent('Broad Oak Group')}&t=&z=14&ie=UTF8&iwloc=&output=embed`;
   }, [locations]);
 
   return (
