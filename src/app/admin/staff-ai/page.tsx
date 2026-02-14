@@ -1,40 +1,17 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import type { Project } from '@/types';
+import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { askAIAssistant } from '@/ai/flows/general-assistant';
 import { Textarea } from '@/components/ui/textarea';
 import { Spinner } from '@/components/shared/spinner';
 import { Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { DynamicMap } from '@/components/shared/dynamic-map';
 
 export default function StaffAIPage() {
   const [queryText, setQueryText] = useState('');
   const [response, setResponse] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [loadingProjects, setLoadingProjects] = useState(true);
-
-  useEffect(() => {
-    if (!db) return;
-    setLoadingProjects(true);
-    const projectsQuery = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(projectsQuery, (snapshot) => {
-      const activeProjects = snapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() } as Project))
-        .filter(p => !p.deletionScheduledAt);
-      setProjects(activeProjects);
-      setLoadingProjects(false);
-    }, (error) => {
-        console.error("Error fetching projects:", error);
-        setLoadingProjects(false);
-    });
-    return () => unsubscribe();
-  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,9 +37,9 @@ export default function StaffAIPage() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Staff AI Assistant & Project Locations</CardTitle>
+        <CardTitle>Staff AI Assistant</CardTitle>
         <CardDescription>
-          Ask questions or get help with tasks. A map of active project locations is provided below.
+          Ask questions or get help with tasks.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -97,19 +74,6 @@ export default function StaffAIPage() {
             </div>
           </div>
         )}
-
-        <div>
-             <h3 className="font-semibold mb-2">Project Locations</h3>
-             <div className="h-[500px] w-full rounded-lg border bg-muted">
-                {loadingProjects ? (
-                    <div className="flex items-center justify-center h-full">
-                        <Spinner />
-                    </div>
-                ) : (
-                    <DynamicMap locations={projects} />
-                )}
-             </div>
-        </div>
       </CardContent>
     </Card>
   );
