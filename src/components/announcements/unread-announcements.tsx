@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -73,7 +72,7 @@ export function UnreadAnnouncements({ announcements, user, onClose }: UnreadAnno
 
   return (
     <Dialog open={isOpen} onOpenChange={handleDialogClose}>
-      <DialogContent className="max-w-2xl" onInteractOutside={(e) => e.preventDefault()}>
+      <DialogContent className="max-w-lg" onInteractOutside={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle>New Announcements</DialogTitle>
           <DialogDescription>

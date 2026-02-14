@@ -39,7 +39,7 @@ export function PendingAnnouncementModal() {
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50" />
 
-      <div className="relative w-full max-w-2xl rounded-xl border bg-background p-6 shadow-lg mx-4 space-y-4">
+      <div className="relative w-full max-w-lg rounded-xl border bg-background p-6 shadow-lg mx-4 space-y-4">
         <div className="space-y-1">
           <div className="text-sm text-muted-foreground">
             New announcement requires acknowledgement
