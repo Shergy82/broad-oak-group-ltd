@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Spinner } from '@/components/shared/spinner';
 import { Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { StaffShiftMap } from '@/components/admin/StaffShiftMap';
 
 export default function StaffAIPage() {
   const [queryText, setQueryText] = useState('');
@@ -35,7 +36,7 @@ export default function StaffAIPage() {
 
   return (
     <div className="space-y-6">
-      {/* AI ASSISTANT */}
+      {/* STAFF AI ASSISTANT */}
       <Card>
         <CardHeader>
           <CardTitle>Staff AI Assistant</CardTitle>
@@ -43,6 +44,7 @@ export default function StaffAIPage() {
             Ask questions or get help with tasks.
           </CardDescription>
         </CardHeader>
+
         <CardContent className="space-y-6">
           <form onSubmit={handleSubmit} className="space-y-4">
             <Textarea
@@ -51,6 +53,7 @@ export default function StaffAIPage() {
               onChange={(e) => setQueryText(e.target.value)}
               rows={4}
             />
+
             <div className="flex flex-wrap gap-2">
               <Button type="submit" disabled={isLoading || !queryText.trim()}>
                 {isLoading ? (
@@ -61,6 +64,7 @@ export default function StaffAIPage() {
                   </>
                 )}
               </Button>
+
               <Button type="button" variant="outline" onClick={handlePresetQuery}>
                 Ask a preset question
               </Button>
@@ -75,12 +79,25 @@ export default function StaffAIPage() {
 
           {response && !isLoading && (
             <div className="pt-4">
-              <h3 className="mb-2 font-semibold">AI Response:</h3>
+              <h3 className="mb-2 font-semibold">AI Response</h3>
               <div className="rounded-md bg-muted/50 p-4 whitespace-pre-wrap">
                 {response}
               </div>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* TODAY'S SHIFTS MAP */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Today’s Shift Locations</CardTitle>
+          <CardDescription>
+            Live view of staff locations for today
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <StaffShiftMap />
         </CardContent>
       </Card>
     </div>
