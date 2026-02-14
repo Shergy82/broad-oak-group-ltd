@@ -1,25 +1,26 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { askAIAssistant } from '@/ai/flows/general-assistant';
-import { Spinner } from '@/components/shared/spinner';
-import { Sparkles, Map } from 'lucide-react';
-import { collection, onSnapshot, query as firestoreQuery, orderBy } from 'firebase/firestore';
+import { useEffect, useState, useMemo } from 'react';
+import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Project } from '@/types';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { askAIAssistant } from '@/ai/flows/general-assistant';
+import { Textarea } from '@/components/ui/textarea';
+import { Spinner } from '@/components/shared/spinner';
+import { Sparkles } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+
 
 export default function StaffAIPage() {
-  const [query, setQuery] = useState('');
+  const [queryText, setQueryText] = useState('');
   const [response, setResponse] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
 
   useEffect(() => {
     if (!db) return;
-    const projectsQuery = firestoreQuery(collection(db, 'projects'), orderBy('createdAt', 'desc'));
+    const projectsQuery = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(projectsQuery, (snapshot) => {
       const activeProjects = snapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() } as Project))
@@ -28,14 +29,22 @@ export default function StaffAIPage() {
     });
     return () => unsubscribe();
   }, []);
+  
+  const mapUrl = useMemo(() => {
+    if (projects.length === 0) {
+      return `https://www.google.com/maps/embed/v1/place?key=${process.env.NEXT_PUBLIC_MAPS_API_KEY}&q=Broad+Oak+Group,Cheadle`;
+    }
+    const locations = projects.map(p => encodeURIComponent(p.address)).join('|');
+    return `https://www.google.com/maps/embed/v1/search?key=${process.env.NEXT_PUBLIC_MAPS_API_KEY}&q=${locations}`;
+  }, [projects]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!query.trim()) return;
+    if (!queryText.trim()) return;
     setIsLoading(true);
     setResponse('');
     try {
-      const result = await askAIAssistant({ query });
+      const result = await askAIAssistant({ query: queryText });
       setResponse(result.response);
     } catch (error) {
       console.error('AI Assistant Error:', error);
@@ -47,18 +56,8 @@ export default function StaffAIPage() {
 
   const handlePresetQuery = () => {
     const presetQuery = "How do I change a tap?";
-    setQuery(presetQuery);
+    setQueryText(presetQuery);
   };
-
-  const interactiveMapUrl = useMemo(() => {
-    if (projects.length === 0) {
-      return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent('Broad Oak Group, Cheadle, UK')}`;
-    }
-    const destination = projects[0].address;
-    const waypoints = projects.slice(1).map(p => encodeURIComponent(p.address)).join('|');
-    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&waypoints=${waypoints}`;
-  }, [projects]);
-
 
   return (
     <Card>
@@ -72,12 +71,12 @@ export default function StaffAIPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <Textarea
             placeholder="e.g., How do I correctly install a compression fitting on a copper pipe?"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            value={queryText}
+            onChange={(e) => setQueryText(e.target.value)}
             rows={4}
           />
           <div className="flex flex-wrap gap-2">
-            <Button type="submit" disabled={isLoading || !query.trim()}>
+            <Button type="submit" disabled={isLoading || !queryText.trim()}>
               {isLoading ? <Spinner /> : <>Ask AI <Sparkles className="ml-2 h-4 w-4" /></>}
             </Button>
             <Button type="button" variant="outline" onClick={handlePresetQuery}>
@@ -109,16 +108,8 @@ export default function StaffAIPage() {
                     loading="lazy"
                     allowFullScreen
                     referrerPolicy="no-referrer-when-downgrade"
-                    src={`https://www.google.com/maps/embed/v1/place?key=${process.env.NEXT_PUBLIC_MAPS_API_KEY}&q=Broad+Oak+Group,Cheadle`}>
+                    src={mapUrl}>
                 </iframe>
-             </div>
-             <div className="text-right mt-2">
-                 <Button asChild variant="link">
-                    <a href={interactiveMapUrl} target="_blank" rel="noopener noreferrer">
-                        <Map className="mr-2 h-4 w-4" />
-                        View Interactive Map
-                    </a>
-                 </Button>
              </div>
         </div>
       </CardContent>
