@@ -30,51 +30,59 @@ export default function StaffAIPage() {
   };
 
   const handlePresetQuery = () => {
-    const presetQuery = "How do I change a tap?";
-    setQueryText(presetQuery);
+    setQueryText('How do I change a tap?');
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Staff AI Assistant</CardTitle>
-        <CardDescription>
-          Ask questions or get help with tasks.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <Textarea
-            placeholder="e.g., How do I correctly install a compression fitting on a copper pipe?"
-            value={queryText}
-            onChange={(e) => setQueryText(e.target.value)}
-            rows={4}
-          />
-          <div className="flex flex-wrap gap-2">
-            <Button type="submit" disabled={isLoading || !queryText.trim()}>
-              {isLoading ? <Spinner /> : <>Ask AI <Sparkles className="ml-2 h-4 w-4" /></>}
-            </Button>
-            <Button type="button" variant="outline" onClick={handlePresetQuery}>
+    <div className="space-y-6">
+      {/* AI ASSISTANT */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Staff AI Assistant</CardTitle>
+          <CardDescription>
+            Ask questions or get help with tasks.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <Textarea
+              placeholder="e.g., How do I correctly install a compression fitting on a copper pipe?"
+              value={queryText}
+              onChange={(e) => setQueryText(e.target.value)}
+              rows={4}
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button type="submit" disabled={isLoading || !queryText.trim()}>
+                {isLoading ? (
+                  <Spinner />
+                ) : (
+                  <>
+                    Ask AI <Sparkles className="ml-2 h-4 w-4" />
+                  </>
+                )}
+              </Button>
+              <Button type="button" variant="outline" onClick={handlePresetQuery}>
                 Ask a preset question
-            </Button>
-          </div>
-        </form>
-        
-        {isLoading && (
-            <div className="flex justify-center py-4">
-                <Spinner size="lg" />
+              </Button>
             </div>
-        )}
+          </form>
 
-        {response && !isLoading && (
-          <div className="pt-4">
-            <h3 className="font-semibold mb-2">AI Response:</h3>
-            <div className="p-4 bg-muted/50 rounded-md whitespace-pre-wrap">
-              {response}
+          {isLoading && (
+            <div className="flex justify-center py-4">
+              <Spinner size="lg" />
             </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+          )}
+
+          {response && !isLoading && (
+            <div className="pt-4">
+              <h3 className="mb-2 font-semibold">AI Response:</h3>
+              <div className="rounded-md bg-muted/50 p-4 whitespace-pre-wrap">
+                {response}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }

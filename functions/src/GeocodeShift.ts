@@ -22,7 +22,7 @@ export const geocodeShiftOnCreate = onDocumentCreated(
     const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${postcode}&key=${GOOGLE_API_KEY}`;
 
     const res = await fetch(url);
-    const json = await res.json();
+    const json = (await res.json()) as any;
 
     if (!json.results?.length) return;
 
