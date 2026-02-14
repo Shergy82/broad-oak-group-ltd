@@ -447,9 +447,11 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                                             <Card>
                                                 <CardContent className="flex aspect-video items-center justify-center p-0 relative overflow-hidden rounded-lg">
                                                 <Image
-  src={`/api/file?path=${encodeURIComponent(photo.fullPath)}`}
-  ...
-/>
+                                                  src={`/api/file?path=${encodeURIComponent(photo.fullPath)}`}
+                                                  alt={photo.name}
+                                                  fill
+                                                  className="object-contain"
+                                                />
                                                 </CardContent>
                                                  <CardFooter className="flex-col items-start text-sm text-muted-foreground p-3">
                                                     <p><strong>File:</strong> {photo.name}</p>

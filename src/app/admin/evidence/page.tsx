@@ -148,11 +148,27 @@ function EvidenceReportGenerator({ project, files, onGenerated }: EvidenceReport
       };
 
       for (const [tag, photosInGroup] of sortedGroups.entries()) {
-          addPageIfNeeded(20); // space for header
-          doc.setFontSize(16);
+          // --- NEW PROFESSIONAL TITLE ---
+          const titleHeight = 10;
+          const titlePadding = 3;
+          
+          addPageIfNeeded(titleHeight + (titlePadding * 2) + 12); // Add space for title block and margin
+          
+          // Background rectangle for the title
+          doc.setFillColor(15, 23, 42); // slate-900 (dark, professional)
+          doc.rect(pageMargin, finalY, pageWidth - (pageMargin * 2), titleHeight + titlePadding, 'F');
+          
+          // Title text
+          doc.setFontSize(14);
           doc.setFont('helvetica', 'bold');
-          doc.text(tag, pageMargin, finalY);
-          finalY += 12;
+          doc.setTextColor(255, 255, 255); // White text
+          doc.text(tag, pageMargin + titlePadding, finalY + (titleHeight + titlePadding) / 2, { 
+              align: 'left', 
+              baseline: 'middle' 
+          });
+          
+          finalY += titleHeight + titlePadding + 12; // Move cursor down
+          // --- END NEW TITLE ---
 
           for (const photo of photosInGroup) {
               try {
