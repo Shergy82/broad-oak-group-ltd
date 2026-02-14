@@ -171,6 +171,10 @@ export function Header() {
                       <FileArchive className="mr-2" />
                       <span>Evidence</span>
                     </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => router.push('/admin/staff-ai')} className="cursor-pointer">
+                      <BotMessageSquare className="mr-2" />
+                      <span>Staff AI</span>
+                    </DropdownMenuItem>
                   </>
                 )}
                 <DropdownMenuSeparator />
