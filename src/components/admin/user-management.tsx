@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { collection, onSnapshot, query, doc, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, doc, updateDoc, where } from 'firebase/firestore';
 import { db, functions } from '@/lib/firebase';
 import { httpsCallable } from 'firebase/functions';
 import type { UserProfile } from '@/types';
@@ -39,10 +39,18 @@ export function UserManagement() {
       return;
     }
 
-    const usersCollection = collection(db, 'users');
-    const q = query(usersCollection);
+    let usersQuery;
+    if (isOwner) {
+        usersQuery = query(collection(db, 'users'));
+    } else if (currentUserProfile.department) {
+        usersQuery = query(collection(db, 'users'), where('department', '==', currentUserProfile.department));
+    } else {
+        // Show only self if no department and not owner
+        usersQuery = query(collection(db, 'users'), where('uid', '==', currentUserProfile.uid));
+    }
 
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+
+    const unsubscribe = onSnapshot(usersQuery, (querySnapshot) => {
       const fetchedUsers: UserProfile[] = [];
       querySnapshot.forEach((doc) => {
         fetchedUsers.push({ uid: doc.id, ...doc.data() } as UserProfile);
@@ -61,7 +69,7 @@ export function UserManagement() {
     });
 
     return () => unsubscribe();
-  }, [currentUserProfile, toast]);
+  }, [currentUserProfile, toast, isOwner]);
 
   const pendingUsers = useMemo(() => users.filter(user => user.status === 'pending-approval'), [users]);
 

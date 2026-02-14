@@ -1,12 +1,14 @@
 
+
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { collection, onSnapshot, query, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, query, getDocs, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Shift, UserProfile, ProjectFile, PerformanceMetric } from '@/types';
 import { isBefore, startOfToday } from 'date-fns';
 import { getCorrectedLocalDate } from '@/lib/utils';
+import { useUserProfile } from '@/hooks/use-user-profile';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -83,24 +85,51 @@ export function PerformanceDashboard() {
   const [allPhotos, setAllPhotos] = useState<ProjectFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { userProfile } = useUserProfile();
 
    useEffect(() => {
+    if (!userProfile) return;
+
     setLoading(true);
     let shiftsLoaded = false, usersLoaded = false, photosLoaded = false;
+    const department = userProfile.department;
+    const isOwner = userProfile.role === 'owner';
 
     const checkAllDataLoaded = () => {
       if (shiftsLoaded && usersLoaded && photosLoaded) {
         setLoading(false);
       }
     };
+    
+    let shiftsQuery;
+    if (isOwner) {
+        shiftsQuery = query(collection(db, 'shifts'));
+    } else if (department) {
+        shiftsQuery = query(collection(db, 'shifts'), where('department', '==', department));
+    } else {
+        shiftsLoaded = true;
+        checkAllDataLoaded();
+        return;
+    }
 
-    const unsubShifts = onSnapshot(query(collection(db, 'shifts')), (snapshot) => {
+    const unsubShifts = onSnapshot(shiftsQuery, (snapshot) => {
       setAllShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
       shiftsLoaded = true;
       checkAllDataLoaded();
     }, (err) => { setError("Could not load shifts."); shiftsLoaded = true; checkAllDataLoaded(); });
 
-    const unsubUsers = onSnapshot(query(collection(db, 'users')), (snapshot) => {
+    let usersQuery;
+     if (isOwner) {
+        usersQuery = query(collection(db, 'users'));
+    } else if (department) {
+        usersQuery = query(collection(db, 'users'), where('department', '==', department));
+    } else {
+        usersLoaded = true;
+        checkAllDataLoaded();
+        return;
+    }
+
+    const unsubUsers = onSnapshot(usersQuery, (snapshot) => {
       setAllUsers(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile)));
       usersLoaded = true;
       checkAllDataLoaded();
@@ -108,7 +137,18 @@ export function PerformanceDashboard() {
 
     const fetchPhotos = async () => {
         try {
-            const projectsSnapshot = await getDocs(query(collection(db, 'projects')));
+            let projectsQuery;
+            if (isOwner) {
+                projectsQuery = query(collection(db, 'projects'));
+            } else if (department) {
+                projectsQuery = query(collection(db, 'projects'), where('department', '==', department));
+            } else {
+                photosLoaded = true;
+                checkAllDataLoaded();
+                return;
+            }
+
+            const projectsSnapshot = await getDocs(projectsQuery);
             const photoPromises = projectsSnapshot.docs.map(async (projectDoc) => {
                 const filesQuery = query(collection(db, `projects/${projectDoc.id}/files`));
                 const filesSnapshot = await getDocs(filesQuery);
@@ -131,7 +171,7 @@ export function PerformanceDashboard() {
       unsubShifts();
       unsubUsers();
     };
-  }, []);
+  }, [userProfile]);
 
   const { operativesData } = useMemo(() => {
     if (loading) return { operativesData: [] };

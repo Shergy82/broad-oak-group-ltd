@@ -1,7 +1,8 @@
 
+
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -21,7 +22,7 @@ import { Spinner } from '@/components/shared/spinner';
 import { CalendarIcon, Bug } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
-import type { Shift, UserProfile } from '@/types';
+import type { Shift, UserProfile, Project } from '@/types';
 
 const formSchema = z.object({
   userId: z.string().min(1, 'An operative must be selected.'),
@@ -30,6 +31,7 @@ const formSchema = z.object({
   task: z.string().min(1, 'Task description is required.'),
   address: z.string().min(1, 'Address is required.'),
   eNumber: z.string().optional(),
+  department: z.string().min(1, 'Department is required.'),
 });
 
 interface ShiftFormDialogProps {
@@ -38,9 +40,10 @@ interface ShiftFormDialogProps {
     users: UserProfile[];
     shift: Shift | null;
     userProfile: UserProfile;
+    projects: Project[];
 }
 
-export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile }: ShiftFormDialogProps) {
+export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile, projects }: ShiftFormDialogProps) {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [isDatePickerOpen, setDatePickerOpen] = useState(false);
@@ -56,8 +59,18 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile 
       task: '',
       address: '',
       eNumber: '',
+      department: '',
     },
   });
+
+  const projectDepartments = useMemo(() => {
+    if (!projects) return [];
+    const depts = new Set<string>();
+    projects.forEach(p => {
+        if (p.department) depts.add(p.department);
+    });
+    return Array.from(depts).sort();
+  }, [projects]);
   
   const getCorrectedLocalDate = (date: { toDate: () => Date }) => {
     const d = date.toDate();
@@ -75,6 +88,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile 
           task: shift.task,
           address: shift.address,
           eNumber: shift.eNumber || '',
+          department: shift.department || '',
         });
       } else {
         form.reset({
@@ -84,6 +98,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile 
           task: '',
           address: '',
           eNumber: '',
+          department: '',
         });
       }
     }
@@ -292,7 +307,28 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile 
                   )}
                 />
             </div>
-
+            <FormField
+              control={form.control}
+              name="department"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Department</FormLabel>
+                  <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a department" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {projectDepartments.map(dept => (
+                        <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <FormField
               control={form.control}
               name="address"

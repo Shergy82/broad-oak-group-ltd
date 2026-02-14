@@ -24,6 +24,7 @@ export interface Shift {
   eNumber?: string;
   manager?: string;
   contract?: string;
+  department?: string;
   notes?: string;
   createdAt: Timestamp;
   confirmedAt?: Timestamp;
@@ -57,6 +58,7 @@ export interface Project {
   eNumber?: string;
   council?: string;
   manager: string;
+  department?: string;
   createdAt?: Timestamp;
   createdBy?: string;
   creatorId?: string;

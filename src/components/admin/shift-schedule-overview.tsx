@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -185,8 +186,19 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
       setError("Firebase is not configured.");
       return;
     }
+    
+    const department = userProfile.department;
+    const isOwner = userProfile.role === 'owner';
 
-    const usersQuery = query(collection(db, 'users'));
+    let usersQuery;
+    if (isOwner) {
+        usersQuery = query(collection(db, 'users'));
+    } else if (department) {
+        usersQuery = query(collection(db, 'users'), where('department', '==', department));
+    } else {
+        usersQuery = query(collection(db, 'users'), where('__name__', '==', userProfile.uid));
+    }
+
     const unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
       const fetchedUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
       fetchedUsers.sort((a, b) => a.name.localeCompare(b.name));
@@ -197,16 +209,35 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
       setLoading(false);
     });
 
-    const projectsQuery = query(collection(db, 'projects'));
-    const unsubscribeProjects = onSnapshot(projectsQuery, (snapshot) => {
-        setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project)));
-    }, (err) => {
-        console.error("Error fetching projects: ", err);
-        setError("Could not fetch project data.");
-    });
+    let projectsQuery;
+    if (isOwner) {
+        projectsQuery = query(collection(db, 'projects'));
+    } else if (department) {
+        projectsQuery = query(collection(db, 'projects'), where('department', '==', department));
+    } else {
+        setProjects([]);
+        projectsQuery = null;
+    }
 
+    let unsubscribeProjects = () => {};
+    if (projectsQuery) {
+        unsubscribeProjects = onSnapshot(projectsQuery, (snapshot) => {
+            setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project)));
+        }, (err) => {
+            console.error("Error fetching projects: ", err);
+            setError("Could not fetch project data.");
+        });
+    }
 
-    const shiftsQuery = query(collection(db, 'shifts'));
+    let shiftsQuery;
+    if (isOwner) {
+        shiftsQuery = query(collection(db, 'shifts'));
+    } else if (department) {
+        shiftsQuery = query(collection(db, 'shifts'), where('department', '==', department));
+    } else {
+        shiftsQuery = query(collection(db, 'shifts'), where('userId', '==', userProfile.uid));
+    }
+
     const unsubscribeShifts = onSnapshot(shiftsQuery, (snapshot) => {
       const fetchedShifts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift));
       setShifts(fetchedShifts);
@@ -228,7 +259,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
       unsubscribeShifts();
       unsubscribeProjects();
     };
-  }, []);
+  }, [userProfile]);
 
   const getCorrectedLocalDate = (date: { toDate: () => Date }) => {
     const d = date.toDate();

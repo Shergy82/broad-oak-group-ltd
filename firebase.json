@@ -18,15 +18,6 @@
       "firebase.json",
       "**/.*",
       "**/node_modules/**"
-    ],
-    "rewrites": [
-      {
-        "source": "**",
-        "run": {
-          "serviceId": "nextServer",
-          "region": "europe-west4"
-        }
-      }
     ]
   },
 

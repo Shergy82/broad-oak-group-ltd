@@ -1,10 +1,11 @@
 
+
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { collection, onSnapshot, query } from 'firebase/firestore';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { Shift } from '@/types';
+import type { Shift, UserProfile } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -13,6 +14,7 @@ import { BarChart, Briefcase, User, HardHat, CheckCircle, Building } from 'lucid
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { X } from 'lucide-react';
+import { useUserProfile } from '@/hooks/use-user-profile';
 
 
 interface ContractStats {
@@ -29,9 +31,21 @@ export function ContractStatsDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [selectedContract, setSelectedContract] = useState('all');
   const [selectedManager, setSelectedManager] = useState('all');
+  const { userProfile, loading: profileLoading } = useUserProfile();
 
   useEffect(() => {
-    const shiftsQuery = query(collection(db, 'shifts'));
+    if (profileLoading) return;
+
+    let shiftsQuery;
+    if (userProfile && userProfile.role === 'owner') {
+        shiftsQuery = query(collection(db, 'shifts'));
+    } else if (userProfile && userProfile.department) {
+        shiftsQuery = query(collection(db, 'shifts'), where('department', '==', userProfile.department));
+    } else {
+        setShifts([]);
+        setLoading(false);
+        return;
+    }
     
     const unsubShifts = onSnapshot(shiftsQuery, 
       (snapshot) => {
@@ -46,7 +60,7 @@ export function ContractStatsDashboard() {
     );
 
     return () => unsubShifts();
-  }, []);
+  }, [userProfile, profileLoading]);
   
   const { availableContracts, availableManagers } = useMemo(() => {
       const contractSet = new Set<string>();
@@ -143,7 +157,7 @@ export function ContractStatsDashboard() {
           </Alert>
         )}
         
-        {loading ? (
+        {loading || profileLoading ? (
              <div className="border rounded-lg"><Skeleton className="w-full h-48" /></div>
         ) : filteredContracts.length === 0 && !error ? (
             <div className="flex flex-col items-center justify-center rounded-lg p-12 text-center border border-dashed">
