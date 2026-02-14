@@ -5,7 +5,6 @@ import { Icon, LatLngExpression } from 'leaflet';
 import { useEffect, useState } from 'react';
 import type { Project } from '@/types';
 import { Spinner } from './spinner';
-import { getProjectCoordinates } from '@/app/admin/actions';
 
 interface LeafletMapProps {
     locations: Project[];
@@ -16,6 +15,40 @@ interface Position {
     lng: number;
     address: string;
 }
+
+async function getProjectCoordinates(addresses: string[]): Promise<Position[]> {
+    const apiKey = process.env.NEXT_PUBLIC_MAPS_API_KEY;
+    if (!apiKey) {
+        console.error("Google Maps API key is missing. Ensure NEXT_PUBLIC_MAPS_API_KEY is in your environment.");
+        return [];
+    }
+
+    const results: Position[] = [];
+
+    for (const address of addresses) {
+        if (!address) continue;
+        try {
+            const response = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${apiKey}`);
+            
+            if (!response.ok) {
+                console.error(`Geocoding failed for ${address} with status: ${response.status}`);
+                continue;
+            }
+
+            const data = await response.json();
+            if (data.status === 'OK' && data.results && data.results.length > 0) {
+                const { lat, lng } = data.results[0].geometry.location;
+                results.push({ lat, lng, address });
+            } else {
+                console.warn(`Geocoding failed for ${address}: ${data.status} - ${data.error_message || ''}`);
+            }
+        } catch (error) {
+            console.error(`Error geocoding address "${address}":`, error);
+        }
+    }
+    return results;
+}
+
 
 const customIcon = new Icon({
     iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
@@ -49,7 +82,7 @@ const LeafletMap = ({ locations }: LeafletMapProps) => {
                 const newPositions = await getProjectCoordinates(addressesToGeocode);
                 setPositions(newPositions);
             } catch (err) {
-                console.error("Error calling server action for geocoding:", err);
+                console.error("Error geocoding addresses on client:", err);
                 setError("Failed to fetch location data.");
             } finally {
                 setLoading(false);
