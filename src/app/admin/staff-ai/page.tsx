@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
@@ -8,11 +7,27 @@ import { Textarea } from '@/components/ui/textarea';
 import { askAIAssistant } from '@/ai/flows/general-assistant';
 import { Spinner } from '@/components/shared/spinner';
 import { Sparkles } from 'lucide-react';
+import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import type { Project } from '@/types';
 
 export default function StaffAIPage() {
   const [query, setQuery] = useState('');
   const [response, setResponse] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [projects, setProjects] = useState<Project[]>([]);
+
+  useEffect(() => {
+    if (!db) return;
+    const projectsQuery = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(projectsQuery, (snapshot) => {
+      const activeProjects = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as Project))
+        .filter(p => !p.deletionScheduledAt);
+      setProjects(activeProjects);
+    });
+    return () => unsubscribe();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,15 +51,19 @@ export default function StaffAIPage() {
   }
 
   const mapUrl = useMemo(() => {
-    return `https://maps.google.com/maps?q=${encodeURIComponent('Broad Oak Group')}&t=&z=14&ie=UTF8&iwloc=&output=embed`;
-  }, []);
+    if (projects.length === 0) {
+      return `https://maps.google.com/maps?q=${encodeURIComponent('Broad Oak Group')}&t=&z=14&ie=UTF8&iwloc=&output=embed`;
+    }
+    const addresses = projects.map(p => p.address).join('|');
+    return `https://maps.google.com/maps?q=${encodeURIComponent(addresses)}&output=embed`;
+  }, [projects]);
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Staff AI Assistant</CardTitle>
         <CardDescription>
-          Ask questions or get help with tasks. The map below shows the main office location.
+          Ask questions or get help with tasks. The map below shows all active project locations.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -81,7 +100,7 @@ export default function StaffAIPage() {
         )}
 
         <div>
-             <h3 className="font-semibold mb-2">Location Map</h3>
+             <h3 className="font-semibold mb-2">Project Locations</h3>
              <div className="aspect-video w-full border rounded-lg overflow-hidden">
                 <iframe
                     width="100%"
