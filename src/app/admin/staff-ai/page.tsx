@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
@@ -52,11 +51,20 @@ export default function StaffAIPage() {
   }
 
   const mapUrl = useMemo(() => {
-    if (projects.length === 0) {
-      return `https://maps.google.com/maps?q=${encodeURIComponent('Broad Oak Group')}&t=&z=14&ie=UTF8&iwloc=&output=embed`;
+    const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+    if (!apiKey) {
+        console.error("Google Maps API key is missing. The map may not display correctly.");
+        return `https://maps.google.com/maps?q=${encodeURIComponent('Broad Oak Group')}&t=&z=14&ie=UTF8&iwloc=&output=embed`;
     }
-    const addresses = projects.map(p => p.address).join('|');
-    return `https://maps.google.com/maps?q=${encodeURIComponent(addresses)}&output=embed`;
+
+    if (projects.length === 0) {
+      return `https://www.google.com/maps/embed/v1/place?key=${apiKey}&q=${encodeURIComponent('Broad Oak Group, Cheadle, UK')}`;
+    }
+    
+    // Using the search mode of the embed API and more specific addresses to improve pin accuracy.
+    const queryStr = projects.map(p => `${p.address}, ${p.council || ''}`).join(' | ');
+
+    return `https://www.google.com/maps/embed/v1/search?key=${apiKey}&q=${encodeURIComponent(queryStr)}`;
   }, [projects]);
 
   return (
