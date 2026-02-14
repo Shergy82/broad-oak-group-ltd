@@ -17,9 +17,10 @@ interface EvidenceChecklistManagerProps {
   projectId?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  contractChecklist?: EvidenceChecklistItem[];
 }
 
-export function EvidenceChecklistManager({ contractName, projectId, open, onOpenChange }: EvidenceChecklistManagerProps) {
+export function EvidenceChecklistManager({ contractName, projectId, open, onOpenChange, contractChecklist }: EvidenceChecklistManagerProps) {
   const [items, setItems] = useState<EvidenceChecklistItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [newItemText, setNewItemText] = useState('');
@@ -44,9 +45,22 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        setItems((projectId ? (data as Project).checklist : (data as EvidenceChecklist).items) || []);
+        if (projectId) {
+            const projectData = data as Project;
+            // If 'checklist' field exists on the project, use it. This handles empty arrays correctly.
+            if ('checklist' in projectData) {
+                setItems(projectData.checklist || []); // Use || [] just in case it's null
+            } else {
+                // Otherwise, inherit from the contract.
+                setItems(contractChecklist || []);
+            }
+        } else {
+            const checklistData = data as EvidenceChecklist;
+            setItems(checklistData.items || []);
+        }
       } else {
-        setItems([]);
+        // If doc doesn't exist, inherit for project or set empty for contract.
+        setItems(projectId ? (contractChecklist || []) : []);
       }
       setLoading(false);
     }, (error) => {
@@ -56,7 +70,7 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
     });
 
     return () => unsubscribe();
-  }, [contractName, projectId, open, toast]);
+  }, [contractName, projectId, open, toast, contractChecklist]);
 
   const handleAddItem = async () => {
     if (!newItemText.trim()) return;
@@ -81,7 +95,12 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
 
     if (!projectId) {
       payload.contractName = contractName;
+    } else {
+      // When updating a project, we need to ensure we're not just appending to an inherited list
+      const currentItems = [...items, newItem];
+      payload[fieldKey] = currentItems;
     }
+
 
     try {
       await setDoc(docRef, payload, { merge: true });
@@ -100,10 +119,21 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
       ? doc(db, 'projects', projectId)
       : doc(db, 'evidence_checklists', contractName!);
     const fieldKey = projectId ? 'checklist' : 'items';
-    try {
-      await updateDoc(docRef, {
+
+    const payload: any = {
         [fieldKey]: arrayRemove(itemToDelete)
-      });
+    };
+    
+    // For projects, we need to ensure we save the full new array
+    // to correctly handle inherited checklists.
+    if (projectId) {
+      const currentItems = items.filter(item => item.id !== itemToDelete.id);
+      payload[fieldKey] = currentItems;
+    }
+
+
+    try {
+      await updateDoc(docRef, payload);
       toast({ title: 'Success', description: 'Checklist item removed.' });
     } catch (error) {
       console.error('Error deleting item:', error);

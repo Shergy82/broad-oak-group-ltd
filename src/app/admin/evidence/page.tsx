@@ -565,7 +565,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                         showCloseButton={false}
                         className="w-screen h-screen max-w-full max-h-full p-0 bg-black/80 border-none shadow-none flex items-center justify-center"
                     >
-                         <div className="relative w-full h-[90vh]">
+                         <div className="relative w-full h-full">
                             <NextImage
                                 src={`https://images.weserv.nl/?url=${encodeURIComponent(enlargedPhoto.url)}`}
                                 alt={enlargedPhoto.name}
@@ -586,6 +586,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                 open={isChecklistEditorOpen}
                 onOpenChange={setChecklistEditorOpen}
                 projectId={project.id}
+                contractChecklist={checklist?.items}
             />
         </>
     );
