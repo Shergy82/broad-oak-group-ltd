@@ -37,7 +37,9 @@ export function HeadlineOptimizer() {
   const onSubmit: SubmitHandler<FormData> = async (data) => {
     setIsLoading(true);
     setSuggestions([]);
-    const result = await getHeadlineSuggestions(data);
+    const result = await getHeadlineSuggestions({
+      headline: data.draftHeadline,
+    });    
     setIsLoading(false);
     
     if (result.error) {

@@ -23,7 +23,7 @@ import {
   Building2,
   ListChecks,
   FileArchive,
-  Wand2,
+  BotMessageSquare,
 } from 'lucide-react';
 import { NotificationButton } from '../shared/notification-button';
 import {
@@ -49,9 +49,7 @@ export function Header() {
     }
   };
 
-  const isPrivilegedUser =
-    userProfile &&
-    ['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role);
+  const isPrivilegedUser = userProfile && ['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role);
 
   const getInitials = (name?: string) => {
     if (!name) return <User className="h-5 w-5" />;
@@ -63,157 +61,122 @@ export function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-50 flex w-full items-start justify-between border-b bg-background/80 py-2 backdrop-blur-sm px-4">
-
-      {/* LEFT */}
-      <div className="flex flex-col items-start gap-2">
+    <header className="sticky top-0 flex items-start justify-between gap-4 border-b bg-background/80 backdrop-blur-sm px-4 md:px-6 z-50 py-3">
+      <div className="flex flex-col items-start">
         <Logo />
         {isPrivilegedUser && userProfile && (
-          <GlobalShiftImporter userProfile={userProfile} />
+          <div className="pl-9 pt-1">
+            <GlobalShiftImporter userProfile={userProfile} />
+          </div>
         )}
       </div>
 
-      {/* RIGHT */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 md:gap-4 pt-1">
         {user && (
           <>
             <NotificationButton />
-
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  className="rounded-full"
-                >
+                <Button variant="secondary" size="icon" className="rounded-full">
                   <Avatar className="h-8 w-8">
-                    <AvatarFallback>
-                      {getInitials(userProfile?.name)}
-                    </AvatarFallback>
+                    <AvatarFallback>{getInitials(userProfile?.name)}</AvatarFallback>
                   </Avatar>
+                  <span className="sr-only">Toggle user menu</span>
                 </Button>
               </DropdownMenuTrigger>
-
               <DropdownMenuContent align="end">
-                {userProfile?.name && (
-                  <DropdownMenuLabel>
-                    {userProfile.name}
-                  </DropdownMenuLabel>
-                )}
+                {userProfile?.name && <DropdownMenuLabel>{userProfile.name}</DropdownMenuLabel>}
                 {userProfile?.email && (
                   <DropdownMenuLabel className="font-normal text-muted-foreground -mt-2 pb-2">
                     {userProfile.email}
                   </DropdownMenuLabel>
                 )}
-
                 <DropdownMenuSeparator />
-
-                <DropdownMenuItem onClick={() => router.push('/dashboard')}>
-                  <Calendar className="mr-2 h-4 w-4" />
-                  Dashboard
+                <DropdownMenuItem onClick={() => router.push('/dashboard')} className="cursor-pointer">
+                  <Calendar className="mr-2" />
+                  <span>Dashboard</span>
                 </DropdownMenuItem>
-
-                <DropdownMenuItem onClick={() => router.push('/site-schedule')}>
-                  <Building2 className="mr-2 h-4 w-4" />
-                  Site Schedule
+                <DropdownMenuItem onClick={() => router.push('/ai')} className="cursor-pointer">
+                  <BotMessageSquare className="mr-2" />
+                  <span>AI Assistant</span>
                 </DropdownMenuItem>
-
+                <DropdownMenuItem onClick={() => router.push('/site-schedule')} className="cursor-pointer">
+                  <Building2 className="mr-2" />
+                  <span>Site Schedule</span>
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={() =>
-                    window.open(
-                      'https://studio--studio-6303842196-5daf6.us-central1.hosted.app',
-                      '_blank'
-                    )
+                    window.open('https://studio--studio-6303842196-5daf6.us-central1.hosted.app', '_blank')
                   }
+                  className="cursor-pointer"
                 >
-                  <Fingerprint className="mr-2 h-4 w-4" />
-                  Digital Sign In/Out
+                  <Fingerprint className="mr-2" />
+                  <span>Digital Sign In/Out</span>
                 </DropdownMenuItem>
-
-                <DropdownMenuItem onClick={() => router.push('/announcements')}>
-                  <Megaphone className="mr-2 h-4 w-4" />
-                  Announcements
+                <DropdownMenuItem onClick={() => router.push('/announcements')} className="cursor-pointer">
+                  <Megaphone className="mr-2" />
+                  <span>Announcements</span>
                 </DropdownMenuItem>
-
-                <DropdownMenuItem onClick={() => router.push('/stats')}>
-                  <TrendingUp className="mr-2 h-4 w-4" />
-                  Stats
+                <DropdownMenuItem onClick={() => router.push('/stats')} className="cursor-pointer">
+                  <TrendingUp className="mr-2" />
+                  <span>Stats</span>
                 </DropdownMenuItem>
-
-                <DropdownMenuItem onClick={() => router.push('/ai')}>
-                  <Wand2 className="mr-2 h-4 w-4" />
-                  AI Assistant
+                <DropdownMenuItem onClick={() => router.push('/projects')} className="cursor-pointer">
+                  <Briefcase className="mr-2" />
+                  <span>Projects</span>
                 </DropdownMenuItem>
-
-                <DropdownMenuItem onClick={() => router.push('/projects')}>
-                  <Briefcase className="mr-2 h-4 w-4" />
-                  Projects
+                <DropdownMenuItem onClick={() => router.push('/health-and-safety')} className="cursor-pointer">
+                  <HardHat className="mr-2" />
+                  <span>Health & Safety</span>
                 </DropdownMenuItem>
-
-                <DropdownMenuItem onClick={() => router.push('/health-and-safety')}>
-                  <HardHat className="mr-2 h-4 w-4" />
-                  Health & Safety
-                </DropdownMenuItem>
-
                 <DropdownMenuSeparator />
-
-                <DropdownMenuItem onClick={() => router.push('/help')}>
-                  <HelpCircle className="mr-2 h-4 w-4" />
-                  Help & Support
+                <DropdownMenuItem onClick={() => router.push('/help')} className="cursor-pointer">
+                  <HelpCircle className="mr-2" />
+                  <span>Help & Support</span>
                 </DropdownMenuItem>
 
                 {isPrivilegedUser && (
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuLabel>Admin Area</DropdownMenuLabel>
-
-                    <DropdownMenuItem onClick={() => router.push('/admin/control-panel')}>
-                      <Shield className="mr-2 h-4 w-4" />
-                      Control Panel
+                    <DropdownMenuItem onClick={() => router.push('/admin/control-panel')} className="cursor-pointer">
+                      <Shield className="mr-2" />
+                      <span>Control Panel</span>
                     </DropdownMenuItem>
-
-                    <DropdownMenuItem onClick={() => router.push('/schedule')}>
-                      <Users className="mr-2 h-4 w-4" />
-                      Team Schedule
+                    <DropdownMenuItem onClick={() => router.push('/schedule')} className="cursor-pointer">
+                      <Users className="mr-2" />
+                      <span>Team Schedule</span>
                     </DropdownMenuItem>
-
-                    <DropdownMenuItem onClick={() => router.push('/admin/availability')}>
-                      <Calendar className="mr-2 h-4 w-4" />
-                      Availability
+                    <DropdownMenuItem onClick={() => router.push('/admin/availability')} className="cursor-pointer">
+                      <Calendar className="mr-2" />
+                      <span>Availability</span>
                     </DropdownMenuItem>
-
-                    <DropdownMenuItem onClick={() => router.push('/admin/contracts')}>
-                      <Briefcase className="mr-2 h-4 w-4" />
-                      Contracts
+                    <DropdownMenuItem onClick={() => router.push('/admin/contracts')} className="cursor-pointer">
+                      <Briefcase className="mr-2" />
+                      <span>Contracts</span>
                     </DropdownMenuItem>
-
-                    <DropdownMenuItem onClick={() => router.push('/admin/performance')}>
-                      <TrendingUp className="mr-2 h-4 w-4" />
-                      Performance
+                    <DropdownMenuItem onClick={() => router.push('/admin/performance')} className="cursor-pointer">
+                      <TrendingUp className="mr-2" />
+                      <span>Performance</span>
                     </DropdownMenuItem>
-
-                    <DropdownMenuItem onClick={() => router.push('/admin/tasks')}>
-                      <ListChecks className="mr-2 h-4 w-4" />
-                      Tasks
+                    <DropdownMenuItem onClick={() => router.push('/admin/tasks')} className="cursor-pointer">
+                      <ListChecks className="mr-2" />
+                      <span>Tasks</span>
                     </DropdownMenuItem>
-
-                    <DropdownMenuItem onClick={() => router.push('/admin/users')}>
-                      <UserCog className="mr-2 h-4 w-4" />
-                      User Management
+                    <DropdownMenuItem onClick={() => router.push('/admin/users')} className="cursor-pointer">
+                      <UserCog className="mr-2" />
+                      <span>User Management</span>
                     </DropdownMenuItem>
-
-                    <DropdownMenuItem onClick={() => router.push('/admin/evidence')}>
-                      <FileArchive className="mr-2 h-4 w-4" />
-                      Evidence
+                    <DropdownMenuItem onClick={() => router.push('/admin/evidence')} className="cursor-pointer">
+                      <FileArchive className="mr-2" />
+                      <span>Evidence</span>
                     </DropdownMenuItem>
                   </>
                 )}
-
                 <DropdownMenuSeparator />
-
-                <DropdownMenuItem onClick={handleSignOut}>
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Logout
+                <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer">
+                  <LogOut className="mr-2" />
+                  <span>Logout</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
