@@ -1,39 +1,39 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { askAIAssistant } from '@/ai/flows/general-assistant';
 import { Spinner } from '@/components/shared/spinner';
-import { Sparkles, MapPin } from 'lucide-react';
-
-// Define a type for the location data
-type Location = {
-  userName: string;
-  address: string;
-  task: string;
-  type: string;
-};
+import { Sparkles } from 'lucide-react';
+import { collection, onSnapshot } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import type { Project } from '@/types';
 
 export default function StaffAIPage() {
   const [query, setQuery] = useState('');
   const [response, setResponse] = useState('');
-  const [locations, setLocations] = useState<Location[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!db) return;
+    const unsubscribe = onSnapshot(collection(db, 'projects'), (snapshot) => {
+      const fetchedProjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project));
+      setProjects(fetchedProjects.filter(p => p.address && !p.deletionScheduledAt));
+    });
+    return () => unsubscribe();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim()) return;
     setIsLoading(true);
     setResponse('');
-    setLocations([]);
     try {
       const result = await askAIAssistant({ query });
       setResponse(result.response);
-      if (result.locations) {
-        setLocations(result.locations);
-      }
     } catch (error) {
       console.error('AI Assistant Error:', error);
       setResponse('Sorry, something went wrong. Please try again.');
@@ -43,25 +43,24 @@ export default function StaffAIPage() {
   };
 
   const handlePresetQuery = () => {
-    const presetQuery = "Where is everyone working today?";
+    const presetQuery = "How do I change a tap?";
     setQuery(presetQuery);
   }
 
   const mapUrl = useMemo(() => {
-    if (locations.length > 0) {
-      const query = locations.map(loc => `(${loc.address})`).join(' OR ');
+    if (projects.length > 0) {
+      const query = projects.map(p => `(${p.address})`).join(' OR ');
       return `https://maps.google.com/maps?q=${encodeURIComponent(query)}&t=&z=11&ie=UTF8&iwloc=&output=embed`;
     }
-    // Default view when no locations are loaded
     return `https://maps.google.com/maps?q=${encodeURIComponent('Broad Oak Group')}&t=&z=14&ie=UTF8&iwloc=&output=embed`;
-  }, [locations]);
+  }, [projects]);
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Staff AI Assistant</CardTitle>
         <CardDescription>
-          Ask questions or get help with tasks. The map below shows work locations when available.
+          Ask questions or get help with tasks. The map below shows all project locations.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -77,7 +76,7 @@ export default function StaffAIPage() {
               {isLoading ? <Spinner /> : <>Ask AI <Sparkles className="ml-2 h-4 w-4" /></>}
             </Button>
             <Button type="button" variant="outline" onClick={handlePresetQuery}>
-                <MapPin className="mr-2 h-4 w-4" /> Where is everyone working today?
+                Ask a preset question
             </Button>
           </div>
         </form>
@@ -98,7 +97,7 @@ export default function StaffAIPage() {
         )}
 
         <div>
-             <h3 className="font-semibold mb-2">Work Locations Map</h3>
+             <h3 className="font-semibold mb-2">Project Locations Map</h3>
              <div className="aspect-video w-full border rounded-lg overflow-hidden">
                 <iframe
                     key={mapUrl} // Re-render iframe when URL changes
