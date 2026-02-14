@@ -56,7 +56,7 @@ export default function StaffAIPage() {
   
   const staticMapUrl = useMemo(() => {
     const baseUrl = `https://maps.googleapis.com/maps/api/staticmap`;
-    const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+    const apiKey = process.env.NEXT_PUBLIC_MAPS_API_KEY;
     
     if (projects.length === 0) {
       return `${baseUrl}?center=Broad+Oak+Group,+Cheadle,+UK&zoom=10&size=600x400&key=${apiKey}`;

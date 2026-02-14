@@ -49,3 +49,9 @@ env:
     availability:
       - BUILD
       - RUNTIME
+
+  - variable: NEXT_PUBLIC_MAPS_API_KEY
+    value: "AIzaSyC2z--pNU8lM1tMC6Yab6pZIfZbz_dNu-U"
+    availability:
+      - BUILD
+      - RUNTIME
