@@ -533,7 +533,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                                                         className="object-contain transition-transform duration-300 group-hover:scale-105"
                                                     />
                                                     <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                                                        <Expand className="h-10 w-10 text-white" />
+                                                        
                                                     </div>
                                                 </CardContent>
                                                  <CardFooter className="flex-col items-start text-sm text-muted-foreground p-3">
