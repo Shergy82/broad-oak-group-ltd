@@ -9,7 +9,7 @@ import { db, storage } from '@/lib/firebase';
 import type { Project, EvidenceChecklist, ProjectFile, UserProfile } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Building2, Search, Pencil, CheckCircle, XCircle, Download, Trash2, RotateCw, Camera, Expand } from 'lucide-react';
+import { Building2, Search, Pencil, CheckCircle, XCircle, Download, Trash2, RotateCw, Camera, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { EvidenceChecklistManager } from '@/components/admin/evidence-checklist-manager';
@@ -19,7 +19,7 @@ import { useUserProfile } from '@/hooks/use-user-profile';
 import { useToast } from '@/hooks/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { format, differenceInDays, differenceInHours, differenceInMinutes } from 'date-fns';
-import { Dialog, DialogDescription, DialogHeader, DialogTitle, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogDescription, DialogHeader, DialogTitle, DialogContent, DialogClose } from '@/components/ui/dialog';
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '@/components/ui/carousel';
 import NextImage from 'next/image';
 import { MultiPhotoCamera } from '@/components/shared/multi-photo-camera';
@@ -532,9 +532,6 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                                                         fill
                                                         className="object-contain transition-transform duration-300 group-hover:scale-105"
                                                     />
-                                                    <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                                                        
-                                                    </div>
                                                 </CardContent>
                                                  <CardFooter className="flex-col items-start text-sm text-muted-foreground p-3">
                                                     <p><strong>File:</strong> {photo.name}</p>
@@ -555,8 +552,11 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
 
             {enlargedPhoto && (
                 <Dialog open={!!enlargedPhoto} onOpenChange={() => setEnlargedPhoto(null)}>
-                    <DialogContent className="w-[90vw] h-[90vh] max-w-[90vw] p-0 bg-transparent border-none shadow-none flex items-center justify-center">
-                         <div className="relative w-full h-full">
+                    <DialogContent 
+                        showCloseButton={false}
+                        className="w-screen h-screen max-w-full max-h-full p-0 bg-black/80 border-none shadow-none flex items-center justify-center"
+                    >
+                         <div className="relative w-full h-[90vh]">
                             <NextImage
                                 src={`https://images.weserv.nl/?url=${encodeURIComponent(enlargedPhoto.url)}`}
                                 alt={enlargedPhoto.name}
@@ -564,6 +564,11 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                                 className="object-contain"
                             />
                          </div>
+                         <DialogClose asChild>
+                            <Button variant="ghost" size="icon" className="absolute top-4 right-4 h-12 w-12 rounded-full bg-black/50 text-white hover:bg-black/75 hover:text-white">
+                                <X className="h-8 w-8" />
+                            </Button>
+                         </DialogClose>
                     </DialogContent>
                 </Dialog>
             )}
