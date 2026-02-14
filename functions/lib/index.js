@@ -32,175 +32,89 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.serveFile = exports.cleanupDeletedProjects = exports.aiMerchantFinder = exports.deleteAllShifts = exports.onShiftWrite = void 0;
+exports.deleteUser = exports.setUserStatus = exports.setNotificationStatus = exports.getNotificationStatus = void 0;
 const admin = __importStar(require("firebase-admin"));
-const logger = __importStar(require("firebase-functions/logger"));
 const https_1 = require("firebase-functions/v2/https");
-const firestore_1 = require("firebase-functions/v2/firestore");
-const scheduler_1 = require("firebase-functions/v2/scheduler");
-const webPush = __importStar(require("web-push"));
-const axios_1 = __importDefault(require("axios"));
-/* =====================================================
-   INIT
-===================================================== */
 if (admin.apps.length === 0) {
     admin.initializeApp();
 }
 const db = admin.firestore();
 /* =====================================================
-   PUSH ENV
+   NOTIFICATION STATUS (REQUIRED BY FRONTEND)
 ===================================================== */
-const VAPID_PUBLIC = process.env.WEBPUSH_PUBLIC_KEY || '';
-const VAPID_PRIVATE = process.env.WEBPUSH_PRIVATE_KEY || '';
-const VAPID_SUBJECT = process.env.WEBPUSH_SUBJECT || 'mailto:example@your-project.com';
-if (VAPID_PUBLIC && VAPID_PRIVATE) {
-    webPush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC, VAPID_PRIVATE);
-}
-/* =====================================================
-   PUSH HELPER
-===================================================== */
-async function sendWebPushToUser(uid, payload) {
-    const snap = await db.collection(`users/${uid}/pushSubscriptions`).get();
-    if (snap.empty)
-        return;
-    for (const docSnap of snap.docs) {
-        const sub = docSnap.data()?.subscription;
-        if (!sub)
-            continue;
-        try {
-            await webPush.sendNotification(sub, JSON.stringify(payload));
-        }
-        catch (err) {
-            logger.error('Push failed, removing subscription', err);
-            await docSnap.ref.delete();
-        }
-    }
-}
-/* =====================================================
-   SHIFT TRIGGER
-===================================================== */
-exports.onShiftWrite = (0, firestore_1.onDocumentWritten)({ region: 'europe-west2', document: 'shifts/{shiftId}' }, async (event) => {
-    const before = event.data?.before?.data();
-    const after = event.data?.after?.data();
-    const doc = after || before;
-    if (!doc?.userId)
-        return;
-    const isCreate = !before && !!after;
-    const isDelete = !!before && !after;
-    if (isDelete) {
-        await sendWebPushToUser(doc.userId, {
-            title: 'Shift Cancelled',
-            body: 'A shift has been cancelled.',
-            url: '/dashboard',
-        });
-        return;
-    }
-    await sendWebPushToUser(doc.userId, {
-        title: isCreate ? 'New Shift Assigned' : 'Shift Updated',
-        body: isCreate
-            ? 'You have been assigned a new shift.'
-            : 'One of your shifts has been updated.',
-        url: '/dashboard',
-    });
-});
-/* =====================================================
-   DELETE ALL SHIFTS
-===================================================== */
-exports.deleteAllShifts = (0, https_1.onCall)({ region: 'europe-west2' }, async (req) => {
+exports.getNotificationStatus = (0, https_1.onCall)({ region: 'europe-west2' }, async (req) => {
     if (!req.auth) {
         throw new https_1.HttpsError('unauthenticated', 'Login required');
     }
-    const shiftsRef = db.collection('shifts');
-    let totalDeleted = 0;
-    while (true) {
-        const snap = await shiftsRef.limit(400).get();
-        if (snap.empty)
-            break;
-        const batch = db.batch();
-        snap.docs.forEach((d) => batch.delete(d.ref));
-        await batch.commit();
-        totalDeleted += snap.size;
-    }
-    return { ok: true, deleted: totalDeleted };
+    const doc = await db.collection('users').doc(req.auth.uid).get();
+    return { enabled: doc.data()?.notificationsEnabled ?? false };
 });
-/* =====================================================
-   AI MERCHANT FINDER
-===================================================== */
-exports.aiMerchantFinder = (0, https_1.onCall)({
-    region: 'europe-west2',
-    timeoutSeconds: 30,
-    secrets: ['GOOGLE_PLACES_KEY'],
-}, async (req) => {
+exports.setNotificationStatus = (0, https_1.onCall)({ region: 'europe-west2' }, async (req) => {
     if (!req.auth) {
         throw new https_1.HttpsError('unauthenticated', 'Login required');
     }
-    const { message, lat, lng } = req.data;
-    if (!message || !lat || !lng) {
-        throw new https_1.HttpsError('invalid-argument', 'Message and GPS coordinates required');
+    const enabled = req.data?.enabled === true;
+    if (typeof enabled !== 'boolean') {
+        throw new https_1.HttpsError('invalid-argument', 'enabled must be boolean');
+    }
+    await db
+        .collection('users')
+        .doc(req.auth.uid)
+        .set({ notificationsEnabled: enabled }, { merge: true });
+    return { success: true };
+});
+/* =====================================================
+   USER MANAGEMENT (OWNER ONLY)
+===================================================== */
+/**
+ * Checks if the calling user has the 'owner' role. Throws an HttpsError if not.
+ */
+const assertIsOwner = async (uid) => {
+    if (!uid) {
+        throw new https_1.HttpsError('unauthenticated', 'The function must be called while authenticated.');
+    }
+    const userDoc = await db.collection('users').doc(uid).get();
+    const userRole = userDoc.data()?.role;
+    if (userRole !== 'owner') {
+        throw new https_1.HttpsError('permission-denied', 'You must be an owner to perform this action.');
+    }
+};
+exports.setUserStatus = (0, https_1.onCall)({ region: 'europe-west2' }, async (req) => {
+    await assertIsOwner(req.auth?.uid);
+    const { uid, disabled, newStatus } = req.data;
+    if (typeof uid !== 'string' || typeof disabled !== 'boolean' || (newStatus !== 'active' && newStatus !== 'suspended')) {
+        throw new https_1.HttpsError('invalid-argument', 'The function must be called with a `uid`, `disabled` state, and `newStatus`.');
     }
     try {
-        const response = await axios_1.default.post('https://places.googleapis.com/v1/places:searchText', {
-            textQuery: message,
-            maxResultCount: 5,
-            locationBias: {
-                circle: {
-                    center: { latitude: lat, longitude: lng },
-                    radius: 5000,
-                },
-            },
-        }, {
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Goog-Api-Key': process.env.GOOGLE_PLACES_KEY,
-                'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.rating,places.googleMapsUri',
-            },
-        });
-        const results = response.data.places?.map((place) => ({
-            name: place.displayName?.text,
-            rating: place.rating || null,
-            address: place.formattedAddress,
-            mapsUrl: place.googleMapsUri,
-        })) || [];
-        return { results };
+        // Update Firebase Auth state
+        await admin.auth().updateUser(uid, { disabled });
+        // Update Firestore document status
+        const userDocRef = db.collection('users').doc(uid);
+        await userDocRef.update({ status: newStatus });
+        return { success: true, message: `User ${uid} status updated to ${newStatus}.` };
     }
-    catch (err) {
-        logger.error('Places API error:', err?.response?.data || err);
-        throw new https_1.HttpsError('internal', 'Failed to fetch merchants');
+    catch (error) {
+        console.error("Error updating user status:", error);
+        throw new https_1.HttpsError('internal', error.message || 'An unknown error occurred while updating user status.');
     }
 });
-/* =====================================================
-   CLEANUP SCHEDULE
-===================================================== */
-exports.cleanupDeletedProjects = (0, scheduler_1.onSchedule)({ schedule: 'every 24 hours', region: 'europe-west2' }, async () => {
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const snapshot = await db
-        .collection('projects')
-        .where('deletionScheduledAt', '<=', admin.firestore.Timestamp.fromDate(sevenDaysAgo))
-        .get();
-    if (snapshot.empty)
-        return;
-    const bucket = admin.storage().bucket();
-    for (const doc of snapshot.docs) {
-        const projectId = doc.id;
-        try {
-            await bucket.deleteFiles({
-                prefix: `project_files/${projectId}/`,
-            });
-        }
-        catch {
-            logger.warn(`No storage files found for project ${projectId}`);
-        }
-        await doc.ref.delete();
+exports.deleteUser = (0, https_1.onCall)({ region: 'europe-west2' }, async (req) => {
+    await assertIsOwner(req.auth?.uid);
+    const { uid } = req.data;
+    if (typeof uid !== 'string') {
+        throw new https_1.HttpsError('invalid-argument', 'The function must be called with a user `uid`.');
+    }
+    try {
+        // Delete from Firebase Auth
+        await admin.auth().deleteUser(uid);
+        // Delete from Firestore
+        await db.collection('users').doc(uid).delete();
+        return { success: true, message: `User ${uid} has been deleted.` };
+    }
+    catch (error) {
+        console.error("Error deleting user:", error);
+        throw new https_1.HttpsError('internal', error.message || 'An unknown error occurred while deleting the user.');
     }
 });
-/* =====================================================
-   FILE SERVE
-===================================================== */
-var files_1 = require("./files");
-Object.defineProperty(exports, "serveFile", { enumerable: true, get: function () { return files_1.serveFile; } });
 //# sourceMappingURL=index.js.map

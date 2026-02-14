@@ -63,6 +63,7 @@ export interface Project {
   nextReviewDate?: Timestamp;
   contract?: string;
   deletionScheduledAt?: Timestamp;
+  checklist?: EvidenceChecklistItem[];
 }
 
 export interface ProjectFile {

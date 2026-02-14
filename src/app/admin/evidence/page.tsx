@@ -6,7 +6,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, query, orderBy, doc, updateDoc, serverTimestamp, addDoc } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '@/lib/firebase';
-import type { Project, EvidenceChecklist, ProjectFile, UserProfile } from '@/types';
+import type { Project, EvidenceChecklist, ProjectFile, UserProfile, EvidenceChecklistItem } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Building2, Search, Pencil, CheckCircle, XCircle, Download, Trash2, RotateCw, Camera, X } from 'lucide-react';
@@ -263,16 +263,20 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
 
     const [isCameraOpen, setIsCameraOpen] = useState(false);
     const [selectedCameraItem, setSelectedCameraItem] = useState<{ text: string, count: number } | null>(null);
-
+    const [isChecklistEditorOpen, setChecklistEditorOpen] = useState(false);
+    
+    const activeChecklistItems = useMemo(() => {
+        return project.checklist ?? checklist?.items ?? [];
+    }, [project.checklist, checklist]);
 
     const evidenceState = useMemo<'incomplete' | 'ready' | 'generated'>(() => {
         if (loadingFiles) return 'incomplete';
 
         const isChecklistMet = (() => {
-            if (!checklist || !checklist.items || checklist.items.length === 0) {
+            if (activeChecklistItems.length === 0) {
                 return true;
             }
-            return checklist.items.every(item => {
+            return activeChecklistItems.every(item => {
                 const requiredCount = item.photoCount || 1;
                 const matchingFiles = files.filter(file => isMatch(item.text, file.evidenceTag));
                 return matchingFiles.length >= requiredCount;
@@ -284,7 +288,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
         if (!isChecklistMet) return 'incomplete';
         if (isPdfGenerated) return 'generated';
         return 'ready';
-    }, [files, checklist, loadingFiles, generatedPdfProjects, project.id]);
+    }, [files, activeChecklistItems, loadingFiles, generatedPdfProjects, project.id]);
 
     const openDuration = useMemo(() => {
         if (!project.createdAt) return null;
@@ -332,8 +336,8 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
     };
 
     const evidenceStatus = useMemo(() => {
-        if (!checklist || !checklist.items) return [];
-        return checklist.items.map(item => {
+        if (activeChecklistItems.length === 0) return [];
+        return activeChecklistItems.map(item => {
             const matchingFiles = files.filter(file => file.type?.startsWith('image/') && isMatch(item.text, file.evidenceTag));
             const requiredCount = item.photoCount || 1;
             const isComplete = matchingFiles.length >= requiredCount;
@@ -347,7 +351,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                 photos: matchingFiles
             };
         });
-    }, [files, checklist]);
+    }, [files, activeChecklistItems]);
 
     const handleViewPhotos = (itemText: string, photos: ProjectFile[]) => {
         if (photos.length > 0) {
@@ -422,7 +426,12 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
         <>
             <Card className={cn("hover:shadow-md transition-shadow flex flex-col", cardColorClass)}>
                 <CardHeader className="p-4 pb-2">
-                    <CardTitle className={cn("text-sm font-semibold leading-tight", textColorClass)}>{project.address}</CardTitle>
+                    <div className="flex justify-between items-start gap-2">
+                        <CardTitle className={cn("text-sm font-semibold leading-tight flex-grow", textColorClass)}>{project.address}</CardTitle>
+                        <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0 text-white/70 hover:text-white" onClick={() => setChecklistEditorOpen(true)}>
+                            <Pencil className="h-3 w-3" />
+                        </Button>
+                    </div>
                     {project.eNumber && <CardDescription className={cn("text-xs pt-1 opacity-80", textColorClass)}>{project.eNumber}</CardDescription>}
                 </CardHeader>
                 <CardContent className="p-4 pt-2 flex-grow flex flex-col justify-between">
@@ -572,6 +581,12 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                     </DialogContent>
                 </Dialog>
             )}
+            
+            <EvidenceChecklistManager
+                open={isChecklistEditorOpen}
+                onOpenChange={setChecklistEditorOpen}
+                projectId={project.id}
+            />
         </>
     );
 }
@@ -666,9 +681,9 @@ export default function EvidencePage() {
             
             const isGenerated = generatedPdfProjects.includes(project.id);
             if (isGenerated) {
-                 const checklist = evidenceChecklists.get(project.contract || '');
-                 const isChecklistMet = !checklist || !checklist.items || checklist.items.length === 0 ||
-                    checklist.items.every(item => {
+                 const activeChecklistItems = project.checklist ?? evidenceChecklists.get(project.contract || '')?.items ?? [];
+                 const isChecklistMet = activeChecklistItems.length === 0 ||
+                    activeChecklistItems.every(item => {
                         const requiredCount = item.photoCount || 1;
                         const matchingFiles = files.filter(file => isMatch(item.text, file.evidenceTag));
                         return matchingFiles.length >= requiredCount;
@@ -709,11 +724,12 @@ export default function EvidencePage() {
     }
 
     const enrichedProjects = filteredProjects.map(project => {
-        const checklist = evidenceChecklists.get(project.contract || '');
+        const contractChecklist = evidenceChecklists.get(project.contract || '');
+        const activeChecklistItems = project.checklist ?? contractChecklist?.items ?? [];
         const projectFiles = filesByProject.get(project.id) || [];
         
-        const isChecklistMet = !checklist || !checklist.items || checklist.items.length === 0 || 
-            checklist.items.every(item => {
+        const isChecklistMet = activeChecklistItems.length === 0 || 
+            activeChecklistItems.every(item => {
                 const requiredCount = item.photoCount || 1;
                 const matchingFiles = projectFiles.filter(file => isMatch(item.text, file.evidenceTag));
                 return matchingFiles.length >= requiredCount;
@@ -755,7 +771,12 @@ export default function EvidencePage() {
         }
         groups[groupName].push(project);
     });
-    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
+    
+    const activeGroups = Object.entries(groups).filter(([contractName, projectGroup]) => {
+      return projectGroup.some(p => p.evidenceState !== 'generated');
+    });
+
+    return activeGroups.sort(([a], [b]) => a.localeCompare(b));
   }, [filteredProjects, filesByProject, evidenceChecklists, loading, generatedPdfProjects]);
 
 
@@ -791,9 +812,9 @@ export default function EvidencePage() {
           ) : groupedProjects.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-12 text-center h-96">
               <Building2 className="mx-auto h-12 w-12 text-muted-foreground" />
-              <h3 className="mt-4 text-lg font-semibold">No Projects Found</h3>
+              <h3 className="mt-4 text-lg font-semibold">No Active Projects Found</h3>
               <p className="mt-2 text-sm text-muted-foreground">
-                Projects will appear here once they are created, for example, via the shift import process.
+                Projects will appear here once they are created. Completed contract groups are hidden.
               </p>
             </div>
           ) : (

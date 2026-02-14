@@ -8,33 +8,45 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Spinner } from '@/components/shared/spinner';
-import { PlusCircle, Trash2 } from 'lucide-react';
-import type { EvidenceChecklist, EvidenceChecklistItem } from '@/types';
+import { PlusCircle, Trash2, Camera, Tags } from 'lucide-react';
+import type { EvidenceChecklistItem, EvidenceChecklist, Project } from '@/types';
 import { Label } from '../ui/label';
 
 interface EvidenceChecklistManagerProps {
-  contractName: string;
+  contractName?: string;
+  projectId?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-export function EvidenceChecklistManager({ contractName, open, onOpenChange }: EvidenceChecklistManagerProps) {
-  const [checklist, setChecklist] = useState<EvidenceChecklist | null>(null);
+export function EvidenceChecklistManager({ contractName, projectId, open, onOpenChange }: EvidenceChecklistManagerProps) {
+  const [items, setItems] = useState<EvidenceChecklistItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [newItemText, setNewItemText] = useState('');
   const [newItemPhotoCount, setNewItemPhotoCount] = useState(1);
+  const [newItemEvidenceTag, setNewItemEvidenceTag] = useState('');
   const { toast } = useToast();
 
   useEffect(() => {
     if (!open) return;
     setLoading(true);
 
-    const checklistDocRef = doc(db, 'evidence_checklists', contractName);
-    const unsubscribe = onSnapshot(checklistDocRef, (docSnap) => {
+    if (!contractName && !projectId) {
+        toast({ variant: 'destructive', title: 'Error', description: 'Checklist manager requires a contract or project.' });
+        setLoading(false);
+        return;
+    }
+
+    const docRef = projectId
+        ? doc(db, 'projects', projectId)
+        : doc(db, 'evidence_checklists', contractName!);
+
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
-        setChecklist(docSnap.data() as EvidenceChecklist);
+        const data = docSnap.data();
+        setItems((projectId ? (data as Project).checklist : (data as EvidenceChecklist).items) || []);
       } else {
-        setChecklist({ contractName, items: [] });
+        setItems([]);
       }
       setLoading(false);
     }, (error) => {
@@ -44,29 +56,38 @@ export function EvidenceChecklistManager({ contractName, open, onOpenChange }: E
     });
 
     return () => unsubscribe();
-  }, [contractName, open, toast]);
+  }, [contractName, projectId, open, toast]);
 
   const handleAddItem = async () => {
     if (!newItemText.trim()) return;
 
-    const checklistDocRef = doc(db, 'evidence_checklists', contractName);
+    const docRef = projectId
+      ? doc(db, 'projects', projectId)
+      : doc(db, 'evidence_checklists', contractName!);
+
+    const fieldKey = projectId ? 'checklist' : 'items';
+    
     const newItem: EvidenceChecklistItem = { 
         id: new Date().toISOString(), 
         text: newItemText.trim(),
+        photoCount: newItemPhotoCount > 0 ? newItemPhotoCount : 1,
+        ...(newItemEvidenceTag.trim() && { evidenceTag: newItemEvidenceTag.trim() }),
     };
-    
-    if (newItemPhotoCount > 1) {
-        newItem.photoCount = newItemPhotoCount;
+
+    const payload: any = {
+      [fieldKey]: arrayUnion(newItem),
+      updatedAt: serverTimestamp(),
+    };
+
+    if (!projectId) {
+      payload.contractName = contractName;
     }
 
     try {
-      await setDoc(checklistDocRef, {
-        contractName,
-        items: arrayUnion(newItem),
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
+      await setDoc(docRef, payload, { merge: true });
       setNewItemText('');
       setNewItemPhotoCount(1);
+      setNewItemEvidenceTag('');
       toast({ title: 'Success', description: 'Checklist item added.' });
     } catch (error) {
       console.error('Error adding item:', error);
@@ -74,11 +95,14 @@ export function EvidenceChecklistManager({ contractName, open, onOpenChange }: E
     }
   };
 
-  const handleDeleteItem = async (item: EvidenceChecklistItem) => {
-    const checklistDocRef = doc(db, 'evidence_checklists', contractName);
+  const handleDeleteItem = async (itemToDelete: EvidenceChecklistItem) => {
+    const docRef = projectId
+      ? doc(db, 'projects', projectId)
+      : doc(db, 'evidence_checklists', contractName!);
+    const fieldKey = projectId ? 'checklist' : 'items';
     try {
-      await updateDoc(checklistDocRef, {
-        items: arrayRemove(item)
+      await updateDoc(docRef, {
+        [fieldKey]: arrayRemove(itemToDelete)
       });
       toast({ title: 'Success', description: 'Checklist item removed.' });
     } catch (error) {
@@ -86,13 +110,17 @@ export function EvidenceChecklistManager({ contractName, open, onOpenChange }: E
       toast({ variant: 'destructive', title: 'Error', description: 'Could not remove item.' });
     }
   };
+  
+  const title = projectId ? 'Project-Specific Checklist' : `Evidence Checklist for "${contractName}"`;
+  const description = projectId ? 'Manage the specific evidence items for this project. This will override the contract default.' : `Manage the default required evidence items for the "${contractName}" contract.`
+
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Edit Evidence Checklist</DialogTitle>
-          <DialogDescription>Manage the required evidence items for the "{contractName}" contract.</DialogDescription>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <div className="py-4 space-y-4">
           <div className="flex flex-col sm:flex-row gap-2">
@@ -123,8 +151,8 @@ export function EvidenceChecklistManager({ contractName, open, onOpenChange }: E
             <div className="flex justify-center p-4"><Spinner /></div>
           ) : (
             <div className="space-y-2 max-h-64 overflow-y-auto border rounded-md p-2">
-              {checklist?.items && checklist.items.length > 0 ? (
-                checklist.items.map((item) => (
+              {items && items.length > 0 ? (
+                items.map((item) => (
                   <div key={item.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
                     <span>
                         {item.text}
