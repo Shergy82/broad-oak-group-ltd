@@ -4,9 +4,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Camera, Upload, Trash2 } from 'lucide-react';
+import { Camera, Upload, Trash2, CameraOff } from 'lucide-react';
 import { Spinner } from './spinner';
 import { useToast } from '@/hooks/use-toast';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 interface GeolocationPosition {
     coords: {
@@ -28,46 +29,45 @@ export function MultiPhotoCamera({ open, onOpenChange, requiredCount, onUploadCo
     const [photos, setPhotos] = useState<string[]>([]);
     const [blobs, setBlobs] = useState<Blob[]>([]);
     const [isCapturing, setIsCapturing] = useState(false);
-    const [stream, setStream] = useState<MediaStream | null>(null);
+    const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
     const { toast } = useToast();
 
     useEffect(() => {
-        if (open) {
-            const getCameraPermission = async () => {
-                try {
-                    // Request video-only stream, preferring the back camera
-                    const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-                    setStream(mediaStream);
-                    if (videoRef.current) {
-                        videoRef.current.srcObject = mediaStream;
-                    }
-                } catch (error) {
-                    console.error('Error accessing camera:', error);
-                    toast({
-                        variant: 'destructive',
-                        title: 'Camera Access Denied',
-                        description: 'Please enable camera permissions in your browser settings.',
-                    });
-                    onOpenChange(false);
-                }
-            };
-            getCameraPermission();
-        } else {
-            // Cleanup on close
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-            }
-            setStream(null);
-            setPhotos([]);
-            setBlobs([]);
+        if (!open) {
+            return;
         }
 
-        return () => {
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
+        let mediaStream: MediaStream | null = null;
+        
+        const setupCamera = async () => {
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                setHasCameraPermission(true);
+                if (videoRef.current) {
+                    videoRef.current.srcObject = mediaStream;
+                }
+            } catch (error) {
+                console.error('Error accessing camera:', error);
+                setHasCameraPermission(false);
+                toast({
+                    variant: 'destructive',
+                    title: 'Camera Access Denied',
+                    description: 'Please enable camera permissions in your browser settings.',
+                });
             }
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+
+        setupCamera();
+
+        return () => {
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+            }
+            setPhotos([]);
+            setBlobs([]);
+            setHasCameraPermission(null);
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open]);
 
     const getGeolocation = (): Promise<GeolocationPosition | null> => {
@@ -182,16 +182,28 @@ export function MultiPhotoCamera({ open, onOpenChange, requiredCount, onUploadCo
                     </DialogDescription>
                 </DialogHeader>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="relative aspect-video bg-muted rounded-md overflow-hidden">
-                        {stream ? (
-                            <video ref={videoRef} className="w-full h-full object-cover" autoPlay playsInline muted />
-                        ) : (
-                            <div className="w-full h-full flex items-center justify-center"><Spinner size="lg" /></div>
+                    <div className="relative aspect-video bg-muted rounded-md overflow-hidden flex items-center justify-center">
+                        <video ref={videoRef} className="w-full h-full object-cover" autoPlay playsInline muted />
+                        {hasCameraPermission === null && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white">
+                                <Spinner size="lg" />
+                            </div>
+                        )}
+                         {hasCameraPermission === false && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/50 p-4">
+                                <Alert variant="destructive">
+                                    <CameraOff className="h-4 w-4" />
+                                    <AlertTitle>Camera Access Required</AlertTitle>
+                                    <AlertDescription>
+                                        Please allow camera access to use this feature.
+                                    </AlertDescription>
+                                </Alert>
+                            </div>
                         )}
                         {isCapturing && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><Spinner /></div>}
                     </div>
                     <div className="space-y-4">
-                        <Button onClick={handleCapture} disabled={isCapturing || !stream} className="w-full">
+                        <Button onClick={handleCapture} disabled={isCapturing || !hasCameraPermission} className="w-full">
                             <Camera className="mr-2 h-4 w-4" /> Take Photo
                         </Button>
                         <div className="h-64 border rounded-md p-2 overflow-y-auto">
