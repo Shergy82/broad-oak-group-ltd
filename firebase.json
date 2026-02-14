@@ -10,6 +10,7 @@
     ],
     "alwaysDeployFromSource": true
   },
+
   "hosting": {
     "site": "the-final-project-5e248",
     "public": "public",
@@ -22,12 +23,13 @@
       {
         "source": "**",
         "run": {
-          "serviceId": "broad-oak-group-ltd",
+          "serviceId": "nextServer",
           "region": "europe-west4"
         }
       }
     ]
   },
+
   "functions": {
     "source": "functions",
     "predeploy": [
@@ -35,10 +37,12 @@
       "npm --prefix \"$RESOURCE_DIR\" run build"
     ]
   },
+
   "firestore": {
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
+
   "storage": {
     "rules": "storage.rules"
   }

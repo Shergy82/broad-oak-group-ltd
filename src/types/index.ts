@@ -124,6 +124,7 @@ export interface TradeTask {
   text: string;
   photoRequired: boolean;
   evidenceTag?: string;
+  photoCount?: number;
 }
 
 export interface EvidenceChecklist {
@@ -133,6 +134,7 @@ export interface EvidenceChecklist {
 export interface EvidenceChecklistItem {
     id: string;
     text: string;
+    photoCount?: number;
 }
 
 

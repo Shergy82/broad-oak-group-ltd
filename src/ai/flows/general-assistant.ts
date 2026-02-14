@@ -6,12 +6,12 @@
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
-export const AskAIAssistantInputSchema = z.object({
+const AskAIAssistantInputSchema = z.object({
   query: z.string().describe("The user's question or prompt."),
 });
 export type AskAIAssistantInput = z.infer<typeof AskAIAssistantInputSchema>;
 
-export const AskAIAssistantOutputSchema = z.object({
+const AskAIAssistantOutputSchema = z.object({
   response: z.string().describe('The AI-generated answer.'),
 });
 export type AskAIAssistantOutput = z.infer<typeof AskAIAssistantOutputSchema>;

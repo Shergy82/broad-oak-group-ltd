@@ -1,14 +1,14 @@
 
-
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { collection, onSnapshot, query, orderBy, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { db, functions, httpsCallable } from '@/lib/firebase';
+import { collection, onSnapshot, query, orderBy, doc, updateDoc, serverTimestamp, addDoc } from 'firebase/firestore';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { db, storage } from '@/lib/firebase';
 import type { Project, EvidenceChecklist, ProjectFile, UserProfile } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Building2, Search, Pencil, CheckCircle, XCircle, Download, Trash2 } from 'lucide-react';
+import { Building2, Search, Pencil, CheckCircle, XCircle, Download, Trash2, RotateCw, Camera } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { EvidenceChecklistManager } from '@/components/admin/evidence-checklist-manager';
@@ -17,38 +17,34 @@ import { Spinner } from '@/components/shared/spinner';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { useToast } from '@/hooks/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
-import { format, differenceInDays } from 'date-fns';
+import { format, differenceInDays, differenceInHours, differenceInMinutes } from 'date-fns';
+import { Dialog, DialogDescription, DialogHeader, DialogTitle, DialogContent } from '@/components/ui/dialog';
+import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '@/components/ui/carousel';
+import NextImage from 'next/image';
+import { MultiPhotoCamera } from '@/components/shared/multi-photo-camera';
 
 const isMatch = (checklistText: string, fileTag: string | undefined): boolean => {
     if (!fileTag || !checklistText) return false;
 
-    const normalize = (text: string): Set<string> => 
-        new Set(
-            text
-                .toLowerCase()
-                .split(/[\s-_]+/)
-                .map(word => word.replace(/[^a-z0-9]/g, ''))
-                .map(word => word.endsWith('s') ? word.slice(0, -1) : word)
-                .filter(Boolean)
-        );
-
-    const checklistWords = normalize(checklistText);
-    const tagWords = normalize(fileTag);
-
-    if (tagWords.size === 0 || checklistWords.size === 0) {
-        return false;
+    const normalize = (text: string): string => {
+        return text
+            .toLowerCase()
+            .replace(/[^a-z0-9\s-]/g, '') 
+            .replace(/[\s-_]+/g, ' ') 
+            .trim();
     }
-    
-    for (const tagWord of tagWords) {
-        if (!checklistWords.has(tagWord)) {
-            return false;
-        }
-    }
-    
-    return true;
+
+    const normalizedChecklist = normalize(checklistText);
+    const normalizedTag = normalize(fileTag);
+
+    if (!normalizedChecklist) return false;
+
+    const checklistWords = normalizedChecklist.split(' ');
+    const tagWords = normalizedTag.split(' ');
+
+    return checklistWords.every(checklistWord => tagWords.includes(checklistWord));
 };
+
 
 interface EvidenceReportGeneratorProps {
   project: Project;
@@ -62,107 +58,145 @@ function EvidenceReportGenerator({ project, files, onGenerated }: EvidenceReport
   const generatePdf = async () => {
     setIsGenerating(true);
 
+    const { default: jsPDF } = await import('jspdf');
+
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.width;
-    const pageMargin = 14;
+    const pageHeight = doc.internal.pageSize.height;
+    const pageMargin = 15;
     
-    const logoSvg = `<svg width="28" height="28" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><g transform="translate(16,16)"><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#84cc16" transform="rotate(0)"/><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#22d3ee" transform="rotate(90)"/><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#f87171" transform="rotate(180)"/><path d="M 0 -14 A 14 14 0 0 1 14 0 L 8 0 A 8 8 0 0 0 0 -8 Z" fill="#fbbf24" transform="rotate(270)"/></g></svg>`;
-    const logoDataUrl = `data:image/svg+xml;base64,${btoa(logoSvg)}`;
-    
-    const pngDataUrl: string = await new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = 28;
-        canvas.height = 28;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, 28, 28);
-          resolve(canvas.toDataURL('image/png'));
-        } else {
-          reject(new Error('Failed to get canvas context'));
-        }
-      };
-      img.onerror = () => reject(new Error('Failed to load SVG for conversion'));
-      img.src = logoDataUrl;
-    });
-    
-    doc.setFillColor(248, 250, 252);
+    // --- Logo Setup ---
+    const logoPngDataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABGAAAACHCAMAAABYx2pAAAAAjVBMVEUAdLj////+gJn/jKv/lLL/o8n/uc3/z+H/2uj/8Pf/+/7/d7v/fpH/hKT/pcn/vcj/0N//3uj/dbr/hKT/pcn/vcj/0N//3uj/dbr/hKT/pcn/vcj/0N//3uj/dbr/hKT/pcn/vcj/0N//3uj/dbr/hKT/pcn/vcj/0N//3uj/dbr/hKT/pcn/vcj/0N//3uhPOAmDAAAAL3RSTlMAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSYnKCkqKywuLzAxMjN/Pz7dAAADWklEQVR42u3d63KbMBQGYBgxBkMQwZmAwZzD//8lF0gS0mpJ2pY56s5+VdD5YGFk+fGkgwAAAAAAAAAAAAAAAAAAAAAAAAAAgBvH5+fn4/P9vX7f4/P93s/3+/l+v/fn/f75+Hj5/u91+7+fD/d/v29uAAAAAAAAAAAAAAAAAAAAAAAAAACA+wuvz/f3+nzPez2/5z1uPx7v9/58v/f78/l+v/f7P37+5fN+v/9v/gIAAAAAAAAAAAAAAAAAAAAAAAAAAPAX8Hq/1/s/n+/3vNf9/u/3vNfr/V/vy/f7P7/e7/1+v/f7vV+f7/e/33sDAAAAAAAAAAAAAAAAAAAAAAAAAADeBd7v9f483/fzXq/3+38/n++Xz/f7+Xy/X+/P6+f7+fP6fr/35y8AAAAAAAAAAAAAAAAAAAAAAAAAAIAf4Pd6v9fr/Z/v9bzX4/N+v/f7fb/P++vl+/3+vN7v/fy8Xt/v/V6fD1/v/1/+AgAAAAAAAAAAAAAAAAAAAAAAAAAA8D+F1+f7fT/v9bzH43m/v9fr8Xq/9+ftXq/3f/78eL++37/d/4sAAAAAAAAAAAAAAAAAAAAAAAAAAAC8D7ye7/f6/M97rcfr+X6v9/v8vN7v/f5+/3u/v7zfp/3+fD/vDAAAAAAAAAAAAAAAAAAAAAAAAAAAwD/L+z9/Pz/fr/d+v/e83+Pz+fn2fr/P+/N+f7/e/3n7eX2+/+e/TwAAAAAAAAAAAAAAAAAAAAAAAAAAAF/B6/n+fr/H4/m83+Px/H6/l+/3frzfr8/H8/v9Xr/fr/fr/Z6fnz9eXz7+AgAAAAAAAAAAAAAAAAAAAAAAAAAA4F3g+Xy/X+/1+Lze+3q9X+/3/nx5vt/v/fnx/Px+v9/v/f3z/f7v/QkAAAAAAAAAAAAAAAAAAAAAAAAAAMAa3h+P93v9fr/nvd7z+fz+fr/X+/Pl+X6v1/vzeh9fPz6+fz//vf95AAAAAAAAAAAAAAAAAAAAAAAAAAAA4B/k+fn+fr/X+/1er+fzfr/f/fnxeLzer/f7/X6/l+f7/f7z+Hj/3P/+AAAAAAAAAAAAAAAAAAAAAAAAAAAA+GN4vt/v/f7r/V6P9/u/Pl9eP+8P+fV6vR+v9/78fH2+/+cf/wEAAAAAAAAAAAAAAAAAAAAAAAAAAIDvj+fP++v93td7ve/1+Py83+v1en+/X+/1/q/P6/v19fP+/N/jAQAAAAAAAAAAAAAAAAAAAAAAAAAA8H7/9w9vAIhV32n/5Q8vAAAAAElFTkSuQmCC';
+
+    // --- Header on Cover Page ---
+    doc.setFillColor(241, 245, 249); // slate-100
     doc.rect(0, 0, pageWidth, 28, 'F');
-    doc.addImage(pngDataUrl, 'PNG', pageMargin, 10, 8, 8);
+    doc.addImage(logoPngDataUrl, 'PNG', pageMargin, 6, 16, 16);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(14);
-    doc.setTextColor(15, 23, 42);
-    doc.text('BROAD OAK GROUP', pageMargin + 12, 16);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.setTextColor(100, 116, 139);
-    doc.text('Live', pageMargin + 12, 21);
+    doc.setFontSize(16);
+    doc.setTextColor(15, 23, 42); // slate-900
+    doc.text('BROAD OAK GROUP', pageMargin + 22, 17);
+
+    // --- Cover Page Content ---
+    let currentY = 70;
     
-    doc.setFontSize(22);
+    doc.setFontSize(32);
     doc.setFont('helvetica', 'bold');
-    doc.text('Evidence Report', pageMargin, 45);
+    doc.setTextColor(15, 23, 42); // slate-900
+    doc.text('Evidence Report', pageWidth / 2, currentY, { align: 'center' });
+    currentY += 20;
 
-    doc.setFontSize(12);
+    doc.setFontSize(16);
     doc.setFont('helvetica', 'normal');
-    doc.text(project.address, pageMargin, 55);
-    doc.setFontSize(10);
-    doc.setTextColor(100, 116, 139);
-    doc.text(`E-Number: ${project.eNumber || 'N/A'} | Generated: ${format(new Date(), 'PPP')}`, pageMargin, 60);
+    doc.setTextColor(51, 65, 85); // slate-700
+    const addressLines = doc.splitTextToSize(project.address, pageWidth - (pageMargin * 6));
+    doc.text(addressLines, pageWidth / 2, currentY, { align: 'center' });
+    currentY += (addressLines.length * 8) + 10;
 
-    let finalY = 70;
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(100, 116, 139); // slate-500
+    const detailText = `${project.contract || 'N/A Contract'} | ${project.eNumber || 'N/A E-Number'}`;
+    doc.text(detailText, pageWidth / 2, currentY, { align: 'center' });
+
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(148, 163, 184); // slate-400
+    doc.text(`Generated: ${format(new Date(), 'PPP')}`, pageWidth / 2, pageHeight - 20, { align: 'center' });
+
+    // --- Photo Pages ---
     const photos = files.filter(f => f.type?.startsWith('image/'));
 
-    for (const photo of photos) {
-      try {
-        const imageUrl = `https://images.weserv.nl/?url=${encodeURIComponent(photo.url)}`;
-        const response = await fetch(imageUrl);
-        const blob = await response.blob();
-        const reader = new FileReader();
-        const dataUrl: string = await new Promise((resolve, reject) => {
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
+    if (photos.length > 0) {
+      const groupedPhotos = new Map<string, ProjectFile[]>();
+      photos.forEach(photo => {
+          const tag = photo.evidenceTag || 'Uncategorized';
+          if (!groupedPhotos.has(tag)) {
+              groupedPhotos.set(tag, []);
+          }
+          groupedPhotos.get(tag)!.push(photo);
+      });
+      const sortedGroups = new Map([...groupedPhotos.entries()].sort());
 
-        const imgProps = doc.getImageProperties(dataUrl);
-        const imgWidth = pageWidth - (pageMargin * 2);
-        const imgHeight = (imgProps.height * imgWidth) / imgProps.width;
+      doc.addPage();
+      let finalY = pageMargin;
 
-        if (finalY + imgHeight + 20 > doc.internal.pageSize.height) {
-          doc.addPage();
-          finalY = pageMargin;
-        }
+      const addPageIfNeeded = (requiredHeight: number) => {
+          if (finalY + requiredHeight > pageHeight - pageMargin) {
+              doc.addPage();
+              finalY = pageMargin;
+          }
+      };
 
-        doc.addImage(dataUrl, 'JPEG', pageMargin, finalY, imgWidth, imgHeight);
-        finalY += imgHeight + 5;
+      for (const [tag, photosInGroup] of sortedGroups.entries()) {
+          addPageIfNeeded(20); // space for header
+          doc.setFontSize(16);
+          doc.setFont('helvetica', 'bold');
+          doc.text(tag, pageMargin, finalY);
+          finalY += 12;
 
-        const captionText = `${photo.evidenceTag ? `Tag: ${photo.evidenceTag}` : photo.name} - Uploaded by ${photo.uploaderName}`;
-        doc.setFontSize(9);
-        doc.setTextColor(100, 116, 139);
-        doc.text(captionText, pageMargin, finalY);
-        finalY += 10;
-      } catch (e) {
-        console.error("Could not add image to PDF", e);
-        if (finalY + 10 > doc.internal.pageSize.height) {
-            doc.addPage();
-            finalY = pageMargin;
-        }
-        doc.setFontSize(9);
-        doc.setTextColor(255, 0, 0);
-        doc.text(`Failed to load image: ${photo.name}`, pageMargin, finalY);
-        finalY += 10;
+          for (const photo of photosInGroup) {
+              try {
+                  const imageUrl = `https://images.weserv.nl/?url=${encodeURIComponent(photo.url)}`;
+                  const response = await fetch(imageUrl);
+                  const blob = await response.blob();
+                  const reader = new FileReader();
+                  const dataUrl: string = await new Promise((resolve, reject) => {
+                      reader.onload = () => resolve(reader.result as string);
+                      reader.onerror = reject;
+                      reader.readAsDataURL(blob);
+                  });
+
+                  const imgProps = doc.getImageProperties(dataUrl);
+                  const imgWidth = pageWidth - (pageMargin * 2);
+                  const imgHeight = (imgProps.height * imgWidth) / imgProps.width;
+                  
+                  const maxHeight = 110; // Max height per image to fit two
+                  let renderHeight = imgHeight;
+                  let renderWidth = imgWidth;
+
+                  if (renderHeight > maxHeight) {
+                      renderWidth = (renderWidth * maxHeight) / renderHeight;
+                      renderHeight = maxHeight;
+                  }
+                  
+                  const captionText = `${photo.evidenceTag ? `Tag: ${photo.evidenceTag}` : photo.name} - Uploaded by ${photo.uploaderName}`;
+                  const captionLines = doc.splitTextToSize(captionText, renderWidth);
+                  const captionHeight = (doc.getLineHeight() * captionLines.length) / doc.internal.scaleFactor;
+                  const totalBlockHeight = renderHeight + captionHeight + 10;
+                  
+                  addPageIfNeeded(totalBlockHeight);
+                  
+                  const centeredX = (pageWidth - renderWidth) / 2;
+                  doc.addImage(dataUrl, 'JPEG', centeredX, finalY, renderWidth, renderHeight);
+                  finalY += renderHeight + 5;
+
+                  doc.setFontSize(9);
+                  doc.setTextColor(100, 116, 139);
+                  doc.text(captionLines, centeredX, finalY);
+                  finalY += captionHeight + 5;
+
+              } catch (e) {
+                console.error("Could not add image to PDF", e);
+                addPageIfNeeded(10);
+                doc.setFontSize(9);
+                doc.setTextColor(255, 0, 0);
+                doc.text(`Failed to load image: ${photo.name}`, pageMargin, finalY);
+                finalY += 10;
+              }
+          }
+           finalY += 10; // Space between groups
       }
     }
-
+    
     doc.save(`evidence_${project.address.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
     setIsGenerating(false);
     onGenerated();
   };
 
   return (
-    <Button onClick={generatePdf} disabled={isGenerating} size="sm" className="w-full">
-      {isGenerating ? <Spinner /> : <><Download className="mr-2 h-4 w-4" /> Generate Evidence PDF</>}
+    <Button onClick={generatePdf} disabled={isGenerating} size="sm" className="w-full text-xs px-2 gap-1.5">
+      {isGenerating ? <Spinner /> : <><Download className="mr-2 h-4 w-4" /> Generate PDF</>}
     </Button>
   );
 }
@@ -174,136 +208,302 @@ interface ProjectEvidenceCardProps {
   loadingFiles: boolean;
   generatedPdfProjects: string[];
   onPdfGenerated: (projectId: string) => void;
+  onResetStatus: (projectId: string) => void;
 }
 
-function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generatedPdfProjects, onPdfGenerated }: ProjectEvidenceCardProps) {
-  const { userProfile } = useUserProfile();
-  const { toast } = useToast();
-  
-  const evidenceState = useMemo<'incomplete' | 'ready' | 'generated'>(() => {
-    if (loadingFiles) return 'incomplete';
-    
-    const isChecklistMet = (() => {
-        if (!checklist || !checklist.items || checklist.items.length === 0) {
-            return true;
+function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generatedPdfProjects, onPdfGenerated, onResetStatus }: ProjectEvidenceCardProps) {
+    const { userProfile } = useUserProfile();
+    const { toast } = useToast();
+    const [viewerOpen, setViewerOpen] = useState(false);
+    const [selectedItem, setSelectedItem] = useState<{ text: string; photos: ProjectFile[] } | null>(null);
+
+    const [isCameraOpen, setIsCameraOpen] = useState(false);
+    const [selectedCameraItem, setSelectedCameraItem] = useState<{ text: string, count: number } | null>(null);
+
+
+    const evidenceState = useMemo<'incomplete' | 'ready' | 'generated'>(() => {
+        if (loadingFiles) return 'incomplete';
+
+        const isChecklistMet = (() => {
+            if (!checklist || !checklist.items || checklist.items.length === 0) {
+                return true;
+            }
+            return checklist.items.every(item => {
+                const requiredCount = item.photoCount || 1;
+                const matchingFiles = files.filter(file => isMatch(item.text, file.evidenceTag));
+                return matchingFiles.length >= requiredCount;
+            });
+        })();
+
+        const isPdfGenerated = generatedPdfProjects.includes(project.id);
+
+        if (!isChecklistMet) return 'incomplete';
+        if (isPdfGenerated) return 'generated';
+        return 'ready';
+    }, [files, checklist, loadingFiles, generatedPdfProjects, project.id]);
+
+    const openDuration = useMemo(() => {
+        if (!project.createdAt) return null;
+        
+        const now = new Date();
+        const createdAt = project.createdAt.toDate();
+        const minutes = differenceInMinutes(now, createdAt);
+
+        if (minutes < 60) {
+             return { value: minutes, unit: 'minute' };
         }
-        return checklist.items.every(item => 
-            files.some(file => isMatch(item.text, file.evidenceTag))
-        );
-    })();
-    
-    const isPdfGenerated = generatedPdfProjects.includes(project.id);
-    
-    if (!isChecklistMet) return 'incomplete';
-    if (isPdfGenerated) return 'generated';
-    return 'ready';
-  }, [files, checklist, loadingFiles, generatedPdfProjects, project.id]);
 
-  const daysOpen = useMemo(() => {
-    if (!project.createdAt) return null;
-    return differenceInDays(new Date(), project.createdAt.toDate());
-  }, [project.createdAt]);
+        const hours = differenceInHours(now, createdAt);
+        if (hours < 24) {
+            return { value: hours, unit: 'hour' };
+        }
+        
+        const days = differenceInDays(now, createdAt);
+        return { value: days, unit: 'day' };
 
-  const handleDeleteProject = async () => {
-    if (!userProfile || !['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role)) {
-        toast({ variant: 'destructive', title: 'Permission Denied', description: 'You do not have permission to delete projects.' });
-        return;
-    }
-    
-    toast({ title: "Scheduling Deletion...", description: `Project will be removed from this view and permanently deleted in 7 days.` });
-    
-    try {
-      const projectRef = doc(db, 'projects', project.id);
-      await updateDoc(projectRef, {
-        deletionScheduledAt: serverTimestamp()
-      });
-      toast({ title: "Success", description: "Project scheduled for deletion." });
-    } catch (error: any) {
-      console.error("Error scheduling project for deletion:", error);
-      toast({ 
-        variant: 'destructive', 
-        title: 'Scheduling Failed', 
-        description: error.message || 'An unknown error occurred.' 
-      });
-    }
-  };
+    }, [project.createdAt]);
 
-  const { evidenceStatus } = useMemo(() => {
-    if (!checklist || !checklist.items || checklist.items.length === 0) {
-      return { evidenceStatus: [] };
-    }
-    const status = checklist.items.map(item => {
-      const itemIsComplete = files.some(file => isMatch(item.text, file.evidenceTag));
-      return { text: item.text, isComplete: itemIsComplete };
-    });
-    return { evidenceStatus: status };
-  }, [files, checklist]);
+    const handleDeleteProject = async () => {
+        if (!userProfile || !['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role)) {
+            toast({ variant: 'destructive', title: 'Permission Denied', description: 'You do not have permission to delete projects.' });
+            return;
+        }
 
-  const cardColorClass = {
-    incomplete: 'bg-red-800 border-red-950',
-    ready: 'bg-orange-600 border-orange-800',
-    generated: 'bg-green-700 border-green-900',
-  }[evidenceState];
+        toast({ title: "Scheduling Deletion...", description: `Project will be removed from this view and permanently deleted in 7 days.` });
 
-  const textColorClass = 'text-white';
+        try {
+            const projectRef = doc(db, 'projects', project.id);
+            await updateDoc(projectRef, {
+                deletionScheduledAt: serverTimestamp()
+            });
+            toast({ title: "Success", description: "Project scheduled for deletion." });
+        } catch (error: any) {
+            console.error("Error scheduling project for deletion:", error);
+            toast({
+                variant: 'destructive',
+                title: 'Scheduling Failed',
+                description: error.message || 'An unknown error occurred.'
+            });
+        }
+    };
 
-  return (
-    <Card className={cn("hover:shadow-md transition-shadow flex flex-col", cardColorClass)}>
-      <CardHeader className="p-4 pb-2">
-        <CardTitle className={cn("text-sm font-semibold leading-tight", textColorClass)}>{project.address}</CardTitle>
-        {project.eNumber && <CardDescription className={cn("text-xs pt-1 opacity-80", textColorClass)}>{project.eNumber}</CardDescription>}
-      </CardHeader>
-      <CardContent className="p-4 pt-2 flex-grow flex flex-col justify-between">
-        {loadingFiles ? (
-          <div className="flex justify-center items-center h-16">
-            <Spinner size="sm" />
-          </div>
-        ) : (
-          <div>
-            {evidenceStatus.length > 0 ? (
-              <div className="space-y-1">
-                {evidenceStatus.map(item => (
-                    <div key={item.text} className={cn("flex items-center gap-2 text-xs", item.isComplete ? cn(textColorClass, "opacity-70") : cn("font-semibold", textColorClass))}>
-                        {item.isComplete ? <CheckCircle className="h-3 w-3 opacity-90"/> : <XCircle className="h-3 w-3"/>}
-                        <span>{item.text}</span>
+    const evidenceStatus = useMemo(() => {
+        if (!checklist || !checklist.items) return [];
+        return checklist.items.map(item => {
+            const matchingFiles = files.filter(file => file.type?.startsWith('image/') && isMatch(item.text, file.evidenceTag));
+            const requiredCount = item.photoCount || 1;
+            const isComplete = matchingFiles.length >= requiredCount;
+            const displayCount = isComplete ? requiredCount : matchingFiles.length;
+            return {
+                text: item.text,
+                isComplete,
+                photoCount: requiredCount,
+                uploadedCount: matchingFiles.length,
+                displayCount,
+                photos: matchingFiles
+            };
+        });
+    }, [files, checklist]);
+
+    const handleViewPhotos = (itemText: string, photos: ProjectFile[]) => {
+        if (photos.length > 0) {
+            setSelectedItem({ text: itemText, photos });
+            setViewerOpen(true);
+        }
+    };
+
+    const handleTakePhoto = (itemText: string, requiredCount: number) => {
+        setSelectedCameraItem({ text: itemText, count: requiredCount });
+        setIsCameraOpen(true);
+    };
+
+    const handleUploadFromCamera = async (filesToUpload: File[]) => {
+        if (!userProfile || !selectedCameraItem) return;
+
+        toast({ title: 'Uploading photos...', description: 'Please wait.' });
+
+        const uploadPromises = filesToUpload.map(file => {
+            const storagePath = `project_files/${project.id}/${Date.now()}-${file.name}`;
+            const storageRef = ref(storage, storagePath);
+            
+            const uploadTask = uploadBytesResumable(storageRef, file);
+
+            return new Promise<void>((resolve, reject) => {
+                uploadTask.on(
+                    'state_changed',
+                    null,
+                    (error) => reject(error),
+                    async () => {
+                        try {
+                            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+                            await addDoc(collection(db, `projects/${project.id}/files`), {
+                                name: file.name,
+                                url: downloadURL,
+                                fullPath: storagePath,
+                                size: file.size,
+                                type: file.type,
+                                uploadedAt: serverTimestamp(),
+                                uploaderId: userProfile.uid,
+                                uploaderName: userProfile.name,
+                                evidenceTag: selectedCameraItem.text || ''
+                            });
+                            resolve();
+                        } catch (dbError) {
+                            reject(dbError);
+                        }
+                    }
+                );
+            });
+        });
+
+        try {
+            await Promise.all(uploadPromises);
+            toast({ title: 'Success', description: `${filesToUpload.length} photo(s) uploaded.` });
+        } catch (error) {
+            console.error("Error uploading photos from camera:", error);
+            toast({ variant: 'destructive', title: 'Upload Failed', description: 'One or more photos failed to upload.' });
+        }
+    };
+
+
+    const cardColorClass = {
+        incomplete: 'bg-red-800 border-red-950',
+        ready: 'bg-orange-600 border-orange-800',
+        generated: 'bg-green-700 border-green-900',
+    }[evidenceState];
+
+    const textColorClass = 'text-white';
+
+    return (
+        <>
+            <Card className={cn("hover:shadow-md transition-shadow flex flex-col", cardColorClass)}>
+                <CardHeader className="p-4 pb-2">
+                    <CardTitle className={cn("text-sm font-semibold leading-tight", textColorClass)}>{project.address}</CardTitle>
+                    {project.eNumber && <CardDescription className={cn("text-xs pt-1 opacity-80", textColorClass)}>{project.eNumber}</CardDescription>}
+                </CardHeader>
+                <CardContent className="p-4 pt-2 flex-grow flex flex-col justify-between">
+                    {loadingFiles ? (
+                        <div className="flex justify-center items-center h-16">
+                            <Spinner size="sm" />
+                        </div>
+                    ) : (
+                        <div>
+                            {evidenceStatus.length > 0 ? (
+                                <div className="space-y-1">
+                                    {evidenceStatus.map(item => (
+                                        <div key={item.text} className={cn("flex items-center gap-2 text-xs", item.isComplete ? cn(textColorClass, "opacity-70") : cn("font-semibold", textColorClass))}>
+                                            {item.isComplete ?
+                                                <button onClick={() => handleViewPhotos(item.text, item.photos)} className="flex items-center gap-2 text-left w-full hover:underline">
+                                                    <CheckCircle className="h-3 w-3 opacity-90 shrink-0" />
+                                                    <span className="truncate">{item.text} ({item.displayCount}/{item.photoCount})</span>
+                                                </button>
+                                                :
+                                                <div className="flex items-center justify-between gap-2 text-left w-full">
+                                                  <div className="flex items-center gap-2">
+                                                    <XCircle className="h-3 w-3 shrink-0" />
+                                                    <span className="truncate">{item.text} ({item.displayCount}/{item.photoCount})</span>
+                                                  </div>
+                                                  <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0 text-white" onClick={() => handleTakePhoto(item.text, item.photoCount)}>
+                                                      <Camera className="h-4 w-4" />
+                                                  </Button>
+                                                </div>
+                                            }
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : <p className={cn("text-xs italic", textColorClass)}>No evidence checklist for this contract.</p>}
+                        </div>
+                    )}
+                    {openDuration && (
+                        <div className="text-right text-xs mt-2 opacity-80 text-white">
+                            <span className="font-bold">{openDuration.value}</span> {openDuration.unit}{openDuration.value === 1 ? '' : 's'} open
+                        </div>
+                    )}
+                </CardContent>
+                <CardFooter className="p-2 border-t mt-auto grid gap-2">
+                     <div className="space-y-2">
+                        {evidenceState !== 'incomplete' && (
+                            <EvidenceReportGenerator project={project} files={files} onGenerated={() => onPdfGenerated(project.id)} />
+                        )}
+                        {evidenceState === 'generated' && (
+                            <div className="grid grid-cols-2 gap-2">
+                                <Button variant="secondary" size="sm" className="text-xs px-2 gap-1.5" onClick={() => onResetStatus(project.id)}>
+                                    <RotateCw className="h-4 w-4" /> More Evidence
+                                </Button>
+                                <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                        <Button variant="destructive" size="sm" className="text-xs px-2 gap-1.5">
+                                            <Trash2 className="h-4 w-4" /> Delete
+                                        </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                            <AlertDialogDescription>This action schedules the project for permanent deletion in 7 days.</AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                            <AlertDialogAction onClick={handleDeleteProject} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Schedule Deletion</AlertDialogAction>
+                                        </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                </AlertDialog>
+                            </div>
+                        )}
                     </div>
-                ))}
-              </div>
-            ) : <p className={cn("text-xs italic", textColorClass)}>No evidence checklist for this contract.</p>}
-          </div>
-        )}
-        {daysOpen !== null && (
-            <div className="text-right text-xs mt-2 opacity-80 text-white">
-                <span className="font-bold">{daysOpen}</span> days open
-            </div>
-        )}
-      </CardContent>
-      <CardFooter className="p-2 border-t mt-auto">
-        {evidenceState === 'ready' && (
-          <EvidenceReportGenerator project={project} files={files} onGenerated={() => onPdfGenerated(project.id)} />
-        )}
-        {evidenceState === 'generated' && (
-           <AlertDialog>
-              <AlertDialogTrigger asChild>
-                  <Button variant="destructive" size="sm" className="w-full">
-                      <Trash2 className="mr-2 h-4 w-4" /> Delete Project
-                  </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                    <AlertDialogDescription>This will permanently delete the project and all its files. This action cannot be undone.</AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleDeleteProject} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete Project</AlertDialogAction>
-                  </AlertDialogFooter>
-              </AlertDialogContent>
-          </AlertDialog>
-        )}
-      </CardFooter>
-    </Card>
-  );
+                </CardFooter>
+            </Card>
+
+            {selectedCameraItem && (
+                <MultiPhotoCamera
+                    open={isCameraOpen}
+                    onOpenChange={setIsCameraOpen}
+                    requiredCount={selectedCameraItem.count}
+                    onUploadComplete={handleUploadFromCamera}
+                    taskName={selectedCameraItem.text}
+                />
+            )}
+
+            {selectedItem && (
+                <Dialog open={viewerOpen} onOpenChange={setViewerOpen}>
+                    <DialogContent className="max-w-4xl">
+                        <DialogHeader>
+                            <DialogTitle>Photos for: {selectedItem.text}</DialogTitle>
+                            <DialogDescription>
+                                {selectedItem.photos.length} photo(s) found for this evidence item on project: {project.address}.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <Carousel className="w-full">
+                            <CarouselContent>
+                                {selectedItem.photos.map((photo) => (
+                                    <CarouselItem key={photo.id}>
+                                        <div className="p-1">
+                                            <Card>
+                                                <CardContent className="flex aspect-video items-center justify-center p-0 relative overflow-hidden rounded-lg">
+                                                    <NextImage
+                                                        src={`https://images.weserv.nl/?url=${encodeURIComponent(photo.url)}`}
+                                                        alt={photo.name}
+                                                        fill
+                                                        className="object-contain"
+                                                    />
+                                                </CardContent>
+                                                 <CardFooter className="flex-col items-start text-sm text-muted-foreground p-3">
+                                                    <p><strong>File:</strong> {photo.name}</p>
+                                                    <p><strong>Uploaded by:</strong> {photo.uploaderName}</p>
+                                                    <p><strong>Date:</strong> {photo.uploadedAt ? format(photo.uploadedAt.toDate(), 'PPP p') : 'N/A'}</p>
+                                                </CardFooter>
+                                            </Card>
+                                        </div>
+                                    </CarouselItem>
+                                ))}
+                            </CarouselContent>
+                            <CarouselPrevious />
+                            <CarouselNext />
+                        </Carousel>
+                    </DialogContent>
+                </Dialog>
+            )}
+        </>
+    );
 }
 
 
@@ -340,6 +540,18 @@ export default function EvidencePage() {
         return newGenerated;
     });
   }
+  
+   const onResetStatus = (projectId: string) => {
+    setGeneratedPdfProjects(prev => {
+        const newGenerated = prev.filter(id => id !== projectId);
+        try {
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(newGenerated));
+        } catch (e) {
+            console.error("Failed to write to local storage", e);
+        }
+        return newGenerated;
+    });
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -381,11 +593,25 @@ export default function EvidencePage() {
         return onSnapshot(q, (snapshot) => {
             const files = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ProjectFile));
             setFilesByProject(prev => new Map(prev).set(project.id, files));
+            
+            const isGenerated = generatedPdfProjects.includes(project.id);
+            if (isGenerated) {
+                 const checklist = evidenceChecklists.get(project.contract || '');
+                 const isChecklistMet = !checklist || !checklist.items || checklist.items.length === 0 ||
+                    checklist.items.every(item => {
+                        const requiredCount = item.photoCount || 1;
+                        const matchingFiles = files.filter(file => isMatch(item.text, file.evidenceTag));
+                        return matchingFiles.length >= requiredCount;
+                    });
+                if (!isChecklistMet) {
+                    onResetStatus(project.id);
+                }
+            }
         });
     });
 
     return () => unsubscribers.forEach(unsub => unsub());
-  }, [projects]);
+  }, [projects, evidenceChecklists, generatedPdfProjects]);
 
   useEffect(() => {
     if (projects.length > 0 && filesByProject.size < projects.length) {
@@ -417,9 +643,11 @@ export default function EvidencePage() {
         const projectFiles = filesByProject.get(project.id) || [];
         
         const isChecklistMet = !checklist || !checklist.items || checklist.items.length === 0 || 
-            checklist.items.every(item => 
-                projectFiles.some(file => isMatch(item.text, file.evidenceTag))
-            );
+            checklist.items.every(item => {
+                const requiredCount = item.photoCount || 1;
+                const matchingFiles = projectFiles.filter(file => isMatch(item.text, file.evidenceTag));
+                return matchingFiles.length >= requiredCount;
+            });
 
         let evidenceState: 'incomplete' | 'ready' | 'generated' = 'incomplete';
         if (isChecklistMet) {
@@ -517,6 +745,7 @@ export default function EvidencePage() {
                         loadingFiles={loading}
                         generatedPdfProjects={generatedPdfProjects}
                         onPdfGenerated={onPdfGenerated}
+                        onResetStatus={onResetStatus}
                     />
                   ))}
                 </div>
@@ -535,5 +764,3 @@ export default function EvidencePage() {
     </>
   );
 }
-
-    

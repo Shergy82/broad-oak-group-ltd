@@ -8,8 +8,14 @@ import { usePushNotifications } from '@/hooks/use-push-notifications';
 
 export default function PushToggleButton() {
   const { toast } = useToast();
-  const { isSupported, isSubscribed, isSubscribing, permission, subscribe, unsubscribe } =
-    usePushNotifications();
+  const {
+    isSupported,
+    isSubscribed,
+    isSubscribing,
+    permission,
+    subscribe,
+    unsubscribe,
+  } = usePushNotifications();
 
   const label = useMemo(() => {
     if (!isSupported) return 'Push not supported';
@@ -17,7 +23,8 @@ export default function PushToggleButton() {
     return isSubscribed ? 'Notifications on' : 'Enable notifications';
   }, [isSupported, isSubscribed, permission]);
 
-  const disabled = !isSupported || permission === 'denied' || isSubscribing;
+  // FORCE ENABLE BUTTON (debug)
+  const disabled = false;
 
   return (
     <Button
@@ -37,6 +44,7 @@ export default function PushToggleButton() {
             });
             return;
           }
+
           if (permission === 'denied') {
             toast({
               title: 'Blocked',
@@ -49,6 +57,7 @@ export default function PushToggleButton() {
           if (isSubscribed) {
             await unsubscribe();
           } else {
+            alert('subscribe clicked');
             await subscribe();
           }
         } catch (e: any) {
@@ -60,7 +69,11 @@ export default function PushToggleButton() {
         }
       }}
     >
-      {isSubscribed ? <Bell className="h-5 w-5" /> : <BellOff className="h-5 w-5" />}
+      {isSubscribed ? (
+        <Bell className="h-5 w-5" />
+      ) : (
+        <BellOff className="h-5 w-5" />
+      )}
     </Button>
   );
 }

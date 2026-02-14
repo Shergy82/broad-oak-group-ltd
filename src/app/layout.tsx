@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 
 import { Providers } from '@/components/providers';
 import { Header } from '@/components/layout/header';
@@ -47,6 +47,12 @@ export const metadata: Metadata = {
   },
 };
 
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+};
+
 export default function RootLayout({
   children,
 }: {
@@ -54,30 +60,15 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="h-full">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link
-          rel="preconnect"
-          href="https://fonts.gstatic.com"
-          crossOrigin="anonymous"
-        />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap"
-          rel="stylesheet"
-        />
-        <meta name="theme-color" content="#ffffff" />
-      </head>
-
-      <body className="font-body antialiased h-full">
+      <body className="h-full font-body antialiased overflow-x-hidden bg-background">
         <Providers>
-          {/* Global announcement gate modal */}
           <PendingAnnouncementModal />
 
-          <div className="min-h-screen flex flex-col">
+          <div className="flex min-h-screen flex-col">
             <Header />
 
-            <main className="flex-1">
-              <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <main className="flex-1 w-full">
+              <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 py-6">
                 {children}
               </div>
             </main>

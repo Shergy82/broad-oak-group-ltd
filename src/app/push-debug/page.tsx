@@ -1,34 +1,55 @@
-"use client";
+'use client';
 
-import { usePushNotifications } from '@/hooks/use-push-notifications';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Spinner } from '@/components/shared/spinner';
-import { useToast } from '@/hooks/use-toast';
 import { useState } from 'react';
+import { httpsCallable } from 'firebase/functions';
+
+import { functions } from '@/lib/firebase';
+import { usePushNotifications } from '@/hooks/use-push-notifications';
 import { useAuth } from '@/hooks/use-auth';
+import { useToast } from '@/hooks/use-toast';
+
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Spinner } from '@/components/shared/spinner';
+
+/* =========================
+   Callable
+   ========================= */
+
+const sendTestNotificationFn = httpsCallable<
+  { uid: string },
+  { ok: boolean; sent?: number; message?: string }
+>(functions, 'sendTestNotificationHttp');
+
+/* =========================
+   Page
+   ========================= */
 
 export default function PushDebugPage() {
   const { user } = useAuth();
+  const { toast } = useToast();
+  const [isSending, setIsSending] = useState(false);
 
   const {
     isSupported,
     isSubscribed,
     isSubscribing,
     permission,
-    isKeyLoading,
     vapidKey,
     subscribe,
     unsubscribe,
   } = usePushNotifications();
 
-  const { toast } = useToast();
-  const [isSending, setIsSending] = useState(false);
-
   const handleSendTest = async () => {
     if (!user) {
       toast({
-        title: "Not Authenticated",
+        title: 'Not Authenticated',
         variant: 'destructive',
       });
       return;
@@ -37,31 +58,24 @@ export default function PushDebugPage() {
     setIsSending(true);
 
     try {
-      const url =
-        `https://europe-west2-the-final-project-5e248.cloudfunctions.net/sendTestNotificationHttp?uid=${encodeURIComponent(
-          user.uid
-        )}`;
+      const res = await sendTestNotificationFn({ uid: user.uid });
 
-      const res = await fetch(url);
-      const data = await res.json();
-
-      if (!res.ok || !data?.ok) {
-        throw new Error(
-          data?.error ||
-          data?.message ||
-          `HTTP ${res.status}`
-        );
+      if (!res.data?.ok) {
+        throw new Error(res.data?.message || 'Test notification failed');
       }
 
       toast({
         title: 'Test Notification Sent',
-        description: data.message || `Dispatched ${data.sent} notification(s).`,
+        description:
+          res.data.message ??
+          (res.data.sent
+            ? `Dispatched ${res.data.sent} notification(s).`
+            : 'Notification dispatched.'),
       });
-
-    } catch (error: any) {
+    } catch (err: any) {
       toast({
         title: 'Test Failed',
-        description: error.message || 'Could not send test notification.',
+        description: err?.message || 'Could not send test notification.',
         variant: 'destructive',
       });
     } finally {
@@ -80,21 +94,25 @@ export default function PushDebugPage() {
         </CardHeader>
 
         <CardContent className="space-y-4">
-
           <div className="space-y-2 rounded-md border p-4">
             <h3 className="font-semibold">System Status</h3>
 
-            <p><strong>Supported:</strong> {isSupported ? 'Yes' : 'No'}</p>
-            <p><strong>Permission:</strong> {permission}</p>
-            <p><strong>Subscribed:</strong> {isSubscribed ? 'Yes' : 'No'}</p>
             <p>
-              <strong>Key Loaded:</strong>{' '}
-              {isKeyLoading ? 'Loading...' : vapidKey ? 'Yes' : 'No'}
+              <strong>Supported:</strong> {isSupported ? 'Yes' : 'No'}
+            </p>
+            <p>
+              <strong>Permission:</strong> {permission}
+            </p>
+            <p>
+              <strong>Subscribed:</strong> {isSubscribed ? 'Yes' : 'No'}
+            </p>
+            <p>
+              <strong>VAPID Key Loaded:</strong>{' '}
+              {vapidKey ? 'Yes' : 'No'}
             </p>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-
             <Button
               onClick={subscribe}
               disabled={
@@ -114,7 +132,6 @@ export default function PushDebugPage() {
             >
               {isSubscribing && isSubscribed ? <Spinner /> : 'Unsubscribe'}
             </Button>
-
           </div>
 
           <Button
@@ -124,7 +141,6 @@ export default function PushDebugPage() {
           >
             {isSending ? <Spinner /> : 'Send Test Notification'}
           </Button>
-
         </CardContent>
       </Card>
     </div>

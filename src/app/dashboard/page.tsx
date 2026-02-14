@@ -1,11 +1,10 @@
-
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserProfile } from '@/hooks/use-user-profile';
-import Dashboard from '@/components/dashboard/index';
+import Dashboard from '@/components/dashboard';
 import { Spinner } from '@/components/shared/spinner';
 import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -25,128 +24,154 @@ export default function DashboardPage() {
   const [showNewShifts, setShowNewShifts] = useState(true);
   const [acknowledgedIds, setAcknowledgedIds] = useState<Set<string>>(new Set());
 
+  /* =========================
+     AUTH REDIRECT
+  ========================= */
+
   useEffect(() => {
     if (!isAuthLoading && !user) {
       router.push('/login');
     }
   }, [user, isAuthLoading, router]);
-  
+
+  /* =========================
+     LOAD ACKNOWLEDGED ANNOUNCEMENTS
+  ========================= */
+
   useEffect(() => {
-    if (user) {
-      try {
-        const storedAcknowledged = localStorage.getItem(`acknowledgedAnnouncements_${user.uid}`);
-        if (storedAcknowledged) {
-          setAcknowledgedIds(new Set(JSON.parse(storedAcknowledged)));
-        }
-      } catch (e) {
-        console.error("Failed to parse acknowledged announcements from localStorage", e);
-        setAcknowledgedIds(new Set());
+    if (!user) return;
+
+    try {
+      const stored = localStorage.getItem(`acknowledgedAnnouncements_${user.uid}`);
+      if (stored) {
+        setAcknowledgedIds(new Set(JSON.parse(stored)));
       }
+    } catch {
+      setAcknowledgedIds(new Set());
     }
   }, [user]);
 
+  /* =========================
+     FIRESTORE LISTENERS
+  ========================= */
+
   useEffect(() => {
-    if (!user || !db) {
+    if (!user) {
       setLoadingData(false);
       return;
     }
+
     setLoadingData(true);
 
-    const announcementsQuery = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'));
-    const shiftsQuery = query(collection(db, 'shifts'), where('userId', '==', user.uid));
-    
+    const announcementsQuery = query(
+      collection(db, 'announcements'),
+      orderBy('createdAt', 'desc')
+    );
+
+    const shiftsQuery = query(
+      collection(db, 'shifts'),
+      where('userId', '==', user.uid)
+    );
+
     let announcementsLoaded = false;
     let shiftsLoaded = false;
 
-    const checkAllDataLoaded = () => {
-        if (announcementsLoaded && shiftsLoaded) {
-            setLoadingData(false);
-        }
-    }
+    const checkLoaded = () => {
+      if (announcementsLoaded && shiftsLoaded) {
+        setLoadingData(false);
+      }
+    };
 
-    const unsubAnnouncements = onSnapshot(announcementsQuery, (snapshot) => {
-      setAnnouncements(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement)));
-      announcementsLoaded = true;
-      checkAllDataLoaded();
-    }, (error) => {
-        console.error("Error fetching announcements:", error);
+    const unsubAnnouncements = onSnapshot(
+      announcementsQuery,
+      (snapshot) => {
+        setAnnouncements(
+          snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement))
+        );
         announcementsLoaded = true;
-        checkAllDataLoaded();
-    });
+        checkLoaded();
+      },
+      () => {
+        announcementsLoaded = true;
+        checkLoaded();
+      }
+    );
 
-    const unsubShifts = onSnapshot(shiftsQuery, (snapshot) => {
-        setAllShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
+    const unsubShifts = onSnapshot(
+      shiftsQuery,
+      (snapshot) => {
+        setAllShifts(
+          snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift))
+        );
         shiftsLoaded = true;
-        checkAllDataLoaded();
-    }, (error) => {
-        console.error("Error fetching user shifts:", error);
+        checkLoaded();
+      },
+      () => {
         shiftsLoaded = true;
-        checkAllDataLoaded();
-    });
+        checkLoaded();
+      }
+    );
 
     return () => {
       unsubAnnouncements();
       unsubShifts();
     };
   }, [user]);
-  
+
+  /* =========================
+     MEMOS
+  ========================= */
+
   const unreadAnnouncements = useMemo(() => {
-    if (!user || loadingData || announcements.length === 0) return [];
+    if (!user || loadingData) return [];
     return announcements.filter(a => !acknowledgedIds.has(a.id));
   }, [announcements, user, loadingData, acknowledgedIds]);
 
   const newShifts = useMemo(() => {
-    if (!user || loadingData || allShifts.length === 0) return [];
+    if (!user || loadingData) return [];
     return allShifts.filter(shift => shift.status === 'pending-confirmation');
   }, [allShifts, user, loadingData]);
-  
-  const isLoading = isAuthLoading || isProfileLoading || loadingData;
-  
-  const handleAnnouncementsClose = () => {
-    setShowAnnouncements(false);
-    if (user) {
-      try {
-        const storedAcknowledged = localStorage.getItem(`acknowledgedAnnouncements_${user.uid}`);
-        if (storedAcknowledged) {
-          setAcknowledgedIds(new Set(JSON.parse(storedAcknowledged)));
-        }
-      } catch (e) {
-        console.error("Failed to re-read acknowledged announcements from localStorage", e);
-      }
-    }
-  };
 
+  const isLoading = isAuthLoading || isProfileLoading || loadingData;
+
+  /* =========================
+     LOADING + DIALOG PRIORITY
+  ========================= */
 
   if (isLoading || !user) {
     return (
-      <div className="flex min-h-screen w-full flex-col items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center">
         <Spinner size="lg" />
       </div>
     );
   }
 
-  // --- Dialog Rendering Logic ---
-  // Priority: 1. New Shifts, 2. Announcements
   if (newShifts.length > 0 && showNewShifts) {
     return (
-        <NewShiftsDialog
-            shifts={newShifts}
-            onClose={() => setShowNewShifts(false)}
-        />
-    )
+      <NewShiftsDialog
+        shifts={newShifts}
+        onClose={() => setShowNewShifts(false)}
+      />
+    );
   }
 
   if (unreadAnnouncements.length > 0 && showAnnouncements) {
     return (
-        <UnreadAnnouncements 
-          announcements={unreadAnnouncements} 
-          user={user} 
-          onClose={handleAnnouncementsClose}
-        />
+      <UnreadAnnouncements
+        announcements={unreadAnnouncements}
+        user={user}
+        onClose={() => setShowAnnouncements(false)}
+      />
     );
   }
 
+  /* =========================
+     MAIN DASHBOARD
+  ========================= */
+
   return (
-    <Dashboard userShifts={allShifts} loading={loadingData} />
+    <div className="space-y-8 p-6">
+      <Dashboard userShifts={allShifts} loading={loadingData} />
+    </div>
   );
 }
