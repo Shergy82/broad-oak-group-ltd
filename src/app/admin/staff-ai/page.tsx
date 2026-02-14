@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
@@ -7,24 +8,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { askAIAssistant } from '@/ai/flows/general-assistant';
 import { Spinner } from '@/components/shared/spinner';
 import { Sparkles } from 'lucide-react';
-import { collection, onSnapshot } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import type { Project } from '@/types';
 
 export default function StaffAIPage() {
   const [query, setQuery] = useState('');
   const [response, setResponse] = useState('');
-  const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-
-  useEffect(() => {
-    if (!db) return;
-    const unsubscribe = onSnapshot(collection(db, 'projects'), (snapshot) => {
-      const fetchedProjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project));
-      setProjects(fetchedProjects.filter(p => p.address && !p.deletionScheduledAt));
-    });
-    return () => unsubscribe();
-  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,19 +36,15 @@ export default function StaffAIPage() {
   }
 
   const mapUrl = useMemo(() => {
-    if (projects.length > 0) {
-      const query = projects.map(p => `(${p.address})`).join(' OR ');
-      return `https://maps.google.com/maps?q=${encodeURIComponent(query)}&t=&z=11&ie=UTF8&iwloc=&output=embed`;
-    }
     return `https://maps.google.com/maps?q=${encodeURIComponent('Broad Oak Group')}&t=&z=14&ie=UTF8&iwloc=&output=embed`;
-  }, [projects]);
+  }, []);
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Staff AI Assistant</CardTitle>
         <CardDescription>
-          Ask questions or get help with tasks. The map below shows all project locations.
+          Ask questions or get help with tasks. The map below shows the main office location.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -97,10 +81,9 @@ export default function StaffAIPage() {
         )}
 
         <div>
-             <h3 className="font-semibold mb-2">Project Locations Map</h3>
+             <h3 className="font-semibold mb-2">Location Map</h3>
              <div className="aspect-video w-full border rounded-lg overflow-hidden">
                 <iframe
-                    key={mapUrl} // Re-render iframe when URL changes
                     width="100%"
                     height="100%"
                     style={{ border: 0 }}
