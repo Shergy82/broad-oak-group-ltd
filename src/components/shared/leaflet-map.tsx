@@ -5,6 +5,7 @@ import { Icon, LatLngExpression } from 'leaflet';
 import { useEffect, useState } from 'react';
 import type { Project } from '@/types';
 import { Spinner } from './spinner';
+import { getProjectCoordinates } from '@/app/admin/actions';
 
 interface LeafletMapProps {
     locations: Project[];
@@ -34,52 +35,28 @@ const LeafletMap = ({ locations }: LeafletMapProps) => {
         const geocodeAddresses = async () => {
             setLoading(true);
             setError(null);
-            const newPositions: Position[] = [];
-            const apiKey = process.env.NEXT_PUBLIC_MAPS_API_KEY;
+            
+            const addressesToGeocode = locations
+                .map(loc => loc.address)
+                .filter((addr): addr is string => !!addr);
 
-            if (!apiKey) {
-                setError("Google Maps API key is missing. Please check your environment variables.");
+            if (addressesToGeocode.length === 0) {
                 setLoading(false);
                 return;
             }
 
-            for (const location of locations) {
-                if (!location.address) continue;
-                try {
-                    const query = `${location.address}, ${location.council || ''}`;
-                    const response = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${apiKey}`);
-                    
-                    if (!response.ok) {
-                        console.error(`Geocoding failed for ${location.address} with status: ${response.status}`);
-                        continue;
-                    }
-                    const data = await response.json();
-                    if (data.status === 'OK' && data.results && data.results.length > 0) {
-                        const { lat, lng } = data.results[0].geometry.location;
-                        newPositions.push({
-                            lat,
-                            lng,
-                            address: location.address,
-                        });
-                    } else {
-                        console.warn(`Geocoding failed for ${location.address}: ${data.status} - ${data.error_message || ''}`);
-                        if (data.status === 'REQUEST_DENIED') {
-                            setError('Geocoding API is not enabled. Please enable it in the Google Cloud Console.');
-                        }
-                    }
-                } catch (error) {
-                    console.error('Geocoding error:', error);
-                }
+            try {
+                const newPositions = await getProjectCoordinates(addressesToGeocode);
+                setPositions(newPositions);
+            } catch (err) {
+                console.error("Error calling server action for geocoding:", err);
+                setError("Failed to fetch location data.");
+            } finally {
+                setLoading(false);
             }
-            setPositions(newPositions);
-            setLoading(false);
         };
 
-        if (locations.length > 0) {
-            geocodeAddresses();
-        } else {
-            setLoading(false);
-        }
+        geocodeAddresses();
     }, [locations]);
     
     const defaultCenter: LatLngExpression = [53.0027, -2.1794]; // Stoke-on-Trent
