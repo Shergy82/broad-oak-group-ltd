@@ -8,8 +8,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { askAIAssistant } from '@/ai/flows/general-assistant';
 import { Textarea } from '@/components/ui/textarea';
 import { Spinner } from '@/components/shared/spinner';
-import { Sparkles, MapPin } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { DynamicMap } from '@/components/shared/dynamic-map';
 
 export default function StaffAIPage() {
   const [queryText, setQueryText] = useState('');
@@ -61,7 +62,7 @@ export default function StaffAIPage() {
       <CardHeader>
         <CardTitle>Staff AI Assistant & Project Locations</CardTitle>
         <CardDescription>
-          Ask questions or get help with tasks. A list of active project locations is provided below.
+          Ask questions or get help with tasks. A map of active project locations is provided below.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -99,26 +100,13 @@ export default function StaffAIPage() {
 
         <div>
              <h3 className="font-semibold mb-2">Project Locations</h3>
-             <div className="border rounded-lg bg-muted/30 p-4 space-y-2">
+             <div className="h-[500px] w-full rounded-lg border bg-muted">
                 {loadingProjects ? (
-                    <div className="flex items-center justify-center h-24">
+                    <div className="flex items-center justify-center h-full">
                         <Spinner />
                     </div>
-                ) : projects.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-4">No active projects found.</p>
                 ) : (
-                    <ul className="space-y-2">
-                        {projects.map(project => (
-                            <li key={project.id} className="flex items-center justify-between p-2 bg-background rounded-md border">
-                                <span className="font-medium text-sm">{project.address}</span>
-                                <Button variant="ghost" size="sm" asChild>
-                                    <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(project.address)}`} target="_blank" rel="noopener noreferrer">
-                                        <MapPin className="mr-2 h-4 w-4" /> View Map
-                                    </a>
-                                </Button>
-                            </li>
-                        ))}
-                    </ul>
+                    <DynamicMap locations={projects} />
                 )}
              </div>
         </div>
