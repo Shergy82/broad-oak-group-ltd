@@ -10,16 +10,12 @@ import { Sparkles, Map } from 'lucide-react';
 import { collection, onSnapshot, query as firestoreQuery, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Project } from '@/types';
-import Image from 'next/image';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Terminal } from 'lucide-react';
 
 export default function StaffAIPage() {
   const [query, setQuery] = useState('');
   const [response, setResponse] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [mapError, setMapError] = useState(false);
 
   useEffect(() => {
     if (!db) return;
@@ -53,24 +49,6 @@ export default function StaffAIPage() {
     const presetQuery = "How do I change a tap?";
     setQuery(presetQuery);
   };
-  
-  const staticMapUrl = useMemo(() => {
-    const baseUrl = `https://maps.googleapis.com/maps/api/staticmap`;
-    const apiKey = process.env.NEXT_PUBLIC_MAPS_API_KEY;
-    
-    if (projects.length === 0) {
-      return `${baseUrl}?center=Broad+Oak+Group,+Cheadle,+UK&zoom=10&size=600x400&key=${apiKey}`;
-    }
-
-    // Static API has a URL length limit, so we cap the number of markers.
-    const markers = projects
-      .slice(0, 50) 
-      .map(p => `markers=${encodeURIComponent(p.address)}`)
-      .join('&');
-      
-    // The zoom and center will be determined automatically by the API when markers are present.
-    return `${baseUrl}?size=600x400&${markers}&key=${apiKey}`;
-  }, [projects]);
 
   const interactiveMapUrl = useMemo(() => {
     if (projects.length === 0) {
@@ -126,25 +104,13 @@ export default function StaffAIPage() {
         <div>
              <h3 className="font-semibold mb-2">Project Locations</h3>
              <div className="aspect-video w-full border rounded-lg overflow-hidden bg-muted flex items-center justify-center">
-                {mapError ? (
-                  <Alert variant="destructive" className="w-auto">
-                      <Terminal className="h-4 w-4" />
-                      <AlertTitle>Map Failed to Load</AlertTitle>
-                      <AlertDescription>
-                        Please ensure the "Maps Static API" is enabled in your Google Cloud project.
-                      </AlertDescription>
-                  </Alert>
-                ) : (
-                    <Image
-                        src={staticMapUrl}
-                        alt="Map of project locations"
-                        width={600}
-                        height={400}
-                        className="object-cover w-full h-full"
-                        onError={() => setMapError(true)}
-                        unoptimized // Necessary for static maps that change URL frequently
-                    />
-                )}
+                <iframe
+                    className="w-full h-full border-0"
+                    loading="lazy"
+                    allowFullScreen
+                    referrerPolicy="no-referrer-when-downgrade"
+                    src={`https://www.google.com/maps/embed/v1/place?key=${process.env.NEXT_PUBLIC_MAPS_API_KEY}&q=Broad+Oak+Group,Cheadle`}>
+                </iframe>
              </div>
              <div className="text-right mt-2">
                  <Button asChild variant="link">
