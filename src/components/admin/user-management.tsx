@@ -20,6 +20,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
+const LS_DEPT_FILTER_KEY = 'userManagement_departmentFilter';
 
 export function UserManagement() {
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -28,6 +29,7 @@ export function UserManagement() {
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('all');
+  const [selectedDepartment, setSelectedDepartment] = useState('all');
   
   const isOwner = currentUserProfile?.role === 'owner';
   const isPrivilegedUser = isOwner || currentUserProfile?.role === 'admin' || currentUserProfile?.role === 'manager' || currentUserProfile?.role === 'TLO';
@@ -48,7 +50,6 @@ export function UserManagement() {
         // Show only self if no department and not owner
         usersQuery = query(collection(db, 'users'), where('uid', '==', currentUserProfile.uid));
     }
-
 
     const unsubscribe = onSnapshot(usersQuery, (querySnapshot) => {
       const fetchedUsers: UserProfile[] = [];
@@ -71,17 +72,56 @@ export function UserManagement() {
     return () => unsubscribe();
   }, [currentUserProfile, toast, isOwner]);
 
+  useEffect(() => {
+    if (isOwner) {
+        try {
+            const savedDept = localStorage.getItem(LS_DEPT_FILTER_KEY);
+            if (savedDept) {
+                setSelectedDepartment(savedDept);
+            }
+        } catch (e) {
+            console.warn("Could not read department filter preference from localStorage.");
+        }
+    }
+  }, [isOwner]);
+
+  const handleDepartmentFilterChange = (dept: string) => {
+      setSelectedDepartment(dept);
+      if (isOwner) {
+          try {
+            localStorage.setItem(LS_DEPT_FILTER_KEY, dept);
+          } catch (e) {
+            console.warn("Could not save department filter preference to localStorage.");
+          }
+      }
+  };
+
+  const availableDepartments = useMemo(() => {
+      const depts = new Set<string>();
+      users.forEach(user => {
+          if(user.department) depts.add(user.department);
+      });
+      return Array.from(depts).sort();
+  }, [users]);
+
   const pendingUsers = useMemo(() => users.filter(user => user.status === 'pending-approval'), [users]);
 
   const usersToDisplay = useMemo(() => {
     const sourceUsers = activeTab === 'pending' ? pendingUsers : users;
-    if (!searchTerm) {
-      return sourceUsers;
+    let filtered = sourceUsers;
+
+    if (isOwner && selectedDepartment !== 'all') {
+        filtered = filtered.filter(user => user.department === selectedDepartment);
     }
-    return sourceUsers.filter(user =>
+    
+    if (!searchTerm) {
+      return filtered;
+    }
+
+    return filtered.filter(user =>
       user.name.toLowerCase().includes(searchTerm.toLowerCase())
     );
-  }, [users, pendingUsers, activeTab, searchTerm]);
+  }, [users, pendingUsers, activeTab, searchTerm, isOwner, selectedDepartment]);
 
 
   const adminAndManagerUsers = useMemo(() => usersToDisplay.filter(user =>
@@ -303,11 +343,7 @@ export function UserManagement() {
           </div>
         );
       }
-      return (
-        <div className="border border-dashed rounded-lg p-8 text-center text-muted-foreground">
-          <p>No users in this category.</p>
-        </div>
-      );
+      return null;
     }
 
     return (
@@ -351,7 +387,16 @@ export function UserManagement() {
                     {isPrivilegedUser ? (
                         <div className="flex gap-2">
                             <Input defaultValue={user.trade || ''} onBlur={(e) => handleTradeChange(user.uid, e.target.value)} placeholder="Trade" className="h-8 text-xs"/>
-                            <Input defaultValue={user.department || ''} onBlur={(e) => handleDepartmentChange(user.uid, e.target.value)} placeholder="Dept" className="h-8 text-xs"/>
+                            <Input
+                                defaultValue={user.department || ''}
+                                onBlur={(e) => handleDepartmentChange(user.uid, e.target.value)}
+                                placeholder="Dept"
+                                className="h-8 text-xs"
+                                list="department-suggestions"
+                            />
+                            <datalist id="department-suggestions">
+                                {availableDepartments.map(dept => <option key={dept} value={dept} />)}
+                            </datalist>
                         </div>
                     ) : ( <p className="text-sm p-2 border rounded-md bg-muted/50 h-8 flex items-center">{user.trade || 'N/A'} / {user.department || 'N/A'}</p> )}
                 </div>
@@ -384,14 +429,27 @@ export function UserManagement() {
   return (
     <div className="space-y-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div className="relative w-full sm:w-auto">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                    placeholder="Search users..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full sm:w-64 pl-10"
-                />
+            <div className="flex flex-col sm:flex-row items-center gap-4 w-full">
+                <div className="relative w-full sm:w-auto">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                        placeholder="Search users..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full sm:w-64 pl-10"
+                    />
+                </div>
+                {isOwner && (
+                    <Select value={selectedDepartment} onValueChange={handleDepartmentFilterChange}>
+                        <SelectTrigger className="w-full sm:w-[200px]">
+                            <SelectValue placeholder="Filter by department..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Departments</SelectItem>
+                            {availableDepartments.map(dept => <SelectItem key={dept} value={dept}>{dept}</SelectItem>)}
+                        </SelectContent>
+                    </Select>
+                )}
             </div>
             <Button variant="outline" onClick={handleDownloadPdf} disabled={loading || users.length === 0} className="w-full sm:w-auto">
                 <Download className="mr-2 h-4 w-4" />
