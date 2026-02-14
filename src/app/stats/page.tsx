@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { collection, onSnapshot, query, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, query, getDocs, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Shift, UserProfile, ProjectFile, PerformanceMetric } from '@/types';
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, isBefore, startOfToday } from 'date-fns';
@@ -14,10 +14,12 @@ import { Leaderboard } from '@/components/stats/leaderboard';
 import { PersonalStatsTable } from '@/components/stats/personal-stats-table';
 import { getCorrectedLocalDate, isWithin } from '@/lib/utils';
 import { Award } from 'lucide-react';
+import { useUserProfile } from '@/hooks/use-user-profile';
 
 
 export default function StatsPage() {
   const { user, isLoading: isAuthLoading } = useAuth();
+  const { userProfile, loading: profileLoading } = useUserProfile();
   const router = useRouter();
 
   const [allShifts, setAllShifts] = useState<Shift[]>([]);
@@ -32,8 +34,8 @@ export default function StatsPage() {
   }, [user, isAuthLoading, router]);
 
   useEffect(() => {
-    if (!user || !db) {
-      setLoadingData(false);
+    if (!user || !db || profileLoading || !userProfile) {
+      if (!isAuthLoading && !profileLoading) setLoadingData(false);
       return;
     }
 
@@ -47,14 +49,33 @@ export default function StatsPage() {
         setLoadingData(false);
       }
     };
+    
+    const department = userProfile.department;
+    const isOwner = userProfile.role === 'owner';
 
-    const unsubShifts = onSnapshot(query(collection(db, 'shifts')), (snapshot) => {
+    let shiftsQuery;
+    if (isOwner) {
+        shiftsQuery = query(collection(db, 'shifts'));
+    } else if (department) {
+        shiftsQuery = query(collection(db, 'shifts'), where('department', '==', department));
+    } else {
+        shiftsQuery = query(collection(db, 'shifts'), where('userId', '==', userProfile.uid));
+    }
+    const unsubShifts = onSnapshot(shiftsQuery, (snapshot) => {
       setAllShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
       shiftsLoaded = true;
       checkAllDataLoaded();
     });
 
-    const unsubUsers = onSnapshot(query(collection(db, 'users')), (snapshot) => {
+    let usersQuery;
+    if (isOwner) {
+        usersQuery = query(collection(db, 'users'));
+    } else if (department) {
+        usersQuery = query(collection(db, 'users'), where('department', '==', department));
+    } else {
+        usersQuery = query(collection(db, 'users'), where('uid', '==', userProfile.uid));
+    }
+    const unsubUsers = onSnapshot(usersQuery, (snapshot) => {
       setAllUsers(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile)));
       usersLoaded = true;
       checkAllDataLoaded();
@@ -62,7 +83,19 @@ export default function StatsPage() {
 
     const fetchPhotos = async () => {
         try {
-            const projectsSnapshot = await getDocs(query(collection(db, 'projects')));
+            let projectsQuery;
+            if (isOwner) {
+                projectsQuery = query(collection(db, 'projects'));
+            } else if (department) {
+                projectsQuery = query(collection(db, 'projects'), where('department', '==', department));
+            } else {
+                setAllPhotos([]);
+                photosLoaded = true;
+                checkAllDataLoaded();
+                return;
+            }
+
+            const projectsSnapshot = await getDocs(projectsQuery);
             const photoPromises = projectsSnapshot.docs.map(async (projectDoc) => {
                 const filesQuery = query(collection(db, `projects/${projectDoc.id}/files`));
                 const filesSnapshot = await getDocs(filesQuery);
@@ -86,7 +119,7 @@ export default function StatsPage() {
       unsubShifts();
       unsubUsers();
     };
-  }, [user]);
+  }, [user, userProfile, profileLoading]);
 
   const calculateMetrics = (shifts: Shift[], users: UserProfile[], photos: ProjectFile[]): PerformanceMetric[] => {
     const operativeUsers = users.filter(u => u.role === 'user' || u.role === 'TLO');
@@ -165,7 +198,7 @@ export default function StatsPage() {
     }
   }, [user, weeklyData, monthlyData, yearlyData]);
 
-  if (isAuthLoading || loadingData || !user) {
+  if (isAuthLoading || profileLoading || loadingData || !user) {
     return (
       <main className="flex flex-1 flex-col items-center justify-center">
         <Spinner size="lg" />

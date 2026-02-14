@@ -532,6 +532,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                         eNumber,
                         manager,
                         contract: sheetName,
+                        department: userProfile.department || '',
                       });
                     } else {
                       allFailedShifts.push({
@@ -671,6 +672,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                                     eNumber: info.eNumber || '',
                                     manager: info.manager || '',
                                     contract: info.contract || '',
+                                    department: info.department || '',
                                     createdAt: serverTimestamp(),
                                     createdBy: userProfile.name,
                                     creatorId: userProfile.uid,

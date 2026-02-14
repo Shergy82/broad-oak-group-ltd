@@ -36,6 +36,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { cn } from '@/lib/utils';
 import { Spinner } from '@/components/shared/spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useUserProfile } from '@/hooks/use-user-profile';
 
 
 type Role = 'user' | 'admin' | 'owner' | 'manager' | 'TLO';
@@ -320,8 +321,14 @@ export default function AvailabilityPage() {
   const [selectedDayData, setSelectedDayData] = useState<DayData | null>(null);
   const [isUnavailabilityManagerOpen, setIsUnavailabilityManagerOpen] = useState(false);
   const { toast } = useToast();
+  const { userProfile, loading: profileLoading } = useUserProfile();
 
   useEffect(() => {
+    if (profileLoading || !userProfile) {
+        setLoading(false);
+        return;
+    }
+
     setLoading(true);
     let shiftsLoaded = false, usersLoaded = false, unavailabilityLoaded = false;
     
@@ -330,6 +337,9 @@ export default function AvailabilityPage() {
             setLoading(false);
         }
     };
+    
+    const department = userProfile.department;
+    const isOwner = userProfile.role === 'owner';
 
     // Load saved preferences from localStorage on initial mount
     try {
@@ -343,14 +353,28 @@ export default function AvailabilityPage() {
         const savedTrades = localStorage.getItem(LS_TRADES_KEY);
         const tradesToSet = savedTrades ? new Set(JSON.parse(savedTrades)) : null;
        
-        const shiftsQuery = query(collection(db, 'shifts'));
+        let shiftsQuery;
+        if (isOwner) {
+            shiftsQuery = query(collection(db, 'shifts'));
+        } else if (department) {
+            shiftsQuery = query(collection(db, 'shifts'), where('department', '==', department));
+        } else {
+            shiftsQuery = query(collection(db, 'shifts'), where('userId', '==', userProfile.uid));
+        }
         const unsubShifts = onSnapshot(shiftsQuery, (snapshot) => {
             setAllShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
             shiftsLoaded = true;
             checkAllDataLoaded();
         }, (err) => { console.error("Error fetching shifts:", err); shiftsLoaded = true; checkAllDataLoaded(); });
 
-        const usersQuery = query(collection(db, 'users'));
+        let usersQuery;
+        if (isOwner) {
+            usersQuery = query(collection(db, 'users'));
+        } else if (department) {
+            usersQuery = query(collection(db, 'users'), where('department', '==', department));
+        } else {
+            usersQuery = query(collection(db, 'users'), where('uid', '==', userProfile.uid));
+        }
         const unsubUsers = onSnapshot(usersQuery, (snapshot) => {
             const fetchedUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
             setAllUsers(fetchedUsers.sort((a,b) => (a.name || '').localeCompare(b.name || '')));
@@ -387,7 +411,7 @@ export default function AvailabilityPage() {
         console.error("Failed to load preferences or data", e);
         setLoading(false);
     }
-  }, []);
+  }, [profileLoading, userProfile]);
   
   const handleDeleteUnavailability = async (id: string) => {
     try {
@@ -482,6 +506,7 @@ export default function AvailabilityPage() {
     const intervalDays = eachDayOfInterval({ start, end });
   
     const usersToConsider = allUsers.filter(user => selectedUserIds.has(user.uid));
+    const relevantUnavailability = unavailability.filter(u => usersToConsider.some(user => user.uid === u.userId));
   
     return usersToConsider
       .map((user): AvailableUser | null => {
@@ -491,7 +516,7 @@ export default function AvailabilityPage() {
             isBefore(start, addDays(startOfDay(getCorrectedLocalDate(shift.date)), 1))
         );
 
-        const userUnavailabilityInRange = unavailability.filter(u => u.userId === user.uid);
+        const userUnavailabilityInRange = relevantUnavailability.filter(u => u.userId === user.uid);
 
         const dayStates = intervalDays.map((day): DayAvailability => {
             const isUnavailable = userUnavailabilityInRange.some(u => isWithinInterval(day, { start: getCorrectedLocalDate(u.startDate), end: getCorrectedLocalDate(u.endDate)}));
@@ -871,6 +896,10 @@ export default function AvailabilityPage() {
     )
   }
   
+  if (profileLoading) {
+    return <Spinner size="lg" />;
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -1070,4 +1099,3 @@ export default function AvailabilityPage() {
     </Card>
   );
 }
-
