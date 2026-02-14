@@ -555,13 +555,15 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
 
             {enlargedPhoto && (
                 <Dialog open={!!enlargedPhoto} onOpenChange={() => setEnlargedPhoto(null)}>
-                    <DialogContent className="max-w-[90vw] max-h-[90vh] h-auto w-auto p-2 bg-transparent border-none shadow-none">
-                         <NextImage
-                            src={`https://images.weserv.nl/?url=${encodeURIComponent(enlargedPhoto.url)}`}
-                            alt={enlargedPhoto.name}
-                            fill
-                            className="object-contain"
-                        />
+                    <DialogContent className="w-[90vw] h-[90vh] max-w-[90vw] p-0 bg-transparent border-none shadow-none flex items-center justify-center">
+                         <div className="relative w-full h-full">
+                            <NextImage
+                                src={`https://images.weserv.nl/?url=${encodeURIComponent(enlargedPhoto.url)}`}
+                                alt={enlargedPhoto.name}
+                                fill
+                                className="object-contain"
+                            />
+                         </div>
                     </DialogContent>
                 </Dialog>
             )}
