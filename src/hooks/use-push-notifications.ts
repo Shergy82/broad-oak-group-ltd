@@ -7,15 +7,9 @@ import { functions } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 
-import type {
-  PushSubscriptionPayload,
-  VapidKeyResponse,
-  GenericResponse,
-} from '@/types';
-
 /* =========================
    Helpers
-   ========================= */
+========================= */
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -24,47 +18,28 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
 }
 
-function endpointToId(endpoint: string) {
-  let h = 0;
-  for (let i = 0; i < endpoint.length; i++) {
-    h = (h * 31 + endpoint.charCodeAt(i)) | 0;
-  }
-  return Math.abs(h).toString(36);
-}
-
 function fmtCallableError(err: any): string {
   return err?.message || String(err);
 }
 
 /* =========================
-   Callable types
-   ========================= */
+   Callables
+========================= */
 
-type SetNotificationStatusRequest = {
-  status: 'subscribed' | 'unsubscribed';
-  uid: string;
-  subId: string;
-  subscription?: PushSubscriptionPayload;
-  endpoint?: string;
-};
-
-/* =========================
-   Callables (SINGLETONS)
-   ========================= */
-
-const getVapidPublicKeyFn = httpsCallable<unknown, VapidKeyResponse>(
+const getVapidPublicKeyFn = httpsCallable<unknown, { publicKey: string }>(
   functions,
   'getVapidPublicKey'
 );
 
+// Option B: toggle + subscription payload
 const setNotificationStatusFn = httpsCallable<
-  SetNotificationStatusRequest,
-  GenericResponse
+  { enabled: boolean; subscription?: PushSubscriptionJSON },
+  { success: boolean }
 >(functions, 'setNotificationStatus');
 
 /* =========================
    Hook
-   ========================= */
+========================= */
 
 export function usePushNotifications() {
   const { toast } = useToast();
@@ -87,7 +62,7 @@ export function usePushNotifications() {
 
   /* =========================
      Local state sync
-     ========================= */
+  ========================= */
 
   const refreshLocalSubscriptionState = useCallback(async () => {
     try {
@@ -100,8 +75,8 @@ export function usePushNotifications() {
   }, []);
 
   /* =========================
-     Permission + state init
-     ========================= */
+     Permission + init
+  ========================= */
 
   useEffect(() => {
     if (!isSupported) {
@@ -115,7 +90,7 @@ export function usePushNotifications() {
 
   /* =========================
      Load VAPID key
-     ========================= */
+  ========================= */
 
   useEffect(() => {
     if (!isSupported) return;
@@ -138,7 +113,7 @@ export function usePushNotifications() {
 
   /* =========================
      Subscribe
-     ========================= */
+  ========================= */
 
   const subscribe = useCallback(async () => {
     if (!isSupported || !user || !vapidKey) {
@@ -156,11 +131,7 @@ export function usePushNotifications() {
       let perm = Notification.permission;
 
       if (perm === 'default') {
-        try {
-          perm = await Notification.requestPermission();
-        } catch {
-          perm = Notification.permission;
-        }
+        perm = await Notification.requestPermission();
       }
 
       setPermission(perm);
@@ -176,21 +147,18 @@ export function usePushNotifications() {
 
       const reg = await navigator.serviceWorker.ready;
 
-      const existing = await reg.pushManager.getSubscription();
+      let subscription = await reg.pushManager.getSubscription();
 
-      const subscription =
-        existing ??
-        (await reg.pushManager.subscribe({
+      if (!subscription) {
+        subscription = await reg.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey: urlBase64ToUint8Array(vapidKey),
-        }));
+        });
+      }
 
-      const subId = `${user.uid}_${endpointToId(subscription.endpoint)}`;
-
+      // ✅ Restore previous behaviour: send subscription to backend
       await setNotificationStatusFn({
-        status: 'subscribed',
-        uid: user.uid,
-        subId,
+        enabled: true,
         subscription: subscription.toJSON(),
       });
 
@@ -220,7 +188,7 @@ export function usePushNotifications() {
 
   /* =========================
      Unsubscribe
-     ========================= */
+  ========================= */
 
   const unsubscribe = useCallback(async () => {
     if (!isSupported || !user) return;
@@ -231,22 +199,12 @@ export function usePushNotifications() {
       const reg = await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.getSubscription();
 
-      if (!sub) {
-        setIsSubscribed(false);
-        return;
+      if (sub) {
+        await sub.unsubscribe();
       }
 
-      const endpoint = sub.endpoint;
-      await sub.unsubscribe();
-
-      const subId = `${user.uid}_${endpointToId(endpoint)}`;
-
-      await setNotificationStatusFn({
-        status: 'unsubscribed',
-        uid: user.uid,
-        subId,
-        endpoint,
-      });
+      // Preference toggle only (same as before)
+      await setNotificationStatusFn({ enabled: false });
 
       await refreshLocalSubscriptionState();
 
@@ -268,7 +226,7 @@ export function usePushNotifications() {
 
   /* =========================
      Public API
-     ========================= */
+  ========================= */
 
   return {
     isSupported,

@@ -1,7 +1,9 @@
-'use server';
 import * as admin from 'firebase-admin';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import fetch from 'node-fetch';
+
+/* =====================================================
+   Bootstrap
+===================================================== */
 
 if (admin.apps.length === 0) {
   admin.initializeApp();
@@ -13,12 +15,10 @@ const db = admin.firestore();
    ENV
 ===================================================== */
 
-const GEOCODING_KEY =
-  process.env.GOOGLE_GEOCODING_KEY ||
-  require('firebase-functions').config().google.geocoding_key;
+const GEOCODING_KEY = process.env.GOOGLE_GEOCODING_KEY;
 
 /* =====================================================
-   NOTIFICATION STATUS (REQUIRED BY FRONTEND)
+   NOTIFICATION STATUS
 ===================================================== */
 
 export const getNotificationStatus = onCall(
@@ -40,14 +40,31 @@ export const setNotificationStatus = onCall(
       throw new HttpsError('unauthenticated', 'Login required');
     }
 
+    const uid = req.auth.uid;
+
     if (typeof req.data?.enabled !== 'boolean') {
       throw new HttpsError('invalid-argument', 'enabled must be boolean');
     }
 
+    /* 1️⃣ Save user preference */
     await db
       .collection('users')
-      .doc(req.auth.uid)
-      .set({ notificationsEnabled: req.data.enabled }, { merge: true });
+      .doc(uid)
+      .set(
+        { notificationsEnabled: req.data.enabled },
+        { merge: true }
+      );
+
+    /* 2️⃣ Restore previous behaviour:
+          store browser push subscription if provided */
+    if (req.data.subscription && req.data.enabled === true) {
+      await db
+        .collection('users')
+        .doc(uid)
+        .collection('pushSubscriptions')
+        .doc('browser')
+        .set(req.data.subscription, { merge: true });
+    }
 
     return { success: true };
   }
@@ -126,7 +143,7 @@ export const reGeocodeAllShifts = onCall(
     if (!GEOCODING_KEY) {
       throw new HttpsError(
         'failed-precondition',
-        'Missing Google Geocoding API key'
+        'Missing GOOGLE_GEOCODING_KEY'
       );
     }
 
@@ -146,12 +163,20 @@ export const reGeocodeAllShifts = onCall(
 
       const address = encodeURIComponent(`${data.address}, UK`);
       const url =
-        `https://maps.googleapis.com/maps/api/geocode/json?` +
-        `address=${address}&key=${GEOCODING_KEY}`;
+        `https://maps.googleapis.com/maps/api/geocode/json` +
+        `?address=${address}&key=${GEOCODING_KEY}`;
 
       try {
         const res = await fetch(url);
-        const json: any = await res.json();
+        const json = (await res.json()) as {
+          status: string;
+          results?: Array<{
+            geometry: {
+              location: { lat: number; lng: number };
+              location_type: string;
+            };
+          }>;
+        };
 
         if (json.status !== 'OK' || !json.results?.length) {
           failed++;
@@ -166,12 +191,12 @@ export const reGeocodeAllShifts = onCall(
           location: {
             lat,
             lng,
-            accuracy, // ROOFTOP | RANGE_INTERPOLATED | POSTAL_CODE
+            accuracy,
           },
         });
 
         updated++;
-      } catch (err) {
+      } catch {
         failed++;
       }
     }
