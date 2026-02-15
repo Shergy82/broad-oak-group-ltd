@@ -128,15 +128,18 @@ export function StaffShiftMap() {
     });
 
     Promise.all(geocodePromises).then(results => {
-        setGeocodedLocations(prev => {
-            const newCache = new Map(prev);
-            results.forEach(result => {
-                if (result) {
-                    newCache.set(result.address, result.coords);
-                }
+        const newResults = results.filter(Boolean); // Filter out nulls
+        if (newResults.length > 0) { // Only update if there are new results
+            setGeocodedLocations(prev => {
+                const newCache = new Map(prev);
+                newResults.forEach(result => {
+                    if (result) {
+                        newCache.set(result.address, result.coords);
+                    }
+                });
+                return newCache;
             });
-            return newCache;
-        });
+        }
     });
   }, [isLoaded, shifts, geocodedLocations, geocodeAddress]);
 
