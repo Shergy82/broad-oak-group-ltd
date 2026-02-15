@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
@@ -150,7 +151,7 @@ export function StaffShiftMap() {
                           <p className="font-semibold mt-2">Closest Operatives:</p>
                           <ul className="list-none p-0 mt-1 text-sm text-muted-foreground">
                             {closestUsers.map(u => (
-                                <li key={u.userId}>{u.userName} (~{u.distance.toFixed(1)} km away)</li>
+                                <li key={u.userId}>{u.userName} (~{(u.distance * 0.621371).toFixed(1)} miles away)</li>
                             ))}
                           </ul>
                       </div>
