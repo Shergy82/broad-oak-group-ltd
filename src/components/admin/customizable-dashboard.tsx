@@ -20,8 +20,10 @@ import { ShiftScheduleOverview } from './shift-schedule-overview';
 import { HealthAndSafetyFileList } from '../health-and-safety/file-list';
 import { Faq } from '../landing/faq';
 import { UserManagement } from './user-management';
+import { StaffShiftMap } from './StaffShiftMap';
+import { EvidenceDashboard } from './evidence-dashboard';
 
-type WidgetKey = 'availability' | 'performance' | 'contracts' | 'tasks' | 'projects' | 'schedule' | 'users' | 'healthAndSafety' | 'help';
+type WidgetKey = 'availability' | 'performance' | 'contracts' | 'tasks' | 'projects' | 'schedule' | 'users' | 'healthAndSafety' | 'help' | 'mapping' | 'evidence';
 
 interface Widget {
   key: WidgetKey;
@@ -30,27 +32,31 @@ interface Widget {
 }
 
 const ALL_WIDGETS: Widget[] = [
-  { key: 'availability', title: 'Today\'s Availability', description: 'Quick overview of operative availability today.' },
   { key: 'schedule', title: 'Team Schedule', description: 'A real-time overview of all upcoming shifts for the team.' },
-  { key: 'performance', title: 'Operative Performance', description: 'KPIs for all users, ranked.' },
+  { key: 'availability', title: 'Today\'s Availability', description: 'Quick overview of operative availability today.' },
+  { key: 'mapping', title: 'Mapping', description: 'Live view of staff locations for today.' },
   { key: 'contracts', title: 'Contract Dashboard', description: 'High-level statistics for each contract.' },
+  { key: 'performance', title: 'Operative Performance', description: 'KPIs for all users, ranked.' },
   { key: 'tasks', title: 'Task Management', description: 'Create and manage reusable tasks.' },
-  { key: 'projects', title: 'Project Management', description: 'Create projects and manage files.' },
   { key: 'users', title: 'User Management', description: 'View and manage all user accounts.' },
+  { key: 'evidence', title: 'Evidence Dashboard', description: 'Overview of all project sites evidence collection status.' },
+  { key: 'projects', title: 'Project Management', description: 'Create projects and manage files.' },
   { key: 'healthAndSafety', title: 'Health & Safety', description: 'View and manage H&S documents.' },
   { key: 'help', title: 'Help & Support', description: 'Frequently asked questions.' },
 ];
 
-const LS_KEY = 'admin_dashboard_widgets_v4';
+const LS_KEY = 'admin_dashboard_widgets_v5';
 
 const WIDGET_COMPONENTS: Record<WidgetKey, React.ComponentType<{ userProfile: UserProfile }>> = {
-    availability: AvailabilityOverview as any,
-    performance: PerformanceDashboard as any,
-    contracts: ContractStatsDashboard as any,
-    tasks: TaskManager as any,
-    projects: ProjectManager,
     schedule: ShiftScheduleOverview,
+    availability: AvailabilityOverview as any,
+    mapping: StaffShiftMap as any,
+    contracts: ContractStatsDashboard as any,
+    performance: PerformanceDashboard as any,
+    tasks: TaskManager as any,
     users: UserManagement as any,
+    evidence: EvidenceDashboard as any,
+    projects: ProjectManager,
     healthAndSafety: HealthAndSafetyFileList,
     help: Faq as any,
 };
