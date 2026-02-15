@@ -10,41 +10,42 @@ import {
 const faqs = [
   {
     question: "How do I see my upcoming shifts?",
-    answer: "Your main Dashboard page shows all your assigned shifts. You can use the tabs to switch between 'Today', 'This Week', 'Next Week', and further in the future. Completed or Incomplete shifts from the past month are available in the 'Recently Completed' section at the bottom.",
+    answer: "Your main Dashboard is your central hub for viewing your schedule. At the top, you'll find tabs to filter your view:\n\n- **Today**: Shows only shifts scheduled for the current day, split into AM and PM sections.\n- **This Week**: Displays all your shifts for the current week (Monday to Sunday).\n- **Next Week / Week 3 / Week 4**: Allows you to look ahead at your schedule.\n\nShifts you have recently completed or marked as incomplete are shown in the **'Recently Completed'** section at the bottom of the page. You can dismiss these old shifts from your view by using the 'Dismiss' button.",
   },
   {
     question: "How do I confirm a new shift I've been assigned?",
-    answer: "When you are assigned new shifts, a pop-up window will appear when you log in, listing the new assignments. Review the details and click the 'Accept All' button to confirm them.",
+    answer: "When an administrator assigns you one or more new shifts, a dialog box will appear automatically when you next log in or visit the app. It will list all the new assignments awaiting your confirmation. \n\nAfter reviewing the new shifts, click the **'Accept All'** button. This will change their status from 'Pending' to 'Confirmed' and add them to your main schedule.",
   },
   {
-    question: "How do I update the status of a shift (e.g., 'On Site', 'Completed')?",
-    answer: "On your Dashboard, each shift card has action buttons. When you arrive at a job, click 'On Site'. When you're finished, you can mark it as 'Complete' or 'Incomplete'. If you mark it as 'Incomplete', you'll be prompted to add a note explaining why.",
-  },
-   {
-    question: "What is the 'Checklist' on a shift card for?",
-    answer: "Some jobs require a checklist of tasks to be completed. You can find this on the shift card after you've marked yourself as 'On Site'. Check off each task as you complete it. Some tasks may require you to take a photo as evidence.",
+    question: "What is the lifecycle of a shift's status?",
+    answer: "A shift progresses through several statuses, each with its own button on the shift card:\n\n1.  **Pending**: A new shift you haven't accepted yet.\n2.  **Confirmed**: You have accepted the shift by clicking 'Accept Shift'.\n3.  **On Site**: When you arrive at the job site, click the 'On Site' button. This is important as it may unlock a checklist of tasks for the job.\n4.  **Complete / Incomplete**: When you finish, you must mark the shift as either 'Complete' or 'Incomplete'. If you select 'Incomplete', you will be required to write a short note explaining why the job could not be finished (e.g., 'Client not home', 'Waiting on materials'). This note is visible to administrators.",
   },
   {
-    question: "How do I upload files or photos to a project?",
-    answer: "Navigate to the 'Projects' page from the main menu. Each project has a file management section where you can upload documents or photos directly from your device.",
+    question: "How do I use the on-shift Checklist?",
+    answer: "For certain jobs, a checklist of required tasks will appear on the shift card after you have marked yourself as **'On Site'**. \n\nAs you finish each item, simply check the box next to it. If a task has a camera icon, it means a photo is required for that step. Clicking the checkbox for a photo-required task will open your device's camera. The photo you take will be automatically timestamped, geotagged, and uploaded to the project's evidence folder with the correct tag.",
   },
   {
-    question: "What is the 'Evidence' dashboard for? (Admin)",
-    answer: "The Evidence Dashboard provides an at-a-glance view of all projects and their photo evidence requirements. Cards are color-coded: Red for incomplete evidence, Orange when all evidence is present and ready for a PDF report, and Green after a report has been generated.",
+    question: "How do I upload general files or photos to a project?",
+    answer: "Navigate to the **'Projects'** page from the main menu. Here you'll see a list of all projects. Within each project card, there is a file management section. \n\nYou can use the **'Upload File'** button to select files from your device. You can also use the optional **'Evidence Tag'** field before uploading; this is useful for manually linking photos to specific evidence requirements, such as 'front-of-property'.",
   },
   {
-    question: "How do I import shifts from an Excel file? (Admin)",
-    answer: "In the header, click the 'Import Shifts' button. This will open a panel where you can upload your Excel file. You can then select which sheets to import and run a 'Dry Run' to preview all changes (new shifts, updates, deletions) before committing them to the live schedule.",
-  },
-   {
-    question: "How do I manage user accounts and approve new registrations? (Admin)",
-    answer: "Go to the 'User Management' page in the Admin Area. Here you can view all users, edit their roles and details, or approve new users who have registered. New registrations will appear under the 'Pending Applications' tab.",
+    question: "What are the different Admin dashboards for? (Admin)",
+    answer: "The Admin Area, accessible from the user menu, contains several specialized dashboards:\n\n- **Control Panel**: A customizable dashboard where you can add, remove, and reorder your most-used admin widgets.\n- **Team Schedule**: A real-time overview of all shifts for all users, with filtering and PDF export options.\n- **Availability**: A powerful tool to see which operatives are free, partially busy, or unavailable on any given day or date range.\n- **Mapping**: A live map showing the location of all operatives with shifts scheduled for today.\n- **Contracts, Performance, Tasks, Evidence**: Dashboards for high-level KPIs, task management, and evidence tracking.",
   },
   {
-    question: "Where can I see a map of all operatives' locations for today? (Admin)",
-    answer: "The 'Mapping' page in the Admin Area shows a live map of all operatives with shifts scheduled for the current day. You can use the search bar to find and focus on a specific user's location.",
+    question: "How do I use the Evidence Dashboard? (Admin)",
+    answer: "This dashboard gives a visual overview of evidence collection status for all active projects, grouped by contract. The cards are color-coded:\n\n- **Red (Incomplete)**: One or more required evidence photos are missing.\n- **Orange (Ready)**: All required photos have been uploaded. You can now click 'Generate PDF' to create a consolidated evidence report for the client.\n- **Green (Generated)**: A PDF report has already been created. You can either delete the project to archive it or click 'More Evidence' to reset its status if additional photos are needed.",
+  },
+  {
+    question: "How does the Excel shift import work? (Admin)",
+    answer: "From the header on the Team Schedule or via your Control Panel, click 'Import Shifts'. Upload your Excel file. The system will read the sheets and allow you to select which ones to process.\n\nCrucially, always use the **'Dry Run'** option first. This simulates the import and shows you a detailed summary of what will happen: which shifts will be created, which will be updated (if details like task or type have changed), and which old shifts will be deleted (if they are no longer in the spreadsheet). If a project address in the file doesn't exist, a new project will be created automatically. Once you are happy with the preview, you can uncheck 'Dry Run' and run the import for real.",
+  },
+  {
+    question: "How do I manage users and approve new registrations? (Admin/Owner)",
+    answer: "Go to the **'User Management'** page in the Admin Area. Here you can view all users. As an Owner, you can:\n\n- **Approve New Users**: New sign-ups appear in the 'Pending Applications' tab. Click 'Activate' to grant them access.\n- **Change Roles**: Promote users to Manager, TLO, or Admin.\n- **Set Details**: Assign an Operative ID, Trade, and Department to each user.\n- **Suspend/Delete**: Suspend accounts to temporarily revoke access, or permanently delete a user and all their data.",
   },
 ];
+
 
 export function Faq() {
   return (
@@ -60,7 +61,7 @@ export function Faq() {
           {faqs.map((faq, index) => (
             <AccordionItem value={`item-${index}`} key={index} className="bg-background px-4 rounded-lg mb-2 shadow-sm">
               <AccordionTrigger className="text-lg text-left hover:no-underline">{faq.question}</AccordionTrigger>
-              <AccordionContent className="text-base text-muted-foreground">
+              <AccordionContent className="text-base text-muted-foreground whitespace-pre-line">
                 {faq.answer}
               </AccordionContent>
             </AccordionItem>
