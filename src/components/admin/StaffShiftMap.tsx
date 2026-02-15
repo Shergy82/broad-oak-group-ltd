@@ -57,6 +57,7 @@ export function StaffShiftMap() {
   const [geocodedLocations, setGeocodedLocations] = useState<Map<string, Coords>>(new Map());
   const [selectedPin, setSelectedPin] = useState<LocationPin | null>(null);
   const [mapCenter, setMapCenter] = useState(UK_CENTER);
+  const [userLocation, setUserLocation] = useState<Coords | null>(null);
 
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY!,
@@ -147,10 +148,12 @@ export function StaffShiftMap() {
     if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
             (position) => {
-                setMapCenter({
+                const currentLocation = {
                     lat: position.coords.latitude,
                     lng: position.coords.longitude,
-                });
+                };
+                setUserLocation(currentLocation);
+                setMapCenter(currentLocation);
             },
             () => {
                 // Fallback to UK center if location is denied or fails
@@ -214,7 +217,7 @@ export function StaffShiftMap() {
     return <div className="h-[500px] flex items-center justify-center bg-muted rounded-md"><Spinner size="lg" /></div>;
   }
   
-  if (locationPins.length === 0) {
+  if (locationPins.length === 0 && !userLocation) {
       return <div className="h-[500px] flex items-center justify-center bg-muted rounded-md">No shift locations to display for today.</div>;
   }
 
@@ -224,6 +227,21 @@ export function StaffShiftMap() {
       center={mapCenter}
       zoom={12}
     >
+      {userLocation && (
+          <Marker
+              position={userLocation}
+              title="Your Location"
+              icon={{
+                  path: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z',
+                  fillColor: '#1a73e8', // A distinct blue for the user's location
+                  fillOpacity: 1,
+                  strokeWeight: 1,
+                  strokeColor: '#ffffff',
+                  scale: 1.5,
+                  anchor: typeof window !== 'undefined' ? new window.google.maps.Point(12, 24) : undefined
+              }}
+          />
+      )}
       {locationPins.map((pin) => (
         <Marker 
             key={pin.address} 
