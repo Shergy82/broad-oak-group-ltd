@@ -23,6 +23,60 @@
       "description": "Avatar for Jane Roe",
       "imageUrl": "https://images.unsplash.com/photo-1579503841516-e0bd7fca5faa?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw0fHx3b21hbiUyMGZhY2V8ZW58MHx8fHwxNzY4MzgzMzk4fDA&ixlib=rb-4.1.0&q=80&w=1080",
       "imageHint": "woman face"
+    },
+    {
+      "id": "faq-shifts",
+      "description": "A person looking at a schedule on a digital tablet.",
+      "imageUrl": "https://images.unsplash.com/photo-1617106399900-61a7561d1d2f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHwxMHx8c2NoZWR1bGUlMjBjYWxlbmRhcnxlbnwwfHx8fDE3NzExODk3MDJ8MA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "schedule calendar"
+    },
+    {
+      "id": "faq-confirm-shift",
+      "description": "A smartphone showing a notification alert for a new assignment.",
+      "imageUrl": "https://images.unsplash.com/photo-1761625501365-ab081f5cbd7a?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHwxfHxub3RpZmljYXRpb24lMjBhbGVydHxlbnwwfHx8fDE3NzExODk3MDF8MA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "notification alert"
+    },
+    {
+      "id": "faq-lifecycle",
+      "description": "A diagram showing a circular flow of stages: Pending, Confirmed, On-site, Completed.",
+      "imageUrl": "https://images.unsplash.com/photo-1769731738826-a51acd5bddc7?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHwyfHx3b3JrZmxvdyUyMGRpYWdyYW18ZW58MHx8fHwxNzcxMDgyOTkzfDA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "workflow diagram"
+    },
+    {
+      "id": "faq-checklist",
+      "description": "A construction worker taking a photo of a completed task with a phone, a checklist is visible.",
+      "imageUrl": "https://images.unsplash.com/photo-1558530755-e4785fddbe89?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHwxfHxjaGVja2xpc3QlMjBjYW1lcmF8ZW58MHx8fHwxNzcxMTg5NzAxfDA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "checklist camera"
+    },
+    {
+      "id": "faq-upload",
+      "description": "A screen showing a file upload interface for a project, with files being dragged and dropped.",
+      "imageUrl": "https://images.unsplash.com/photo-1760894852056-c62d3b884793?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHwxfHxmaWxlJTIwdXBsb2FkfGVufDB8fHx8MTc3MTE4OTcwMXww&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "file upload"
+    },
+    {
+      "id": "faq-admin-dash",
+      "description": "A computer screen showing a complex dashboard with charts and graphs.",
+      "imageUrl": "https://images.unsplash.com/photo-1588343823210-663b8e34d258?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw3fHxkYXNoYm9hcmQlMjBjaGFydHN8ZW58MHx8fHwxNzcxMTY2MDAzfDA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "dashboard charts"
+    },
+    {
+      "id": "faq-evidence",
+      "description": "A person reviewing a document with a green 'ready' stamp on it.",
+      "imageUrl": "https://images.unsplash.com/photo-1758611972678-bc3b29b4718f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw5fHxkb2N1bWVudCUyMHJldmlld3xlbnwwfHx8fDE3NzExODk3MDJ8MA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "document review"
+    },
+    {
+      "id": "faq-import",
+      "description": "An Excel spreadsheet with rows of data being imported into an application.",
+      "imageUrl": "https://images.unsplash.com/photo-1575328504446-0ecdf62b0007?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw5fHxzcHJlYWRzaGVldCUyMGltcG9ydHxlbnwwfHx8fDE3NzExODk3MDJ8MA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "spreadsheet import"
+    },
+    {
+      "id": "faq-users",
+      "description": "A grid of user profile cards with avatars and contact information.",
+      "imageUrl": "https://images.unsplash.com/photo-1604339566402-51aacfd0e5fe?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw4fHx1c2VyJTIwcHJvZmlsZXN8ZW58MHx8fHwxNzcxMTg5NzAyfDA&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "user profiles"
     }
   ]
 }
