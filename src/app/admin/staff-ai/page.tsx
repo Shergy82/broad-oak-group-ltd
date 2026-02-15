@@ -1,7 +1,6 @@
 'use client';
 
 import { useUserProfile } from '@/hooks/use-user-profile';
-import { StaffAIWidget } from '@/components/admin/staff-ai-widget';
 import dynamic from 'next/dynamic';
 
 import {
@@ -25,7 +24,7 @@ const StaffShiftMap = dynamic(
 );
 
 
-export default function StaffAIPage() {
+export default function MappingPage() {
   const { userProfile, loading } = useUserProfile();
 
   if (loading) {
@@ -60,23 +59,9 @@ export default function StaffAIPage() {
 
   return (
     <div className="space-y-6">
-      {/* STAFF AI */}
       <Card>
         <CardHeader>
-          <CardTitle>Staff AI Assistant</CardTitle>
-          <CardDescription>
-            Ask questions or get help with tasks.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <StaffAIWidget userProfile={userProfile} />
-        </CardContent>
-      </Card>
-
-      {/* MAP — TODAY’S SHIFTS */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Today’s Shift Locations</CardTitle>
+          <CardTitle>Mapping</CardTitle>
           <CardDescription>
             Live view of staff locations for today.
           </CardDescription>

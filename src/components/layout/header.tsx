@@ -23,7 +23,7 @@ import {
   Building2,
   ListChecks,
   FileArchive,
-  BotMessageSquare,
+  Map,
 } from 'lucide-react';
 import { NotificationButton } from '../shared/notification-button';
 import {
@@ -97,7 +97,7 @@ export function Header() {
                   <span>Dashboard</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => router.push('/ai')} className="cursor-pointer">
-                  <BotMessageSquare className="mr-2" />
+                  <Map className="mr-2" />
                   <span>AI Assistant</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => router.push('/site-schedule')} className="cursor-pointer">
@@ -152,8 +152,8 @@ export function Header() {
                       <span>Availability</span>
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => router.push('/admin/staff-ai')} className="cursor-pointer">
-                      <BotMessageSquare className="mr-2" />
-                      <span>Staff AI</span>
+                      <Map className="mr-2" />
+                      <span>Mapping</span>
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => router.push('/admin/contracts')} className="cursor-pointer">
                       <Briefcase className="mr-2" />
