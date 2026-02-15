@@ -31,7 +31,6 @@ const containerStyle = {
   height: '500px',
 };
 
-const mapCenter = UK_CENTER;
 
 // Haversine formula to calculate distance between two lat/lng points in miles
 const haversineDistance = (coords1: Coords, coords2: Coords): number => {
@@ -57,6 +56,7 @@ export function StaffShiftMap() {
   const [loading, setLoading] = useState(true);
   const [geocodedLocations, setGeocodedLocations] = useState<Map<string, Coords>>(new Map());
   const [selectedPin, setSelectedPin] = useState<LocationPin | null>(null);
+  const [mapCenter, setMapCenter] = useState(UK_CENTER);
 
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY!,
@@ -140,6 +140,24 @@ export function StaffShiftMap() {
     });
   }, [isLoaded, shifts, geocodedLocations, geocodeAddress]);
 
+  useEffect(() => {
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                setMapCenter({
+                    lat: position.coords.latitude,
+                    lng: position.coords.longitude,
+                });
+            },
+            () => {
+                // Fallback to UK center if location is denied or fails
+                setMapCenter(UK_CENTER);
+            }
+        );
+    }
+  }, []);
+
+
   const locationPins = useMemo((): LocationPin[] => {
     const shiftsWithCoords = shifts.map(shift => {
         const coords = geocodedLocations.get(shift.address);
@@ -201,7 +219,7 @@ export function StaffShiftMap() {
     <GoogleMap
       mapContainerStyle={containerStyle}
       center={mapCenter}
-      zoom={6}
+      zoom={12}
     >
       {locationPins.map((pin) => (
         <Marker 
