@@ -24,12 +24,14 @@ interface LocationPin {
   shifts: Shift[];
 }
 
+const homePoint = { lat: 53.0333, lng: -1.9800 };
+
 const containerStyle = {
   width: '100%',
   height: '500px',
 };
 
-const mapCenter = { lat: 54.5, lng: -2 };
+const mapCenter = homePoint;
 
 // Haversine formula to calculate distance between two lat/lng points in miles
 const haversineDistance = (coords1: Coords, coords2: Coords): number => {
@@ -199,8 +201,17 @@ export function StaffShiftMap() {
     <GoogleMap
       mapContainerStyle={containerStyle}
       center={mapCenter}
-      zoom={6}
+      zoom={15}
     >
+      <Marker
+        position={homePoint}
+        title={"Broad Oak Group"}
+        icon={{
+            url: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMwMDAwMDAiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBjbGFzcz0ibHVjaWRlIGx1Y2lkZS1ob21lIj48cGF0aCBkPSJtMyA5IDktNyA5IDcgdiAxMGEyIDIgMCAwIDEgLTIgMkg1YTIgMiAwIDAgMSAtMiAtMnoiLz48cG9seXBvaW50cyBwb2ludHM9IjkgMjIgOSAxMiAxNSAxMiAxNSAyMiIvPjwvc3ZnPg==',
+            scaledSize: new window.google.maps.Size(40, 40),
+            anchor: new window.google.maps.Point(20, 40),
+        }}
+      />
       {locationPins.map((pin) => (
         <Marker 
             key={pin.address} 
