@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -60,7 +61,7 @@ const WIDGET_COMPONENTS: Record<WidgetKey, React.ComponentType<{ userProfile: Us
 
 export function CustomizableDashboard() {
   const { userProfile, loading: profileLoading } = useUserProfile();
-  const [widgetConfig, setWidgetConfig] = useState<WidgetKey[]>(['availability', 'staffAI', 'projects', 'schedule']);
+  const [widgetConfig, setWidgetConfig] = useState<WidgetKey[]>(['availability', 'staffAI', 'contracts', 'schedule']);
   const [isClient, setIsClient] = useState(false);
 
   const enabledWidgets = useMemo(() => new Set(widgetConfig), [widgetConfig]);
@@ -77,11 +78,11 @@ export function CustomizableDashboard() {
         }
       } else {
         // Default widgets
-        setWidgetConfig(['availability', 'staffAI', 'projects', 'schedule']);
+        setWidgetConfig(['availability', 'staffAI', 'contracts', 'schedule']);
       }
     } catch (e) {
       console.error("Failed to load dashboard config from localStorage", e);
-      setWidgetConfig(['availability', 'staffAI', 'projects', 'schedule']);
+      setWidgetConfig(['availability', 'staffAI', 'contracts', 'schedule']);
     }
   }, []);
 
