@@ -151,6 +151,10 @@ export function Header() {
                       <Calendar className="mr-2" />
                       <span>Availability</span>
                     </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => router.push('/admin/staff-ai')} className="cursor-pointer">
+                      <BotMessageSquare className="mr-2" />
+                      <span>Staff AI</span>
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => router.push('/admin/contracts')} className="cursor-pointer">
                       <Briefcase className="mr-2" />
                       <span>Contracts</span>
@@ -170,10 +174,6 @@ export function Header() {
                     <DropdownMenuItem onClick={() => router.push('/admin/evidence')} className="cursor-pointer">
                       <FileArchive className="mr-2" />
                       <span>Evidence</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => router.push('/admin/staff-ai')} className="cursor-pointer">
-                      <BotMessageSquare className="mr-2" />
-                      <span>Staff AI</span>
                     </DropdownMenuItem>
                   </>
                 )}
