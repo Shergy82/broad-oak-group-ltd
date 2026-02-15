@@ -1,8 +1,7 @@
+'use server';
 import * as admin from 'firebase-admin';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import { genkit } from "genkit";
-import { googleAI } from "@genkit-ai/google-genai";
-import { z } from "zod";
+import fetch from 'node-fetch';
 
 if (admin.apps.length === 0) {
   admin.initializeApp();
@@ -180,100 +179,3 @@ export const reGeocodeAllShifts = onCall(
     return { updated, skipped, failed };
   }
 );
-
-/* =====================================================
-   AI ASSISTANT
-===================================================== */
-
-// Genkit initialization
-const ai = genkit({
-    plugins: [googleAI({
-        apiKey: process.env.GEMINI_API_KEY,
-    })],
-});
-
-// Tool to get today's shifts with locations
-const getTodaysShifts = ai.defineTool(
-    {
-        name: "getTodaysShifts",
-        description: "Get all of today's shifts that have a geo-location.",
-        outputSchema: z.array(z.object({
-            userId: z.string(),
-            userName: z.string().describe("The name of the user assigned to the shift."),
-            address: z.string(),
-            lat: z.number(),
-            lng: z.number(),
-        })),
-    },
-    async () => {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const tomorrow = new Date(today);
-        tomorrow.setDate(tomorrow.getDate() + 1);
-
-        const shiftsSnap = await db.collection("shifts")
-            .where('date', '>=', today)
-            .where('date', '<', tomorrow)
-            .get();
-        
-        return shiftsSnap.docs
-            .map(doc => doc.data())
-            .filter(data => data.location?.lat && data.location?.lng)
-            .map(data => ({
-                userId: data.userId,
-                userName: data.userName,
-                address: data.address,
-                lat: data.location.lat,
-                lng: data.location.lng,
-            }));
-    }
-);
-
-// Main AI Assistant Flow
-const assistantFlow = ai.defineFlow(
-    {
-        name: "assistantFlow",
-        inputSchema: z.string(),
-        outputSchema: z.string(),
-    },
-    async (query) => {
-        const llmResponse = await ai.generate({
-            model: "gemini-1.5-flash-latest",
-            tools: [getTodaysShifts],
-            prompt: `You are an assistant for a construction company called Broad Oak Group.
-            Your role is to answer questions based on the available data about users and their shifts for today.
-            Use the provided tools to find information.
-            When asked about locations or who is "near" someone, you must use the getTodaysShifts tool.
-            After getting the shifts, identify the users involved in the query.
-            Find the location of the primary user mentioned.
-            Then, calculate the distance between the primary user and all other users with shifts today.
-            Respond with the name of the user who is closest and their approximate distance in a human-readable format.
-            If you cannot find the specified user or if there are no other users with shifts today, respond with a helpful message explaining the situation.
-            Assume a simple euclidean distance calculation on lat/lng is sufficient for a rough estimate, and you can approximate 1 degree of latitude/longitude as 111 kilometers.
-
-            Today is ${new Date().toDateString()}.
-
-            Question: "${query}"`,
-        });
-
-        return llmResponse.text || "I'm sorry, I couldn't process that request.";
-    }
-);
-
-// The callable function that the frontend will invoke
-export const askAIAssistant = onCall({ region: "europe-west2", memory: "1GiB" }, async (req) => {
-    if (!req.auth) {
-        throw new HttpsError("unauthenticated", "Authentication required.");
-    }
-    const query = req.data.query as string;
-    if (!query) {
-        throw new HttpsError("invalid-argument", "Query is required.");
-    }
-    try {
-        const response = await assistantFlow(query);
-        return { response };
-    } catch (e: any) {
-        console.error("AI assistant flow failed", e);
-        throw new HttpsError("internal", "The AI assistant failed to process your request.");
-    }
-});
