@@ -28,11 +28,14 @@ const containerStyle = {
   height: '500px',
 };
 
-// This is the location above the filling station in Kingsley Moor
-const mapCenter = {
+// This is the location for Broad Oak Group, to be used as the home point.
+const broadOakGroupLocation = {
   lat: 53.0186,
   lng: -1.9775
 };
+
+const homeIcon = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="%233F51B5" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`;
+
 
 // Haversine formula to calculate distance between two lat/lng points in miles
 const haversineDistance = (coords1: Coords, coords2: Coords): number => {
@@ -201,9 +204,17 @@ export function StaffShiftMap() {
   return (
     <GoogleMap
       mapContainerStyle={containerStyle}
-      center={mapCenter}
+      center={broadOakGroupLocation}
       zoom={15}
     >
+      <Marker
+        position={broadOakGroupLocation}
+        title="Broad Oak Group"
+        icon={{
+          url: homeIcon,
+          scaledSize: new window.google.maps.Size(40, 40),
+        }}
+      />
       {locationPins.map((pin) => (
         <Marker 
             key={pin.address} 
