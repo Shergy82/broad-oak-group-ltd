@@ -219,13 +219,17 @@ export function StaffShiftMap() {
   const closestUsersForSelectedPin = useMemo(() => {
     if (!selectedPin) return [];
 
+    const usersAtSelectedPin = new Set(selectedPin.shifts.map(s => s.userName));
+
     const otherPins = locationPins.filter(p => p.address !== selectedPin.address);
     const distances: {userName: string, distance: number}[] = [];
 
     otherPins.forEach(otherPin => {
         otherPin.shifts.forEach(shift => {
-            const distance = haversineDistance(selectedPin.position, otherPin.position);
-            distances.push({ userName: shift.userName || 'Unknown User', distance });
+            if (shift.userName && !usersAtSelectedPin.has(shift.userName)) {
+                const distance = haversineDistance(selectedPin.position, otherPin.position);
+                distances.push({ userName: shift.userName, distance });
+            }
         });
     });
 
