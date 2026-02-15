@@ -37,10 +37,8 @@ export function StaffShiftMap() {
       end.setHours(23, 59, 59, 999);
 
       const q = query(
-        collection(db, 'shifts'),
-        where('date', '>=', Timestamp.fromDate(start)),
-        where('date', '<=', Timestamp.fromDate(end))
-      );
+        collection(db, 'shifts')
+      );      
 
       const snap = await getDocs(q);
       setShifts(

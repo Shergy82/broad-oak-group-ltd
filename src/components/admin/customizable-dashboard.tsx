@@ -19,8 +19,9 @@ import { ShiftScheduleOverview } from './shift-schedule-overview';
 import { HealthAndSafetyFileList } from '../health-and-safety/file-list';
 import { Faq } from '../landing/faq';
 import { UserManagement } from './user-management';
+import { StaffAIWidget } from './staff-ai-widget';
 
-type WidgetKey = 'availability' | 'performance' | 'contracts' | 'tasks' | 'projects' | 'schedule' | 'users' | 'healthAndSafety' | 'help';
+type WidgetKey = 'availability' | 'staffAI' | 'performance' | 'contracts' | 'tasks' | 'projects' | 'schedule' | 'users' | 'healthAndSafety' | 'help';
 
 interface Widget {
   key: WidgetKey;
@@ -30,6 +31,7 @@ interface Widget {
 
 const ALL_WIDGETS: Widget[] = [
   { key: 'availability', title: 'Today\'s Availability', description: 'Quick overview of operative availability today.' },
+  { key: 'staffAI', title: 'Staff AI Assistant', description: 'Ask questions or get help with tasks.' },
   { key: 'schedule', title: 'Team Schedule', description: 'A real-time overview of all upcoming shifts for the team.' },
   { key: 'performance', title: 'Operative Performance', description: 'KPIs for all users, ranked.' },
   { key: 'contracts', title: 'Contract Dashboard', description: 'High-level statistics for each contract.' },
@@ -44,6 +46,7 @@ const LS_KEY = 'admin_dashboard_widgets_v4';
 
 const WIDGET_COMPONENTS: Record<WidgetKey, React.ComponentType<{ userProfile: UserProfile }>> = {
     availability: AvailabilityOverview as any,
+    staffAI: StaffAIWidget,
     performance: PerformanceDashboard as any,
     contracts: ContractStatsDashboard as any,
     tasks: TaskManager as any,
@@ -57,7 +60,7 @@ const WIDGET_COMPONENTS: Record<WidgetKey, React.ComponentType<{ userProfile: Us
 
 export function CustomizableDashboard() {
   const { userProfile, loading: profileLoading } = useUserProfile();
-  const [widgetConfig, setWidgetConfig] = useState<WidgetKey[]>(['availability', 'projects', 'schedule']);
+  const [widgetConfig, setWidgetConfig] = useState<WidgetKey[]>(['availability', 'staffAI', 'projects', 'schedule']);
   const [isClient, setIsClient] = useState(false);
 
   const enabledWidgets = useMemo(() => new Set(widgetConfig), [widgetConfig]);
@@ -74,11 +77,11 @@ export function CustomizableDashboard() {
         }
       } else {
         // Default widgets
-        setWidgetConfig(['availability', 'projects', 'schedule']);
+        setWidgetConfig(['availability', 'staffAI', 'projects', 'schedule']);
       }
     } catch (e) {
       console.error("Failed to load dashboard config from localStorage", e);
-      setWidgetConfig(['availability', 'projects', 'schedule']);
+      setWidgetConfig(['availability', 'staffAI', 'projects', 'schedule']);
     }
   }, []);
 
