@@ -18,7 +18,10 @@
     "firebase-functions": "^5.0.0",
     "jszip": "^3.10.1",
     "openai": "^6.21.0",
-    "web-push": "^3.6.7"
+    "web-push": "^3.6.7",
+    "genkit": "^1.1.1",
+    "@genkit-ai/google-genai": "^1.0.4",
+    "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/web-push": "^3.6.3",
