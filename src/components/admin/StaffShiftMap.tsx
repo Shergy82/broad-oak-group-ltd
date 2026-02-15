@@ -171,7 +171,7 @@ export function StaffShiftMap() {
   }
 
   return (
-    <MapContainer center={[53.0189, -1.9781]} zoom={13} style={{ height: '500px', width: '100%' }} className="rounded-md">
+    <MapContainer center={[53.0186, -1.9775]} zoom={15} style={{ height: '500px', width: '100%' }} className="rounded-md">
       <TileLayer
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
