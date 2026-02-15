@@ -32,15 +32,15 @@ interface Widget {
 }
 
 const ALL_WIDGETS: Widget[] = [
-  { key: 'schedule', title: 'Team Schedule', description: 'A real-time overview of all upcoming shifts for the team.' },
+  { key: 'schedule', title: 'Site Schedule', description: 'A real-time overview of all upcoming shifts for the team.' },
   { key: 'availability', title: 'Today\'s Availability', description: 'Quick overview of operative availability today.' },
   { key: 'mapping', title: 'Mapping', description: 'Live view of staff locations for today.' },
   { key: 'contracts', title: 'Contract Dashboard', description: 'High-level statistics for each contract.' },
-  { key: 'performance', title: 'Operative Performance', description: 'KPIs for all users, ranked.' },
+  { key: 'performance', title: 'Stats', description: 'KPIs for all users, ranked.' },
   { key: 'tasks', title: 'Task Management', description: 'Create and manage reusable tasks.' },
   { key: 'users', title: 'User Management', description: 'View and manage all user accounts.' },
   { key: 'evidence', title: 'Evidence Dashboard', description: 'Overview of all project sites evidence collection status.' },
-  { key: 'projects', title: 'Project Management', description: 'Create projects and manage files.' },
+  { key: 'projects', title: 'Projects', description: 'Create projects and manage files.' },
   { key: 'healthAndSafety', title: 'Health & Safety', description: 'View and manage H&S documents.' },
   { key: 'help', title: 'Help & Support', description: 'Frequently asked questions.' },
 ];
