@@ -4,9 +4,11 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { GoogleMap, Marker, InfoWindow, useJsApiLoader } from '@react-google-maps/api';
 import { collection, getDocs, query, where, Timestamp } from 'firebase/firestore';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Search } from 'lucide-react';
 
 import { db } from '@/lib/firebase';
-import type { Shift } from '@/types';
+import type { Shift, UserProfile } from '@/types';
 import { Spinner } from '@/components/shared/spinner';
 
 interface Coords {
@@ -58,6 +60,7 @@ export function StaffShiftMap() {
   const [selectedPin, setSelectedPin] = useState<LocationPin | null>(null);
   const [mapCenter, setMapCenter] = useState(UK_CENTER);
   const [userLocation, setUserLocation] = useState<Coords | null>(null);
+  const [selectedUser, setSelectedUser] = useState<string | null>(null);
 
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY!,
@@ -163,9 +166,37 @@ export function StaffShiftMap() {
     }
   }, []);
 
+  const usersWithShifts = useMemo(() => {
+    const users: { [key: string]: string } = {};
+    shifts.forEach(shift => {
+        if (shift.userId && shift.userName) {
+            users[shift.userId] = shift.userName;
+        }
+    });
+    return Object.entries(users).map(([uid, name]) => ({ uid, name })).sort((a,b) => a.name.localeCompare(b.name));
+  }, [shifts]);
+
+  const handleUserSelect = (userId: string) => {
+    if (userId === 'all') {
+        setSelectedUser(null);
+        setMapCenter(userLocation || UK_CENTER);
+        return;
+    }
+
+    setSelectedUser(userId);
+    const userShift = shifts.find(s => s.userId === userId);
+    if (userShift) {
+        const coords = geocodedLocations.get(userShift.address);
+        if (coords) {
+            setMapCenter(coords);
+        }
+    }
+  };
 
   const locationPins = useMemo((): LocationPin[] => {
-    const shiftsWithCoords = shifts.map(shift => {
+    const shiftsToProcess = selectedUser ? shifts.filter(s => s.userId === selectedUser) : shifts;
+
+    const shiftsWithCoords = shiftsToProcess.map(shift => {
         const coords = geocodedLocations.get(shift.address);
         return coords ? { ...shift, coords } : null;
     }).filter((s): s is ShiftWithCoords => s !== null);
@@ -183,7 +214,7 @@ export function StaffShiftMap() {
       position: data.coords,
       shifts: data.shifts,
     }));
-  }, [shifts, geocodedLocations]);
+  }, [shifts, geocodedLocations, selectedUser]);
 
   const closestUsersForSelectedPin = useMemo(() => {
     if (!selectedPin) return [];
@@ -222,64 +253,80 @@ export function StaffShiftMap() {
   }
 
   return (
-    <GoogleMap
-      mapContainerStyle={containerStyle}
-      center={mapCenter}
-      zoom={12}
-    >
-      {userLocation && (
-          <Marker
-              position={userLocation}
-              title="Your Location"
-              icon={{
-                  path: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z',
-                  fillColor: '#1a73e8', // A distinct blue for the user's location
-                  fillOpacity: 1,
-                  strokeWeight: 1,
-                  strokeColor: '#ffffff',
-                  scale: 1.5,
-                  anchor: typeof window !== 'undefined' ? new window.google.maps.Point(12, 24) : undefined
-              }}
-          />
-      )}
-      {locationPins.map((pin) => (
-        <Marker 
-            key={pin.address} 
-            position={pin.position} 
-            onClick={() => setSelectedPin(pin)}
-        />
-      ))}
-
-      {selectedPin && (
-        <InfoWindow
-          position={selectedPin.position}
-          onCloseClick={() => setSelectedPin(null)}
+    <div className="space-y-4">
+        <div className="flex items-center gap-2">
+            <Search className="h-5 w-5 text-muted-foreground" />
+            <Select onValueChange={handleUserSelect} value={selectedUser || 'all'}>
+                <SelectTrigger className="w-full sm:w-[300px]">
+                    <SelectValue placeholder="Search for an operative..." />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="all">Show All Operatives</SelectItem>
+                    {usersWithShifts.map(user => (
+                        <SelectItem key={user.uid} value={user.uid}>{user.name}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+        </div>
+        <GoogleMap
+          mapContainerStyle={containerStyle}
+          center={mapCenter}
+          zoom={12}
         >
-          <div className="space-y-2 p-1 max-w-xs">
-            <h4 className="font-bold text-base">{selectedPin.address}</h4>
-            <hr />
-            <div>
-              <p className="font-semibold">Operatives at this location:</p>
-              <ul className="list-none p-0 mt-1 text-sm">
-                  {selectedPin.shifts.map(s => (
-                      <li key={s.id}><strong>{s.userName}:</strong> {s.task}</li>
-                  ))}
-              </ul>
-            </div>
-            {closestUsersForSelectedPin.length > 0 && (
+          {userLocation && !selectedUser && (
+              <Marker
+                  position={userLocation}
+                  title="Your Location"
+                  icon={{
+                      path: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z',
+                      fillColor: '#1a73e8', // A distinct blue for the user's location
+                      fillOpacity: 1,
+                      strokeWeight: 1,
+                      strokeColor: '#ffffff',
+                      scale: 1.5,
+                      anchor: typeof window !== 'undefined' ? new window.google.maps.Point(12, 24) : undefined
+                  }}
+              />
+          )}
+          {locationPins.map((pin) => (
+            <Marker 
+                key={pin.address} 
+                position={pin.position} 
+                onClick={() => setSelectedPin(pin)}
+            />
+          ))}
+
+          {selectedPin && (
+            <InfoWindow
+              position={selectedPin.position}
+              onCloseClick={() => setSelectedPin(null)}
+            >
+              <div className="space-y-2 p-1 max-w-xs">
+                <h4 className="font-bold text-base">{selectedPin.address}</h4>
+                <hr />
                 <div>
-                    <hr className="my-2" />
-                    <p className="font-semibold">Closest Operatives:</p>
-                    <ul className="list-none p-0 mt-1 text-sm text-muted-foreground">
-                      {closestUsersForSelectedPin.map((u, i) => (
-                          <li key={i}>{u.userName} (~{u.distance.toFixed(1)} miles away)</li>
+                  <p className="font-semibold">Operatives at this location:</p>
+                  <ul className="list-none p-0 mt-1 text-sm">
+                      {selectedPin.shifts.map(s => (
+                          <li key={s.id}><strong>{s.userName}:</strong> {s.task}</li>
                       ))}
-                    </ul>
+                  </ul>
                 </div>
-            )}
-          </div>
-        </InfoWindow>
-      )}
-    </GoogleMap>
+                {closestUsersForSelectedPin.length > 0 && (
+                    <div>
+                        <hr className="my-2" />
+                        <p className="font-semibold">Closest Operatives:</p>
+                        <ul className="list-none p-0 mt-1 text-sm text-muted-foreground">
+                          {closestUsersForSelectedPin.map((u, i) => (
+                              <li key={i}>{u.userName} (~{u.distance.toFixed(1)} miles away)</li>
+                          ))}
+                        </ul>
+                    </div>
+                )}
+              </div>
+            </InfoWindow>
+          )}
+        </GoogleMap>
+    </div>
   );
 }
