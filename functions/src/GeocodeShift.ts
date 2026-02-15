@@ -6,7 +6,9 @@ import fetch from "node-fetch";
 if (!admin.apps.length) admin.initializeApp();
 const db = admin.firestore();
 
-const GOOGLE_API_KEY = process.env.GOOGLE_MAPS_API_KEY!;
+const GEOCODING_KEY =
+  process.env.GOOGLE_GEOCODING_KEY ||
+  require("firebase-functions").config().google.geocoding_key;
 
 export const geocodeShiftOnCreate = onDocumentCreated(
   "shifts/{shiftId}",
@@ -15,21 +17,42 @@ export const geocodeShiftOnCreate = onDocumentCreated(
     if (!snap) return;
 
     const data = snap.data();
-    if (!data?.postcode) return;
+
+    // Must have a full address
+    if (!data?.address) return;
+
+    // Do not overwrite existing coordinates
     if (data?.location?.lat && data?.location?.lng) return;
 
-    const postcode = encodeURIComponent(data.postcode);
-    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${postcode}&key=${GOOGLE_API_KEY}`;
+    if (!GEOCODING_KEY) {
+      console.error("Missing Geocoding API key");
+      return;
+    }
+
+    const address = encodeURIComponent(`${data.address}, UK`);
+
+    const url =
+      `https://maps.googleapis.com/maps/api/geocode/json?` +
+      `address=${address}&key=${GEOCODING_KEY}`;
 
     const res = await fetch(url);
     const json = (await res.json()) as any;
 
-    if (!json.results?.length) return;
+    if (json.status !== "OK" || !json.results?.length) {
+      console.warn("Geocoding failed", data.address, json.status);
+      return;
+    }
 
-    const { lat, lng } = json.results[0].geometry.location;
+    const result = json.results[0];
+    const { lat, lng } = result.geometry.location;
+    const accuracy = result.geometry.location_type;
 
     await snap.ref.update({
-      location: { lat, lng },
+      location: {
+        lat,
+        lng,
+        accuracy, // ROOFTOP | RANGE_INTERPOLATED | POSTAL_CODE
+      },
     });
   }
 );

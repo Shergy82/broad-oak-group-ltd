@@ -1,84 +1,91 @@
 'use client';
 
+import { GoogleMap, Marker, useJsApiLoader } from '@react-google-maps/api';
 import { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
-import { Icon, LatLngExpression } from 'leaflet';
-import { collection, onSnapshot, query } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { Project } from '@/types';
-import { Skeleton } from '@/components/ui/skeleton';
 
-interface ProjectLocation {
-  project: Project;
-  coords: LatLngExpression;
-}
+const containerStyle = {
+  width: '100%',
+  height: '500px',
+};
 
-const customIcon = new Icon({
-  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-  shadowSize: [41, 41],
-});
+const UK_CENTER = { lat: 54.5, lng: -2 };
 
-export function ProjectMap() {
-  const [locations, setLocations] = useState<ProjectLocation[]>([]);
-  const [loading, setLoading] = useState(true);
+const statusColours: Record<string, string> = {
+  'pending-confirmation': '#f97316', // orange
+  'on-site': '#14b8a6',              // turquoise
+  completed: '#22c55e',              // green
+  incompleted: '#ef4444',            // red
+};
+
+type Shift = {
+  id: string;
+  status?: string;
+  userName?: string;
+  location: {
+    lat: number;
+    lng: number;
+  };
+};
+
+export function StaffShiftMap() {
+  const [shifts, setShifts] = useState<Shift[]>([]);
+
+  const { isLoaded } = useJsApiLoader({
+    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY!,
+  });
 
   useEffect(() => {
-    const q = query(collection(db, 'projects'));
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
-      const projects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project));
-      
-      const geocodingPromises = projects.map(async (project) => {
-        try {
-          const response = await fetch(`/api/geocode?address=${encodeURIComponent(project.address)}`);
-          if (!response.ok) return null;
-          const data = await response.json();
-          if (data.error) return null;
-          return {
-            project,
-            coords: [data.lat, data.lng] as LatLngExpression,
-          };
-        } catch (error) {
-          console.error(`Failed to geocode ${project.address}`, error);
-          return null;
-        }
-      });
+    const load = async () => {
+      const snap = await getDocs(collection(db, 'shifts'));
 
-      const results = await Promise.all(geocodingPromises);
-      setLocations(results.filter((r): r is ProjectLocation => r !== null));
-      setLoading(false);
-    });
+      const mapped: Shift[] = snap.docs
+        .map(doc => ({
+          id: doc.id,
+          ...(doc.data() as any),
+        }))
+        .filter(
+          shift =>
+            typeof shift.location?.lat === 'number' &&
+            typeof shift.location?.lng === 'number'
+        );
 
-    return () => unsubscribe();
+      console.log('MAP SHIFTS:', mapped);
+      setShifts(mapped);
+    };
+
+    load();
   }, []);
 
-  if (loading) {
-    return <Skeleton className="h-[500px] w-full" />;
+  if (!isLoaded) {
+    return <div className="h-[500px] rounded-md bg-muted" />;
   }
 
   return (
-    <MapContainer
-      center={[53.4808, -2.2426]} // Default center on Manchester, UK
-      zoom={7}
-      style={{ height: '500px', width: '100%', borderRadius: '0.5rem' }}
+    <GoogleMap
+      mapContainerStyle={containerStyle}
+      center={UK_CENTER}
+      zoom={6}
     >
-      <TileLayer
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-      />
-      {locations.map(({ project, coords }) => (
-        <Marker key={project.id} position={coords} icon={customIcon}>
-          <Popup>
-            <div className="font-semibold">{project.address}</div>
-            {project.manager && <p>Manager: {project.manager}</p>}
-            {project.eNumber && <p>E-Number: {project.eNumber}</p>}
-          </Popup>
-        </Marker>
+      {shifts.map(shift => (
+        <Marker
+          key={shift.id}
+          position={{
+            lat: shift.location.lat,
+            lng: shift.location.lng,
+          }}
+          title={shift.userName || 'Shift'}
+          icon={{
+            path: google.maps.SymbolPath.CIRCLE,
+            scale: 9,
+            fillColor: statusColours[shift.status ?? ''] ?? '#6b7280',
+            fillOpacity: 1,
+            strokeColor: '#000',
+            strokeWeight: 1,
+          }}
+        />
       ))}
-    </MapContainer>
+    </GoogleMap>
   );
 }

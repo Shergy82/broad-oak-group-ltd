@@ -1,14 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { askAIAssistant } from '@/ai/flows/general-assistant';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { getAuth } from 'firebase/auth';
 import { Textarea } from '@/components/ui/textarea';
 import { Spinner } from '@/components/shared/spinner';
 import { Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { UserProfile } from '@/types';
 
-// userProfile is passed by CustomizableDashboard but not used here.
 export function StaffAIWidget({ userProfile }: { userProfile: UserProfile }) {
   const [queryText, setQueryText] = useState('');
   const [response, setResponse] = useState('');
@@ -17,14 +17,36 @@ export function StaffAIWidget({ userProfile }: { userProfile: UserProfile }) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!queryText.trim()) return;
+
+    const auth = getAuth();
+    if (!auth.currentUser) {
+      setResponse('You must be logged in to use the AI assistant.');
+      return;
+    }
+
     setIsLoading(true);
     setResponse('');
+
     try {
-      const result = await askAIAssistant({ query: queryText });
-      setResponse(result.response);
-    } catch (error) {
+      const functions = getFunctions(undefined, 'europe-west2');
+
+      // 🔒 Callable function – NO CORS issues
+      const askAI = httpsCallable<
+        { query: string },
+        { response: string }
+      >(functions, 'askAIAssistant');
+
+      const result = await askAI({
+        query: queryText.trim(),
+      });
+
+      setResponse(result.data.response);
+    } catch (error: any) {
       console.error('AI Assistant Error:', error);
-      setResponse('Sorry, something went wrong. Please try again.');
+      setResponse(
+        error?.message ||
+          'Sorry, something went wrong. Please try again.'
+      );
     } finally {
       setIsLoading(false);
     }
@@ -45,7 +67,10 @@ export function StaffAIWidget({ userProfile }: { userProfile: UserProfile }) {
         />
 
         <div className="flex flex-wrap gap-2">
-          <Button type="submit" disabled={isLoading || !queryText.trim()}>
+          <Button
+            type="submit"
+            disabled={isLoading || !queryText.trim()}
+          >
             {isLoading ? (
               <Spinner />
             ) : (
@@ -55,7 +80,12 @@ export function StaffAIWidget({ userProfile }: { userProfile: UserProfile }) {
             )}
           </Button>
 
-          <Button type="button" variant="outline" onClick={handlePresetQuery}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handlePresetQuery}
+            disabled={isLoading}
+          >
             Ask a preset question
           </Button>
         </div>
