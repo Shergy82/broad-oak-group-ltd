@@ -321,19 +321,16 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
     };
     
     const getFileViewUrl = (file: ProjectFile): string => {
-        const officeExtensions = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
         const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
         const fileExtension = file.name.split('.').pop()?.toLowerCase();
 
-        if (fileExtension) {
-            if (officeExtensions.includes(fileExtension) || fileExtension === 'pdf') {
-                return `https://docs.google.com/gview?url=${encodeURIComponent(file.url)}&embedded=true`;
-            }
-            if (imageExtensions.includes(fileExtension)) {
-                return `https://images.weserv.nl/?url=${encodeURIComponent(file.url)}`;
-            }
+        if (fileExtension && imageExtensions.includes(fileExtension)) {
+            // For images, use the proxy to bypass content-disposition and view directly
+            return `https://images.weserv.nl/?url=${encodeURIComponent(file.url)}`;
         }
-        return file.url;
+        
+        // For all other file types (including PDF, DOCX, etc.), use the Google Docs viewer
+        return `https://docs.google.com/gview?url=${encodeURIComponent(file.url)}&embedded=true`;
     };
 
 
