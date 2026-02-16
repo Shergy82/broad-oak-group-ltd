@@ -110,7 +110,7 @@ export function usePushNotifications() {
   }, [isSupported, refreshLocalSubscriptionState]);
 
   useEffect(() => {
-    if (!isSupported || !functions) {
+    if (!isSupported) {
       setIsKeyLoading(false);
       return;
     }
@@ -118,19 +118,23 @@ export function usePushNotifications() {
     const fetchKey = async () => {
       setIsKeyLoading(true);
       try {
-        const getVapidPublicKey = httpsCallable<unknown, VapidKeyResponse>(
-          functions,
-          'getVapidPublicKey'
-        );
-        const result = await getVapidPublicKey();
-        setVapidKey(result.data.publicKey);
+        const response = await fetch('/api/vapid-key');
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || 'Failed to fetch VAPID key from server.');
+        }
+        const data: VapidKeyResponse = await response.json();
+        if (data.error) {
+          throw new Error(data.error);
+        }
+        setVapidKey(data.publicKey);
       } catch (error: any) {
         console.error('[push] Failed to fetch VAPID public key:', error);
         toast({
           variant: 'destructive',
           title: 'Notification Error',
           description:
-            'Could not load notification configuration from the server.',
+            error.message || 'Could not load notification configuration from the server.',
         });
       } finally {
         setIsKeyLoading(false);
@@ -138,7 +142,7 @@ export function usePushNotifications() {
     };
 
     void fetchKey();
-  }, [isSupported, functions, toast]);
+  }, [isSupported, toast]);
 
   /* =========================
      Subscribe
