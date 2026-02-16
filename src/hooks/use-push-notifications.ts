@@ -116,18 +116,21 @@ export function usePushNotifications() {
     }
 
     const fetchKey = async () => {
+      if (!functions) {
+          setIsKeyLoading(false);
+          return;
+      }
       setIsKeyLoading(true);
       try {
-        const response = await fetch('/api/vapid-key');
-        if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error || 'Failed to fetch VAPID key from server.');
+        const getVapidPublicKey = httpsCallable(functions, 'getVapidPublicKey');
+        const result = await getVapidPublicKey();
+        const key = (result.data as VapidKeyResponse).publicKey;
+
+        if (key && key.length > 10) {
+           setVapidKey(key);
+        } else {
+            throw new Error("VAPID public key not found or invalid.");
         }
-        const data: VapidKeyResponse = await response.json();
-        if (data.error) {
-          throw new Error(data.error);
-        }
-        setVapidKey(data.publicKey);
       } catch (error: any) {
         console.error('[push] Failed to fetch VAPID public key:', error);
         toast({
