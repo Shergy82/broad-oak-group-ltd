@@ -18,7 +18,6 @@ import {
   Timestamp,
   getDocs,
   where,
-  updateDoc,
 } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { format } from 'date-fns';
@@ -319,19 +318,6 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     };
-    
-    const getFileViewUrl = (file: ProjectFile): string => {
-        const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
-        const fileExtension = file.name.split('.').pop()?.toLowerCase();
-
-        if (fileExtension && imageExtensions.includes(fileExtension)) {
-            // For images, use the proxy to bypass content-disposition and view directly
-            return `https://images.weserv.nl/?url=${encodeURIComponent(file.url)}`;
-        }
-        
-        // For all other file types (including PDF, DOCX, etc.), use the Google Docs viewer
-        return `https://docs.google.com/gview?url=${encodeURIComponent(file.url)}&embedded=true`;
-    };
 
 
     if (!project) return null;
@@ -380,14 +366,14 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                                         {files.map(file => (
                                             <TableRow key={file.id}>
                                                 <TableCell className="font-medium truncate max-w-[180px]">
-                                                  <a href={getFileViewUrl(file)} target="_blank" rel="noopener noreferrer" className="hover:underline" title={file.name}>
+                                                  <a href={file.url} download className="hover:underline" title={file.name}>
                                                     {file.name}
                                                   </a>
                                                   <p className="text-xs text-muted-foreground">{formatFileSize(file.size)}</p>
                                                 </TableCell>
                                                 <TableCell className="text-xs text-muted-foreground">{file.uploaderName}</TableCell>
                                                 <TableCell className="text-right">
-                                                    <a href={file.url} target="_blank" rel="noopener noreferrer" download>
+                                                    <a href={file.url} download>
                                                       <Button variant="ghost" size="icon" className="h-8 w-8">
                                                           <Download className="h-4 w-4" />
                                                       </Button>
