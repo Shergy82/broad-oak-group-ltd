@@ -18,10 +18,9 @@ import {
   Timestamp,
   getDocs,
   where,
-  deleteDoc,
   updateDoc,
 } from 'firebase/firestore';
-import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import {
@@ -62,6 +61,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
+import jsPDF from 'jspdf';
 
 
 const projectSchema = z.object({
@@ -255,6 +255,7 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
     const [files, setFiles] = useState<ProjectFile[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const { toast } = useToast();
+    const [isZipping, setIsZipping] = useState(false);
 
     useEffect(() => {
         if (!project) return;
@@ -270,15 +271,40 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
         return () => unsubscribe();
     }, [project]);
 
-    const handleDeleteFile = async (file: ProjectFile) => {
-        if (!project) return;
+    const handleZipAndDownload = async () => {
+        if (!project || !functions || files.length === 0) {
+            toast({ variant: 'destructive', title: 'Error', description: 'Required services not available or no files to zip.'});
+            return;
+        }
+        setIsZipping(true);
+        toast({ title: 'Zipping files...', description: 'Please wait, this may take a moment for large projects.' });
+
         try {
-            const fileRef = ref(storage, file.fullPath);
-            await deleteObject(fileRef);
+            const zipProjectFilesFn = httpsCallable<{ projectId: string }, { downloadUrl: string }>(functions, 'zipProjectFiles');
+            const result = await zipProjectFilesFn({ projectId: project.id });
+            const { downloadUrl } = result.data;
+            
+            toast({ title: 'Zip created!', description: 'Your download will begin shortly.' });
+            // Trigger the download by navigating to the signed URL
+            window.location.href = downloadUrl;
+        } catch (error: any) {
+            console.error("Error zipping files:", error);
+            toast({ variant: 'destructive', title: 'Zipping Failed', description: error.message || 'Could not create zip file. Check the function logs.' });
+        } finally {
+            setIsZipping(false);
+        }
+    };
 
-            const docRef = doc(db, `projects/${project.id}/files`, file.id);
-            await deleteDoc(docRef);
 
+    const handleDeleteFile = async (file: ProjectFile) => {
+        if (!project || !functions) {
+            toast({ variant: 'destructive', title: 'Error', description: 'Required services are not available.' });
+            return;
+        }
+        
+        try {
+            const deleteProjectFileFn = httpsCallable<{projectId: string, fileId: string}>(functions, 'deleteProjectFile');
+            await deleteProjectFileFn({ projectId: project.id, fileId: file.id });
             toast({ title: "File Deleted", description: `Successfully deleted ${file.name}.` });
         } catch (error: any) {
             console.error("Error deleting file:", error);
@@ -296,10 +322,16 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
     
     const getFileViewUrl = (file: ProjectFile): string => {
         const officeExtensions = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
+        const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
         const fileExtension = file.name.split('.').pop()?.toLowerCase();
 
-        if (fileExtension && officeExtensions.includes(fileExtension)) {
-            return `https://docs.google.com/gview?url=${encodeURIComponent(file.url)}&embedded=true`;
+        if (fileExtension) {
+            if (officeExtensions.includes(fileExtension) || fileExtension === 'pdf') {
+                return `https://docs.google.com/gview?url=${encodeURIComponent(file.url)}&embedded=true`;
+            }
+            if (imageExtensions.includes(fileExtension)) {
+                return `https://images.weserv.nl/?url=${encodeURIComponent(file.url)}`;
+            }
         }
         return file.url;
     };
@@ -322,6 +354,15 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                     <div className="space-y-4">
                         <div className="flex items-center justify-between">
                             <h4 className="font-semibold">Existing Files</h4>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={handleZipAndDownload}
+                                disabled={isLoading || isZipping || files.length === 0}
+                            >
+                                {isZipping ? <Spinner /> : <FileArchive className="mr-2" />}
+                                Zip & Download All
+                            </Button>
                         </div>
                         {isLoading ? <Skeleton className="h-48 w-full" /> : files.length === 0 ? (
                             <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-muted-foreground/30 rounded-lg text-center h-full">
@@ -404,9 +445,7 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
   useEffect(() => {
     const q = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const allProjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project));
-      const activeProjects = allProjects.filter(p => !p.deletionScheduledAt);
-      setProjects(activeProjects);
+      setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project)));
       setLoading(false);
     }, (error) => {
       console.error("Error fetching projects:", error);
@@ -434,20 +473,23 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
         toast({ variant: 'destructive', title: 'Permission Denied', description: 'You do not have permission to delete projects.' });
         return;
     }
+     if (!functions) {
+        toast({ variant: 'destructive', title: 'Error', description: 'Firebase Functions service is not available.' });
+        return;
+    }
 
-    toast({ title: 'Scheduling Deletion...', description: 'Project will be permanently deleted in 7 days.' });
+    toast({ title: 'Deleting Project...', description: 'This may take a moment. The page will update automatically.' });
     try {
-        const projectRef = doc(db, 'projects', project.id);
-        await updateDoc(projectRef, {
-            deletionScheduledAt: serverTimestamp()
-        });
-        toast({ title: 'Success', description: 'Project scheduled for deletion.' });
+        const deleteProjectAndFilesFn = httpsCallable<{projectId: string}>(functions, 'deleteProjectAndFiles');
+        await deleteProjectAndFilesFn({ projectId: project.id });
+        
+        toast({ title: 'Success', description: 'Project and all its files have been deleted.' });
     } catch (error: any) {
-        console.error("Error scheduling deletion:", error);
+        console.error("Error calling deleteProjectAndFiles function:", error);
         toast({ 
             variant: 'destructive', 
             title: 'Deletion Failed', 
-            description: error.message || 'An unknown error occurred.' 
+            description: error.message || 'An unknown error occurred. Please check the function logs in the Firebase Console.' 
         });
     }
   };
@@ -646,4 +688,3 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
     
 
     
-
