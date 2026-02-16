@@ -2,37 +2,29 @@ import * as admin from "firebase-admin";
 import * as logger from "firebase-functions/logger";
 import { onCall, HttpsError, onRequest } from "firebase-functions/v2/https";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
-import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as webPush from "web-push";
 import * as crypto from "crypto";
 
-/* =========================================================
- *  Bootstrap
- * ========================================================= */
-if (admin.apps.length === 0) {
-  admin.initializeApp();
-}
+if (admin.apps.length === 0) admin.initializeApp();
 const db = admin.firestore();
 
-/* =========================================================
- *  Environment (Functions v2)
- * ========================================================= */
-const VAPID_PUBLIC = process.env.WEBPUSH_PUBLIC_KEY ?? "";
-const VAPID_PRIVATE = process.env.WEBPUSH_PRIVATE_KEY ?? "";
+// ENV ONLY (Cloud Functions v2)
+const VAPID_PUBLIC = process.env.WEBPUSH_PUBLIC_KEY || "";
+const VAPID_PRIVATE = process.env.WEBPUSH_PRIVATE_KEY || "";
 const VAPID_SUBJECT =
-  process.env.WEBPUSH_SUBJECT ?? "mailto:example@your-project.com";
+  process.env.WEBPUSH_SUBJECT || "mailto:example@your-project.com";
 
 if (VAPID_PUBLIC && VAPID_PRIVATE) {
   webPush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC, VAPID_PRIVATE);
 } else {
-  logger.warn("VAPID keys not configured – push disabled");
+  logger.warn("VAPID keys not configured. Push notifications will not work.");
 }
 
-/* =========================================================
- *  Helpers
- * ========================================================= */
-
-function subIdFromEndpoint(endpoint: string): string {
+/**
+ * Firestore doc IDs must NOT contain '/'.
+ * Use base64url so the ID is always safe.
+ */
+function subIdFromEndpoint(endpoint: string) {
   return Buffer.from(endpoint)
     .toString("base64")
     .replace(/\+/g, "-")
@@ -40,51 +32,56 @@ function subIdFromEndpoint(endpoint: string): string {
     .replace(/=+$/g, "");
 }
 
-async function sendWebPushToUser(
-  uid: string,
-  payload: Record<string, any>
-): Promise<{ sent: number; removed: number }> {
+async function sendWebPushToUser(uid: string, payloadObj: any) {
   if (!VAPID_PUBLIC || !VAPID_PRIVATE) {
+    logger.error("VAPID not configured");
     return { sent: 0, removed: 0 };
   }
 
-  const snap = await db
-    .collection("users")
-    .doc(uid)
-    .collection("pushSubscriptions")
-    .get();
+  const snap = await db.collection(`users/${uid}/pushSubscriptions`).get();
 
-  if (snap.empty) return { sent: 0, removed: 0 };
+  if (snap.empty) {
+    logger.info("No push subs for user", { uid });
+    return { sent: 0, removed: 0 };
+  }
+
+  const payload = JSON.stringify(payloadObj);
 
   let sent = 0;
   let removed = 0;
-  const body = JSON.stringify(payload);
 
-  for (const doc of snap.docs) {
-    const data = doc.data();
+  for (const docSnap of snap.docs) {
+    const data = docSnap.data() as any;
 
-    const sub: webPush.PushSubscription | null =
-      data?.subscription?.endpoint
+    // Support both shapes:
+    // - { endpoint, keys }
+    // - { subscription: { endpoint, keys } }
+    const sub: webPush.PushSubscription =
+      data?.subscription && data?.subscription?.endpoint
         ? data.subscription
-        : data?.endpoint && data?.keys
-        ? { endpoint: data.endpoint, keys: data.keys }
-        : null;
+        : {
+            endpoint: data.endpoint,
+            keys: data.keys,
+          };
 
-    if (!sub?.endpoint || !sub.keys?.p256dh || !sub.keys?.auth) {
-      await doc.ref.delete();
+    if (!sub?.endpoint || !sub?.keys?.p256dh || !sub?.keys?.auth) {
+      logger.warn("Invalid subscription doc; deleting", { uid, id: docSnap.id });
+      await docSnap.ref.delete();
       removed++;
       continue;
     }
 
     try {
-      await webPush.sendNotification(sub, body);
+      await webPush.sendNotification(sub, payload);
       sent++;
-    } catch (e: any) {
-      if (e?.statusCode === 404 || e?.statusCode === 410) {
-        await doc.ref.delete();
+    } catch (err: any) {
+      const code = err?.statusCode;
+
+      if (code === 404 || code === 410) {
+        await docSnap.ref.delete();
         removed++;
       } else {
-        logger.error("Push failed", e);
+        logger.error("Push failed", err);
       }
     }
   }
@@ -92,221 +89,336 @@ async function sendWebPushToUser(
   return { sent, removed };
 }
 
+function londonMidnightUtcMs(now: Date = new Date()): number {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/London",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+
+  const y = Number(parts.find((p) => p.type === "year")?.value);
+  const m = Number(parts.find((p) => p.type === "month")?.value);
+  const d = Number(parts.find((p) => p.type === "day")?.value);
+
+  const utcMidnight = new Date(Date.UTC(y, m - 1, d, 0, 0, 0));
+
+  const hm = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/London",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(utcMidnight);
+
+  const hh = Number(hm.find((p) => p.type === "hour")?.value || "0");
+  const mm = Number(hm.find((p) => p.type === "minute")?.value || "0");
+
+  return utcMidnight.getTime() - (hh * 60 + mm) * 60 * 1000;
+}
+
 function toMillis(v: any): number | null {
   if (!v) return null;
+
+  // Firestore Timestamp
+  if (typeof v === "object" && typeof v.toMillis === "function") return v.toMillis();
+
+  // number: ms or seconds
   if (typeof v === "number") return v > 1e12 ? v : v * 1000;
+
+  // string date
   if (typeof v === "string") {
     const ms = Date.parse(v);
     return Number.isNaN(ms) ? null : ms;
   }
-  if (typeof v?.toMillis === "function") return v.toMillis();
-  if (typeof v?.seconds === "number") {
+
+  // { seconds, nanoseconds }
+  if (typeof v === "object" && typeof v.seconds === "number") {
     return v.seconds * 1000 + Math.floor((v.nanoseconds || 0) / 1e6);
   }
+
   return null;
 }
 
 function getShiftStartMs(shift: any): number | null {
+  // Your schema:
+  // - shift.date = Firestore Timestamp for the day (midnight)
+  // - shift.type = "am" | "pm"
   const dayMs = toMillis(shift.date);
   if (dayMs !== null) {
-    const hour = String(shift.type).toLowerCase() === "pm" ? 12 : 6;
+    const t = (shift.type || "").toString().toLowerCase();
+    const hour = t === "pm" ? 12 : 6;
     return dayMs + hour * 60 * 60 * 1000;
   }
 
-  return toMillis(
-    shift.startAt ??
-      shift.start ??
-      shift.startsAt ??
-      shift.startTime ??
-      shift.startDate
-  );
+  // Fallbacks (older schemas)
+  const candidates = [
+    shift.startAt,
+    shift.start,
+    shift.startsAt,
+    shift.shiftStart,
+    shift.startTime,
+    shift.startDate,
+    shift.date,
+    shift.shiftDate,
+    shift.day,
+  ];
+
+  for (const c of candidates) {
+    const ms = toMillis(c);
+    if (ms !== null) return ms;
+  }
+
+  return null;
 }
 
 function getShiftEndMs(shift: any): number | null {
-  return toMillis(
-    shift.endAt ??
-      shift.end ??
-      shift.endsAt ??
-      shift.endTime ??
-      shift.endDate
-  );
+  const candidates = [
+    shift.endAt,
+    shift.end,
+    shift.endsAt,
+    shift.shiftEnd,
+    shift.endTime,
+    shift.endDate,
+  ];
+
+  for (const c of candidates) {
+    const ms = toMillis(c);
+    if (ms !== null) return ms;
+  }
+
+  return null;
 }
 
 function isCompletedShift(shift: any): boolean {
-  const s = String(shift.status ?? "").toLowerCase();
-  return (
-    s === "completed" ||
-    s === "complete" ||
-    s === "done" ||
-    shift.completed === true
-  );
+  const status = (shift.status || shift.state || "").toString().toLowerCase();
+  if (status === "completed" || status === "complete" || status === "done") return true;
+  if (shift.completed === true) return true;
+  if (shift.isCompleted === true) return true;
+  if (shift.complete === true) return true;
+  return false;
 }
 
 function stableStringify(obj: any): string {
   if (obj === null || obj === undefined) return "";
-  if (Array.isArray(obj)) return `[${obj.map(stableStringify).join(",")}]`;
+  if (Array.isArray(obj)) return "[" + obj.map(stableStringify).join(",") + "]";
   if (typeof obj !== "object") return JSON.stringify(obj);
-  return `{${Object.keys(obj)
-    .sort()
-    .map((k) => `"${k}":${stableStringify(obj[k])}`)
-    .join(",")}}`;
+  const keys = Object.keys(obj).sort();
+  return "{" + keys.map((k) => JSON.stringify(k) + ":" + stableStringify(obj[k])).join(",") + "}";
+}
+
+function relevantShiftSignature(shift: any): string {
+  // Only fields that should trigger a notification when changed.
+  // Intentionally excludes status / confirmations / bookkeeping.
+  const startMs = getShiftStartMs(shift);
+  const endMs = getShiftEndMs(shift);
+
+  const sig = {
+    userId: shift.userId || shift.uid || null,
+    startMs,
+    endMs,
+    addressId: shift.addressId ?? null,
+    address: shift.address ?? null,
+    site: shift.site ?? null,
+    role: shift.role ?? null,
+    job: shift.job ?? null,
+    notes: shift.notes ?? shift.note ?? null,
+    period: shift.period ?? shift.ampm ?? null,
+  };
+
+  return stableStringify(sig);
 }
 
 function hashSig(sig: string): string {
   return crypto.createHash("sha256").update(sig).digest("hex");
 }
 
-/* =========================================================
- *  Callable / HTTP
- * ========================================================= */
-
-export const getVapidPublicKey = onCall(
-  { region: "europe-west2" },
-  async () => {
-    if (!VAPID_PUBLIC) {
-      throw new HttpsError(
-        "failed-precondition",
-        "VAPID public key not configured"
-      );
-    }
-    return { publicKey: VAPID_PUBLIC };
+export const getVapidPublicKey = onCall({ region: "europe-west2" }, async () => {
+  if (!VAPID_PUBLIC) {
+    throw new HttpsError("failed-precondition", "VAPID public key is not configured");
   }
-);
+  return { publicKey: VAPID_PUBLIC };
+});
 
-export const setNotificationStatus = onCall(
-  { region: "europe-west2" },
-  async (req) => {
-    if (!req.auth) throw new HttpsError("unauthenticated", "Login required");
+export const setNotificationStatus = onCall({ region: "europe-west2" }, async (req) => {
+  if (!req.auth) throw new HttpsError("unauthenticated", "Login required");
 
-    const { status, subscription, endpoint, subId } = req.data || {};
-    const uid = req.auth.uid;
+  const uid = req.auth.uid;
+  const data = req.data as any;
 
-    const subs = db
-      .collection("users")
-      .doc(uid)
-      .collection("pushSubscriptions");
+  const status = data?.status;
+  const subscription = data?.subscription;
+  const endpoint = data?.endpoint;
 
-    if (status === "subscribed") {
-      if (!subscription?.endpoint) {
-        throw new HttpsError("invalid-argument", "Invalid subscription");
-      }
-      const id = subId?.trim() || subIdFromEndpoint(subscription.endpoint);
-      await subs.doc(id).set(
-        {
-          endpoint: subscription.endpoint,
-          keys: subscription.keys,
-          subscription,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
-      return { ok: true };
-    }
+  const subs = db.collection("users").doc(uid).collection("pushSubscriptions");
 
-    if (status === "unsubscribed") {
-      if (!endpoint) {
-        throw new HttpsError("invalid-argument", "Missing endpoint");
-      }
-      const id = subId?.trim() || subIdFromEndpoint(endpoint);
-      await subs.doc(id).delete();
-      return { ok: true };
-    }
+  if (status === "subscribed") {
+    if (!subscription?.endpoint) throw new HttpsError("invalid-argument", "Bad subscription");
 
-    throw new HttpsError("invalid-argument", "Invalid status");
+    const id =
+      typeof data?.subId === "string" && data.subId.trim()
+        ? data.subId.trim()
+        : subIdFromEndpoint(subscription.endpoint);
+
+    await subs.doc(id).set(
+      {
+        endpoint: subscription.endpoint,
+        keys: subscription.keys,
+        subscription, // keep full copy (helps compatibility)
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    return { ok: true };
   }
-);
 
+  if (status === "unsubscribed") {
+    if (!endpoint) throw new HttpsError("invalid-argument", "Missing endpoint");
+
+    const id =
+      typeof data?.subId === "string" && data.subId.trim()
+        ? data.subId.trim()
+        : subIdFromEndpoint(endpoint);
+
+    await subs.doc(id).delete();
+    return { ok: true };
+  }
+
+  throw new HttpsError("invalid-argument", "Invalid status");
+});
+
+// ✅ FIXED: enable CORS so browser can read response (prevents “failed” UI)
 export const sendTestNotificationHttp = onRequest(
   { region: "europe-west2", cors: true },
   async (req, res) => {
-    const uid = String(req.query.uid ?? "");
-    if (!uid) {
-      res.status(400).json({ ok: false, error: "Missing uid" });
-      return;
+    try {
+      res.setHeader("Cache-Control", "no-store");
+
+      const uid = String(req.query.uid || "");
+      if (!uid) {
+        res.status(400).json({ ok: false, error: "Missing uid" });
+        return;
+      }
+
+      const result = await sendWebPushToUser(uid, {
+        title: "Test Notification",
+        body: "Push is working",
+        url: "/",
+      });
+
+      res.json({ ok: true, ...result });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e?.message || String(e) });
     }
-
-    const result = await sendWebPushToUser(uid, {
-      title: "Test Notification",
-      body: "Push is working",
-      url: "/",
-    });
-
-    res.json({ ok: true, ...result });
   }
 );
 
-/* =========================================================
- *  Firestore trigger
- * ========================================================= */
-
+/**
+ * Fires on create/update/delete.
+ * - Create: before missing, after present
+ * - Update: before present, after present
+ * - Delete: before present, after missing
+ */
 export const onShiftWrite = onDocumentWritten(
   { region: "europe-west2", document: "shifts/{shiftId}" },
   async (event) => {
     const before = event.data?.before?.data();
     const after = event.data?.after?.data();
-    const doc = after ?? before;
+
+    const todayStartUtc = londonMidnightUtcMs(new Date()) - 5 * 60 * 1000;
+
+    // Use after if present, else before for deletes
+    const doc: any = after || before;
     if (!doc) return;
 
+    // Must have a start date/time to be considered
     const startMs = getShiftStartMs(doc);
-    if (startMs === null || isCompletedShift(doc)) return;
+    if (startMs === null) {
+      logger.info("Skip notification (no shift start date/time found)");
+      return;
+    }
 
-    const uid = doc.userId ?? doc.uid;
-    if (!uid) return;
+    // Only notify for today + future
+    if (startMs < todayStartUtc) {
+      logger.info("Skip notification (past shift)", { startMs, todayStartUtc });
+      return;
+    }
 
-    await sendWebPushToUser(uid, {
-      title: after && !before ? "New Shift Assigned" : "Shift Updated",
-      body: "Your shift details have changed.",
-      url: "/dashboard",
-    });
-  }
-);
+    // Never notify for completed shifts
+    if (isCompletedShift(doc)) {
+      logger.info("Skip notification for completed shift");
+      return;
+    }
 
-/* =========================================================
- *  Scheduled cleanup (FIXED – v2 compliant)
- * ========================================================= */
+    // DELETE: cancellation
+    if (before && !after) {
+      const userId = (before as any).userId || (before as any).uid;
+      if (!userId) return;
 
-export const cleanupDeletedProjects = onSchedule(
-  {
-    schedule: "every 24 hours",
-    region: "europe-west2",
-    timeoutSeconds: 540,
-    memory: "512MiB",
-  },
-  async (_event): Promise<void> => {
-    logger.info("Running project cleanup");
-
-    const cutoff = admin.firestore.Timestamp.fromDate(
-      new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
-    );
-
-    const snap = await db
-      .collection("projects")
-      .where("deletionScheduledAt", "<=", cutoff)
-      .get();
-
-    if (snap.empty) return;
-
-    const bucket = admin.storage().bucket();
-
-    for (const doc of snap.docs) {
-      const projectId = doc.id;
-
-      await bucket.deleteFiles({
-        prefix: `project_files/${projectId}/`,
-        force: true,
+      const result = await sendWebPushToUser(userId, {
+        title: "Shift Cancelled",
+        body: "A shift you were assigned to has been cancelled.",
+        url: "/dashboard",
       });
 
-      const filesSnap = await doc.ref.collection("files").limit(500).get();
-      if (!filesSnap.empty) {
-        const batch = db.batch();
-        filesSnap.docs.forEach((d) => batch.delete(d.ref));
-        await batch.commit();
+      logger.info("Shift delete push done", { userId, ...result });
+      return;
+    }
+
+    // CREATE / UPDATE
+    if (after) {
+      const userId = (after as any).userId || (after as any).uid;
+      if (!userId) return;
+
+      const isCreate = !before && !!after;
+      const isUpdate = !!before && !!after;
+
+      // Dedupe: ignore updates where only bookkeeping changed
+      if (isUpdate) {
+        const beforeSig = relevantShiftSignature(before);
+        const afterSig = relevantShiftSignature(after);
+
+        if (beforeSig === afterSig) {
+          logger.info("Skip notification (no meaningful shift changes)");
+          return;
+        }
+
+        const beforeHash = hashSig(beforeSig);
+        const afterHash = hashSig(afterSig);
+        if (beforeHash === afterHash) {
+          logger.info("Skip notification (identical shift hash)");
+          return;
+        }
       }
 
-      await doc.ref.delete();
-      logger.info("Deleted project", { projectId });
+      const result = await sendWebPushToUser(userId, {
+        title: isCreate ? "New Shift Assigned" : "Shift Updated",
+        body: isCreate
+          ? "You have been assigned a new shift."
+          : "One of your shifts has been updated.",
+        url: "/dashboard",
+      });
+
+      logger.info("Shift write push done", {
+        userId,
+        kind: isCreate ? "create" : isUpdate ? "update" : "write",
+        ...result,
+      });
     }
   }
 );
 
-export { serveFile } from "./files";
+export const getNotificationStatus = onCall({ region: "europe-west2" }, async (req) => {
+  if (!req.auth) throw new HttpsError("unauthenticated", "Login required");
+
+  const uid = req.auth.uid;
+
+  const snap = await db
+    .collection("users")
+    .doc(uid)
+    .collection("pushSubscriptions")
+    .limit(1)
+    .get();
+
+  return { subscribed: !snap.empty };
+});

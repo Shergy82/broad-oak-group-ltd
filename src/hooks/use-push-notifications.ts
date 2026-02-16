@@ -4,20 +4,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { functions, httpsCallable } from '@/lib/firebase';
-
 import type {
   PushSubscriptionPayload,
   VapidKeyResponse,
+  SetStatusRequest,
   GenericResponse,
 } from '@/types';
 
-/* =========================
-   Helpers
-   ========================= */
-
-/**
- * Convert base64 (URL-safe) VAPID public key to Uint8Array for PushManager
- */
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -28,45 +21,6 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   }
   return outputArray;
 }
-
-/**
- * Stable-ish short id from endpoint so the same device/browser maps to the same record.
- */
-function endpointToId(endpoint: string) {
-  let h = 0;
-  for (let i = 0; i < endpoint.length; i++) {
-    h = (h * 31 + endpoint.charCodeAt(i)) | 0;
-  }
-  return Math.abs(h).toString(36);
-}
-
-function fmtCallableError(err: any): string {
-  const code = err?.code || err?.name;
-  const msg = err?.message || String(err);
-  const details =
-    err?.details
-      ? typeof err.details === 'string'
-        ? err.details
-        : JSON.stringify(err.details)
-      : '';
-  return [code, msg, details].filter(Boolean).join(' | ');
-}
-
-/* =========================
-   Correct request contract
-   ========================= */
-
-type SetNotificationStatusRequest = {
-  status: 'subscribed' | 'unsubscribed';
-  uid: string;
-  subId: string;
-  subscription?: PushSubscriptionPayload;
-  endpoint?: string;
-};
-
-/* =========================
-   Hook
-   ========================= */
 
 export function usePushNotifications() {
   const { toast } = useToast();
@@ -88,16 +42,23 @@ export function usePushNotifications() {
     );
   }, []);
 
-  const refreshLocalSubscriptionState = useCallback(async () => {
-    if (!isSupported) return;
-    try {
-      const registration = await navigator.serviceWorker.ready;
-      const subscription = await registration.pushManager.getSubscription();
-      setIsSubscribed(!!subscription);
-    } catch {
-      setIsSubscribed(false);
+  /**
+   * iOS can hang forever on navigator.serviceWorker.ready after SW updates.
+   * Use getRegistration() and register() fallback to guarantee a usable registration.
+   */
+  const getOrRegisterSW = useCallback(async () => {
+    // Prefer an existing registration for this origin/scope
+    let registration = await navigator.serviceWorker.getRegistration();
+
+    // If missing (or iOS got into a bad state), register explicitly
+    if (!registration) {
+      registration = await navigator.serviceWorker.register(
+        '/firebase-messaging-sw.js'
+      );
     }
-  }, [isSupported]);
+
+    return registration;
+  }, []);
 
   useEffect(() => {
     if (!isSupported) {
@@ -106,53 +67,54 @@ export function usePushNotifications() {
     }
 
     setPermission(Notification.permission);
-    void refreshLocalSubscriptionState();
-  }, [isSupported, refreshLocalSubscriptionState]);
+
+    (async () => {
+      try {
+        const registration = await getOrRegisterSW();
+        const subscription = await registration.pushManager.getSubscription();
+        setIsSubscribed(!!subscription);
+      } catch (e) {
+        // Don’t toast here; just keep UI usable
+        console.error('Failed to check existing push subscription:', e);
+      }
+    })();
+  }, [isSupported, getOrRegisterSW]);
 
   useEffect(() => {
-    if (!isSupported) {
+    if (!isSupported || !functions) {
       setIsKeyLoading(false);
       return;
     }
 
     const fetchKey = async () => {
-      if (!functions) {
-          setIsKeyLoading(false);
-          return;
-      }
       setIsKeyLoading(true);
-      try {
-        const getVapidPublicKey = httpsCallable(functions, 'getVapidPublicKey');
-        const result = await getVapidPublicKey();
-        const key = (result.data as VapidKeyResponse).publicKey;
 
-        if (key && key.length > 10) {
-           setVapidKey(key);
-        } else {
-            throw new Error("VAPID public key not found or invalid.");
-        }
+      try {
+        const getVapidPublicKey = httpsCallable<unknown, VapidKeyResponse>(
+          functions,
+          'getVapidPublicKey'
+        );
+
+        const result = await getVapidPublicKey({});
+        setVapidKey(result.data.publicKey);
       } catch (error: any) {
-        console.error('[push] Failed to fetch VAPID public key:', error);
+        console.error('Failed to fetch VAPID public key:', error);
+
         toast({
           variant: 'destructive',
           title: 'Notification Error',
-          description:
-            error.message || 'Could not load notification configuration from the server.',
+          description: 'Could not load notification configuration from the server.',
         });
       } finally {
         setIsKeyLoading(false);
       }
     };
 
-    void fetchKey();
+    fetchKey();
   }, [isSupported, toast]);
 
-  /* =========================
-     Subscribe
-     ========================= */
-
   const subscribe = useCallback(async () => {
-    if (!isSupported || !user || !vapidKey || !functions) {
+    if (!isSupported || !user || !functions) {
       toast({
         title: 'Cannot Subscribe',
         description: 'Required services are not ready.',
@@ -161,71 +123,80 @@ export function usePushNotifications() {
       return;
     }
 
+    let currentPermission: NotificationPermission;
+    try {
+      const permissionPromise = Notification.requestPermission();
+
+      currentPermission = (await Promise.race([
+        permissionPromise,
+        new Promise<NotificationPermission>((_, reject) =>
+          setTimeout(() => reject(new Error('Permission request timed out')), 8000)
+        ),
+      ])) as NotificationPermission;
+    } catch (e: any) {
+      console.error('Notification permission failed/hung:', e);
+      toast({
+        title: 'Permission Request Failed',
+        description: 'Safari did not return a permission response. Try again.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setPermission(currentPermission);
+
+    if (currentPermission !== 'granted') {
+      toast({
+        title: 'Permission Denied',
+        description: 'Notifications are blocked by your browser.',
+      });
+      return;
+    }
+
+    if (!vapidKey) {
+      toast({
+        title: 'Cannot Subscribe',
+        description: 'Notification key not loaded yet. Try again in a moment.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsSubscribing(true);
 
     try {
-      const currentPermission = await Notification.requestPermission();
-      setPermission(currentPermission);
-
-      if (currentPermission !== 'granted') {
-        toast({
-          title: 'Permission Denied',
-          description: 'Notifications are blocked by your browser.',
-        });
-        return;
-      }
-
-      const registration = await navigator.serviceWorker.ready;
-      const existing = await registration.pushManager.getSubscription();
+      const registration = await getOrRegisterSW();
 
       const applicationServerKey = urlBase64ToUint8Array(vapidKey);
 
-      const subscription =
-        existing ??
-        (await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey,
-        }));
-
-      const subJson = subscription.toJSON() as PushSubscriptionPayload;
-      const subId = `${user.uid}_${endpointToId(subscription.endpoint)}`;
-
-      const setStatus = httpsCallable<
-        SetNotificationStatusRequest,
-        GenericResponse
-      >(functions, 'setNotificationStatus');
-
-      await setStatus({
-        status: 'subscribed',
-        uid: user.uid,
-        subId,
-        subscription: subJson,
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey,
       });
 
-      await refreshLocalSubscriptionState();
+      const setStatus = httpsCallable<SetStatusRequest, GenericResponse>(
+        functions,
+        'setNotificationStatus'
+      );
+
+      setIsSubscribed(true);
 
       toast({
         title: 'Subscribed!',
         description: 'You will now receive notifications.',
       });
     } catch (error: any) {
-      console.error('[push] subscribe failed:', error);
+      console.error('Error subscribing to push notifications:', error);
 
       toast({
         title: 'Subscription Failed',
-        description: fmtCallableError(error),
+        description: error?.message || 'An unexpected error occurred.',
         variant: 'destructive',
       });
-
-      await refreshLocalSubscriptionState();
     } finally {
       setIsSubscribing(false);
     }
-  }, [isSupported, user, vapidKey, functions, toast, refreshLocalSubscriptionState]);
-
-  /* =========================
-     Unsubscribe
-     ========================= */
+  }, [isSupported, user, vapidKey, functions, toast, getOrRegisterSW]);
 
   const unsubscribe = useCallback(async () => {
     if (!isSupported || !user || !functions) return;
@@ -233,55 +204,29 @@ export function usePushNotifications() {
     setIsSubscribing(true);
 
     try {
-      const registration = await navigator.serviceWorker.ready;
+      const registration = await getOrRegisterSW();
       const subscription = await registration.pushManager.getSubscription();
 
-      if (!subscription) {
+        if (subscription) await subscription.unsubscribe();
+
         setIsSubscribed(false);
-        toast({
-          title: 'Unsubscribed',
-          description: 'You were not subscribed on this device.',
-        });
-        return;
-      }
-
-      const endpoint = subscription.endpoint;
-      await subscription.unsubscribe();
-
-      const subId = `${user.uid}_${endpointToId(endpoint)}`;
-
-      const setStatus = httpsCallable<
-        SetNotificationStatusRequest,
-        GenericResponse
-      >(functions, 'setNotificationStatus');
-
-      await setStatus({
-        status: 'unsubscribed',
-        uid: user.uid,
-        subId,
-        endpoint,
-      });
-
-      await refreshLocalSubscriptionState();
 
       toast({
         title: 'Unsubscribed',
         description: 'You will no longer receive notifications.',
       });
     } catch (error: any) {
-      console.error('[push] unsubscribe failed:', error);
+      console.error('Error unsubscribing:', error);
 
       toast({
         title: 'Unsubscribe Failed',
-        description: fmtCallableError(error),
+        description: error?.message || 'An unexpected error occurred.',
         variant: 'destructive',
       });
-
-      await refreshLocalSubscriptionState();
     } finally {
       setIsSubscribing(false);
     }
-  }, [isSupported, user, functions, toast, refreshLocalSubscriptionState]);
+  }, [isSupported, user, functions, toast, getOrRegisterSW]);
 
   return {
     isSupported,
