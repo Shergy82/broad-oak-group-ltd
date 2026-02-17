@@ -276,14 +276,14 @@ const findManagerInBlock = (jsonData: any[][], startRow: number, endRow: number)
         );
 
         if (managerCellIndex !== -1) {
-            // Look for the next non-empty cell in the same row
-            for (let c = managerCellIndex + 1; c < row.length; c++) {
-                if (row[c]) {
-                    const managerName = (row[c] || '').toString().trim();
-                    // Basic sanity check to avoid picking up random adjacent text
-                    if (managerName.length > 2 && managerName.split(' ').length < 4) {
-                        return managerName;
-                    }
+            // The manager's name is expected to be in the cell directly below.
+            const nextRow = jsonData[r + 1];
+            if (nextRow && nextRow[managerCellIndex]) {
+                const managerNameAndPhone = (nextRow[managerCellIndex] || '').toString().trim();
+                // The cell might contain "STEVE CONWAY - 0789654342". Extract just the name part.
+                const namePart = managerNameAndPhone.split('-')[0].trim();
+                if (namePart.length > 2) {
+                    return namePart;
                 }
             }
         }
@@ -947,5 +947,3 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
     </div>
   );
 }
-
-    
