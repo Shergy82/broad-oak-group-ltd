@@ -32,14 +32,13 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.reGeocodeAllShifts = exports.deleteUser = exports.setUserStatus = exports.setNotificationStatus = exports.getNotificationStatus = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
-const node_fetch_1 = __importDefault(require("node-fetch"));
+/* =====================================================
+   Bootstrap
+===================================================== */
 if (admin.apps.length === 0) {
     admin.initializeApp();
 }
@@ -47,10 +46,9 @@ const db = admin.firestore();
 /* =====================================================
    ENV
 ===================================================== */
-const GEOCODING_KEY = process.env.GOOGLE_GEOCODING_KEY ||
-    require('firebase-functions').config().google.geocoding_key;
+const GEOCODING_KEY = process.env.GOOGLE_GEOCODING_KEY;
 /* =====================================================
-   NOTIFICATION STATUS (REQUIRED BY FRONTEND)
+   NOTIFICATION STATUS
 ===================================================== */
 exports.getNotificationStatus = (0, https_1.onCall)({ region: 'europe-west2' }, async (req) => {
     if (!req.auth) {
@@ -63,13 +61,25 @@ exports.setNotificationStatus = (0, https_1.onCall)({ region: 'europe-west2' }, 
     if (!req.auth) {
         throw new https_1.HttpsError('unauthenticated', 'Login required');
     }
+    const uid = req.auth.uid;
     if (typeof req.data?.enabled !== 'boolean') {
         throw new https_1.HttpsError('invalid-argument', 'enabled must be boolean');
     }
+    /* 1️⃣ Save user preference */
     await db
         .collection('users')
-        .doc(req.auth.uid)
+        .doc(uid)
         .set({ notificationsEnabled: req.data.enabled }, { merge: true });
+    /* 2️⃣ Restore previous behaviour:
+          store browser push subscription if provided */
+    if (req.data.subscription && req.data.enabled === true) {
+        await db
+            .collection('users')
+            .doc(uid)
+            .collection('pushSubscriptions')
+            .doc('browser')
+            .set(req.data.subscription, { merge: true });
+    }
     return { success: true };
 });
 /* =====================================================
@@ -116,7 +126,7 @@ exports.reGeocodeAllShifts = (0, https_1.onCall)({
 }, async (req) => {
     await assertIsOwner(req.auth?.uid);
     if (!GEOCODING_KEY) {
-        throw new https_1.HttpsError('failed-precondition', 'Missing Google Geocoding API key');
+        throw new https_1.HttpsError('failed-precondition', 'Missing GOOGLE_GEOCODING_KEY');
     }
     const snap = await db.collection('shifts').get();
     let updated = 0;
@@ -129,11 +139,11 @@ exports.reGeocodeAllShifts = (0, https_1.onCall)({
             continue;
         }
         const address = encodeURIComponent(`${data.address}, UK`);
-        const url = `https://maps.googleapis.com/maps/api/geocode/json?` +
-            `address=${address}&key=${GEOCODING_KEY}`;
+        const url = `https://maps.googleapis.com/maps/api/geocode/json` +
+            `?address=${address}&key=${GEOCODING_KEY}`;
         try {
-            const res = await (0, node_fetch_1.default)(url);
-            const json = await res.json();
+            const res = await fetch(url);
+            const json = (await res.json());
             if (json.status !== 'OK' || !json.results?.length) {
                 failed++;
                 continue;
@@ -145,12 +155,12 @@ exports.reGeocodeAllShifts = (0, https_1.onCall)({
                 location: {
                     lat,
                     lng,
-                    accuracy, // ROOFTOP | RANGE_INTERPOLATED | POSTAL_CODE
+                    accuracy,
                 },
             });
             updated++;
         }
-        catch (err) {
+        catch {
             failed++;
         }
     }

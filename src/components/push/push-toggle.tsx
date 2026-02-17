@@ -1,6 +1,5 @@
 'use client';
 
-import { useMemo } from 'react';
 import { Bell, BellOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
@@ -8,66 +7,42 @@ import { usePushNotifications } from '@/hooks/use-push-notifications';
 
 export default function PushToggleButton() {
   const { toast } = useToast();
-  const {
-    isSupported,
-    isSubscribed,
-    isSubscribing,
-    permission,
-    subscribe,
-    unsubscribe,
-  } = usePushNotifications();
+  const { isSupported, isSubscribed, subscribe, unsubscribe } =
+    usePushNotifications();
 
-  const label = useMemo(() => {
-    if (!isSupported) return 'Push not supported';
-    if (permission === 'denied') return 'Push blocked';
-    return isSubscribed ? 'Notifications on' : 'Enable notifications';
-  }, [isSupported, isSubscribed, permission]);
+  if (!isSupported) {
+    return (
+      <Button variant="ghost" size="icon" disabled>
+        <BellOff className="h-5 w-5 opacity-50" />
+      </Button>
+    );
+  }
 
-  // FORCE ENABLE BUTTON (debug)
-  const disabled = false;
+  const handleClick = () => {
+    try {
+      if (isSubscribed) {
+        unsubscribe();
+        toast({ title: 'Notifications disabled' });
+      } else {
+        subscribe();
+        toast({ title: 'Notifications enabled' });
+      }
+    } catch (err: any) {
+      toast({
+        title: 'Notification error',
+        description: err?.message || 'Something went wrong',
+        variant: 'destructive',
+      });
+    }
+  };
 
   return (
     <Button
       type="button"
       variant="ghost"
       size="icon"
-      disabled={disabled}
-      aria-label={label}
-      title={label}
-      onClick={async () => {
-        try {
-          if (!isSupported) {
-            toast({
-              title: 'Not supported',
-              description: 'This browser does not support push notifications.',
-              variant: 'destructive',
-            });
-            return;
-          }
-
-          if (permission === 'denied') {
-            toast({
-              title: 'Blocked',
-              description: 'Notifications are blocked in your browser settings.',
-              variant: 'destructive',
-            });
-            return;
-          }
-
-          if (isSubscribed) {
-            await unsubscribe();
-          } else {
-            alert('subscribe clicked');
-            await subscribe();
-          }
-        } catch (e: any) {
-          toast({
-            title: 'Push error',
-            description: e?.message || 'Something went wrong.',
-            variant: 'destructive',
-          });
-        }
-      }}
+      onClick={handleClick}
+      aria-label="Toggle notifications"
     >
       {isSubscribed ? (
         <Bell className="h-5 w-5" />

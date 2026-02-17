@@ -1,50 +1,22 @@
 'use client';
 
-import { usePushNotifications } from '@/hooks/use-push-notifications';
-import { Button } from '../ui/button';
 import { Bell, BellOff } from 'lucide-react';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '../ui/tooltip';
-import { Spinner } from './spinner';
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { usePushNotifications } from '@/hooks/use-push-notifications';
 
 export function NotificationButton() {
-  const {
-    isSupported,
-    isSubscribed,
-    isSubscribing,
-    permission,
-    subscribe,
-    unsubscribe,
-  } = usePushNotifications();
+  const { isSupported, isSubscribed, subscribe, unsubscribe } =
+    usePushNotifications();
 
-  // If push is not supported at all, do not render
-  if (!isSupported) {
-    return null;
-  }
+  if (!isSupported) return null;
 
-  const handleToggle = () => {
+  const handleClick = () => {
     if (isSubscribed) {
       unsubscribe();
     } else {
       subscribe();
     }
-  };
-
-  const getIcon = () => {
-    if (isSubscribing) return <Spinner />;
-    if (isSubscribed) return <Bell className="h-5 w-5 text-green-600" />;
-    return <BellOff className="h-5 w-5 text-muted-foreground" />;
-  };
-
-  const getTooltipContent = () => {
-    if (permission === 'denied') return 'Notifications blocked in browser settings';
-    if (isSubscribing) return 'Please wait...';
-    if (isSubscribed) return 'Unsubscribe from notifications';
-    return 'Subscribe to notifications';
   };
 
   return (
@@ -54,15 +26,18 @@ export function NotificationButton() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={handleToggle}
-            disabled={permission === 'denied'}
-            aria-label="Toggle Notifications"
+            onClick={handleClick}
+            aria-label="Toggle notifications"
           >
-            {getIcon()}
+            {isSubscribed ? (
+              <Bell className="h-5 w-5 text-green-600" />
+            ) : (
+              <BellOff className="h-5 w-5 text-muted-foreground" />
+            )}
           </Button>
         </TooltipTrigger>
         <TooltipContent>
-          <p>{getTooltipContent()}</p>
+          <p>{isSubscribed ? 'Disable notifications' : 'Enable notifications'}</p>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
