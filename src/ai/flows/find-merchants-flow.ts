@@ -21,13 +21,14 @@ const findMerchantsPrompt = ai.definePrompt({
     Their current location is approximately around latitude {{lat}} and longitude {{lng}}.
 
     Generate a list of 5 fictional businesses that match this query.
-    For each business, provide:
-    1. A creative and realistic business name.
-    2. A plausible, specific street address located realistically near the user's coordinates.
-    3. Plausible latitude and longitude coordinates for that address. The coordinates should be very close to the user's provided location, with small random variations to appear as if they are in the same neighborhood.
-    4. A business category that matches the user's query (e.g., "Plumbing", "Cafe").
+    Each business must be a JSON object with the following properties: "name" (string), "address" (string), "lat" (number), "lng" (number), "category" (string).
 
-    The output MUST be a valid JSON array of objects, conforming to the output schema.
+    - The "name" should be creative and realistic.
+    - The "address" should be a plausible, specific street address located realistically near the user's coordinates.
+    - "lat" and "lng" should be plausible coordinates for that address, very close to the user's location.
+    - The "category" should match the user's query (e.g., "Plumbing", "Cafe").
+
+    The entire output MUST be ONLY a valid JSON array of these 5 objects, conforming to the output schema. Do not include any other text, explanation, or markdown.
   `,
 });
 
