@@ -96,7 +96,7 @@ export function Header() {
                   <Calendar className="mr-2" />
                   <span>Dashboard</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => router.push('/admin/staff-ai')} className="cursor-pointer">
+                <DropdownMenuItem onClick={() => router.push('/ai')} className="cursor-pointer">
                   <Map className="mr-2" />
                   <span>AI Assistant</span>
                 </DropdownMenuItem>
