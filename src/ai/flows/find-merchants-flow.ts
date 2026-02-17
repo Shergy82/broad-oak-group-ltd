@@ -11,6 +11,7 @@ import {
 
 const findMerchantsPrompt = ai.definePrompt({
   name: 'findMerchantsPrompt',
+  model: 'googleai/gemini-1.5-flash-latest',
   input: { schema: FindMerchantsInputSchema },
   output: { schema: FindMerchantsOutputSchema },
   prompt: `
