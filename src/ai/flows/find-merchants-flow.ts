@@ -4,8 +4,10 @@ import { ai } from '@/ai/genkit';
 import {
     FindMerchantsInputSchema,
     FindMerchantsOutputSchema,
-    type FindMerchantsInput
+    type FindMerchantsInput,
+    type Merchant,
 } from '@/ai/schemas';
+
 
 const findMerchantsPrompt = ai.definePrompt({
   name: 'findMerchantsPrompt',
@@ -22,22 +24,16 @@ const findMerchantsPrompt = ai.definePrompt({
     1. A creative and realistic business name.
     2. A plausible, specific street address located realistically near the user's coordinates.
     3. Plausible latitude and longitude coordinates for that address. The coordinates should be very close to the user's provided location, with small random variations to appear as if they are in the same neighborhood.
+    4. A business category that matches the user's query (e.g., "Plumbing", "Cafe").
 
     The output MUST be a valid JSON array of objects, conforming to the output schema.
   `,
 });
 
-export const findMerchants = ai.defineFlow(
-  {
-    name: 'findMerchantsFlow',
-    inputSchema: FindMerchantsInputSchema,
-    outputSchema: FindMerchantsOutputSchema,
-  },
-  async (input: FindMerchantsInput) => {
+export async function findMerchants(input: FindMerchantsInput): Promise<Merchant[]> {
     const { output } = await findMerchantsPrompt(input);
     if (!output) {
       return [];
     }
     return output;
-  }
-);
+}
