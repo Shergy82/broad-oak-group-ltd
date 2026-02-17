@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useCallback } from 'react';
@@ -267,6 +268,29 @@ const findAddressInBlock = (jsonData: any[][], startRow: number, endRow: number)
   return { address: '', eNumber: '' };
 };
 
+const findManagerInBlock = (jsonData: any[][], startRow: number, endRow: number): string => {
+    for (let r = startRow; r < endRow; r++) {
+        const row = jsonData[r] || [];
+        const managerCellIndex = row.findIndex(cell => 
+            (cell || '').toString().trim().toUpperCase().includes('JOB MANAGER')
+        );
+
+        if (managerCellIndex !== -1) {
+            // Look for the next non-empty cell in the same row
+            for (let c = managerCellIndex + 1; c < row.length; c++) {
+                if (row[c]) {
+                    const managerName = (row[c] || '').toString().trim();
+                    // Basic sanity check to avoid picking up random adjacent text
+                    if (managerName.length > 2 && managerName.split(' ').length < 4) {
+                        return managerName;
+                    }
+                }
+            }
+        }
+    }
+    return '';
+};
+
 const findDateHeaderRowInBlock = (jsonData: any[][], startRow: number, endRow: number) => {
   for (let r = startRow; r < endRow; r++) {
     const row = jsonData[r] || [];
@@ -469,7 +493,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                 continue;
               }
 
-              const manager = '';
+              const manager = findManagerInBlock(jsonData, blockStartRowIndex, blockEndRowIndex);
 
               // Parse grid
               for (let r = dateRowIndex + 1; r < blockEndRowIndex; r++) {
@@ -923,3 +947,5 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
     </div>
   );
 }
+
+    
