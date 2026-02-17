@@ -7,7 +7,7 @@ import { z } from "genkit";
  *  Schema
  * ========================= */
 
-export const OptimizeHeadlineWithAIInputSchema = z.object({
+const OptimizeHeadlineWithAIInputSchema = z.object({
   headline: z.string().min(1),
 });
 export type OptimizeHeadlineWithAIInput = z.infer<

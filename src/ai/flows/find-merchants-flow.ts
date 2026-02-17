@@ -3,14 +3,14 @@
 import { ai } from '@/ai/genkit';
 import { z } from 'genkit';
 
-export const FindMerchantsInputSchema = z.object({
+const FindMerchantsInputSchema = z.object({
   query: z.string().describe('The type of merchant to search for, e.g., "plumbers" or "best coffee shops".'),
   lat: z.number().describe('The latitude of the search center.'),
   lng: z.number().describe('The longitude of the search center.'),
 });
 export type FindMerchantsInput = z.infer<typeof FindMerchantsInputSchema>;
 
-export const MerchantSchema = z.object({
+const MerchantSchema = z.object({
   name: z.string().describe('The name of the business.'),
   address: z.string().describe('A plausible, specific street address for the business.'),
   lat: z.number().describe('The latitude coordinate for the address.'),
