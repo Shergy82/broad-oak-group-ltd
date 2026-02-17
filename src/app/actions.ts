@@ -1,7 +1,8 @@
 "use server";
 
-import { optimizeHeadlineWithAI, type OptimizeHeadlineWithAIInput } from "@/ai/flows/optimize-headline-with-ai";
-import { findMerchants, type FindMerchantsInput, type Merchant } from "@/ai/flows/find-merchants-flow";
+import { optimizeHeadlineWithAI } from "@/ai/flows/optimize-headline-with-ai";
+import { findMerchants } from "@/ai/flows/find-merchants-flow";
+import type { OptimizeHeadlineWithAIInput, FindMerchantsInput, Merchant } from "@/ai/schemas";
 
 export type { Merchant };
 

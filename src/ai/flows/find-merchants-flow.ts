@@ -1,25 +1,11 @@
 'use server';
 
 import { ai } from '@/ai/genkit';
-import { z } from 'genkit';
-
-const FindMerchantsInputSchema = z.object({
-  query: z.string().describe('The type of merchant to search for, e.g., "plumbers" or "best coffee shops".'),
-  lat: z.number().describe('The latitude of the search center.'),
-  lng: z.number().describe('The longitude of the search center.'),
-});
-export type FindMerchantsInput = z.infer<typeof FindMerchantsInputSchema>;
-
-const MerchantSchema = z.object({
-  name: z.string().describe('The name of the business.'),
-  address: z.string().describe('A plausible, specific street address for the business.'),
-  lat: z.number().describe('The latitude coordinate for the address.'),
-  lng: z.number().describe('The longitude coordinate for the address.'),
-  category: z.string().describe('The business category, e.g., "Plumbing", "Cafe".'),
-});
-export type Merchant = z.infer<typeof MerchantSchema>;
-
-const FindMerchantsOutputSchema = z.array(MerchantSchema);
+import {
+    FindMerchantsInputSchema,
+    FindMerchantsOutputSchema,
+    type FindMerchantsInput
+} from '@/ai/schemas';
 
 const findMerchantsPrompt = ai.definePrompt({
   name: 'findMerchantsPrompt',
@@ -47,7 +33,7 @@ export const findMerchants = ai.defineFlow(
     inputSchema: FindMerchantsInputSchema,
     outputSchema: FindMerchantsOutputSchema,
   },
-  async (input) => {
+  async (input: FindMerchantsInput) => {
     const { output } = await findMerchantsPrompt(input);
     if (!output) {
       return [];

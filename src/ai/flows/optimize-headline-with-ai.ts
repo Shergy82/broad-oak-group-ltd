@@ -1,22 +1,10 @@
 "use server";
 
 import { ai } from "@/ai/genkit";
-import { z } from "genkit";
-
-/* =========================
- *  Schema
- * ========================= */
-
-const OptimizeHeadlineWithAIInputSchema = z.object({
-  headline: z.string().min(1),
-});
-export type OptimizeHeadlineWithAIInput = z.infer<
-  typeof OptimizeHeadlineWithAIInputSchema
->;
-
-/* =========================
- *  Exported Function (REQUIRED)
- * ========================= */
+import {
+    OptimizeHeadlineWithAIInputSchema,
+    type OptimizeHeadlineWithAIInput,
+} from '@/ai/schemas';
 
 export async function optimizeHeadlineWithAI(
   input: OptimizeHeadlineWithAIInput
