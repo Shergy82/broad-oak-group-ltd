@@ -64,7 +64,10 @@ export default function DashboardPage() {
     }
 
     const announcementsQuery = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'));
-    const shiftsQuery = query(collection(db, 'shifts'), where('userId', '==', user.uid), orderBy('date', 'desc'));
+    
+    // The query was failing because of the composite index requirement (where + orderBy).
+    // The fix is to remove orderBy from the query and sort on the client.
+    const shiftsQuery = query(collection(db, 'shifts'), where('userId', '==', user.uid));
 
     const unsubAnnouncements = onSnapshot(announcementsQuery, (snapshot) => {
       setAnnouncements(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement)));
@@ -72,7 +75,10 @@ export default function DashboardPage() {
 
     const unsubShifts = onSnapshot(shiftsQuery, 
       (snapshot) => {
-        setAllShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
+        const fetchedShifts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift));
+        // Sort on the client to avoid needing a composite index in Firestore.
+        fetchedShifts.sort((a, b) => b.date.toMillis() - a.date.toMillis());
+        setAllShifts(fetchedShifts);
       },
       (error) => {
         console.error("Dashboard shifts query failed:", error);
