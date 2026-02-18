@@ -11,11 +11,13 @@ import { db } from '@/lib/firebase';
 import type { Announcement, Shift } from '@/types';
 import { UnreadAnnouncements } from '@/components/announcements/unread-announcements';
 import { NewShiftsDialog } from '@/components/dashboard/new-shifts-dialog';
+import { useToast } from '@/hooks/use-toast';
 
 export default function DashboardPage() {
   const { user, isLoading: isAuthLoading } = useAuth();
   const { userProfile, loading: isProfileLoading } = useUserProfile();
   const router = useRouter();
+  const { toast } = useToast();
 
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [allShifts, setAllShifts] = useState<Shift[]>([]);
@@ -23,8 +25,6 @@ export default function DashboardPage() {
   const [showNewShifts, setShowNewShifts] = useState(true);
   const [acknowledgedIds, setAcknowledgedIds] = useState<Set<string>>(new Set());
   
-  const isDataReady = !isAuthLoading && !isProfileLoading && !!user;
-
   /* =========================
      AUTH REDIRECT
   ========================= */
@@ -57,29 +57,31 @@ export default function DashboardPage() {
   ========================= */
 
   useEffect(() => {
-    if (!isDataReady || !user) {
+    if (!user?.uid) {
       setAllShifts([]);
       setAnnouncements([]);
       return;
     }
-    
-    const announcementsQuery = query(
-      collection(db, 'announcements'),
-      orderBy('createdAt', 'desc')
-    );
-    
-    const shiftsQuery = query(
-      collection(db, 'shifts'),
-      where('userId', '==', user.uid)
-    );
+
+    const announcementsQuery = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'));
+    const shiftsQuery = query(collection(db, 'shifts'), where('userId', '==', user.uid), orderBy('date', 'desc'));
 
     const unsubAnnouncements = onSnapshot(announcementsQuery, (snapshot) => {
-        setAnnouncements(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement)));
-      }
-    );
+      setAnnouncements(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement)));
+    });
 
-    const unsubShifts = onSnapshot(shiftsQuery, (snapshot) => {
+    const unsubShifts = onSnapshot(shiftsQuery, 
+      (snapshot) => {
         setAllShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
+      },
+      (error) => {
+        console.error("Dashboard shifts query failed:", error);
+        toast({
+          title: "Error loading shifts",
+          description: "Could not load your schedule. Please check the console for details and refresh the page.",
+          variant: "destructive",
+          duration: 10000,
+        });
       }
     );
 
@@ -87,21 +89,22 @@ export default function DashboardPage() {
       unsubAnnouncements();
       unsubShifts();
     };
-  }, [isDataReady, user]);
+  }, [user?.uid, toast]);
+
 
   /* =========================
      MEMOS
   ========================= */
 
   const unreadAnnouncements = useMemo(() => {
-    if (!user || !isDataReady) return [];
+    if (!user) return [];
     return announcements.filter(a => !acknowledgedIds.has(a.id));
-  }, [announcements, user, isDataReady, acknowledgedIds]);
+  }, [announcements, user, acknowledgedIds]);
 
   const newShifts = useMemo(() => {
-    if (!user || !isDataReady) return [];
+    if (!user) return [];
     return allShifts.filter(shift => shift.status === 'pending-confirmation');
-  }, [allShifts, user, isDataReady]);
+  }, [allShifts, user]);
 
   const isLoading = isAuthLoading || isProfileLoading;
 
