@@ -1,7 +1,6 @@
-
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
 import { writeBatch, doc, serverTimestamp } from 'firebase/firestore';
@@ -26,6 +25,15 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
   const [isOpen, setIsOpen] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
+
+  const getCorrectedLocalDate = (date: { toDate: () => Date }) => {
+    const d = date.toDate();
+    return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  };
+
+  const sortedShifts = useMemo(() => {
+    return [...shifts].sort((a, b) => getCorrectedLocalDate(a.date).getTime() - getCorrectedLocalDate(b.date).getTime());
+  }, [shifts]);
 
   const handleUpdate = async (shiftsToUpdate: Shift[]) => {
     if (!db) {
@@ -74,21 +82,9 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
     handleUpdate(shifts);
   };
 
-  const handleDialogClose = (open: boolean) => {
-    if (!open) {
-      setIsOpen(false);
-      onClose();
-    }
-  };
-
-  const getCorrectedLocalDate = (date: { toDate: () => Date }) => {
-    const d = date.toDate();
-    return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-  };
-
   return (
-    <Dialog open={isOpen} onOpenChange={handleDialogClose}>
-      <DialogContent className="max-w-2xl" onInteractOutside={(e) => e.preventDefault()}>
+    <Dialog open={isOpen}>
+      <DialogContent showCloseButton={false} className="max-w-2xl" onInteractOutside={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Gift className="text-primary h-6 w-6"/>
@@ -109,7 +105,7 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {shifts.map(shift => (
+                {sortedShifts.map(shift => (
                   <TableRow key={shift.id}>
                     <TableCell className="font-medium">{format(getCorrectedLocalDate(shift.date), 'dd/MM/yy')}</TableCell>
                     <TableCell>{shift.task}</TableCell>
@@ -121,7 +117,7 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
           </div>
           {/* Mobile Card View */}
           <div className="space-y-4 sm:hidden">
-              {shifts.map(shift => (
+              {sortedShifts.map(shift => (
                 <Card key={shift.id} className="shadow-sm">
                     <CardContent className="p-4 space-y-1">
                       <p className="font-bold">{shift.task}</p>
