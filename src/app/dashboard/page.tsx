@@ -56,9 +56,13 @@ export default function DashboardPage() {
   ========================= */
 
   useEffect(() => {
-    if (!user || !userProfile) {
-      setLoadingData(false);
-      return;
+    if (isAuthLoading) {
+        return;
+    }
+
+    if (!user) {
+        setLoadingData(false);
+        return;
     }
 
     setLoadingData(true);
@@ -68,9 +72,10 @@ export default function DashboardPage() {
       orderBy('createdAt', 'desc')
     );
 
+    // Use user.uid directly for a more reliable query
     const shiftsQuery = query(
       collection(db, 'shifts'),
-      where('userId', '==', userProfile.uid)
+      where('userId', '==', user.uid)
     );
 
     let announcementsLoaded = false;
@@ -116,7 +121,7 @@ export default function DashboardPage() {
       unsubAnnouncements();
       unsubShifts();
     };
-  }, [user, userProfile]);
+  }, [isAuthLoading, user]);
 
   /* =========================
      MEMOS
