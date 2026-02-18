@@ -131,6 +131,46 @@ export const deleteUser = onCall(
 );
 
 /* =====================================================
+   FILE SERVING (HTTP)
+===================================================== */
+export const serveFile = onRequest({ region: "europe-west2", cors: true }, async (req, res) => {
+    const path = req.query.path as string;
+    const download = req.query.download === "1";
+
+    if (!path) {
+        res.status(400).send("Missing path");
+        return;
+    }
+
+    const bucket = admin.storage().bucket();
+    const file = bucket.file(path);
+
+    try {
+        const [exists] = await file.exists();
+        if (!exists) {
+            res.status(404).send("Not found");
+            return;
+        }
+
+        const [meta] = await file.getMetadata();
+        res.setHeader("Content-Type", meta.contentType || "application/octet-stream");
+
+        if (download) {
+            res.setHeader(
+                "Content-Disposition",
+                `attachment; filename="${path.split("/").pop()}"`
+            );
+        }
+
+        file.createReadStream().pipe(res);
+    } catch (e) {
+        console.error("Error serving file:", e);
+        res.status(500).send("Internal server error");
+    }
+});
+
+
+/* =====================================================
    PROJECT & FILE MANAGEMENT (HTTP — NOT CALLABLE)
 ===================================================== */
 
@@ -189,9 +229,13 @@ export const deleteProjectAndFiles = onRequest(
       await projectRef.delete();
 
       res.json({ success: true });
-    } catch (err) {
-      console.error('deleteProjectAndFiles failed', err);
-      res.status(500).json({ error: 'Internal server error' });
+    } catch (err: any) {
+        console.error('deleteProjectAndFiles failed', err);
+        if (err instanceof HttpsError) {
+          res.status(403).json({ error: err.message });
+        } else {
+          res.status(500).json({ error: 'Internal server error' });
+        }
     }
   }
 );

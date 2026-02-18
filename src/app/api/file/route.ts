@@ -9,7 +9,7 @@ import { NextRequest } from 'next/server';
  */
 
 const SERVE_FILE_URL =
-  'https://us-central1-the-final-project-5e248.cloudfunctions.net/serveFile';
+  'https://europe-west2-the-final-project-5e248.cloudfunctions.net/serveFile';
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
