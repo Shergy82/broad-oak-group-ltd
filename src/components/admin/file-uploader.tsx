@@ -47,7 +47,7 @@ import { cn } from '@/lib/utils';
 
 type ParsedShift = Omit<
   Shift,
-  'id' | 'status' | 'date' | 'createdAt' | 'userName' | 'contract' | 'eNumber'
+  'id' | 'status' | 'date' | 'createdAt' | 'userName' | 'contract'
 > & {
   date: Date;
   userName: string;
@@ -116,39 +116,47 @@ const findUser = (name: string, userMap: UserMapEntry[]): UserMapEntry | null =>
   const normalizedName = normalizeText(name);
   if (!normalizedName) return null;
 
-  let bestMatch: UserMapEntry | null = null;
-  let minDistance = Infinity;
+  // 1. Exact match on the full normalized name.
+  const exactMatch = userMap.find(u => u.normalizedName === normalizedName);
+  if (exactMatch) return exactMatch;
+
+  // 2. Levenshtein distance-based matching
+  let minDistance = 2; // Only allow very close matches (max 1 typo)
+  let bestMatches: UserMapEntry[] = [];
 
   for (const user of userMap) {
-    if (user.normalizedName === normalizedName) return user;
-
     const distance = levenshtein(normalizedName, user.normalizedName);
 
-    if (user.normalizedName.includes(normalizedName)) {
-      if (distance < minDistance) {
-        minDistance = distance;
-        bestMatch = user;
-      }
-    }
-
-    const firstNameNormalized = normalizeText(user.originalName.split(' ')[0]);
-    if (firstNameNormalized === normalizedName) {
-      const firstNameDistance = levenshtein(normalizedName, firstNameNormalized);
-      if (firstNameDistance < minDistance) {
-        minDistance = firstNameDistance;
-        bestMatch = user;
-      }
-    }
-
-    const threshold = Math.max(1, Math.floor(normalizedName.length / 3));
-    if (distance <= threshold && distance < minDistance) {
+    if (distance < minDistance) {
       minDistance = distance;
-      bestMatch = user;
+      bestMatches = [user]; // New best match found, clear previous
+    } else if (distance === minDistance) {
+      bestMatches.push(user); // Another match with the same best distance
     }
   }
 
-  if (bestMatch && minDistance <= 3) return bestMatch;
-  return null;
+  // Only return a match if it's unique to avoid ambiguity
+  if (bestMatches.length === 1) {
+    return bestMatches[0];
+  }
+  
+  // 3. Fallback to first name + last initial (e.g. "philc" for "Phil Craig")
+  if (bestMatches.length === 0) {
+    const firstLastInitialMatch = userMap.find(u => {
+        const parts = u.originalName.toLowerCase().split(' ');
+        if (parts.length > 1) {
+            const first = parts[0];
+            const lastInitial = parts[parts.length - 1].charAt(0);
+            if (normalizeText(`${first}${lastInitial}`) === normalizedName) {
+                return true;
+            }
+        }
+        return false;
+    });
+    if (firstLastInitialMatch) return firstLastInitialMatch;
+  }
+
+  return null; // Return null if no clear, unambiguous match is found
 };
 
 const parseDate = (dateValue: any): Date | null => {
@@ -536,7 +544,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
 
 
                   const usersInCell = potentialUserNames
-                    .split(/&|,|\+/g)
+                    .split(/[&,+/]/g)
                     .map((n) => n.trim())
                     .filter(Boolean);
 
@@ -748,7 +756,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
             } else if (allFailedShifts.length === 0) {
               toast({
                 title: 'No Changes Detected',
-                description: 'The schedule was up-to-date. No changes were made.',
+                description: 'The schedule was up-to-date with the selected file.',
               });
             }
           };
