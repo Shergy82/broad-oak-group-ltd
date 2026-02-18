@@ -252,9 +252,10 @@ interface ProjectEvidenceCardProps {
   generatedPdfProjects: string[];
   onPdfGenerated: (projectId: string) => void;
   onResetStatus: (projectId: string) => void;
+  onRemove: (projectId: string) => void;
 }
 
-function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generatedPdfProjects, onPdfGenerated, onResetStatus }: ProjectEvidenceCardProps) {
+function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generatedPdfProjects, onPdfGenerated, onResetStatus, onRemove }: ProjectEvidenceCardProps) {
     const { userProfile } = useUserProfile();
     const { toast } = useToast();
     const [viewerOpen, setViewerOpen] = useState(false);
@@ -366,12 +367,6 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
         return { value: days, unit: 'day' };
 
     }, [project.createdAt]);
-    
-    const handleRemoveFromView = () => {
-        onPdfGenerated(project.id);
-        toast({ title: "Project Hidden", description: "The project has been marked as complete and hidden from this view." });
-    };
-
 
     const evidenceStatus = useMemo(() => {
         if (activeChecklistItems.length === 0) return [];
@@ -562,7 +557,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                                         </AlertDialogHeader>
                                         <AlertDialogFooter>
                                             <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                            <AlertDialogAction onClick={handleRemoveFromView} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                            <AlertDialogAction onClick={() => onRemove(project.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
                                                 Remove
                                             </AlertDialogAction>
                                         </AlertDialogFooter>
@@ -667,19 +662,26 @@ export function EvidenceDashboard() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [editingChecklist, setEditingChecklist] = useState<string | null>(null);
+  const { toast } = useToast();
 
   const [filesByProject, setFilesByProject] = useState<Map<string, ProjectFile[]>>(new Map());
-  const LOCAL_STORAGE_KEY = 'evidence_pdf_generated_projects_v5';
+  const LOCAL_STORAGE_KEY_GENERATED = 'evidence_pdf_generated_projects_v5';
   const [generatedPdfProjects, setGeneratedPdfProjects] = useState<string[]>([]);
+  const LOCAL_STORAGE_KEY_REMOVED = 'evidence_removed_projects_v1';
+  const [removedProjectIds, setRemovedProjectIds] = useState<string[]>([]);
 
   useEffect(() => {
     try {
-        const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
-        if (stored) {
-            setGeneratedPdfProjects(JSON.parse(stored));
+        const storedGenerated = localStorage.getItem(LOCAL_STORAGE_KEY_GENERATED);
+        if (storedGenerated) {
+            setGeneratedPdfProjects(JSON.parse(storedGenerated));
+        }
+        const storedRemoved = localStorage.getItem(LOCAL_STORAGE_KEY_REMOVED);
+        if (storedRemoved) {
+            setRemovedProjectIds(JSON.parse(storedRemoved));
         }
     } catch (e) {
-        console.error("Failed to load generated PDF list", e);
+        console.error("Failed to load project lists from local storage", e);
     }
   }, []);
   
@@ -687,7 +689,7 @@ export function EvidenceDashboard() {
     setGeneratedPdfProjects(prev => {
         const newGenerated = [...new Set([...prev, projectId])];
         try {
-            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(newGenerated));
+            localStorage.setItem(LOCAL_STORAGE_KEY_GENERATED, JSON.stringify(newGenerated));
         } catch (e) {
             console.error("Failed to write to local storage", e);
         }
@@ -699,13 +701,27 @@ export function EvidenceDashboard() {
     setGeneratedPdfProjects(prev => {
         const newGenerated = prev.filter(id => id !== projectId);
         try {
-            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(newGenerated));
+            localStorage.setItem(LOCAL_STORAGE_KEY_GENERATED, JSON.stringify(newGenerated));
         } catch (e) {
             console.error("Failed to write to local storage", e);
         }
         return newGenerated;
     });
   };
+
+  const handleRemoveFromView = (projectId: string) => {
+      setRemovedProjectIds(prev => {
+          const newRemoved = [...new Set([...prev, projectId])];
+          try {
+              localStorage.setItem(LOCAL_STORAGE_KEY_REMOVED, JSON.stringify(newRemoved));
+          } catch (e) {
+              console.error("Failed to save removed project to localStorage", e);
+          }
+          return newRemoved;
+      });
+      toast({ title: "Project Removed", description: "The project has been removed from this view." });
+  };
+
 
   useEffect(() => {
     setLoading(true);
@@ -776,12 +792,13 @@ export function EvidenceDashboard() {
 
 
   const filteredProjects = useMemo(() => {
-    if (!searchTerm) return projects;
-    return projects.filter(project =>
+    const activeProjects = projects.filter(p => !removedProjectIds.includes(p.id));
+    if (!searchTerm) return activeProjects;
+    return activeProjects.filter(project =>
       project.address.toLowerCase().includes(searchTerm.toLowerCase()) ||
       project.contract?.toLowerCase().includes(searchTerm.toLowerCase())
     );
-  }, [projects, searchTerm]);
+  }, [projects, searchTerm, removedProjectIds]);
 
   const groupedProjects = useMemo(() => {
     if (loading) return [];
@@ -843,11 +860,7 @@ export function EvidenceDashboard() {
         groups[groupName].push(project);
     });
     
-    const activeGroups = Object.entries(groups).filter(([contractName, projectGroup]) => {
-      return projectGroup.some(p => p.evidenceState !== 'generated' || p.deletionScheduledAt);
-    });
-
-    return activeGroups.sort(([a], [b]) => a.localeCompare(b));
+    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
   }, [filteredProjects, filesByProject, evidenceChecklists, loading, generatedPdfProjects]);
 
 
@@ -908,6 +921,7 @@ export function EvidenceDashboard() {
                         generatedPdfProjects={generatedPdfProjects}
                         onPdfGenerated={onPdfGenerated}
                         onResetStatus={onResetStatus}
+                        onRemove={handleRemoveFromView}
                     />
                   ))}
                 </div>
