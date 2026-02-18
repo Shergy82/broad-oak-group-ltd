@@ -10,12 +10,6 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/components/ui/tabs';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   isToday,
@@ -37,7 +31,6 @@ import {
   Sunrise,
   Sunset,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 
 export default function Dashboard({
   userShifts,
@@ -263,6 +256,50 @@ export default function Dashboard({
       historicalShifts: historical,
     };
   }, [userShifts, dismissedShiftIds]);
+  
+  const renderWeekSchedule = (shiftsByDay: { [key: string]: Shift[] }, period: string) => {
+    const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const hasShifts = Object.keys(shiftsByDay).length > 0;
+
+    if (loading) {
+        return (
+            <div className="space-y-4 mt-4">
+                <Skeleton className="h-24 w-full" />
+                <Skeleton className="h-24 w-full" />
+            </div>
+        )
+    }
+
+    if (!hasShifts) {
+        return <div className="text-center text-muted-foreground p-8">No shifts scheduled for {period}.</div>
+    }
+
+    return (
+        <div className="space-y-6 mt-4">
+            {daysOfWeek.map(day => {
+                const dayShifts = shiftsByDay[day];
+                if (!dayShifts || dayShifts.length === 0) return null;
+                
+                dayShifts.sort((a, b) => {
+                    const typeOrder = { 'am': 1, 'pm': 2, 'all-day': 3 };
+                    return typeOrder[a.type] - typeOrder[b.type];
+                });
+
+                return (
+                    <div key={day}>
+                        <h3 className="font-semibold text-lg mb-2">{day}</h3>
+                        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                            {dayShifts.map(shift => (
+                                <ShiftCard key={shift.id} shift={shift} userProfile={userProfile} onDismiss={handleDismissShift}/>
+                            ))}
+                        </div>
+                    </div>
+                )
+            })}
+        </div>
+    )
+  }
+
 
   return (
     <div className="w-full space-y-8">
@@ -308,36 +345,84 @@ export default function Dashboard({
 
         <TabsContent value="today">
           <div className="space-y-6 mt-4">
+            <div className="space-y-4">
+              <h3 className="flex items-center text-lg font-semibold text-indigo-500">
+                <Clock className="mr-2 h-5 w-5" />
+                All Day Shifts
+              </h3>
+              {loading ? (
+                <Skeleton className="h-24 w-full" />
+              ) : todayAllDayShifts.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No all-day shifts today.</p>
+              ) : (
+                todayAllDayShifts.map((shift) => (
+                  <ShiftCard
+                    key={shift.id}
+                    shift={shift}
+                    userProfile={userProfile}
+                    onDismiss={handleDismissShift}
+                  />
+                ))
+              )}
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-4">
                 <h3 className="flex items-center text-lg font-semibold text-sky-600">
                   <Sunrise className="mr-2 h-5 w-5" />
                   AM Shifts
                 </h3>
-                {todayAmShifts.map((shift) => (
-                  <ShiftCard
-                    key={shift.id}
-                    shift={shift}
-                    userProfile={userProfile}
-                  />
-                ))}
+                 {loading ? (
+                  <Skeleton className="h-24 w-full" />
+                ) : todayAmShifts.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No AM shifts today.</p>
+                ) : (
+                  todayAmShifts.map((shift) => (
+                    <ShiftCard
+                      key={shift.id}
+                      shift={shift}
+                      userProfile={userProfile}
+                      onDismiss={handleDismissShift}
+                    />
+                  ))
+                )}
               </div>
-
               <div className="space-y-4">
                 <h3 className="flex items-center text-lg font-semibold text-orange-600">
                   <Sunset className="mr-2 h-5 w-5" />
                   PM Shifts
                 </h3>
-                {todayPmShifts.map((shift) => (
-                  <ShiftCard
-                    key={shift.id}
-                    shift={shift}
-                    userProfile={userProfile}
-                  />
-                ))}
+                 {loading ? (
+                  <Skeleton className="h-24 w-full" />
+                ) : todayPmShifts.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No PM shifts today.</p>
+                ) : (
+                  todayPmShifts.map((shift) => (
+                    <ShiftCard
+                      key={shift.id}
+                      shift={shift}
+                      userProfile={userProfile}
+                      onDismiss={handleDismissShift}
+                    />
+                  ))
+                )}
               </div>
             </div>
           </div>
+        </TabsContent>
+        <TabsContent value="last-week">
+            {renderWeekSchedule(lastWeekShifts, 'last week')}
+        </TabsContent>
+        <TabsContent value="this-week">
+            {renderWeekSchedule(thisWeekShifts, 'this week')}
+        </TabsContent>
+        <TabsContent value="next-week">
+            {renderWeekSchedule(nextWeekShifts, 'next week')}
+        </TabsContent>
+        <TabsContent value="week-3">
+            {renderWeekSchedule(week3Shifts, 'week 3')}
+        </TabsContent>
+        <TabsContent value="week-4">
+            {renderWeekSchedule(week4Shifts, 'week 4')}
         </TabsContent>
       </Tabs>
 
