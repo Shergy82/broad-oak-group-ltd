@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -878,27 +876,19 @@ export function EvidenceDashboard() {
 
   return (
     <>
-      <Card>
-        <CardHeader>
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div>
-                  <CardTitle>Evidence Dashboard</CardTitle>
-                  <CardDescription>
-                  Overview of all project sites. New sites from imports will appear here.
-                  </CardDescription>
-              </div>
-              <div className="relative w-full sm:w-auto">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                      placeholder="Search by address..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="w-full sm:w-64 pl-10"
-                  />
-              </div>
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div/>
+          <div className="relative w-full sm:w-auto">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                  placeholder="Search by address..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full sm:w-64 pl-10"
+              />
           </div>
-        </CardHeader>
-        <CardContent className="space-y-8">
+      </div>
+      <div className="space-y-8 mt-4">
           {loading ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
               {Array.from({ length: 10 }).map((_, i) => (
@@ -940,8 +930,7 @@ export function EvidenceDashboard() {
               </div>
             ))
           )}
-        </CardContent>
-      </Card>
+      </div>
       {editingChecklist && (
         <EvidenceChecklistManager
             contractName={editingChecklist}
