@@ -63,8 +63,8 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
-import jsPDF from 'jspdf';
 import { downloadFile, previewFile } from '@/file-proxy';
+import { ProjectReportGenerator } from './project-report-generator';
 
 
 const projectSchema = z.object({
@@ -374,6 +374,9 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                         )}
                     </div>
                 </div>
+                 <DialogFooter className="pt-4 border-t">
+                    <ProjectReportGenerator project={project} files={files} />
+                </DialogFooter>
             </DialogContent>
         </Dialog>
     );
@@ -802,5 +805,6 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
     
 
     
+
 
 
