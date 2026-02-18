@@ -252,10 +252,10 @@ interface ProjectEvidenceCardProps {
   generatedPdfProjects: string[];
   onPdfGenerated: (projectId: string) => void;
   onResetStatus: (projectId: string) => void;
-  onRemove: (projectId: string) => void;
+  onScheduleForDeletion: (projectId: string) => void;
 }
 
-function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generatedPdfProjects, onPdfGenerated, onResetStatus, onRemove }: ProjectEvidenceCardProps) {
+function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generatedPdfProjects, onPdfGenerated, onResetStatus, onScheduleForDeletion }: ProjectEvidenceCardProps) {
     const { userProfile } = useUserProfile();
     const { toast } = useToast();
     const [viewerOpen, setViewerOpen] = useState(false);
@@ -550,15 +550,15 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                                     </AlertDialogTrigger>
                                     <AlertDialogContent>
                                         <AlertDialogHeader>
-                                            <AlertDialogTitle>Remove Project From View?</AlertDialogTitle>
+                                            <AlertDialogTitle>Schedule Project for Deletion?</AlertDialogTitle>
                                             <AlertDialogDescription>
-                                                This will hide the project from the evidence dashboard. The project and its files will NOT be deleted.
+                                                This will schedule the project for permanent deletion in 7 days and remove it from this dashboard. This action can be undone from the Project Management page.
                                             </AlertDialogDescription>
                                         </AlertDialogHeader>
                                         <AlertDialogFooter>
                                             <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                            <AlertDialogAction onClick={() => onRemove(project.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                                                Remove
+                                            <AlertDialogAction onClick={() => onScheduleForDeletion(project.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                                Schedule Deletion
                                             </AlertDialogAction>
                                         </AlertDialogFooter>
                                     </AlertDialogContent>
@@ -662,6 +662,7 @@ export function EvidenceDashboard() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [editingChecklist, setEditingChecklist] = useState<string | null>(null);
+  const { userProfile } = useUserProfile();
   const { toast } = useToast();
 
   const [filesByProject, setFilesByProject] = useState<Map<string, ProjectFile[]>>(new Map());
@@ -709,17 +710,38 @@ export function EvidenceDashboard() {
     });
   };
 
-  const handleRemoveFromView = (projectId: string) => {
-      setRemovedProjectIds(prev => {
-          const newRemoved = [...new Set([...prev, projectId])];
-          try {
-              localStorage.setItem(LOCAL_STORAGE_KEY_REMOVED, JSON.stringify(newRemoved));
-          } catch (e) {
-              console.error("Failed to save removed project to localStorage", e);
-          }
-          return newRemoved;
-      });
-      toast({ title: "Project Removed", description: "The project has been removed from this view." });
+  const handleScheduleForDeletion = async (projectId: string) => {
+    if (!userProfile || !['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role)) {
+        toast({ variant: 'destructive', title: 'Permission Denied' });
+        return;
+    }
+    toast({ title: 'Scheduling Deletion...', description: 'Project will be permanently deleted in 7 days.' });
+    try {
+        const projectRef = doc(db, 'projects', projectId);
+        await updateDoc(projectRef, {
+            deletionScheduledAt: serverTimestamp()
+        });
+
+        setRemovedProjectIds(prev => {
+            const newRemoved = [...new Set([...prev, projectId])];
+            try {
+                localStorage.setItem(LOCAL_STORAGE_KEY_REMOVED, JSON.stringify(newRemoved));
+            } catch (e) {
+                console.error("Failed to save removed project to localStorage", e);
+            }
+            return newRemoved;
+        });
+
+        toast({ title: 'Success', description: 'Project scheduled for deletion and removed from this view.' });
+
+    } catch (error: any) {
+        console.error("Error scheduling project for deletion:", error);
+        toast({
+            variant: 'destructive',
+            title: 'Deletion Failed',
+            description: error.message || 'An unknown error occurred.'
+        });
+    }
   };
 
 
@@ -921,7 +943,7 @@ export function EvidenceDashboard() {
                         generatedPdfProjects={generatedPdfProjects}
                         onPdfGenerated={onPdfGenerated}
                         onResetStatus={onResetStatus}
-                        onRemove={handleRemoveFromView}
+                        onScheduleForDeletion={handleScheduleForDeletion}
                     />
                   ))}
                 </div>
