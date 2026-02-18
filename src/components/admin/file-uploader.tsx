@@ -195,8 +195,8 @@ const isProbablyAddressText = (text: string) => {
   const t = (text || '').toString().trim();
   if (!t) return false;
 
-  // E-number prefix (E90667 etc)
-  if (/^E\d{4,}/i.test(t)) return true;
+  // E-number or B-number prefix
+  if (/^(E|B)\d{4,}/i.test(t)) return true;
 
   // UK postcode
   if (looksLikePostcode(t)) return true;
@@ -255,7 +255,7 @@ const findAddressInBlock = (jsonData: any[][], startRow: number, endRow: number)
       let address = lines.join(', ').replace(/\s+/g, ' ').trim();
       let eNumber = '';
 
-      const m = address.match(/^(E\d+)\s*/i);
+      const m = address.match(/^((E|B)\d+)\s*/i);
       if (m) {
         eNumber = m[1].toUpperCase();
         address = address.replace(m[0], '').trim();
