@@ -19,10 +19,11 @@ export default function DashboardPage() {
 
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [allShifts, setAllShifts] = useState<Shift[]>([]);
-  const [loadingData, setLoadingData] = useState(true);
   const [showAnnouncements, setShowAnnouncements] = useState(true);
   const [showNewShifts, setShowNewShifts] = useState(true);
   const [acknowledgedIds, setAcknowledgedIds] = useState<Set<string>>(new Set());
+  
+  const isDataReady = !isAuthLoading && !isProfileLoading && !!user;
 
   /* =========================
      AUTH REDIRECT
@@ -56,64 +57,29 @@ export default function DashboardPage() {
   ========================= */
 
   useEffect(() => {
-    if (isAuthLoading) {
-        return;
+    if (!isDataReady || !user) {
+      setAllShifts([]);
+      setAnnouncements([]);
+      return;
     }
-
-    if (!user) {
-        setLoadingData(false);
-        return;
-    }
-
-    setLoadingData(true);
-
+    
     const announcementsQuery = query(
       collection(db, 'announcements'),
       orderBy('createdAt', 'desc')
     );
-
-    // Use user.uid directly for a more reliable query
+    
     const shiftsQuery = query(
       collection(db, 'shifts'),
       where('userId', '==', user.uid)
     );
 
-    let announcementsLoaded = false;
-    let shiftsLoaded = false;
-
-    const checkLoaded = () => {
-      if (announcementsLoaded && shiftsLoaded) {
-        setLoadingData(false);
-      }
-    };
-
-    const unsubAnnouncements = onSnapshot(
-      announcementsQuery,
-      (snapshot) => {
-        setAnnouncements(
-          snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement))
-        );
-        announcementsLoaded = true;
-        checkLoaded();
-      },
-      () => {
-        announcementsLoaded = true;
-        checkLoaded();
+    const unsubAnnouncements = onSnapshot(announcementsQuery, (snapshot) => {
+        setAnnouncements(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement)));
       }
     );
 
-    const unsubShifts = onSnapshot(
-      shiftsQuery,
-      (snapshot) => {
-        setAllShifts(
-          snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift))
-        );
-        shiftsLoaded = true;
-        checkLoaded();
-      },
-      () => {
-        shiftsLoaded = true;
-        checkLoaded();
+    const unsubShifts = onSnapshot(shiftsQuery, (snapshot) => {
+        setAllShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
       }
     );
 
@@ -121,23 +87,23 @@ export default function DashboardPage() {
       unsubAnnouncements();
       unsubShifts();
     };
-  }, [isAuthLoading, user]);
+  }, [isDataReady, user]);
 
   /* =========================
      MEMOS
   ========================= */
 
   const unreadAnnouncements = useMemo(() => {
-    if (!user || loadingData) return [];
+    if (!user || !isDataReady) return [];
     return announcements.filter(a => !acknowledgedIds.has(a.id));
-  }, [announcements, user, loadingData, acknowledgedIds]);
+  }, [announcements, user, isDataReady, acknowledgedIds]);
 
   const newShifts = useMemo(() => {
-    if (!user || loadingData) return [];
+    if (!user || !isDataReady) return [];
     return allShifts.filter(shift => shift.status === 'pending-confirmation');
-  }, [allShifts, user, loadingData]);
+  }, [allShifts, user, isDataReady]);
 
-  const isLoading = isAuthLoading || isProfileLoading || loadingData;
+  const isLoading = isAuthLoading || isProfileLoading;
 
   /* =========================
      LOADING + DIALOG PRIORITY
@@ -176,7 +142,7 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8 p-6">
-      <Dashboard userShifts={allShifts} loading={loadingData} />
+      <Dashboard userShifts={allShifts} loading={isLoading} />
     </div>
   );
 }
