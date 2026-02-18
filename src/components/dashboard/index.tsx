@@ -146,40 +146,13 @@ export default function Dashboard({
     nextWeekShifts,
     week3Shifts,
     week4Shifts,
-    historicalShifts,
   } = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const fourWeeksAgo = subDays(today, 28);
 
     const visibleShifts = userShifts.filter(
       (s) => !dismissedShiftIds.includes(s.id)
     );
-
-    const activeStatuses: ShiftStatus[] = [
-      'pending-confirmation',
-      'confirmed',
-      'on-site',
-      'rejected',
-    ];
-
-    const activeShifts = visibleShifts.filter((s) =>
-      activeStatuses.includes(s.status)
-    );
-
-    const historical = visibleShifts
-      .filter((s) => {
-        const isHistorical =
-          s.status === 'completed' || s.status === 'incomplete';
-        if (!isHistorical) return false;
-        const shiftDate = getCorrectedLocalDate(s.date);
-        return shiftDate >= fourWeeksAgo;
-      })
-      .sort(
-        (a, b) =>
-          getCorrectedLocalDate(b.date).getTime() -
-          getCorrectedLocalDate(a.date).getTime()
-      );
 
     const groupByDay = (weekShifts: Shift[]) => {
       const grouped: { [key: string]: Shift[] } = {};
@@ -193,16 +166,16 @@ export default function Dashboard({
       });
       return grouped;
     };
-
-    const activeToday = activeShifts.filter((s) =>
+    
+    const shiftsToday = visibleShifts.filter((s) =>
       isToday(getCorrectedLocalDate(s.date))
     );
 
-    const todayAm = activeToday.filter((s) => s.type === 'am');
-    const todayPm = activeToday.filter((s) => s.type === 'pm');
-    const todayAll = activeToday.filter((s) => s.type === 'all-day');
+    const todayAm = shiftsToday.filter((s) => s.type === 'am');
+    const todayPm = shiftsToday.filter((s) => s.type === 'pm');
+    const todayAll = shiftsToday.filter((s) => s.type === 'all-day');
 
-    const activeThisWeek = activeShifts.filter((s) =>
+    const shiftsThisWeek = visibleShifts.filter((s) =>
       isSameWeek(getCorrectedLocalDate(s.date), today, {
         weekStartsOn: 1,
       })
@@ -211,8 +184,7 @@ export default function Dashboard({
     const startOfLastWeek = startOfWeek(subDays(today, 7), {
       weekStartsOn: 1,
     });
-
-    const activeLastWeek = activeShifts.filter((s) =>
+    const shiftsLastWeek = visibleShifts.filter((s) =>
       isSameWeek(
         getCorrectedLocalDate(s.date),
         startOfLastWeek,
@@ -220,7 +192,7 @@ export default function Dashboard({
       )
     );
 
-    const activeNextWeek = activeShifts.filter((s) =>
+    const shiftsNextWeek = visibleShifts.filter((s) =>
       isSameWeek(
         getCorrectedLocalDate(s.date),
         addDays(today, 7),
@@ -228,7 +200,7 @@ export default function Dashboard({
       )
     );
 
-    const activeWeek3 = activeShifts.filter((s) =>
+    const shiftsWeek3 = visibleShifts.filter((s) =>
       isSameWeek(
         getCorrectedLocalDate(s.date),
         addDays(today, 14),
@@ -236,7 +208,7 @@ export default function Dashboard({
       )
     );
 
-    const activeWeek4 = activeShifts.filter((s) =>
+    const shiftsWeek4 = visibleShifts.filter((s) =>
       isSameWeek(
         getCorrectedLocalDate(s.date),
         addDays(today, 21),
@@ -248,12 +220,11 @@ export default function Dashboard({
       todayAmShifts: todayAm,
       todayPmShifts: todayPm,
       todayAllDayShifts: todayAll,
-      thisWeekShifts: groupByDay(activeThisWeek),
-      lastWeekShifts: groupByDay(activeLastWeek),
-      nextWeekShifts: groupByDay(activeNextWeek),
-      week3Shifts: groupByDay(activeWeek3),
-      week4Shifts: groupByDay(activeWeek4),
-      historicalShifts: historical,
+      thisWeekShifts: groupByDay(shiftsThisWeek),
+      lastWeekShifts: groupByDay(shiftsLastWeek),
+      nextWeekShifts: groupByDay(shiftsNextWeek),
+      week3Shifts: groupByDay(shiftsWeek3),
+      week4Shifts: groupByDay(shiftsWeek4),
     };
   }, [userShifts, dismissedShiftIds]);
   
@@ -425,27 +396,6 @@ export default function Dashboard({
             {renderWeekSchedule(week4Shifts, 'week 4')}
         </TabsContent>
       </Tabs>
-
-      {/* Recently Completed */}
-      {historicalShifts.length > 0 && (
-        <div className="mt-8">
-          <h3 className="text-xl font-semibold mb-4 flex items-center">
-            <History className="mr-3 h-6 w-6 text-muted-foreground" />
-            Recently Completed
-          </h3>
-
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {historicalShifts.map((shift) => (
-              <ShiftCard
-                key={shift.id}
-                shift={shift}
-                userProfile={userProfile}
-                onDismiss={handleDismissShift}
-              />
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
