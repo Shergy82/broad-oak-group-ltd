@@ -423,57 +423,43 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
     );
 }
 
-function DeletionCountdownCard({ project, onRestore }: { project: Project, onRestore: (projectId: string) => void }) {
+function DeletionCountdown({ deletionScheduledAt }: { deletionScheduledAt: Timestamp }) {
     const [countdown, setCountdown] = useState('');
 
     useEffect(() => {
-        if (!project.deletionScheduledAt) return;
+        if (!deletionScheduledAt) return;
 
         const calculateCountdown = () => {
-            const scheduledTime = project.deletionScheduledAt!.toDate();
-            const deletionTime = new Date(scheduledTime.getTime() + 7 * 24 * 60 * 60 * 1000);
+            const scheduledTime = deletionScheduledAt.toDate();
+            const deletionTime = new Date(scheduledTime.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days
             const now = new Date();
             const diff = deletionTime.getTime() - now.getTime();
 
             if (diff <= 0) {
-                setCountdown("Ready for permanent deletion");
+                setCountdown("Deletion pending");
                 return;
             }
 
             const d = Math.floor(diff / (1000 * 60 * 60 * 24));
             const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
-            const m = Math.floor((diff / 1000 / 60) % 60);
-
-            if (d > 0) setCountdown(`in ~${d} day${d > 1 ? 's' : ''}`);
-            else if (h > 0) setCountdown(`in ~${h} hour${h > 1 ? 's' : ''}`);
-            else if (m > 0) setCountdown(`in ~${m} minute${m > 1 ? 's' : ''}`);
-            else setCountdown('in less than a minute');
+            
+            if (d > 0) {
+                setCountdown(`Deletes in ~${d}d`);
+            } else if (h > 0) {
+                setCountdown(`Deletes in ~${h}h`);
+            } else {
+                setCountdown('Deletes in <1h');
+            }
         };
 
         calculateCountdown();
-        const interval = setInterval(calculateCountdown, 30000);
+        const interval = setInterval(calculateCountdown, 60000);
         return () => clearInterval(interval);
-    }, [project.deletionScheduledAt]);
+    }, [deletionScheduledAt]);
 
-    return (
-        <Card className="bg-destructive/10 border-destructive/30 flex flex-col">
-            <CardHeader className="p-4 pb-2">
-                 <CardTitle className="text-sm font-semibold leading-tight text-destructive">{project.address}</CardTitle>
-                {project.eNumber && <CardDescription className="text-xs pt-1 text-destructive/80">{project.eNumber}</CardDescription>}
-            </CardHeader>
-            <CardContent className="p-4 pt-2 flex-grow flex flex-col justify-center items-center text-center">
-                <Trash2 className="h-8 w-8 text-destructive/70 mb-2"/>
-                <p className="text-sm font-semibold text-destructive">Scheduled for Deletion</p>
-                <p className="text-xs text-destructive/80">{countdown}</p>
-            </CardContent>
-             <CardFooter className="p-2 border-t mt-auto">
-                <Button variant="ghost" size="sm" className="w-full text-destructive hover:bg-destructive/20 hover:text-destructive" onClick={() => onRestore(project.id)}>
-                    <Undo2 className="mr-2 h-4 w-4" /> Restore Project
-                </Button>
-            </CardFooter>
-        </Card>
-    );
+    return <p className="text-xs font-semibold text-destructive">{countdown}</p>;
 }
+
 
 interface ProjectManagerProps {
   userProfile: UserProfile;
@@ -501,22 +487,13 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
     return () => unsubscribe();
   }, []);
 
-  const { activeProjects, scheduledForDeletionProjects } = useMemo(() => {
-    const active: Project[] = [];
-    const scheduled: Project[] = [];
-    projects.filter(project =>
+  const filteredProjects = useMemo(() => {
+    return projects.filter(project =>
       project.address.toLowerCase().includes(searchTerm.toLowerCase()) ||
       project.eNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       project.council?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       project.manager?.toLowerCase().includes(searchTerm.toLowerCase())
-    ).forEach(project => {
-        if (project.deletionScheduledAt) {
-            scheduled.push(project);
-        } else {
-            active.push(project);
-        }
-    });
-    return { activeProjects: active, scheduledForDeletionProjects: scheduled };
+    );
   }, [projects, searchTerm]);
 
 
@@ -635,18 +612,7 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
         <Skeleton className="h-64 w-full" />
       ) : (
         <div className="space-y-6">
-            {scheduledForDeletionProjects.length > 0 && (
-                <div>
-                    <h3 className="text-lg font-semibold text-destructive mb-2">Scheduled For Deletion</h3>
-                    <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-                        {scheduledForDeletionProjects.map(project => (
-                            <DeletionCountdownCard key={project.id} project={project} onRestore={handleRestoreProject} />
-                        ))}
-                    </div>
-                </div>
-            )}
-            
-            {activeProjects.length === 0 && scheduledForDeletionProjects.length === 0 ? (
+            {filteredProjects.length === 0 ? (
                 <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center">
                     <FolderOpen className="mx-auto h-12 w-12 text-muted-foreground" />
                     <h3 className="mt-4 text-lg font-semibold">No Projects Found</h3>
@@ -654,7 +620,7 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                         Create a new project to get started.
                     </p>
                 </div>
-            ) : activeProjects.length > 0 ? (
+            ) : (
                 <>
                     {/* Desktop Table View */}
                     <div className="border rounded-lg hidden md:block">
@@ -670,40 +636,52 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {activeProjects.map(project => (
-                                <TableRow key={project.id}>
+                            {filteredProjects.map(project => (
+                                <TableRow key={project.id} className={cn(project.deletionScheduledAt && "bg-destructive/10 hover:bg-destructive/20")}>
                                 <TableCell className="font-medium">{project.address}</TableCell>
                                 <TableCell>{project.eNumber}</TableCell>
                                 <TableCell>{project.manager}</TableCell>
                                 <TableCell>{project.createdAt ? format(project.createdAt.toDate(), 'dd/MM/yyyy') : 'N/A'}</TableCell>
                                 <TableCell>{project.nextReviewDate ? format(project.nextReviewDate.toDate(), 'dd/MM/yyyy') : 'N/A'}</TableCell>
                                 <TableCell className="text-right space-x-2">
-                                    <Button variant="outline" size="sm" onClick={() => handleManageFiles(project)}>
-                                    <FolderOpen className="mr-2 h-4 w-4" />
-                                    Files
-                                    </Button>
-                                    {['admin', 'owner', 'manager'].includes(userProfile.role) && (
-                                        <AlertDialog>
-                                            <AlertDialogTrigger asChild>
-                                                <Button variant="destructive" size="sm">
-                                                    <Trash2 className="mr-2 h-4 w-4" /> Delete
-                                                </Button>
-                                            </AlertDialogTrigger>
-                                            <AlertDialogContent>
-                                                <AlertDialogHeader>
-                                                    <AlertDialogTitle>Schedule Project for Deletion?</AlertDialogTitle>
-                                                    <AlertDialogDescription>
-                                                        This will schedule the project <span className="font-semibold">"{project.address}"</span> for permanent deletion in 7 days. This action can be undone from the main project list.
-                                                    </AlertDialogDescription>
-                                                </AlertDialogHeader>
-                                                <AlertDialogFooter>
-                                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                    <AlertDialogAction onClick={() => handleDeleteProject(project)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                                                        Schedule Deletion
-                                                    </AlertDialogAction>
-                                                </AlertDialogFooter>
-                                            </AlertDialogContent>
-                                        </AlertDialog>
+                                     {project.deletionScheduledAt ? (
+                                        <div className="flex items-center justify-end gap-2">
+                                            <DeletionCountdown deletionScheduledAt={project.deletionScheduledAt} />
+                                            <Button variant="ghost" size="sm" onClick={() => handleRestoreProject(project.id)}>
+                                                <Undo2 className="mr-2 h-4 w-4" />
+                                                Restore
+                                            </Button>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <Button variant="outline" size="sm" onClick={() => handleManageFiles(project)}>
+                                            <FolderOpen className="mr-2 h-4 w-4" />
+                                            Files
+                                            </Button>
+                                            {['admin', 'owner', 'manager'].includes(userProfile.role) && (
+                                                <AlertDialog>
+                                                    <AlertDialogTrigger asChild>
+                                                        <Button variant="destructive" size="sm">
+                                                            <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                                        </Button>
+                                                    </AlertDialogTrigger>
+                                                    <AlertDialogContent>
+                                                        <AlertDialogHeader>
+                                                            <AlertDialogTitle>Schedule Project for Deletion?</AlertDialogTitle>
+                                                            <AlertDialogDescription>
+                                                                This will schedule the project <span className="font-semibold">"{project.address}"</span> for permanent deletion in 7 days. This action can be undone.
+                                                            </AlertDialogDescription>
+                                                        </AlertDialogHeader>
+                                                        <AlertDialogFooter>
+                                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                            <AlertDialogAction onClick={() => handleDeleteProject(project)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                                                Schedule Deletion
+                                                            </AlertDialogAction>
+                                                        </AlertDialogFooter>
+                                                    </AlertDialogContent>
+                                                </AlertDialog>
+                                            )}
+                                        </>
                                     )}
                                 </TableCell>
                                 </TableRow>
@@ -714,8 +692,8 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
         
                     {/* Mobile Card View */}
                     <div className="grid gap-4 md:hidden">
-                        {activeProjects.map(project => (
-                            <Card key={project.id}>
+                        {filteredProjects.map(project => (
+                            <Card key={project.id} className={cn(project.deletionScheduledAt && "bg-destructive/10 border-destructive/20")}>
                                 <CardHeader>
                                     <CardTitle>{project.address}</CardTitle>
                                     <CardDescription>E-Number: {project.eNumber || 'N/A'}</CardDescription>
@@ -725,40 +703,52 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                                     <div><strong>Created:</strong> {project.createdAt ? format(project.createdAt.toDate(), 'dd/MM/yyyy') : 'N/A'}</div>
                                     <div><strong>Next Review:</strong> {project.nextReviewDate ? format(project.nextReviewDate.toDate(), 'dd/MM/yyyy') : 'N/A'}</div>
                                 </CardContent>
-                                <CardFooter className="grid grid-cols-2 gap-2">
-                                    <Button variant="outline" className="w-full" onClick={() => handleManageFiles(project)}>
-                                        <FolderOpen className="mr-2 h-4 w-4" />
-                                        Manage Files
-                                    </Button>
-                                    {['admin', 'owner', 'manager'].includes(userProfile.role) && (
-                                        <AlertDialog>
-                                            <AlertDialogTrigger asChild>
-                                                <Button variant="destructive" className="w-full">
-                                                    <Trash2 className="mr-2 h-4 w-4" /> Delete
-                                                </Button>
-                                            </AlertDialogTrigger>
-                                            <AlertDialogContent>
-                                                <AlertDialogHeader>
-                                                    <AlertDialogTitle>Schedule Project for Deletion?</AlertDialogTitle>
-                                                     <AlertDialogDescription>
-                                                        This will schedule the project <span className="font-semibold">"{project.address}"</span> for permanent deletion in 7 days. This action can be undone from the main project list.
-                                                    </AlertDialogDescription>
-                                                </AlertDialogHeader>
-                                                <AlertDialogFooter>
-                                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                    <AlertDialogAction onClick={() => handleDeleteProject(project)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                                                        Schedule Deletion
-                                                    </AlertDialogAction>
-                                                </AlertDialogFooter>
-                                            </AlertDialogContent>
-                                        </AlertDialog>
+                                <CardFooter className="flex-col items-stretch gap-2">
+                                     {project.deletionScheduledAt ? (
+                                        <div className="flex flex-col items-center gap-2 p-2">
+                                            <DeletionCountdown deletionScheduledAt={project.deletionScheduledAt} />
+                                            <Button variant="outline" size="sm" className="w-full" onClick={() => handleRestoreProject(project.id)}>
+                                                <Undo2 className="mr-2 h-4 w-4" />
+                                                Restore Project
+                                            </Button>
+                                        </div>
+                                    ) : (
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <Button variant="outline" className="w-full" onClick={() => handleManageFiles(project)}>
+                                                <FolderOpen className="mr-2 h-4 w-4" />
+                                                Manage Files
+                                            </Button>
+                                            {['admin', 'owner', 'manager'].includes(userProfile.role) && (
+                                                <AlertDialog>
+                                                    <AlertDialogTrigger asChild>
+                                                        <Button variant="destructive" className="w-full">
+                                                            <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                                        </Button>
+                                                    </AlertDialogTrigger>
+                                                    <AlertDialogContent>
+                                                        <AlertDialogHeader>
+                                                            <AlertDialogTitle>Schedule Project for Deletion?</AlertDialogTitle>
+                                                            <AlertDialogDescription>
+                                                                This will schedule the project <span className="font-semibold">"{project.address}"</span> for permanent deletion in 7 days. This action can be undone.
+                                                            </AlertDialogDescription>
+                                                        </AlertDialogHeader>
+                                                        <AlertDialogFooter>
+                                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                            <AlertDialogAction onClick={() => handleDeleteProject(project)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                                                Schedule Deletion
+                                                            </AlertDialogAction>
+                                                        </AlertDialogFooter>
+                                                    </AlertDialogContent>
+                                                </AlertDialog>
+                                            )}
+                                        </div>
                                     )}
                                 </CardFooter>
                             </Card>
                         ))}
                     </div>
                 </>
-            ) : null }
+            )}
         </div>
       )}
 
@@ -774,3 +764,4 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
     
 
     
+
