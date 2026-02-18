@@ -134,6 +134,14 @@ export function AvailabilityOverview({ viewMode = 'normal' }: AvailabilityOvervi
     const [selectedUserShifts, setSelectedUserShifts] = useState<AvailableUser | null>(null);
 
     useEffect(() => {
+        if (viewMode === 'normal') {
+            setActiveTab('working-today');
+        } else {
+            setActiveTab(null);
+        }
+    }, [viewMode]);
+
+    useEffect(() => {
         const shiftsQuery = query(collection(db, 'shifts'));
         const usersQuery = query(collection(db, 'users'));
 
