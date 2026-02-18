@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -365,30 +366,12 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
         return { value: days, unit: 'day' };
 
     }, [project.createdAt]);
-
-    const handleDeleteProject = async () => {
-        if (!userProfile || !['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role)) {
-            toast({ variant: 'destructive', title: 'Permission Denied', description: 'You do not have permission to delete projects.' });
-            return;
-        }
-
-        toast({ title: "Scheduling Deletion...", description: `Project will be removed from this view and permanently deleted in 7 days.` });
-
-        try {
-            const projectRef = doc(db, 'projects', project.id);
-            await updateDoc(projectRef, {
-                deletionScheduledAt: serverTimestamp()
-            });
-            toast({ title: "Success", description: "Project scheduled for deletion." });
-        } catch (error: any) {
-            console.error("Error scheduling project for deletion:", error);
-            toast({
-                variant: 'destructive',
-                title: 'Scheduling Failed',
-                description: error.message || 'An unknown error occurred.'
-            });
-        }
+    
+    const handleRemoveFromView = () => {
+        onPdfGenerated(project.id);
+        toast({ title: "Project Hidden", description: "The project has been marked as complete and hidden from this view." });
     };
+
 
     const evidenceStatus = useMemo(() => {
         if (activeChecklistItems.length === 0) return [];
@@ -551,8 +534,13 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                 </CardContent>
                 <CardFooter className="p-2 border-t mt-auto grid gap-2">
                      <div className="space-y-2">
-                        {evidenceState !== 'incomplete' && (
-                            <EvidenceReportGenerator project={project} files={files} onGenerated={() => onPdfGenerated(project.id)} userProfile={userProfile} />
+                        {evidenceState === 'ready' && (
+                            <div className="grid grid-cols-2 gap-2">
+                                <EvidenceReportGenerator project={project} files={files} onGenerated={() => onPdfGenerated(project.id)} userProfile={userProfile} />
+                                <Button variant="secondary" size="sm" onClick={() => onPdfGenerated(project.id)}>
+                                    <CheckCircle className="mr-2 h-4 w-4" /> Mark Complete
+                                </Button>
+                            </div>
                         )}
                         {evidenceState === 'generated' && (
                             <div className="grid grid-cols-2 gap-2">
@@ -562,17 +550,21 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                                 <AlertDialog>
                                     <AlertDialogTrigger asChild>
                                         <Button variant="destructive" size="sm" className="text-xs px-2 gap-1.5">
-                                            <Trash2 className="h-4 w-4" /> Delete
+                                            <Trash2 className="h-4 w-4" /> Remove
                                         </Button>
                                     </AlertDialogTrigger>
                                     <AlertDialogContent>
                                         <AlertDialogHeader>
-                                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                                            <AlertDialogDescription>This action schedules the project for permanent deletion in 7 days.</AlertDialogDescription>
+                                            <AlertDialogTitle>Remove Project From View?</AlertDialogTitle>
+                                            <AlertDialogDescription>
+                                                This will hide the project from the evidence dashboard. The project and its files will NOT be deleted.
+                                            </AlertDialogDescription>
                                         </AlertDialogHeader>
                                         <AlertDialogFooter>
                                             <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                            <AlertDialogAction onClick={handleDeleteProject} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Schedule Deletion</AlertDialogAction>
+                                            <AlertDialogAction onClick={handleRemoveFromView} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                                Remove
+                                            </AlertDialogAction>
                                         </AlertDialogFooter>
                                     </AlertDialogContent>
                                 </AlertDialog>
