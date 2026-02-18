@@ -24,17 +24,15 @@ export default function RootPage() {
 
     if (!userProfile) return;
 
-    const isPrivileged = ['admin', 'owner', 'manager', 'TLO'].includes(
+    const isAdminOrManager = ['admin', 'owner', 'manager'].includes(
       (userProfile.role || '').toLowerCase()
     );
 
-    if (!isPrivileged) {
+    if (isAdminOrManager) {
+      router.replace('/admin/control-panel');
+    } else {
       router.replace('/dashboard');
-      return;
     }
-
-    // Default admin landing: compliance report
-    router.replace('/admin/announcement-acks');
   }, [user, userProfile, isLoading, router]);
 
   return (
