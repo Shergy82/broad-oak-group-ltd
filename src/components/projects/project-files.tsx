@@ -42,7 +42,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { FileText, Download, Trash2, Upload } from 'lucide-react';
 import type { Project, ProjectFile, UserProfile } from '@/types';
-import { downloadFile } from '@/file-proxy';
+import { downloadFile, previewFile } from '@/file-proxy';
 
 interface ProjectFilesProps {
   project: Project;
@@ -169,24 +169,6 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const getFileViewUrl = (file: ProjectFile): string => {
-    const officeExtensions = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
-    const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
-    const fileExtension = file.name.split('.').pop()?.toLowerCase();
-
-    if (fileExtension) {
-        if (officeExtensions.includes(fileExtension) || fileExtension === 'pdf') {
-            return `https://docs.google.com/gview?url=${encodeURIComponent(file.url)}&embedded=true`;
-        }
-        if (imageExtensions.includes(fileExtension)) {
-            // Using an image proxy to bypass content-disposition header
-            return `https://images.weserv.nl/?url=${encodeURIComponent(file.url)}`;
-        }
-    }
-    return file.url;
-  };
-
-
   return (
     <div className="space-y-4">
       <h4 className="text-sm font-semibold">Attached Files</h4>
@@ -215,9 +197,9 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
                 {files.map(file => (
                     <TableRow key={file.id}>
                         <TableCell className="font-medium truncate max-w-[150px]">
-                            <a href={getFileViewUrl(file)} target="_blank" rel="noopener noreferrer" className="hover:underline" title={file.name}>
+                            <button onClick={() => previewFile(file.fullPath)} className="hover:underline text-left truncate block w-full" title={file.name}>
                               {file.name}
-                            </a>
+                            </button>
                             <p className="text-xs text-muted-foreground">{formatFileSize(file.size)}</p>
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">{file.uploaderName}</TableCell>

@@ -64,6 +64,7 @@ import {
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import jsPDF from 'jspdf';
+import { downloadFile, previewFile } from '@/file-proxy';
 
 
 const projectSchema = z.object({
@@ -296,16 +297,6 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     };
-    
-    const getFileViewUrl = (file: ProjectFile): string => {
-        const officeExtensions = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
-        const fileExtension = file.name.split('.').pop()?.toLowerCase();
-
-        if (fileExtension && officeExtensions.includes(fileExtension)) {
-            return `https://docs.google.com/gview?url=${encodeURIComponent(file.url)}&embedded=true`;
-        }
-        return file.url;
-    };
 
 
     if (!project) return null;
@@ -345,18 +336,16 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                                         {files.map(file => (
                                             <TableRow key={file.id}>
                                                 <TableCell className="font-medium truncate max-w-[180px]">
-                                                  <a href={getFileViewUrl(file)} target="_blank" rel="noopener noreferrer" className="hover:underline" title={file.name}>
+                                                  <button onClick={() => previewFile(file.fullPath)} className="hover:underline text-left truncate block w-full" title={file.name}>
                                                     {file.name}
-                                                  </a>
+                                                  </button>
                                                   <p className="text-xs text-muted-foreground">{formatFileSize(file.size)}</p>
                                                 </TableCell>
                                                 <TableCell className="text-xs text-muted-foreground">{file.uploaderName}</TableCell>
                                                 <TableCell className="text-right">
-                                                    <a href={file.url} target="_blank" rel="noopener noreferrer" download>
-                                                      <Button variant="ghost" size="icon" className="h-8 w-8">
+                                                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => downloadFile(file.fullPath)}>
                                                           <Download className="h-4 w-4" />
                                                       </Button>
-                                                    </a>
                                                      {(userProfile.uid === file.uploaderId || ['admin', 'owner', 'manager'].includes(userProfile.role)) && (
                                                         <AlertDialog>
                                                             <AlertDialogTrigger asChild>
@@ -813,4 +802,5 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
     
 
     
+
 
