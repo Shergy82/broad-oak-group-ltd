@@ -75,6 +75,74 @@ export default function Dashboard({
       description: 'The shift has been dismissed from your view.',
     });
   };
+  
+  const handleDownloadSchedule = async () => {
+    if (!userProfile) {
+      toast({ title: 'Could not generate PDF', description: 'User profile not loaded.' });
+      return;
+    }
+    
+    const today = new Date();
+    const thisWeekShifts = userShifts.filter(s => isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 }));
+    const nextWeekShifts = userShifts.filter(s => isSameWeek(getCorrectedLocalDate(s.date), addDays(today, 7), { weekStartsOn: 1 }));
+
+    if (thisWeekShifts.length === 0 && nextWeekShifts.length === 0) {
+      toast({ title: 'No shifts to download for this or next week.' });
+      return;
+    }
+
+    const { default: jsPDF } = await import('jspdf');
+    const { default: autoTable } = await import('jspdf-autotable');
+
+    const doc = new jsPDF();
+    const generationDate = new Date();
+    
+    doc.setFontSize(18);
+    doc.text(`Your Shift Schedule - ${userProfile.name}`, 14, 22);
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+    doc.text(`Generated on: ${format(generationDate, 'PPP p')}`, 14, 28);
+
+    let finalY = 35;
+
+    const generateTable = (title: string, shiftsForPeriod: Shift[]) => {
+      if (shiftsForPeriod.length === 0) return;
+
+      const sortedShifts = shiftsForPeriod.sort((a,b) => getCorrectedLocalDate(a.date).getTime() - getCorrectedLocalDate(b.date).getTime());
+
+      if (finalY > 40) finalY += 8;
+      doc.setFontSize(16);
+      doc.text(title, 14, finalY);
+      finalY += 10;
+      
+      const head = [['Date', 'Type', 'Task & Address', 'Status']];
+      const body = sortedShifts.map(shift => {
+        const shiftDate = getCorrectedLocalDate(shift.date);
+        return [
+          format(shiftDate, 'EEE, dd MMM'),
+          shift.type === 'all-day' ? 'All Day' : shift.type.toUpperCase(),
+          `${shift.task}\n${shift.address}`,
+          shift.status.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+        ];
+      });
+
+      autoTable(doc, {
+        head,
+        body,
+        startY: finalY,
+        headStyles: { fillColor: [6, 95, 212] },
+        didDrawPage: (data: any) => {
+            finalY = data.cursor?.y || 0;
+        },
+      });
+      finalY = (doc as any).lastAutoTable.finalY;
+    };
+    
+    generateTable("This Week's Shifts", thisWeekShifts);
+    generateTable("Next Week's Shifts", nextWeekShifts);
+    
+    doc.save(`my_schedule_${format(generationDate, 'yyyy-MM-dd')}.pdf`);
+  };
 
   const {
     todayAmShifts,
@@ -217,6 +285,7 @@ export default function Dashboard({
             variant="outline"
             size="sm"
             disabled={loading}
+            onClick={handleDownloadSchedule}
           >
             <Download className="mr-2 h-4 w-4" />
             Download Schedule
