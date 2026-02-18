@@ -267,11 +267,11 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
   };
   
   const filteredShifts = useMemo(() => {
-    if (selectedUserId === 'all' || activeTab !== 'archive') {
+    if (selectedUserId === 'all') {
       return shifts;
     }
     return shifts.filter(shift => shift.userId === selectedUserId);
-  }, [shifts, selectedUserId, activeTab]);
+  }, [shifts, selectedUserId]);
 
   const { todayShifts, thisWeekShifts, nextWeekShifts, week3Shifts, week4Shifts, archiveShifts } = useMemo(() => {
     const today = new Date();
@@ -1214,6 +1214,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                 users={users} 
                 shift={selectedShift} 
                 userProfile={userProfile}
+                projects={projects}
             />
         )}
 
