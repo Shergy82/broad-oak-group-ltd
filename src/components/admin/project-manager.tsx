@@ -6,7 +6,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { db, storage, functions, httpsCallable } from '@/lib/firebase';
+import { db, storage, functions, httpsCallable, firebaseConfig } from '@/lib/firebase';
+import { useAuth } from '@/hooks/use-auth';
 import {
   collection,
   onSnapshot,
@@ -474,6 +475,7 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [isDeletingAll, setIsDeletingAll] = useState(false);
   const { toast } = useToast();
+  const { user } = useAuth();
 
   useEffect(() => {
     const q = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
@@ -547,22 +549,35 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
         toast({ variant: 'destructive', title: 'Permission Denied', description: 'You do not have permission to delete projects.' });
         return;
     }
-    if (!functions) {
-        toast({ variant: 'destructive', title: 'Error', description: 'Firebase Functions service is not available.' });
+     if (!user) {
+        toast({ variant: 'destructive', title: 'Not Authenticated', description: 'You must be logged in to perform this action.' });
         return;
     }
 
     toast({ title: 'Deleting Project...', description: 'This may take a moment. The page will update automatically.' });
     try {
-        const deleteProjectAndFilesFn = httpsCallable<{projectId: string}>(functions, 'deleteProjectAndFiles');
-        await deleteProjectAndFilesFn({ projectId: project.id });
+        const token = await user.getIdToken();
+        const response = await fetch(`https://europe-west2-${firebaseConfig.projectId}.cloudfunctions.net/deleteProjectAndFiles`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({ projectId: project.id })
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `Request failed with status ${response.status}`);
+        }
+        
         toast({ title: 'Success', description: 'Project and all its files have been deleted.' });
     } catch (error: any) {
         console.error("Error calling deleteProjectAndFiles function:", error);
         toast({ 
             variant: 'destructive', 
             title: 'Deletion Failed', 
-            description: error.message || 'An unknown error occurred. Please check the function logs in the Firebase Console.' 
+            description: error.message || 'An unknown error occurred.' 
         });
     }
   };
@@ -832,4 +847,5 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
     
 
     
+
 
