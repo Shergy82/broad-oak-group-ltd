@@ -542,6 +542,32 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
     }
   };
 
+  const handleDeleteNow = async (project: Project) => {
+    if (!['admin', 'owner', 'manager'].includes(userProfile.role)) {
+        toast({ variant: 'destructive', title: 'Permission Denied', description: 'You do not have permission to delete projects.' });
+        return;
+    }
+    if (!functions) {
+        toast({ variant: 'destructive', title: 'Error', description: 'Firebase Functions service is not available.' });
+        return;
+    }
+
+    toast({ title: 'Deleting Project...', description: 'This may take a moment. The page will update automatically.' });
+    try {
+        const deleteProjectAndFilesFn = httpsCallable<{projectId: string}>(functions, 'deleteProjectAndFiles');
+        await deleteProjectAndFilesFn({ projectId: project.id });
+        toast({ title: 'Success', description: 'Project and all its files have been deleted.' });
+    } catch (error: any) {
+        console.error("Error calling deleteProjectAndFiles function:", error);
+        toast({ 
+            variant: 'destructive', 
+            title: 'Deletion Failed', 
+            description: error.message || 'An unknown error occurred. Please check the function logs in the Firebase Console.' 
+        });
+    }
+  };
+
+
   const handleDeleteAllProjects = async () => {
     if (!functions) {
         toast({ variant: 'destructive', title: 'Error', description: 'Firebase Functions service is not available.' });
@@ -651,6 +677,27 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                                                 <Undo2 className="mr-2 h-4 w-4" />
                                                 Restore
                                             </Button>
+                                            <AlertDialog>
+                                                <AlertDialogTrigger asChild>
+                                                    <Button variant="destructive" size="sm">
+                                                        <Trash2 className="mr-2 h-4 w-4" /> Delete Now
+                                                    </Button>
+                                                </AlertDialogTrigger>
+                                                <AlertDialogContent>
+                                                    <AlertDialogHeader>
+                                                        <AlertDialogTitle>Delete Immediately?</AlertDialogTitle>
+                                                        <AlertDialogDescription>
+                                                            This will permanently delete the project <span className="font-semibold">"{project.address}"</span> and all of its associated files immediately. This action cannot be undone.
+                                                        </AlertDialogDescription>
+                                                    </AlertDialogHeader>
+                                                    <AlertDialogFooter>
+                                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                        <AlertDialogAction onClick={() => handleDeleteNow(project)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                                            Delete Now
+                                                        </AlertDialogAction>
+                                                    </AlertDialogFooter>
+                                                </AlertDialogContent>
+                                            </AlertDialog>
                                         </div>
                                     ) : (
                                         <>
@@ -711,6 +758,27 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                                                 <Undo2 className="mr-2 h-4 w-4" />
                                                 Restore Project
                                             </Button>
+                                            <AlertDialog>
+                                                <AlertDialogTrigger asChild>
+                                                    <Button variant="destructive" size="sm" className="w-full">
+                                                        <Trash2 className="mr-2 h-4 w-4" /> Delete Now
+                                                    </Button>
+                                                </AlertDialogTrigger>
+                                                <AlertDialogContent>
+                                                    <AlertDialogHeader>
+                                                        <AlertDialogTitle>Delete Immediately?</AlertDialogTitle>
+                                                        <AlertDialogDescription>
+                                                            This will permanently delete the project <span className="font-semibold">"{project.address}"</span> and all of its associated files immediately. This action cannot be undone.
+                                                        </AlertDialogDescription>
+                                                    </AlertDialogHeader>
+                                                    <AlertDialogFooter>
+                                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                        <AlertDialogAction onClick={() => handleDeleteNow(project)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                                            Delete Now
+                                                        </AlertDialogAction>
+                                                    </AlertDialogFooter>
+                                                </AlertDialogContent>
+                                            </AlertDialog>
                                         </div>
                                     ) : (
                                         <div className="grid grid-cols-2 gap-2">
@@ -729,7 +797,7 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                                                         <AlertDialogHeader>
                                                             <AlertDialogTitle>Schedule Project for Deletion?</AlertDialogTitle>
                                                             <AlertDialogDescription>
-                                                                This will schedule the project <span className="font-semibold">"{project.address}"</span> for permanent deletion in 7 days. This action can be undone.
+                                                                This will permanently delete the project <span className="font-semibold">"{project.address}"</span> and all of its associated files. This action can be undone.
                                                             </AlertDialogDescription>
                                                         </AlertDialogHeader>
                                                         <AlertDialogFooter>
