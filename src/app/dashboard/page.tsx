@@ -56,7 +56,7 @@ export default function DashboardPage() {
   ========================= */
 
   useEffect(() => {
-    if (!user) {
+    if (!user || !userProfile) {
       setLoadingData(false);
       return;
     }
@@ -70,7 +70,7 @@ export default function DashboardPage() {
 
     const shiftsQuery = query(
       collection(db, 'shifts'),
-      where('userId', '==', user.uid)
+      where('userId', '==', userProfile.uid)
     );
 
     let announcementsLoaded = false;
@@ -116,7 +116,7 @@ export default function DashboardPage() {
       unsubAnnouncements();
       unsubShifts();
     };
-  }, [user]);
+  }, [user, userProfile]);
 
   /* =========================
      MEMOS
