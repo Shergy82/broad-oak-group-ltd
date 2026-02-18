@@ -22,6 +22,8 @@ import { Faq } from '../landing/faq';
 import { UserManagement } from './user-management';
 import { StaffShiftMap } from './StaffShiftMap';
 import { EvidenceDashboard } from './evidence-dashboard';
+import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
+import { cn } from '@/lib/utils';
 
 type WidgetKey = 'availability' | 'performance' | 'contracts' | 'tasks' | 'projects' | 'schedule' | 'users' | 'healthAndSafety' | 'help' | 'mapping' | 'evidence';
 
@@ -46,19 +48,20 @@ const ALL_WIDGETS: Widget[] = [
 ];
 
 const LS_KEY = 'admin_dashboard_widgets_v5';
+const LS_AVAILABILITY_VIEW_KEY = 'admin_dashboard_availability_view_v1';
 
-const WIDGET_COMPONENTS: Record<WidgetKey, React.ComponentType<{ userProfile: UserProfile }>> = {
+const WIDGET_COMPONENTS: Record<WidgetKey, React.ComponentType<any>> = {
     schedule: ShiftScheduleOverview,
-    availability: AvailabilityOverview as any,
-    mapping: StaffShiftMap as any,
-    contracts: ContractStatsDashboard as any,
-    performance: PerformanceDashboard as any,
-    tasks: TaskManager as any,
-    users: UserManagement as any,
-    evidence: EvidenceDashboard as any,
+    availability: AvailabilityOverview,
+    mapping: StaffShiftMap,
+    contracts: ContractStatsDashboard,
+    performance: PerformanceDashboard,
+    tasks: TaskManager,
+    users: UserManagement,
+    evidence: EvidenceDashboard,
     projects: ProjectManager,
     healthAndSafety: HealthAndSafetyFileList,
-    help: Faq as any,
+    help: Faq,
 };
 
 
@@ -66,6 +69,7 @@ export function CustomizableDashboard() {
   const { userProfile, loading: profileLoading } = useUserProfile();
   const [widgetConfig, setWidgetConfig] = useState<WidgetKey[]>(['availability', 'contracts', 'schedule']);
   const [isClient, setIsClient] = useState(false);
+  const [availabilityViewMode, setAvailabilityViewMode] = useState<'normal' | 'simple'>('normal');
 
   const enabledWidgets = useMemo(() => new Set(widgetConfig), [widgetConfig]);
 
@@ -80,9 +84,14 @@ export function CustomizableDashboard() {
             setWidgetConfig(validKeys);
         }
       } else {
-        // Default widgets
         setWidgetConfig(['availability', 'contracts', 'schedule']);
       }
+      
+      const storedView = localStorage.getItem(LS_AVAILABILITY_VIEW_KEY);
+      if (storedView === 'simple' || storedView === 'normal') {
+          setAvailabilityViewMode(storedView);
+      }
+
     } catch (e) {
       console.error("Failed to load dashboard config from localStorage", e);
       setWidgetConfig(['availability', 'contracts', 'schedule']);
@@ -98,6 +107,17 @@ export function CustomizableDashboard() {
       }
     }
   }, [widgetConfig, isClient]);
+  
+  const handleAvailabilityViewChange = (view: 'normal' | 'simple') => {
+    setAvailabilityViewMode(view);
+    if (isClient) {
+        try {
+            localStorage.setItem(LS_AVAILABILITY_VIEW_KEY, view);
+        } catch (e) {
+            console.error("Failed to save availability view mode", e);
+        }
+    }
+  };
 
   const handleWidgetToggle = (key: WidgetKey, checked: boolean) => {
     setWidgetConfig(prev => {
@@ -172,22 +192,43 @@ export function CustomizableDashboard() {
                             <h4 className="mb-2 font-semibold text-muted-foreground">Enabled Widgets</h4>
                             <div className="space-y-2 rounded-md border p-2">
                                 {enabledInOrder.length > 0 ? enabledInOrder.map((widget, index) => (
-                                    <div key={widget.key} className="flex items-center justify-between p-2 rounded-md hover:bg-muted">
-                                        <div className="grid gap-1.5 leading-none">
-                                            <Label className="font-medium">{widget.title}</Label>
-                                            <p className="text-sm text-muted-foreground">{widget.description}</p>
+                                    <div key={widget.key} className={cn("flex flex-col p-2 rounded-md", widget.key === 'availability' && "hover:bg-muted/50")}>
+                                        <div className="flex items-center justify-between">
+                                            <div className="grid gap-1.5 leading-none">
+                                                <Label className="font-medium">{widget.title}</Label>
+                                                <p className="text-sm text-muted-foreground">{widget.description}</p>
+                                            </div>
+                                            <div className="flex items-center gap-1 shrink-0">
+                                                <Button variant="ghost" size="icon" className="h-8 w-8" disabled={index === 0} onClick={() => handleMove(widget.key, 'up')}>
+                                                    <ArrowUp className="h-4 w-4" />
+                                                </Button>
+                                                <Button variant="ghost" size="icon" className="h-8 w-8" disabled={index === enabledInOrder.length - 1} onClick={() => handleMove(widget.key, 'down')}>
+                                                    <ArrowDown className="h-4 w-4" />
+                                                </Button>
+                                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/70 hover:text-destructive" onClick={() => handleWidgetToggle(widget.key, false)}>
+                                                    <X className="h-4 w-4" />
+                                                </Button>
+                                            </div>
                                         </div>
-                                        <div className="flex items-center gap-1 shrink-0">
-                                            <Button variant="ghost" size="icon" className="h-8 w-8" disabled={index === 0} onClick={() => handleMove(widget.key, 'up')}>
-                                                <ArrowUp className="h-4 w-4" />
-                                            </Button>
-                                            <Button variant="ghost" size="icon" className="h-8 w-8" disabled={index === enabledInOrder.length - 1} onClick={() => handleMove(widget.key, 'down')}>
-                                                <ArrowDown className="h-4 w-4" />
-                                            </Button>
-                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/70 hover:text-destructive" onClick={() => handleWidgetToggle(widget.key, false)}>
-                                                <X className="h-4 w-4" />
-                                            </Button>
-                                        </div>
+                                        {widget.key === 'availability' && (
+                                            <div className="pl-1 pt-3 mt-3 border-t">
+                                                <Label className="text-xs text-muted-foreground">View Mode</Label>
+                                                <RadioGroup
+                                                    value={availabilityViewMode}
+                                                    onValueChange={(value) => handleAvailabilityViewChange(value as 'normal' | 'simple')}
+                                                    className="flex items-center gap-4 pt-2"
+                                                >
+                                                    <div className="flex items-center space-x-2">
+                                                        <RadioGroupItem value="normal" id={`view-normal-${widget.key}`} />
+                                                        <Label htmlFor={`view-normal-${widget.key}`} className="font-normal text-sm">Normal</Label>
+                                                    </div>
+                                                    <div className="flex items-center space-x-2">
+                                                        <RadioGroupItem value="simple" id={`view-simple-${widget.key}`} />
+                                                        <Label htmlFor={`view-simple-${widget.key}`} className="font-normal text-sm">Simple</Label>
+                                                    </div>
+                                                </RadioGroup>
+                                            </div>
+                                        )}
                                     </div>
                                 )) : <p className="p-4 text-center text-sm text-muted-foreground">No widgets enabled. Add some from the list below.</p>}
                             </div>
@@ -219,6 +260,10 @@ export function CustomizableDashboard() {
            <div className="space-y-6">
                 {widgetsToRender.map(widget => {
                     const Component = WIDGET_COMPONENTS[widget.key];
+                    const props = {
+                        userProfile,
+                        ...(widget.key === 'availability' && { viewMode: availabilityViewMode }),
+                    };
                     return (
                         <Card key={widget.key}>
                             <CardHeader>
@@ -226,7 +271,7 @@ export function CustomizableDashboard() {
                                 <CardDescription>{widget.description}</CardDescription>
                             </CardHeader>
                             <CardContent>
-                                <Component userProfile={userProfile} />
+                                <Component {...props} />
                             </CardContent>
                         </Card>
                     )

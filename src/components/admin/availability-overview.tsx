@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -122,7 +120,13 @@ const UserAvatarList = ({ users, category, onUserClick }: { users: AvailableUser
 
 type ActiveTab = 'working-today' | 'fully-available' | 'semi-available' | null;
 
-export function AvailabilityOverview() {
+interface AvailabilityOverviewProps {
+    userProfile: UserProfile; // Added for type-safety with dashboard
+    viewMode?: 'normal' | 'simple';
+}
+
+
+export function AvailabilityOverview({ viewMode = 'normal' }: AvailabilityOverviewProps) {
     const [shifts, setShifts] = useState<Shift[]>([]);
     const [users, setUsers] = useState<UserProfile[]>([]);
     const [loading, setLoading] = useState(true);
@@ -198,6 +202,7 @@ export function AvailabilityOverview() {
     }, [todaysAvailability]);
 
     const handleTabClick = (tab: ActiveTab) => {
+        if (viewMode === 'simple') return;
         if (activeTab === tab) {
             setActiveTab(null); // Close if the same tab is clicked
         } else {
@@ -244,7 +249,8 @@ export function AvailabilityOverview() {
                     
                     <Card
                         className={cn(
-                            "cursor-pointer transition-colors hover:bg-muted",
+                            "transition-colors",
+                            viewMode === 'normal' && "cursor-pointer hover:bg-muted",
                             activeTab === 'working-today' && "ring-2 ring-primary bg-muted"
                         )}
                         onClick={() => handleTabClick('working-today')}
@@ -260,7 +266,8 @@ export function AvailabilityOverview() {
 
                     <Card
                         className={cn(
-                            "cursor-pointer transition-colors hover:bg-muted",
+                            "transition-colors",
+                            viewMode === 'normal' && "cursor-pointer hover:bg-muted",
                             activeTab === 'fully-available' && "ring-2 ring-primary bg-muted"
                         )}
                         onClick={() => handleTabClick('fully-available')}
@@ -276,7 +283,8 @@ export function AvailabilityOverview() {
 
                     <Card
                         className={cn(
-                            "cursor-pointer transition-colors hover:bg-muted",
+                            "transition-colors",
+                            viewMode === 'normal' && "cursor-pointer hover:bg-muted",
                             activeTab === 'semi-available' && "ring-2 ring-primary bg-muted"
                         )}
                         onClick={() => handleTabClick('semi-available')}
@@ -293,7 +301,7 @@ export function AvailabilityOverview() {
                 </div>
                 
                 <div className="pt-4 transition-all duration-300 ease-in-out">
-                    {renderContent()}
+                    {viewMode === 'normal' && renderContent()}
                 </div>
             </div>
         )}
