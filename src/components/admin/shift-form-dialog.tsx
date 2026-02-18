@@ -63,14 +63,14 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
     },
   });
 
-  const projectDepartments = useMemo(() => {
-    if (!projects) return [];
+  const availableDepartments = useMemo(() => {
+    if (!users) return [];
     const depts = new Set<string>();
-    projects.forEach(p => {
-        if (p.department) depts.add(p.department);
+    users.forEach(u => {
+        if (u.department) depts.add(u.department);
     });
     return Array.from(depts).sort();
-  }, [projects]);
+  }, [users]);
   
   const getCorrectedLocalDate = (date: { toDate: () => Date }) => {
     const d = date.toDate();
@@ -320,7 +320,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {projectDepartments.map(dept => (
+                      {availableDepartments.map(dept => (
                         <SelectItem key={dept} value={dept}>{dept}</SelectItem>
                       ))}
                     </SelectContent>
