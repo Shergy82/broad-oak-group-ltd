@@ -2,13 +2,13 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { collection, onSnapshot, query, orderBy, doc, updateDoc, serverTimestamp, addDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, doc, updateDoc, serverTimestamp, addDoc, deleteField } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '@/lib/firebase';
 import type { Project, EvidenceChecklist, ProjectFile, UserProfile, EvidenceChecklistItem } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Building2, Search, Pencil, CheckCircle, XCircle, Download, Trash2, RotateCw, Camera, X } from 'lucide-react';
+import { Building2, Search, Pencil, CheckCircle, XCircle, Download, Trash2, RotateCw, Camera, X, Undo2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { EvidenceChecklistManager } from '@/components/admin/evidence-checklist-manager';
@@ -264,6 +264,62 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
     const [selectedCameraItem, setSelectedCameraItem] = useState<{ text: string, count: number } | null>(null);
     const [isChecklistEditorOpen, setChecklistEditorOpen] = useState(false);
     
+    const isScheduledForDeletion = !!project.deletionScheduledAt;
+    const [countdown, setCountdown] = useState('');
+
+     useEffect(() => {
+        if (!isScheduledForDeletion) return;
+
+        const calculateCountdown = () => {
+            const scheduledTime = project.deletionScheduledAt!.toDate();
+            const deletionTime = new Date(scheduledTime.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days
+            const now = new Date();
+            const diff = deletionTime.getTime() - now.getTime();
+
+            if (diff <= 0) {
+                setCountdown("Ready for permanent deletion");
+                return;
+            }
+
+            const d = Math.floor(diff / (1000 * 60 * 60 * 24));
+            const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
+            const m = Math.floor((diff / 1000 / 60) % 60);
+
+            if (d > 0) setCountdown(`in ~${d} day${d > 1 ? 's' : ''}`);
+            else if (h > 0) setCountdown(`in ~${h} hour${h > 1 ? 's' : ''}`);
+            else if (m > 0) setCountdown(`in ~${m} minute${m > 1 ? 's' : ''}`);
+            else setCountdown('in less than a minute');
+        };
+
+        calculateCountdown(); // Initial call
+        const interval = setInterval(calculateCountdown, 30000); // Update every 30s
+
+        return () => clearInterval(interval);
+    }, [project.deletionScheduledAt, isScheduledForDeletion]);
+
+    const handleRestoreProject = async () => {
+        if (!userProfile || !['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role)) {
+            toast({ variant: "destructive", title: "Permission Denied" });
+            return;
+        }
+
+        try {
+            const projectRef = doc(db, 'projects', project.id);
+            await updateDoc(projectRef, {
+                deletionScheduledAt: deleteField()
+            });
+            toast({ title: "Project Restored", description: "The deletion schedule has been cancelled." });
+        } catch (error: any) {
+            console.error("Error restoring project:", error);
+            toast({
+                variant: 'destructive',
+                title: 'Restore Failed',
+                description: error.message || 'An unknown error occurred.'
+            });
+        }
+    };
+
+
     const activeChecklistItems = useMemo(() => {
         return project.checklist ?? checklist?.items ?? [];
     }, [project.checklist, checklist]);
@@ -412,6 +468,27 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
         }
     };
 
+
+    if (isScheduledForDeletion) {
+        return (
+            <Card className="bg-destructive/10 border-destructive/30 flex flex-col hover:shadow-md transition-shadow">
+                <CardHeader className="p-4 pb-2">
+                     <CardTitle className="text-sm font-semibold leading-tight text-destructive">{project.address}</CardTitle>
+                    {project.eNumber && <CardDescription className="text-xs pt-1 text-destructive/80">{project.eNumber}</CardDescription>}
+                </CardHeader>
+                <CardContent className="p-4 pt-2 flex-grow flex flex-col justify-center items-center text-center">
+                    <Trash2 className="h-8 w-8 text-destructive/70 mb-2"/>
+                    <p className="text-sm font-semibold text-destructive">Scheduled for Deletion</p>
+                    <p className="text-xs text-destructive/80">{countdown}</p>
+                </CardContent>
+                 <CardFooter className="p-2 border-t mt-auto">
+                    <Button variant="ghost" size="sm" className="w-full text-destructive hover:bg-destructive/20 hover:text-destructive" onClick={handleRestoreProject}>
+                        <Undo2 className="mr-2 h-4 w-4" /> Cancel Deletion
+                    </Button>
+                </CardFooter>
+            </Card>
+        );
+    }
 
     const cardColorClass = {
         incomplete: 'bg-red-800 border-red-950',
@@ -644,8 +721,7 @@ export function EvidenceDashboard() {
     const unsubProjects = onSnapshot(projectsQuery, 
       (snapshot) => {
           const allProjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project));
-          const activeProjects = allProjects.filter(p => !p.deletionScheduledAt);
-          setProjects(activeProjects);
+          setProjects(allProjects);
           if (snapshot.docs.length === 0) setLoading(false);
       },
       (err) => {
@@ -753,6 +829,9 @@ export function EvidenceDashboard() {
 
     const priorityOrder = { 'ready': 1, 'incomplete': 2, 'generated': 3 };
     enrichedProjects.sort((a, b) => {
+        if (a.deletionScheduledAt && !b.deletionScheduledAt) return 1;
+        if (!a.deletionScheduledAt && b.deletionScheduledAt) return -1;
+        
         const statePriorityA = priorityOrder[a.evidenceState];
         const statePriorityB = priorityOrder[b.evidenceState];
 
@@ -773,7 +852,7 @@ export function EvidenceDashboard() {
     });
     
     const activeGroups = Object.entries(groups).filter(([contractName, projectGroup]) => {
-      return projectGroup.some(p => p.evidenceState !== 'generated');
+      return projectGroup.some(p => p.evidenceState !== 'generated' || p.deletionScheduledAt);
     });
 
     return activeGroups.sort(([a], [b]) => a.localeCompare(b));
