@@ -680,7 +680,7 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                             {filteredProjects.map(project => (
                                 <TableRow key={project.id} className={cn(project.deletionScheduledAt && "bg-destructive/10 hover:bg-destructive/20")}>
                                 <TableCell className="font-medium">{project.address}</TableCell>
-                                <TableCell>{project.eNumber}</TableCell>
+                                <TableCell className="font-bold text-base">{project.eNumber}</TableCell>
                                 <TableCell>{project.manager}</TableCell>
                                 <TableCell>{project.createdAt ? format(project.createdAt.toDate(), 'dd/MM/yyyy') : 'N/A'}</TableCell>
                                 <TableCell>{project.nextReviewDate ? format(project.nextReviewDate.toDate(), 'dd/MM/yyyy') : 'N/A'}</TableCell>
@@ -758,7 +758,7 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                             <Card key={project.id} className={cn(project.deletionScheduledAt && "bg-destructive/10 border-destructive/20")}>
                                 <CardHeader>
                                     <CardTitle>{project.address}</CardTitle>
-                                    <CardDescription>E-Number: {project.eNumber || 'N/A'}</CardDescription>
+                                    <CardDescription className="font-bold text-lg text-foreground">{project.eNumber || 'N/A'}</CardDescription>
                                 </CardHeader>
                                 <CardContent className="text-sm space-y-2">
                                     <div><strong>Manager:</strong> {project.manager || 'N/A'}</div>
@@ -847,5 +847,3 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
     
 
     
-
-

@@ -452,7 +452,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
             <Card className="bg-destructive/10 border-destructive/30 flex flex-col hover:shadow-md transition-shadow">
                 <CardHeader className="p-4 pb-2">
                      <CardTitle className="text-sm font-semibold leading-tight text-destructive">{project.address}</CardTitle>
-                    {project.eNumber && <CardDescription className="text-xs pt-1 text-destructive/80">{project.eNumber}</CardDescription>}
+                    {project.eNumber && <p className="text-lg font-bold pt-1 text-destructive/80">{project.eNumber}</p>}
                 </CardHeader>
                 <CardContent className="p-4 pt-2 flex-grow flex flex-col justify-center items-center text-center">
                     <Trash2 className="h-8 w-8 text-destructive/70 mb-2"/>
@@ -486,7 +486,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                             <Pencil className="h-3 w-3" />
                         </Button>
                     </div>
-                    {project.eNumber && <CardDescription className={cn("text-xs pt-1 opacity-80", textColorClass)}>{project.eNumber}</CardDescription>}
+                    {project.eNumber && <p className={cn("text-lg font-bold pt-1", textColorClass)}>{project.eNumber}</p>}
                 </CardHeader>
                 <CardContent className="p-4 pt-2 flex-grow flex flex-col justify-between">
                     {loadingFiles ? (
@@ -722,17 +722,7 @@ export function EvidenceDashboard() {
             deletionScheduledAt: serverTimestamp()
         });
 
-        setRemovedProjectIds(prev => {
-            const newRemoved = [...new Set([...prev, projectId])];
-            try {
-                localStorage.setItem(LOCAL_STORAGE_KEY_REMOVED, JSON.stringify(newRemoved));
-            } catch (e) {
-                console.error("Failed to save removed project to localStorage", e);
-            }
-            return newRemoved;
-        });
-
-        toast({ title: 'Success', description: 'Project scheduled for deletion and removed from this view.' });
+        toast({ title: 'Success', description: 'Project scheduled for deletion.' });
 
     } catch (error: any) {
         console.error("Error scheduling project for deletion:", error);
@@ -814,13 +804,13 @@ export function EvidenceDashboard() {
 
 
   const filteredProjects = useMemo(() => {
-    const activeProjects = projects.filter(p => !removedProjectIds.includes(p.id));
+    const activeProjects = projects;
     if (!searchTerm) return activeProjects;
     return activeProjects.filter(project =>
       project.address.toLowerCase().includes(searchTerm.toLowerCase()) ||
       project.contract?.toLowerCase().includes(searchTerm.toLowerCase())
     );
-  }, [projects, searchTerm, removedProjectIds]);
+  }, [projects, searchTerm]);
 
   const groupedProjects = useMemo(() => {
     if (loading) return [];
@@ -918,9 +908,9 @@ export function EvidenceDashboard() {
           ) : groupedProjects.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-12 text-center h-96">
               <Building2 className="mx-auto h-12 w-12 text-muted-foreground" />
-              <h3 className="mt-4 text-lg font-semibold">No Active Projects Found</h3>
+              <h3 className="mt-4 text-lg font-semibold">No Projects Found</h3>
               <p className="mt-2 text-sm text-muted-foreground">
-                Projects will appear here once they are created. Completed contract groups are hidden.
+                Projects will appear here once they are created, for example, via the shift import process.
               </p>
             </div>
           ) : (
