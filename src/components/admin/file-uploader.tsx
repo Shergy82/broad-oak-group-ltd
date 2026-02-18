@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useCallback } from 'react';
@@ -525,16 +526,14 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                     remainingContent = remainingContent.replace(/^\s*PM\b/i, '').trim();
                   }
 
-                  const parts = remainingContent
-                    .split('-')
-                    .map((p) => p.trim())
-                    .filter(Boolean);
+                  const lastDashIndex = remainingContent.lastIndexOf('-');
+                  if (lastDashIndex === -1) continue;
 
-                  if (parts.length < 2) continue;
+                  const task = remainingContent.substring(0, lastDashIndex).trim();
+                  const potentialUserNames = remainingContent.substring(lastDashIndex + 1).trim();
 
-                  const potentialUserNames = parts.pop()!;
-                  const task = parts.join('-').trim();
-                  if (!task) continue;
+                  if (!task || !potentialUserNames) continue;
+
 
                   const usersInCell = potentialUserNames
                     .split(/&|,|\+/g)
