@@ -182,7 +182,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
             status: 'pending-confirmation',
             address: 'Test Shift Address',
             task: 'This is a test shift for notification.',
-            eNumber: 'E-TEST',
+            eNumber: 'B-TEST',
             createdAt: serverTimestamp(),
         });
         toast({
@@ -362,9 +362,9 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
               name="eNumber"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>E Number (Optional)</FormLabel>
+                  <FormLabel>Number (Optional)</FormLabel>
                   <FormControl>
-                    <Input placeholder="E..." {...field} />
+                    <Input placeholder="E... or B..." {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

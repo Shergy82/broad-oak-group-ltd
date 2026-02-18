@@ -129,7 +129,7 @@ export default function ProjectsPage() {
                       <CardHeader>
                           <CardTitle className="text-lg">{project.address}</CardTitle>
                           <CardDescription className="text-xs pt-2 space-y-1">
-                              <div><strong>B-Number:</strong> {project.eNumber || 'N/A'}</div>
+                              <div><strong>Number:</strong> {project.eNumber || 'N/A'}</div>
                               <div><strong>Council:</strong> {project.council || 'N/A'}</div>
                               <div><strong>Manager:</strong> {project.manager || 'N/A'}</div>
                           </CardDescription>

@@ -1,3 +1,5 @@
+
+
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -525,7 +527,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
         <CardContent className="p-4 text-left grow flex flex-col justify-center space-y-1">
           <p className="font-semibold text-sm">{shift.task}</p>
           <p className="text-xs text-muted-foreground">{shift.address}</p>
-          {shift.eNumber && <p className="text-xs text-muted-foreground">E-Number: {shift.eNumber}</p>}
+          {shift.eNumber && <p className="text-xs text-muted-foreground">Number: {shift.eNumber}</p>}
           {shift.manager && <p className="text-xs text-muted-foreground">Manager: {shift.manager}</p>}
 
           {(shift.status === 'incomplete' || shift.status === 'rejected') && shift.notes && (

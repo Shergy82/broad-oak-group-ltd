@@ -68,7 +68,7 @@ import jsPDF from 'jspdf';
 
 const projectSchema = z.object({
   address: z.string().min(1, 'Address is required.'),
-  eNumber: z.string().min(1, 'E Number is required.'),
+  eNumber: z.string().min(1, 'Number is required.'),
   council: z.string().min(1, 'Council is required.'),
   manager: z.string().min(1, 'Manager is required.'),
 });
@@ -131,7 +131,7 @@ function CreateProjectDialog({ open, onOpenChange, userProfile }: CreateProjectD
                 <FormItem><FormLabel>Address</FormLabel><FormControl><Input placeholder="123 Main Street..." {...field} /></FormControl><FormMessage /></FormItem>
             )}/>
             <FormField control={form.control} name="eNumber" render={({ field }) => (
-                <FormItem><FormLabel>E Number</FormLabel><FormControl><Input placeholder="E..." {...field} /></FormControl><FormMessage /></FormItem>
+                <FormItem><FormLabel>Number</FormLabel><FormControl><Input placeholder="E..." {...field} /></FormControl><FormMessage /></FormItem>
             )}/>
             <FormField control={form.control} name="council" render={({ field }) => (
                 <FormItem><FormLabel>Council</FormLabel><FormControl><Input placeholder="Council Name" {...field} /></FormControl><FormMessage /></FormItem>
@@ -669,7 +669,7 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                         <TableHeader>
                             <TableRow>
                             <TableHead>Address</TableHead>
-                            <TableHead>E Number</TableHead>
+                            <TableHead>Number</TableHead>
                             <TableHead>Manager</TableHead>
                             <TableHead>Created At</TableHead>
                             <TableHead>Next Review</TableHead>

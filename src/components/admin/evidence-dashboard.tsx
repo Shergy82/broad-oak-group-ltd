@@ -117,7 +117,7 @@ function EvidenceReportGenerator({ project, files, onGenerated, userProfile }: E
     doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(100, 116, 139); // slate-500
-    const detailText = `${project.contract || 'N/A Contract'} | ${project.eNumber || 'N/A E-Number'}`;
+    const detailText = `${project.contract || 'N/A Contract'} | ${project.eNumber || 'N/A Number'}`;
     doc.text(detailText, pageWidth / 2, currentY, { align: 'center' });
 
     const generatedOnText = `Generated on: ${format(new Date(), 'PPP')}`;
