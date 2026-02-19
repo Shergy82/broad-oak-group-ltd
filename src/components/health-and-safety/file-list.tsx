@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -78,7 +79,7 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
     });
 
     const sortedFolders = Array.from(folderMap.entries()).sort(([a], [b]) => a.localeCompare(b));
-    return { folders: sortedFolders, uncategorizedFiles };
+    return { folders: sortedFolders, uncategorizedFiles: uncategorized };
   }, [files, emptyFolders]);
   
   const allFolderNames = useMemo(() => {
