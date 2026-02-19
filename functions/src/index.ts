@@ -584,7 +584,29 @@ export const onShiftUpdated = onDocumentUpdated({ document: "shifts/{shiftId}", 
     if (!before || !after) return;
 
     const shiftId = event.params.shiftId;
+    const userId = after.userId;
 
+    // FIRST: Check for self-updates that should be silenced.
+    // A user updated their own shift status (e.g., from 'on-site' to 'incomplete').
+    if (after.updatedByUid && after.updatedByUid === userId) {
+        const statusBefore = String(before.status || "").toLowerCase();
+        const statusAfter = String(after.status || "").toLowerCase();
+
+        const isIncompleteUpdate = statusAfter === 'incomplete' && statusBefore !== 'incomplete';
+        const isReopenUpdate = statusAfter === 'confirmed' && (statusBefore === 'completed' || statusBefore === 'incomplete');
+
+        if (isIncompleteUpdate || isReopenUpdate) {
+            logger.log("Silencing self-update notification.", {
+                shiftId,
+                userId,
+                statusBefore,
+                statusAfter,
+            });
+            return; // EXIT EARLY
+        }
+    }
+    
+    // SECOND: Check if a shift was reassigned from one user to another.
     if (before.userId !== after.userId) {
       if (before.userId) {
         const d = before.date?.toDate ? before.date.toDate() : null;
@@ -615,10 +637,10 @@ export const onShiftUpdated = onDocumentUpdated({ document: "shifts/{shiftId}", 
         from: before.userId,
         to: after.userId,
       });
-      return;
+      return; // EXIT
     }
 
-    const userId = after.userId;
+    // THIRD: Handle all other updates (e.g., admin changing details).
     if (!userId) return;
 
     const afterDate = after.date?.toDate ? after.date.toDate() : null;
@@ -628,26 +650,7 @@ export const onShiftUpdated = onDocumentUpdated({ document: "shifts/{shiftId}", 
       logger.log("Shift updated but in past; no notify", { shiftId });
       return;
     }
-
-    const updatedByUid = String(after.updatedByUid || "").trim();
-    if (updatedByUid && updatedByUid === String(userId)) {
-      const statusBefore = String(before.status || "").toLowerCase();
-      const statusAfter = String(after.status || "").toLowerCase();
-
-      const isIncompleteUpdate = statusAfter === 'incomplete';
-      const isReopenUpdate = statusAfter === 'confirmed' && (statusBefore === 'completed' || statusBefore === 'incomplete');
-
-      if (isIncompleteUpdate || isReopenUpdate) {
-        logger.log("User performed a self-update; silencing notification.", {
-          shiftId,
-          userId,
-          statusBefore,
-          statusAfter,
-        });
-        return;
-      }
-    }
-
+    
     const fieldsToCompare: (keyof typeof before)[] = [
       "task",
       "address",

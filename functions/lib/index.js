@@ -1,2 +1,2 @@
-// This is a generated file. Do not edit directly.
-// The source is in functions/src/index.ts
+// This file has been intentionally left blank to prevent deployment conflicts.
+// The source is in functions/src/index.ts and will be compiled on deploy.
