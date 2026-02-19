@@ -32,7 +32,7 @@ const statusColorMapping: { [key in ShiftStatus]: string } = {
     'confirmed': '#3F51B5', // primary/blue
     'pending-confirmation': '#FBBF24', // yellow
     'completed': '#22c55e', // green
-    'incomplete': '#8B5CF6', // purple
+    'incomplete': '#ef4444', // red
     'rejected': '#ef4444', // red
 };
 
@@ -332,7 +332,7 @@ export function StaffShiftMap() {
                     onMouseOver={() => setSelectedPin(pin)}
                     icon={{
                         path: google.maps.SymbolPath.CIRCLE,
-                        scale: 12,
+                        scale: 15,
                         fillColor: pin.color,
                         fillOpacity: 1,
                         strokeColor: '#ffffff',
@@ -382,7 +382,7 @@ export function StaffShiftMap() {
             </GoogleMap>
             <div className="absolute bottom-3 left-3 bg-white p-2 rounded shadow-lg space-y-1 text-xs z-10">
                 <h4 className="font-bold">Status Legend</h4>
-                {Object.entries(statusColorMapping).map(([status, color]) => (
+                {Object.entries(statusColorMapping).filter(([status]) => status !== 'rejected').map(([status, color]) => (
                 <div key={status} className="flex items-center gap-2">
                     <div style={{ backgroundColor: color }} className="w-3 h-3 rounded-full border border-gray-300"></div>
                     <span className="capitalize">{status.replace('-', ' ')}</span>
