@@ -28,6 +28,7 @@ interface AvailableUser {
   user: UserProfile;
   availability: 'full' | 'am' | 'pm' | 'busy' | 'unavailable';
   shifts: Shift[];
+  unavailabilityReason?: 'Holiday' | 'Sickness' | 'Other';
 }
 
 const getInitials = (name?: string) => {
@@ -72,7 +73,7 @@ const UserAvatarList = ({ users, category, onUserClick }: { users: AvailableUser
     return (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
             {filteredUsers.map((availableUser) => {
-                const { user, shifts, availability } = availableUser;
+                const { user, shifts, availability, unavailabilityReason } = availableUser;
                 
                 const uniqueAddresses = [...new Set(shifts.map(s => s.address).filter(Boolean))];
                 
@@ -112,6 +113,7 @@ const UserAvatarList = ({ users, category, onUserClick }: { users: AvailableUser
                             </div>
                             {availability === 'am' && <Badge variant="outline" className="text-sky-600 border-sky-200 bg-sky-50 dark:bg-sky-900/50 dark:text-sky-300 dark:border-sky-800">AM Free</Badge>}
                             {availability === 'pm' && <Badge variant="outline" className="text-orange-600 border-orange-200 bg-orange-50 dark:bg-orange-900/50 dark:text-orange-300 dark:border-orange-800">PM Free</Badge>}
+                            {availability === 'unavailable' && unavailabilityReason && <Badge variant="destructive">{unavailabilityReason}</Badge>}
                         </CardContent>
                     </Card>
                 )
@@ -194,12 +196,12 @@ export function AvailabilityOverview({ viewMode = 'normal' }: AvailabilityOvervi
             const endDate = getCorrectedLocalDate(u.endDate);
             return todaysDate >= startDate && todaysDate <= endDate;
         });
-        const unavailableUserIds = new Set(todaysUnavailable.map(u => u.userId));
 
         
         return users.map(user => {
-            if (unavailableUserIds.has(user.uid)) {
-                return { user, availability: 'unavailable', shifts: [] };
+            const unavailabilityRecord = todaysUnavailable.find(u => u.userId === user.uid);
+            if (unavailabilityRecord) {
+                return { user, availability: 'unavailable', shifts: [], unavailabilityReason: unavailabilityRecord.reason };
             }
 
             const userShiftsToday = todaysShifts.filter(s => s.userId === user.uid);
