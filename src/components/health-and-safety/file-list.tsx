@@ -1,9 +1,9 @@
 
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import { collection, onSnapshot, query, orderBy, doc, deleteDoc, addDoc, serverTimestamp, writeBatch, getDocs, where, deleteField } from 'firebase/firestore';
-import { ref, deleteObject, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { useState, useEffect, useMemo } from 'react';
+import { collection, onSnapshot, query, orderBy, doc, deleteDoc, writeBatch, getDocs, where, deleteField } from 'firebase/firestore';
+import { ref, deleteObject } from 'firebase/storage';
 import { db, storage } from '@/lib/firebase';
 import type { HealthAndSafetyFile, UserProfile } from '@/types';
 import { useToast } from '@/hooks/use-toast';
@@ -11,13 +11,16 @@ import { format } from 'date-fns';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
-import { Download, Trash2, FileText, PlusCircle, Folder, FolderPlus, FolderCog, FolderX } from 'lucide-react';
+import { Download, Trash2, Folder, FolderPlus, FolderCog, FolderX, X } from 'lucide-react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Dialog, DialogHeader, DialogTitle, DialogContent, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogHeader, DialogTitle, DialogContent, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/shared/spinner';
 import { FileUploader } from './file-uploader';
+import { downloadFile, previewFile } from '@/file-proxy';
+import Image from 'next/image';
+import { Separator } from '../ui/separator';
 
 interface HealthAndSafetyFileListProps {
   userProfile: UserProfile;
@@ -34,6 +37,7 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
   const [newRenamedFolder, setNewRenamedFolder] = useState('');
   
   const [deletingFolder, setDeletingFolder] = useState<string | null>(null);
+  const [viewingFile, setViewingFile] = useState<HealthAndSafetyFile | null>(null);
 
   const { toast } = useToast();
   const isPrivilegedUser = ['admin', 'owner', 'manager'].includes(userProfile.role);
@@ -52,8 +56,9 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
     return () => unsubscribe();
   }, [toast]);
   
-  const folders = useMemo(() => {
+  const { folders, uncategorizedFiles } = useMemo(() => {
     const folderMap = new Map<string, HealthAndSafetyFile[]>();
+    const uncategorized: HealthAndSafetyFile[] = [];
 
     emptyFolders.forEach(folderName => {
         if (!folderMap.has(folderName)) {
@@ -67,11 +72,13 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
           folderMap.set(file.folder, []);
         }
         folderMap.get(file.folder)!.push(file);
+      } else {
+        uncategorized.push(file);
       }
     });
 
     const sortedFolders = Array.from(folderMap.entries()).sort(([a], [b]) => a.localeCompare(b));
-    return sortedFolders;
+    return { folders: sortedFolders, uncategorizedFiles };
   }, [files, emptyFolders]);
   
   const allFolderNames = useMemo(() => {
@@ -94,6 +101,14 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
     } catch (error) {
       console.error("Error deleting file:", error);
       toast({ variant: 'destructive', title: "Error", description: "Could not delete file." });
+    }
+  };
+  
+  const handleFileClick = (file: HealthAndSafetyFile) => {
+    if (file.type?.startsWith('image/')) {
+        setViewingFile(file);
+    } else {
+        previewFile(file.fullPath);
     }
   };
 
@@ -157,7 +172,7 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
       
       setEmptyFolders(prev => prev.filter(f => f !== deletingFolder));
       
-      toast({ title: "Deleting folder...", description: "Files inside will be moved to Uncategorized." });
+      toast({ title: "Deleting folder...", description: "Files inside will be moved to General Files." });
       try {
         const q = query(collection(db, 'health_and_safety_files'), where('folder', '==', deletingFolder));
         const snapshot = await getDocs(q);
@@ -206,16 +221,18 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
           <TableBody>
             {filesToList.map(file => (
               <TableRow key={file.id}>
-                <TableCell className="font-medium">{file.name}</TableCell>
+                <TableCell className="font-medium truncate max-w-[200px]">
+                    <button onClick={() => handleFileClick(file)} className="hover:underline text-left truncate block w-full" title={file.name}>
+                        {file.name}
+                    </button>
+                </TableCell>
                 <TableCell>{file.uploaderName}</TableCell>
                 <TableCell>{file.uploadedAt ? format(file.uploadedAt.toDate(), 'dd MMM yyyy') : 'Just now'}</TableCell>
                 <TableCell>{formatFileSize(file.size)}</TableCell>
                 <TableCell className="text-right">
-                  <Button variant="ghost" size="icon" asChild>
-                    <a href={file.url} target="_blank" rel="noopener noreferrer" download={file.name}>
-                      <Download className="h-4 w-4" />
-                    </a>
-                  </Button>
+                    <Button variant="ghost" size="icon" onClick={() => downloadFile(file.fullPath)}>
+                        <Download className="h-4 w-4" />
+                    </Button>
                   {isPrivilegedUser && (
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
@@ -249,14 +266,28 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
 
   return (
     <>
-    <div className="space-y-4">
+    <div className="space-y-8">
         {isPrivilegedUser && (
-            <div className="flex justify-end">
-                <Button onClick={() => setIsFolderCreating(true)}>
-                    <FolderPlus className="mr-2 h-4 w-4" /> Create Folder
-                </Button>
+            <div className='space-y-4'>
+                <div className="flex justify-between items-center">
+                    <h2 className="text-xl font-semibold">Upload Files</h2>
+                    <Button onClick={() => setIsFolderCreating(true)}>
+                        <FolderPlus className="mr-2 h-4 w-4" /> Create Folder
+                    </Button>
+                </div>
+                <FileUploader userProfile={userProfile} />
             </div>
         )}
+        
+        {(uncategorizedFiles.length > 0 || folders.length > 0) && <Separator />}
+
+        {uncategorizedFiles.length > 0 && (
+            <div className="space-y-4">
+                <h2 className="text-xl font-semibold">General Files</h2>
+                {renderFileList(uncategorizedFiles)}
+            </div>
+        )}
+
         <Accordion type="multiple" className="w-full" defaultValue={folders.map(([name]) => name)}>
             {folders.map(([folderName, folderFiles]) => (
                 <AccordionItem key={folderName} value={folderName}>
@@ -270,10 +301,10 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
                             <div className="flex justify-end gap-2">
                                 <Button size="sm" variant="outline" onClick={() => setRenamingFolder(folderName)}><FolderCog className="mr-2 h-4 w-4" />Rename</Button>
                                 <AlertDialog>
-                                    <AlertDialogTrigger asChild><Button size="sm" variant="destructive" onClick={() => setDeletingFolder(folderName)}><FolderX className="mr-2 h-4 w-4" />Delete</Button></AlertDialogTrigger>
+                                    <AlertDialogTrigger asChild><Button size="sm" variant="destructive"><FolderX className="mr-2 h-4 w-4" />Delete</Button></AlertDialogTrigger>
                                     <AlertDialogContent>
-                                        <AlertDialogHeader><AlertDialogTitle>Delete Folder?</AlertDialogTitle><AlertDialogDescription>Are you sure you want to delete the "{deletingFolder}" folder? All files inside will be moved to "Uncategorized".</AlertDialogDescription></AlertDialogHeader>
-                                        <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={handleDeleteFolder} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">Delete Folder</AlertDialogAction></AlertDialogFooter>
+                                        <AlertDialogHeader><AlertDialogTitle>Delete Folder?</AlertDialogTitle><AlertDialogDescription>Are you sure you want to delete the "{folderName}" folder? All files inside will be moved to "General Files".</AlertDialogDescription></AlertDialogHeader>
+                                        <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => {setDeletingFolder(folderName); handleDeleteFolder()}} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">Delete Folder</AlertDialogAction></AlertDialogFooter>
                                     </AlertDialogContent>
                                 </AlertDialog>
                             </div>
@@ -299,6 +330,30 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
         <div className="py-4"><Input placeholder="New folder name..." defaultValue={renamingFolder || ''} onChange={(e) => setNewRenamedFolder(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleRenameFolder()} /></div>
         <DialogFooter><Button onClick={handleRenameFolder}>Rename</Button></DialogFooter></DialogContent>
      </Dialog>
+
+    {/* Image Viewer Dialog */}
+    {viewingFile && (
+        <Dialog open={!!viewingFile} onOpenChange={() => setViewingFile(null)}>
+            <DialogContent 
+                showCloseButton={false}
+                className="w-screen h-screen max-w-full max-h-full p-0 bg-black/80 border-none shadow-none flex items-center justify-center"
+            >
+                    <div className="relative w-full h-full">
+                    <Image
+                        src={`/api/file?path=${encodeURIComponent(viewingFile.fullPath)}`}
+                        alt={viewingFile.name}
+                        fill
+                        className="object-contain"
+                    />
+                    </div>
+                    <DialogClose asChild>
+                    <Button variant="ghost" size="icon" className="absolute top-4 right-4 h-12 w-12 rounded-full bg-black/50 text-white hover:bg-black/75 hover:text-white">
+                        <X className="h-8 w-8" />
+                    </Button>
+                    </DialogClose>
+            </DialogContent>
+        </Dialog>
+      )}
     </>
   );
 }
