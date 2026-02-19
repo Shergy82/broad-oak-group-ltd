@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -9,6 +7,7 @@ import type { Shift, UserProfile, ProjectFile, PerformanceMetric } from '@/types
 import { isBefore, startOfToday } from 'date-fns';
 import { getCorrectedLocalDate } from '@/lib/utils';
 import { useUserProfile } from '@/hooks/use-user-profile';
+import { useDepartmentFilter } from '@/hooks/use-department-filter';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -86,6 +85,7 @@ export function PerformanceDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { userProfile } = useUserProfile();
+  const { selectedDepartments } = useDepartmentFilter();
 
    useEffect(() => {
     if (!userProfile) return;
@@ -173,6 +173,17 @@ export function PerformanceDashboard() {
     };
   }, [userProfile]);
 
+  const departmentFilteredUsers = useMemo(() => {
+    if (userProfile?.role !== 'owner') return allUsers;
+    return allUsers.filter(u => u.department && selectedDepartments.has(u.department));
+  }, [allUsers, userProfile, selectedDepartments]);
+
+  const departmentFilteredShifts = useMemo(() => {
+    if (userProfile?.role !== 'owner') return allShifts;
+    const userIds = new Set(departmentFilteredUsers.map(u => u.uid));
+    return allShifts.filter(s => userIds.has(s.userId));
+  }, [allShifts, departmentFilteredUsers, userProfile]);
+
   const { operativesData } = useMemo(() => {
     if (loading) return { operativesData: [] };
 
@@ -213,13 +224,13 @@ export function PerformanceDashboard() {
         });
     };
     
-    const operatives = allUsers.filter(u => u.role === 'user' || u.role === 'TLO');
+    const operatives = departmentFilteredUsers.filter(u => u.role === 'user' || u.role === 'TLO');
     
     return {
         operativesData: calculateMetrics(operatives),
     }
 
-  }, [loading, allShifts, allUsers, allPhotos]);
+  }, [loading, allShifts, allPhotos, departmentFilteredUsers]);
 
 
   return (
@@ -252,7 +263,7 @@ export function PerformanceDashboard() {
                     <PerformanceTable users={operativesData} />
                 </TabsContent>
                 <TabsContent value="other-staff" className="mt-6">
-                    <RoleKpiDashboard allShifts={allShifts} allUsers={allUsers} />
+                    <RoleKpiDashboard allShifts={departmentFilteredShifts} allUsers={departmentFilteredUsers} />
                 </TabsContent>
             </Tabs>
         )}

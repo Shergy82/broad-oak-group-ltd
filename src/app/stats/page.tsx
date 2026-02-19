@@ -15,6 +15,7 @@ import { PersonalStatsTable } from '@/components/stats/personal-stats-table';
 import { getCorrectedLocalDate, isWithin } from '@/lib/utils';
 import { Award } from 'lucide-react';
 import { useUserProfile } from '@/hooks/use-user-profile';
+import { useDepartmentFilter } from '@/hooks/use-department-filter';
 
 
 export default function StatsPage() {
@@ -26,6 +27,7 @@ export default function StatsPage() {
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [allPhotos, setAllPhotos] = useState<ProjectFile[]>([]);
   const [loadingData, setLoadingData] = useState(true);
+  const { selectedDepartments } = useDepartmentFilter();
 
   useEffect(() => {
     if (!isAuthLoading && !user) {
@@ -120,6 +122,14 @@ export default function StatsPage() {
       unsubUsers();
     };
   }, [user, userProfile, profileLoading]);
+  
+  const departmentFilteredUsers = useMemo(() => {
+      if (userProfile?.role !== 'owner') {
+          return allUsers;
+      }
+      return allUsers.filter(u => u.department && selectedDepartments.has(u.department));
+  }, [allUsers, userProfile, selectedDepartments]);
+
 
   const calculateMetrics = (shifts: Shift[], users: UserProfile[], photos: ProjectFile[]): PerformanceMetric[] => {
     const operativeUsers = users.filter(u => u.role === 'user' || u.role === 'TLO');
@@ -182,11 +192,11 @@ export default function StatsPage() {
     const yearlyPhotos = filterByInterval(allPhotos, yearlyInterval) as ProjectFile[];
 
     return {
-      weeklyData: calculateMetrics(weeklyShifts, allUsers, weeklyPhotos),
-      monthlyData: calculateMetrics(monthlyShifts, allUsers, monthlyPhotos),
-      yearlyData: calculateMetrics(yearlyShifts, allUsers, yearlyPhotos),
+      weeklyData: calculateMetrics(weeklyShifts, departmentFilteredUsers, weeklyPhotos),
+      monthlyData: calculateMetrics(monthlyShifts, departmentFilteredUsers, monthlyPhotos),
+      yearlyData: calculateMetrics(yearlyShifts, departmentFilteredUsers, yearlyPhotos),
     };
-  }, [loadingData, allShifts, allUsers, allPhotos]);
+  }, [loadingData, allShifts, allPhotos, departmentFilteredUsers]);
   
   const currentUserStats = useMemo(() => {
     if (!user) return null;
