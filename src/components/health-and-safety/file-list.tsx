@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { collection, onSnapshot, query, orderBy, doc, deleteDoc, addDoc, serverTimestamp, writeBatch, getDocs, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, doc, deleteDoc, addDoc, serverTimestamp, writeBatch, getDocs, where, deleteField } from 'firebase/firestore';
 import { ref, deleteObject, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '@/lib/firebase';
 import type { HealthAndSafetyFile, UserProfile } from '@/types';
@@ -66,7 +66,7 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
     });
 
     const sortedFolders = Array.from(folderMap.entries()).sort(([a], [b]) => a.localeCompare(b));
-    return { folders: sortedFolders, uncategorizedFiles };
+    return { folders: sortedFolders, uncategorizedFiles: uncategorized };
   }, [files]);
   
   const allFolderNames = useMemo(() => files.reduce((acc, file) => {
@@ -142,7 +142,8 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
         
         const batch = writeBatch(db);
         snapshot.docs.forEach(document => {
-            batch.update(doc(db, 'health_and_safety_files', document.id), { folder: deleteField() });
+            const docRef = doc(db, 'health_and_safety_files', document.id);
+            batch.update(docRef, { folder: deleteField() });
         });
 
         await batch.commit();
