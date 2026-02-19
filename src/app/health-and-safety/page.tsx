@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { HealthAndSafetyFileList } from '@/components/health-and-safety/file-list';
-import { HealthAndSafetyUploader } from '@/components/health-and-safety/file-uploader';
 import { Spinner } from '@/components/shared/spinner';
 
 export default function HealthAndSafetyPage() {
@@ -17,8 +16,6 @@ export default function HealthAndSafetyPage() {
   useEffect(() => {
     if (!isAuthLoading && !user) router.replace('/dashboard');
   }, [user, isAuthLoading, router]);
-
-  const isPrivilegedUser = userProfile && ['admin', 'owner', 'manager'].includes(userProfile.role);
 
   if (isAuthLoading || isProfileLoading || !userProfile) {
     return (
@@ -36,8 +33,6 @@ export default function HealthAndSafetyPage() {
           Centrally stored health and safety documents for all team members to access.
         </p>
       </div>
-
-      {isPrivilegedUser && <HealthAndSafetyUploader userProfile={userProfile} />}
 
       <HealthAndSafetyFileList userProfile={userProfile} />
     </div>

@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 
 import { storage, db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
@@ -17,9 +16,10 @@ import { Label } from '@/components/ui/label';
 
 interface Props {
   userProfile: UserProfile;
+  folder?: string;
 }
 
-export function HealthAndSafetyUploader({ userProfile }: Props) {
+export function FileUploader({ userProfile, folder }: Props) {
   const [isUploading, setIsUploading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const { toast } = useToast();
@@ -29,7 +29,7 @@ export function HealthAndSafetyUploader({ userProfile }: Props) {
     setIsUploading(true);
 
     const uploadPromises = Array.from(files).map(file => {
-      const storagePath = `health_and_safety/${Date.now()}-${file.name}`;
+      const storagePath = `health_and_safety/${folder ? `${folder}/` : ''}${Date.now()}-${file.name}`;
       const storageRef = ref(storage, storagePath);
       
       const uploadTask = uploadBytesResumable(storageRef, file);
@@ -45,7 +45,7 @@ export function HealthAndSafetyUploader({ userProfile }: Props) {
           async () => {
             try {
               const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-              await addDoc(collection(db, 'health_and_safety_files'), {
+              const docData: any = {
                 name: file.name,
                 url: downloadURL,
                 fullPath: storagePath,
@@ -54,7 +54,11 @@ export function HealthAndSafetyUploader({ userProfile }: Props) {
                 uploadedAt: serverTimestamp(),
                 uploaderId: userProfile?.uid || "system",
                 uploaderName: userProfile.name,
-              });
+              };
+              if (folder) {
+                docData.folder = folder;
+              }
+              await addDoc(collection(db, 'health_and_safety_files'), docData);
               resolve();
             } catch (dbError) {
               console.error(`Failed to save file info for ${file.name} to Firestore:`, dbError);
@@ -75,7 +79,7 @@ export function HealthAndSafetyUploader({ userProfile }: Props) {
       })
       .finally(() => {
         setIsUploading(false);
-        const fileInput = document.getElementById('hs-file-input') as HTMLInputElement;
+        const fileInput = document.getElementById(`hs-file-input-${folder || 'root'}`) as HTMLInputElement;
         if (fileInput) {
             fileInput.value = "";
         }
@@ -99,12 +103,6 @@ export function HealthAndSafetyUploader({ userProfile }: Props) {
   };
   
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Upload H&S Document</CardTitle>
-        <CardDescription>Upload a new health and safety document for the team to access.</CardDescription>
-      </CardHeader>
-      <CardContent>
         <div
           {...onDragProps}
           className={cn(
@@ -118,7 +116,7 @@ export function HealthAndSafetyUploader({ userProfile }: Props) {
             </h3>
             <p className="mt-1 text-xs text-muted-foreground">or click to select files</p>
             <Input
-              id="hs-file-input"
+              id={`hs-file-input-${folder || 'root'}`}
               type="file"
               multiple
               onChange={(e) => handleFileUpload(e.target.files)}
@@ -126,11 +124,9 @@ export function HealthAndSafetyUploader({ userProfile }: Props) {
               disabled={isUploading}
             />
             <Button asChild variant="link" className="mt-2">
-              <Label htmlFor="hs-file-input" className="cursor-pointer">Browse files</Label>
+              <Label htmlFor={`hs-file-input-${folder || 'root'}`} className="cursor-pointer">Browse files</Label>
             </Button>
             {isUploading && <div className="mt-4 flex items-center gap-2"><Spinner /> Uploading...</div>}
         </div>
-      </CardContent>
-    </Card>
   );
 }

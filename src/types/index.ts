@@ -91,6 +91,7 @@ export interface HealthAndSafetyFile {
   uploadedAt: Timestamp;
   uploaderId: string;
   uploaderName: string;
+  folder?: string;
 }
 
 /* =========================
