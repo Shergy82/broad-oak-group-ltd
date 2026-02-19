@@ -567,54 +567,34 @@ export const onShiftUpdated = onDocumentUpdated({ document: "shifts/{shiftId}", 
     const before = event.data?.before.data();
     const after = event.data?.after.data();
 
-    // Guard against missing data
     if (!before || !after) {
         logger.log("onShiftUpdated trigger fired with missing data.", { event });
         return;
     }
 
     const shiftId = event.params.shiftId;
-    const assignedUserId = after.userId;
+    const assignedUserIdBefore = before.userId;
+    const assignedUserIdAfter = after.userId;
     const updatingUserId = after.updatedByUid;
 
-    // FIRST: Check for the specific self-update scenarios that should be silenced.
-    if (updatingUserId && updatingUserId === assignedUserId) {
-        const statusBefore = String(before.status || "").toLowerCase();
-        const statusAfter = String(after.status || "").toLowerCase();
-
-        const isIncompleteUpdate = statusAfter === 'incomplete' && statusBefore !== 'incomplete';
-        const isReopenUpdate = statusAfter === 'confirmed' && (statusBefore === 'completed' || statusBefore === 'incomplete');
-        
-        // If a user is updating their OWN shift to 'incomplete' or is re-opening it, stop.
-        if (isIncompleteUpdate || isReopenUpdate) {
-            logger.log("Silencing self-update notification.", {
-                shiftId,
-                userId: assignedUserId,
-                action: statusAfter,
-            });
-            return; // EXIT EARLY
-        }
-    }
-    
-    // SECOND: Check if a shift was reassigned from one user to another.
-    if (before.userId !== after.userId) {
-      if (before.userId) {
+    // SCENARIO 1: Shift is reassigned from one user to another.
+    if (assignedUserIdBefore !== assignedUserIdAfter) {
+      logger.log("Shift reassignment detected.", { shiftId, from: assignedUserIdBefore, to: assignedUserIdAfter });
+      if (assignedUserIdBefore) {
         const d = before.date?.toDate ? before.date.toDate() : null;
         await sendShiftNotification(
-          before.userId,
+          assignedUserIdBefore,
           "Shift unassigned",
-          d
-            ? `Your shift for ${formatDateUK(d)} has been removed.`
-            : "A shift has been removed.",
+          d ? `Your shift for ${formatDateUK(d)} has been removed.` : "A shift has been removed.",
           "/dashboard",
           { shiftId, event: "unassigned" }
         );
       }
-      if (after.userId) {
+      if (assignedUserIdAfter) {
         const d = after.date?.toDate ? after.date.toDate() : null;
         if (d && !isShiftInPast(d)) {
           await sendShiftNotification(
-            after.userId,
+            assignedUserIdAfter,
             "New shift added",
             `A new shift was added for ${formatDateUK(d)}`,
             pendingGateUrl(),
@@ -622,48 +602,59 @@ export const onShiftUpdated = onDocumentUpdated({ document: "shifts/{shiftId}", 
           );
         }
       }
-      logger.log("Shift reassigned", {
-        shiftId,
-        from: before.userId,
-        to: after.userId,
-      });
-      return; // EXIT
+      return; // Reassignment handled, exit.
     }
 
-    // THIRD: Handle all other updates (e.g., admin changing details for a user).
-    if (!assignedUserId) return;
+    // From here on, we know the assigned user is the same.
+    const assignedUserId = assignedUserIdAfter;
+
+    // SCENARIO 2: A user is updating their own shift status.
+    // This is the most common case we want to silence.
+    if (updatingUserId && updatingUserId === assignedUserId) {
+        logger.log("Self-update by user detected. No notification will be sent.", {
+            shiftId,
+            userId: assignedUserId,
+            statusBefore: before.status,
+            statusAfter: after.status,
+        });
+        return; // EXIT. Do not notify user of their own changes.
+    }
+    
+    // SCENARIO 3: An admin/manager is updating a shift for a user.
+    // This is the case where we DO want to send a "Shift updated" notification.
+    // We only reach this point if it's NOT a reassignment and NOT a self-update.
+
+    if (!assignedUserId) {
+        logger.log("Shift update has no assigned user. No notification sent.", { shiftId });
+        return;
+    }
 
     const afterDate = after.date?.toDate ? after.date.toDate() : null;
     if (!afterDate) return;
 
     if (isShiftInPast(afterDate)) {
-      logger.log("Shift updated but in past; no notify", { shiftId });
+      logger.log("Shift updated but is in the past; no notification.", { shiftId });
       return;
     }
-    
-    const fieldsToCompare: (keyof typeof before)[] = [
-      "task",
-      "address",
-      "type",
-      "notes",
-      "status",
-      "date",
-    ];
 
-    const changed = fieldsToCompare.some((field) => {
+    const fieldsToCompare: (keyof typeof before)[] = ["task", "address", "type", "notes", "status", "date"];
+    const hasMeaningfulChange = fieldsToCompare.some((field) => {
       if (field === "date") {
-        const b = before.date;
-        const a = after.date;
-        if (b?.isEqual && a) return !b.isEqual(a);
-        return String(b) !== String(a);
+        return !(before.date?.isEqual(after.date));
       }
       return (before[field] ?? null) !== (after[field] ?? null);
     });
 
-    if (!changed) {
-      logger.log("Shift updated but no meaningful change", { shiftId });
+    if (!hasMeaningfulChange) {
+      logger.log("Shift updated but no meaningful change detected. No notification sent.", { shiftId });
       return;
     }
+
+    logger.log("Admin update for user detected. Sending notification.", {
+        shiftId,
+        userId: assignedUserId,
+        updatingUser: updatingUserId,
+    });
 
     const needsAction = String(after.status || "").toLowerCase() === "pending-confirmation";
     await sendShiftNotification(
