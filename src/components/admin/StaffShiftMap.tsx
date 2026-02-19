@@ -356,7 +356,15 @@ export function StaffShiftMap() {
                     <p className="font-semibold">Operatives at this location:</p>
                     <ul className="list-none p-0 mt-1 text-sm">
                         {selectedPin.shifts.map(s => (
-                            <li key={s.id}><strong>{s.userName}:</strong> {s.task}</li>
+                            <li key={s.id}>
+                                <strong>{s.userName}:</strong> {s.task} -{' '}
+                                <span
+                                    style={{ color: statusColorMapping[s.status] || '#6b7280' }}
+                                    className="font-semibold capitalize"
+                                >
+                                    {s.status.replace(/-/g, ' ')}
+                                </span>
+                            </li>
                         ))}
                     </ul>
                     </div>
