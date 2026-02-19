@@ -29,9 +29,17 @@ export function FileUploader({ userProfile, folder }: Props) {
     setIsUploading(true);
 
     const uploadPromises = Array.from(files).map(file => {
-      const storagePath = `health_and_safety/${folder ? `${folder}/` : ''}${Date.now()}-${file.name}`;
-      const storageRef = ref(storage, storagePath);
+      const relativePath = (file as any).webkitRelativePath || file.name;
+      const storagePath = `health_and_safety/${folder ? `${folder}/` : ''}${relativePath}`;
+
+      const pathParts = relativePath.split('/');
+      let firestoreFolder = folder || '';
+      if (pathParts.length > 1) {
+        const subPath = pathParts.slice(0, -1).join('/');
+        firestoreFolder = folder ? `${folder}/${subPath}` : subPath;
+      }
       
+      const storageRef = ref(storage, storagePath);
       const uploadTask = uploadBytesResumable(storageRef, file);
 
       return new Promise<void>((resolve, reject) => {
@@ -55,8 +63,8 @@ export function FileUploader({ userProfile, folder }: Props) {
                 uploaderId: userProfile?.uid || "system",
                 uploaderName: userProfile.name,
               };
-              if (folder) {
-                docData.folder = folder;
+              if (firestoreFolder) {
+                docData.folder = firestoreFolder;
               }
               await addDoc(collection(db, 'health_and_safety_files'), docData);
               resolve();
@@ -112,19 +120,21 @@ export function FileUploader({ userProfile, folder }: Props) {
         >
             <UploadCloud className="h-12 w-12 text-muted-foreground" />
             <h3 className="mt-2 text-sm font-medium text-foreground">
-                Drag & drop files here
+                Drag & drop files or folders here
             </h3>
-            <p className="mt-1 text-xs text-muted-foreground">or click to select files</p>
+            <p className="mt-1 text-xs text-muted-foreground">or click to browse</p>
             <Input
               id={`hs-file-input-${folder || 'root'}`}
               type="file"
               multiple
+              // @ts-ignore
+              webkitdirectory="true"
               onChange={(e) => handleFileUpload(e.target.files)}
               className="sr-only"
               disabled={isUploading}
             />
             <Button asChild variant="link" className="mt-2">
-              <Label htmlFor={`hs-file-input-${folder || 'root'}`} className="cursor-pointer">Browse files</Label>
+              <Label htmlFor={`hs-file-input-${folder || 'root'}`} className="cursor-pointer">Browse files or folders</Label>
             </Button>
             {isUploading && <div className="mt-4 flex items-center gap-2"><Spinner /> Uploading...</div>}
         </div>

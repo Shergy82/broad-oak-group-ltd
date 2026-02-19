@@ -27,6 +27,7 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
   const [loading, setLoading] = useState(true);
   const [isFolderCreating, setIsFolderCreating] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  const [emptyFolders, setEmptyFolders] = useState<string[]>([]);
 
   const [renamingFolder, setRenamingFolder] = useState<string | null>(null);
   const [newRenamedFolder, setNewRenamedFolder] = useState('');
@@ -54,6 +55,12 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
     const folderMap = new Map<string, HealthAndSafetyFile[]>();
     const uncategorized: HealthAndSafetyFile[] = [];
 
+    emptyFolders.forEach(folderName => {
+        if (!folderMap.has(folderName)) {
+            folderMap.set(folderName, []);
+        }
+    });
+
     files.forEach(file => {
       if (file.folder) {
         if (!folderMap.has(file.folder)) {
@@ -66,13 +73,17 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
     });
 
     const sortedFolders = Array.from(folderMap.entries()).sort(([a], [b]) => a.localeCompare(b));
-    return { folders: sortedFolders, uncategorizedFiles: uncategorized };
-  }, [files]);
+    return { folders: sortedFolders, uncategorizedFiles };
+  }, [files, emptyFolders]);
   
-  const allFolderNames = useMemo(() => files.reduce((acc, file) => {
-    if (file.folder) acc.add(file.folder);
-    return acc;
-  }, new Set<string>()), [files]);
+  const allFolderNames = useMemo(() => {
+    const names = new Set<string>();
+    files.forEach(file => {
+        if (file.folder) names.add(file.folder);
+    });
+    emptyFolders.forEach(name => names.add(name));
+    return names;
+  }, [files, emptyFolders]);
 
   const handleDeleteFile = async (file: HealthAndSafetyFile) => {
     try {
@@ -89,27 +100,37 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
   };
 
   const handleCreateFolder = () => {
-    if (!newFolderName.trim()) {
+    const trimmedName = newFolderName.trim();
+    if (!trimmedName) {
       toast({ variant: 'destructive', title: 'Folder name cannot be empty.' });
       return;
     }
-    if (allFolderNames.has(newFolderName.trim())) {
+    if (allFolderNames.has(trimmedName)) {
       toast({ variant: 'destructive', title: 'Folder already exists.' });
       return;
     }
-    // This is a UI-only creation. The folder "exists" once a file is added to it.
-    // To make it appear, we can add it to a temporary local state. But it's better to just upload a file to it.
-    toast({ title: 'Folder Created', description: `Upload a file into the "${newFolderName.trim()}" folder to make it appear.`});
+    setEmptyFolders(prev => [...prev, trimmedName]);
+    toast({ title: 'Folder Created', description: `Folder "${trimmedName}" is ready for files.`});
     setIsFolderCreating(false);
     setNewFolderName('');
   };
 
   const handleRenameFolder = async () => {
     if (!renamingFolder || !newRenamedFolder.trim()) return;
+    const oldName = renamingFolder;
+    const newName = newRenamedFolder.trim();
+
+    if (!files.some(f => f.folder === oldName)) {
+        setEmptyFolders(prev => [...prev.filter(f => f !== oldName), newName]);
+        setRenamingFolder(null);
+        setNewRenamedFolder('');
+        toast({ title: 'Success!', description: `Folder renamed.` });
+        return;
+    }
 
     toast({ title: "Renaming folder...", description: "Please wait." });
     try {
-        const q = query(collection(db, 'health_and_safety_files'), where('folder', '==', renamingFolder));
+        const q = query(collection(db, 'health_and_safety_files'), where('folder', '==', oldName));
         const snapshot = await getDocs(q);
         
         if (snapshot.empty) {
@@ -119,11 +140,11 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
         
         const batch = writeBatch(db);
         snapshot.docs.forEach(document => {
-            batch.update(doc(db, 'health_and_safety_files', document.id), { folder: newRenamedFolder.trim() });
+            batch.update(doc(db, 'health_and_safety_files', document.id), { folder: newName });
         });
 
         await batch.commit();
-        toast({ title: 'Success!', description: `Folder "${renamingFolder}" was renamed to "${newRenamedFolder.trim()}".` });
+        toast({ title: 'Success!', description: `Folder "${oldName}" was renamed to "${newName}".` });
     } catch (error) {
         console.error("Error renaming folder:", error);
         toast({ variant: 'destructive', title: 'Error', description: "Could not rename folder." });
@@ -135,6 +156,9 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
   
   const handleDeleteFolder = async () => {
       if (!deletingFolder) return;
+      
+      setEmptyFolders(prev => prev.filter(f => f !== deletingFolder));
+      
       toast({ title: "Deleting folder...", description: "Files inside will be moved to Uncategorized." });
       try {
         const q = query(collection(db, 'health_and_safety_files'), where('folder', '==', deletingFolder));
@@ -165,51 +189,56 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const renderFileList = (filesToList: HealthAndSafetyFile[]) => (
-    <div className="border rounded-lg">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>File Name</TableHead>
-            <TableHead>Uploaded By</TableHead>
-            <TableHead>Date</TableHead>
-            <TableHead>Size</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {filesToList.map(file => (
-            <TableRow key={file.id}>
-              <TableCell className="font-medium">{file.name}</TableCell>
-              <TableCell>{file.uploaderName}</TableCell>
-              <TableCell>{file.uploadedAt ? format(file.uploadedAt.toDate(), 'dd MMM yyyy') : 'Just now'}</TableCell>
-              <TableCell>{formatFileSize(file.size)}</TableCell>
-              <TableCell className="text-right">
-                <Button variant="ghost" size="icon" asChild>
-                  <a href={file.url} target="_blank" rel="noopener noreferrer" download={file.name}>
-                    <Download className="h-4 w-4" />
-                  </a>
-                </Button>
-                {isPrivilegedUser && (
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button variant="ghost" size="icon" className="text-destructive/70 hover:text-destructive hover:bg-destructive/10">
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader><AlertDialogTitle>Are you sure?</AlertDialogTitle><AlertDialogDescription>This will permanently delete the file "{file.name}".</AlertDialogDescription></AlertDialogHeader>
-                      <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteFile(file)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction></AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                )}
-              </TableCell>
+  const renderFileList = (filesToList: HealthAndSafetyFile[]) => {
+    if (filesToList.length === 0) {
+      return <p className="text-sm text-center text-muted-foreground p-4">This folder is empty.</p>
+    }
+    return (
+      <div className="border rounded-lg">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>File Name</TableHead>
+              <TableHead>Uploaded By</TableHead>
+              <TableHead>Date</TableHead>
+              <TableHead>Size</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
-  );
+          </TableHeader>
+          <TableBody>
+            {filesToList.map(file => (
+              <TableRow key={file.id}>
+                <TableCell className="font-medium">{file.name}</TableCell>
+                <TableCell>{file.uploaderName}</TableCell>
+                <TableCell>{file.uploadedAt ? format(file.uploadedAt.toDate(), 'dd MMM yyyy') : 'Just now'}</TableCell>
+                <TableCell>{formatFileSize(file.size)}</TableCell>
+                <TableCell className="text-right">
+                  <Button variant="ghost" size="icon" asChild>
+                    <a href={file.url} target="_blank" rel="noopener noreferrer" download={file.name}>
+                      <Download className="h-4 w-4" />
+                    </a>
+                  </Button>
+                  {isPrivilegedUser && (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="ghost" size="icon" className="text-destructive/70 hover:text-destructive hover:bg-destructive/10">
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader><AlertDialogTitle>Are you sure?</AlertDialogTitle><AlertDialogDescription>This will permanently delete the file "{file.name}".</AlertDialogDescription></AlertDialogHeader>
+                        <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteFile(file)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction></AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -243,10 +272,10 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
                             <div className="flex justify-end gap-2">
                                 <Button size="sm" variant="outline" onClick={() => setRenamingFolder(folderName)}><FolderCog className="mr-2 h-4 w-4" />Rename</Button>
                                 <AlertDialog>
-                                    <AlertDialogTrigger asChild><Button size="sm" variant="destructive"><FolderX className="mr-2 h-4 w-4" />Delete</Button></AlertDialogTrigger>
+                                    <AlertDialogTrigger asChild><Button size="sm" variant="destructive" onClick={() => setDeletingFolder(folderName)}><FolderX className="mr-2 h-4 w-4" />Delete</Button></AlertDialogTrigger>
                                     <AlertDialogContent>
-                                        <AlertDialogHeader><AlertDialogTitle>Delete Folder?</AlertDialogTitle><AlertDialogDescription>Are you sure you want to delete the "{folderName}" folder? All files inside will be moved to "Uncategorized".</AlertDialogDescription></AlertDialogHeader>
-                                        <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteFolder()} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">Delete Folder</AlertDialogAction></AlertDialogFooter>
+                                        <AlertDialogHeader><AlertDialogTitle>Delete Folder?</AlertDialogTitle><AlertDialogDescription>Are you sure you want to delete the "{deletingFolder}" folder? All files inside will be moved to "Uncategorized".</AlertDialogDescription></AlertDialogHeader>
+                                        <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={handleDeleteFolder} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">Delete Folder</AlertDialogAction></AlertDialogFooter>
                                     </AlertDialogContent>
                                 </AlertDialog>
                             </div>
