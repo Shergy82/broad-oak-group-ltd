@@ -36,6 +36,7 @@ import {
   ListChecks,
   Camera,
   Undo,
+  MapPin,
 } from 'lucide-react';
 import { Spinner } from '@/components/shared/spinner';
 import type { Shift, ShiftStatus, UserProfile, TradeTask, Trade } from '@/types';
@@ -526,7 +527,15 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
 
         <CardContent className="p-4 text-left grow flex flex-col justify-center space-y-1">
           <p className="font-semibold text-sm">{shift.task}</p>
-          <p className="text-xs text-muted-foreground">{shift.address}</p>
+          <a
+            href={`https://maps.google.com/?q=${encodeURIComponent(shift.address)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-muted-foreground hover:underline flex items-center gap-1.5"
+          >
+            <MapPin className="h-4 w-4 shrink-0" />
+            <span className="truncate">{shift.address}</span>
+          </a>
           {shift.eNumber && <p className="text-xs text-muted-foreground">Number: {shift.eNumber}</p>}
           {shift.manager && <p className="text-xs text-muted-foreground">Manager: {shift.manager}</p>}
 
