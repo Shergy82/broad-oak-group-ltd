@@ -1,11 +1,14 @@
 
 import * as admin from 'firebase-admin';
+import * as functions from "firebase-functions";
 import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';
 import type { Request, Response } from 'express';
 import JSZip from 'jszip';
 import { onDocumentCreated, onDocumentUpdated, onDocumentDeleted } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { logger } from "firebase-functions/v2";
+import * as webPush from "web-push";
+
 
 /* =====================================================
    Bootstrap
@@ -16,6 +19,29 @@ if (admin.apps.length === 0) {
 }
 
 const db = admin.firestore();
+
+
+/* =====================================================
+   VAPID/WebPush Configuration
+===================================================== */
+
+const WEBPUSH_PUBLIC_KEY = process.env.WEBPUSH_PUBLIC_KEY;
+const WEBPUSH_PRIVATE_KEY = process.env.WEBPUSH_PRIVATE_KEY;
+
+if (WEBPUSH_PUBLIC_KEY && WEBPUSH_PRIVATE_KEY) {
+  try {
+    webPush.setVapidDetails(
+      "mailto:example@yourdomain.org",
+      WEBPUSH_PUBLIC_KEY,
+      WEBPUSH_PRIVATE_KEY
+    );
+  } catch (error) {
+    logger.error("Failed to set VAPID details for web-push.", error);
+  }
+} else {
+  logger.warn("WEBPUSH_PUBLIC_KEY and/or WEBPUSH_PRIVATE_KEY environment variables are not set. Push notifications will not work.");
+}
+
 
 /* =====================================================
    ENV
@@ -49,41 +75,6 @@ const assertAdminOrManager = async (uid: string) => {
   }
 };
 
-async function getUserFcmTokens(userId: string): Promise<string[]> {
-    const snap = await db
-      .collection("users")
-      .doc(userId)
-      .collection("pushTokens")
-      .get();
-    if (snap.empty) return [];
-
-    const tokens: string[] = [];
-    for (const docSnap of snap.docs) {
-      const data = docSnap.data();
-      const t = (data.token || data.fcmToken || docSnap.id || "")
-        .toString()
-        .trim();
-      if (t) tokens.push(t);
-    }
-    return Array.from(new Set(tokens));
-}
-
-async function pruneInvalidTokens(userId: string, invalidTokens: string[]): Promise<void> {
-    if (!invalidTokens.length) return;
-
-    const col = db.collection("users").doc(userId).collection("pushTokens");
-    const snap = await col.get();
-    const batch = db.batch();
-
-    for (const d of snap.docs) {
-      const data = d.data();
-      const t = (data.token || data.fcmToken || d.id || "").toString().trim();
-      if (invalidTokens.includes(t)) batch.delete(d.ref);
-    }
-    await batch.commit();
-    logger.log("Pruned invalid tokens", { userId, count: invalidTokens.length });
-}
-
 function formatDateUK(d: Date): string {
     const dd = String(d.getUTCDate()).padStart(2, "0");
     const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
@@ -109,81 +100,59 @@ function pendingGateUrl(): string {
     return "/dashboard?gate=pending";
 }
 
-async function isUserNotificationsEnabled(userId: string): Promise<boolean> {
-    const userDoc = await db.collection("users").doc(userId).get();
-    if (!userDoc.exists) return true; // default allow
-    const enabled = userDoc.data()?.notificationsEnabled;
-    return enabled !== false;
-}
-
-async function sendFcmToUser(userId: string, title: string, body: string, urlPath: string, data: Record<string, any> = {}): Promise<void> {
-    if (!userId) return;
-
-    const userEnabled = await isUserNotificationsEnabled(userId);
-    if (!userEnabled) {
-      logger.log("User notifications disabled; skipping send", { userId });
-      return;
-    }
-
-    const tokens = await getUserFcmTokens(userId);
-    if (!tokens.length) {
-      logger.info("No FCM tokens for user; cannot send", { userId });
-      return;
-    }
-
-    const link = absoluteLink(urlPath);
-
-    const message: admin.messaging.MulticastMessage = {
-      tokens,
-      data: {
-        title,
-        body,
-        url: link,
-        ...Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
-      },
-      webpush: {
-        headers: { Urgency: "high" },
-        fcmOptions: { link },
-      },
-      apns: {
-        payload: { aps: { sound: "default" } },
-      },
-    };
-
-    const resp = await admin.messaging().sendEachForMulticast(message);
-    const invalid: string[] = [];
-    resp.responses.forEach((r, idx) => {
-      if (!r.success) {
-        const code = r.error?.code || "";
-        if (
-          code.includes("registration-token-not-registered") ||
-          code.includes("invalid-argument") ||
-          code.includes("invalid-registration-token")
-        ) {
-          invalid.push(tokens[idx]);
-        }
-        logger.error("FCM send failed", {
-          userId,
-          code,
-          msg: r.error?.message,
-        });
-      }
-    });
-
-    if (invalid.length) await pruneInvalidTokens(userId, invalid);
-
-    logger.log("FCM send complete", {
-      userId,
-      tokens: tokens.length,
-      success: resp.successCount,
-      failure: resp.failureCount,
-    });
-}
-
-
 /* =====================================================
    NOTIFICATIONS
 ===================================================== */
+
+async function sendShiftNotification(userId: string, title: string, body: string, urlPath: string, data: Record<string, any> = {}) {
+  if (!userId) {
+      logger.log("No userId provided, skipping notification.");
+      return;
+  }
+  
+  if (!WEBPUSH_PUBLIC_KEY || !WEBPUSH_PRIVATE_KEY) {
+      logger.warn("VAPID keys not configured. Cannot send push notification.");
+      return;
+  }
+
+  const userDoc = await db.collection("users").doc(userId).get();
+  if (userDoc.exists && userDoc.data()?.notificationsEnabled === false) {
+      logger.log("User has notifications disabled; skipping send.", { userId });
+      return;
+  }
+
+  const subscriptionsSnapshot = await db.collection("users").doc(userId).collection("pushSubscriptions").get();
+  if (subscriptionsSnapshot.empty) {
+      logger.log(`No push subscriptions found for user ${userId}.`);
+      return;
+  }
+
+  const payload = JSON.stringify({
+    title,
+    body,
+    data: {
+        url: absoluteLink(urlPath),
+        ...data,
+    }
+  });
+
+  const sendPromises = subscriptionsSnapshot.docs.map((subDoc) => {
+      const subscription = subDoc.data();
+      return webPush.sendNotification(subscription, payload).catch((error: any) => {
+        logger.error(`Error sending notification to user ${userId}:`, error);
+        // 410 Gone: The subscription is no longer valid and should be removed.
+        // 404 Not Found: The subscription is invalid and should be removed.
+        if (error?.statusCode === 410 || error?.statusCode === 404) {
+          logger.log(`Deleting invalid subscription for user ${userId}.`);
+          return subDoc.ref.delete();
+        }
+        return null;
+      });
+  });
+
+  await Promise.all(sendPromises);
+  logger.log(`Finished sending web-push notifications for user ${userId}.`);
+}
 
 export const getNotificationStatus = onCall(
   { region: 'europe-west2' },
@@ -223,6 +192,7 @@ export const setNotificationStatus = onCall(
     return { success: true };
   }
 );
+
 
 /* =====================================================
    USER MANAGEMENT
@@ -569,7 +539,7 @@ export const onShiftCreated = onDocumentCreated({ document: "shifts/{shiftId}", 
     }
 
     const shiftId = event.params.shiftId;
-    await sendFcmToUser(
+    await sendShiftNotification(
       userId,
       "New shift added",
       `A new shift was added for ${formatDateUK(shiftDate)}`,
@@ -610,7 +580,7 @@ export const onShiftUpdated = onDocumentUpdated({ document: "shifts/{shiftId}", 
     if (before.userId !== after.userId) {
       if (before.userId) {
         const d = before.date?.toDate ? before.date.toDate() : null;
-        await sendFcmToUser(
+        await sendShiftNotification(
           before.userId,
           "Shift unassigned",
           d
@@ -623,7 +593,7 @@ export const onShiftUpdated = onDocumentUpdated({ document: "shifts/{shiftId}", 
       if (after.userId) {
         const d = after.date?.toDate ? after.date.toDate() : null;
         if (d && !isShiftInPast(d)) {
-          await sendFcmToUser(
+          await sendShiftNotification(
             after.userId,
             "New shift added",
             `A new shift was added for ${formatDateUK(d)}`,
@@ -676,7 +646,7 @@ export const onShiftUpdated = onDocumentUpdated({ document: "shifts/{shiftId}", 
     }
 
     const needsAction = String(after.status || "").toLowerCase() === "pending-confirmation";
-    await sendFcmToUser(
+    await sendShiftNotification(
       userId,
       "Shift updated",
       `Your shift for ${formatDateUK(afterDate)} has been updated.`,
@@ -722,7 +692,7 @@ export const onShiftDeleted = onDocumentDeleted({ document: "shifts/{shiftId}", 
         return;
     }
 
-    await sendFcmToUser(
+    await sendShiftNotification(
         userId,
         "Shift removed",
         `Your shift for ${formatDateUK(d)} has been removed.`,
@@ -789,4 +759,15 @@ export const projectReviewNotifier = onSchedule({ schedule: "every 24 hours", re
 
 export const pendingShiftNotifier = onSchedule({ schedule: "every 1 hours", region: europeWest2 }, () => {
     logger.log("pendingShiftNotifier executed.");
+});
+
+export const getVapidPublicKey = onCall({ region: "europe-west2" }, () => {
+  if (!WEBPUSH_PUBLIC_KEY) {
+    logger.error("WEBPUSH_PUBLIC_KEY is not set in environment variables.");
+    throw new functions.https.HttpsError(
+      "failed-precondition",
+      "VAPID public key is not configured on the server."
+    );
+  }
+  return { publicKey: WEBPUSH_PUBLIC_KEY };
 });
