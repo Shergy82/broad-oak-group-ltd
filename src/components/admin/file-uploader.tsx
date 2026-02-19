@@ -638,22 +638,8 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
 
             if (!existingShift) {
               toCreate.push(excelShift);
-              continue;
-            }
-
-            // If the existing shift is already completed/incomplete, we should reactivate it.
-            const needsReactivation = protectedStatuses.includes(existingShift.status);
-
-            // Or, if the active shift's details have changed.
-            const detailsChanged =
-              normalizeText(existingShift.address || '') !== normalizeText(excelShift.address || '') ||
-              normalizeText((existingShift as any).task || '') !== normalizeText(excelShift.task || '') ||
-              (existingShift as any).type !== excelShift.type ||
-              ((existingShift as any).eNumber || '') !== (excelShift.eNumber || '') ||
-              ((existingShift as any).manager || '') !== (excelShift.manager || '') ||
-              ((existingShift as any).contract || '') !== (excelShift.contract || '');
-
-            if (needsReactivation || detailsChanged) {
+            } else if (!protectedStatuses.includes(existingShift.status)) {
+              // Only update if not completed/incomplete
               toUpdate.push({ old: existingShift, new: excelShift });
             }
           }
