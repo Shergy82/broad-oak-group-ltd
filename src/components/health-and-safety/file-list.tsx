@@ -52,9 +52,8 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
     return () => unsubscribe();
   }, [toast]);
   
-  const { folders, uncategorizedFiles } = useMemo(() => {
+  const folders = useMemo(() => {
     const folderMap = new Map<string, HealthAndSafetyFile[]>();
-    const uncategorized: HealthAndSafetyFile[] = [];
 
     emptyFolders.forEach(folderName => {
         if (!folderMap.has(folderName)) {
@@ -68,13 +67,11 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
           folderMap.set(file.folder, []);
         }
         folderMap.get(file.folder)!.push(file);
-      } else {
-        uncategorized.push(file);
       }
     });
 
     const sortedFolders = Array.from(folderMap.entries()).sort(([a], [b]) => a.localeCompare(b));
-    return { folders: sortedFolders, uncategorizedFiles: uncategorized };
+    return sortedFolders;
   }, [files, emptyFolders]);
   
   const allFolderNames = useMemo(() => {
@@ -286,17 +283,6 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
                     </AccordionContent>
                 </AccordionItem>
             ))}
-             <AccordionItem value="uncategorized">
-                <AccordionTrigger>
-                    <div className="flex items-center gap-2 text-lg font-semibold">
-                        <FileText /> Uncategorized Files <span className="text-sm font-normal text-muted-foreground">({uncategorizedFiles.length})</span>
-                    </div>
-                </AccordionTrigger>
-                <AccordionContent className="p-4 bg-muted/50 rounded-b-md space-y-4">
-                    {uncategorizedFiles.length > 0 ? renderFileList(uncategorizedFiles) : <p className="text-sm text-center text-muted-foreground">No uncategorized files.</p>}
-                    {isPrivilegedUser && <FileUploader userProfile={userProfile} />}
-                </AccordionContent>
-             </AccordionItem>
         </Accordion>
     </div>
 
