@@ -1,7 +1,11 @@
+
 import * as admin from 'firebase-admin';
 import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';
 import type { Request, Response } from 'express';
 import JSZip from 'jszip';
+import { onDocumentCreated, onDocumentUpdated, onDocumentDeleted } from "firebase-functions/v2/firestore";
+import { onSchedule } from "firebase-functions/v2/scheduler";
+import { logger } from "firebase-functions/v2";
 
 /* =====================================================
    Bootstrap
@@ -44,6 +48,138 @@ const assertAdminOrManager = async (uid: string) => {
     throw new HttpsError('permission-denied', 'Insufficient permissions');
   }
 };
+
+async function getUserFcmTokens(userId: string): Promise<string[]> {
+    const snap = await db
+      .collection("users")
+      .doc(userId)
+      .collection("pushTokens")
+      .get();
+    if (snap.empty) return [];
+
+    const tokens: string[] = [];
+    for (const docSnap of snap.docs) {
+      const data = docSnap.data();
+      const t = (data.token || data.fcmToken || docSnap.id || "")
+        .toString()
+        .trim();
+      if (t) tokens.push(t);
+    }
+    return Array.from(new Set(tokens));
+}
+
+async function pruneInvalidTokens(userId: string, invalidTokens: string[]): Promise<void> {
+    if (!invalidTokens.length) return;
+
+    const col = db.collection("users").doc(userId).collection("pushTokens");
+    const snap = await col.get();
+    const batch = db.batch();
+
+    for (const d of snap.docs) {
+      const data = d.data();
+      const t = (data.token || data.fcmToken || d.id || "").toString().trim();
+      if (invalidTokens.includes(t)) batch.delete(d.ref);
+    }
+    await batch.commit();
+    logger.log("Pruned invalid tokens", { userId, count: invalidTokens.length });
+}
+
+function formatDateUK(d: Date): string {
+    const dd = String(d.getUTCDate()).padStart(2, "0");
+    const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const yyyy = String(d.getUTCFullYear());
+    return `${dd}/${mm}/${yyyy}`;
+}
+
+function isShiftInPast(shiftDate: Date): boolean {
+    const now = new Date();
+    const startOfTodayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const shiftDayUtc = new Date(Date.UTC(shiftDate.getUTCFullYear(), shiftDate.getUTCMonth(), shiftDate.getUTCDate()));
+    return shiftDayUtc < startOfTodayUtc;
+}
+
+function absoluteLink(pathOrUrl: string): string {
+    if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) {
+      return pathOrUrl;
+    }
+    return pathOrUrl;
+}
+
+function pendingGateUrl(): string {
+    return "/dashboard?gate=pending";
+}
+
+async function isUserNotificationsEnabled(userId: string): Promise<boolean> {
+    const userDoc = await db.collection("users").doc(userId).get();
+    if (!userDoc.exists) return true; // default allow
+    const enabled = userDoc.data()?.notificationsEnabled;
+    return enabled !== false;
+}
+
+async function sendFcmToUser(userId: string, title: string, body: string, urlPath: string, data: Record<string, any> = {}): Promise<void> {
+    if (!userId) return;
+
+    const userEnabled = await isUserNotificationsEnabled(userId);
+    if (!userEnabled) {
+      logger.log("User notifications disabled; skipping send", { userId });
+      return;
+    }
+
+    const tokens = await getUserFcmTokens(userId);
+    if (!tokens.length) {
+      logger.info("No FCM tokens for user; cannot send", { userId });
+      return;
+    }
+
+    const link = absoluteLink(urlPath);
+
+    const message: admin.messaging.MulticastMessage = {
+      tokens,
+      data: {
+        title,
+        body,
+        url: link,
+        ...Object.fromEntries(Object.entries(data).map(([k, v]) => [k, String(v)])),
+      },
+      webpush: {
+        headers: { Urgency: "high" },
+        fcmOptions: { link },
+      },
+      apns: {
+        payload: { aps: { sound: "default" } },
+      },
+    };
+
+    const resp = await admin.messaging().sendEachForMulticast(message);
+    const invalid: string[] = [];
+    resp.responses.forEach((r, idx) => {
+      if (!r.success) {
+        const code = r.error?.code || "";
+        if (
+          code.includes("registration-token-not-registered") ||
+          code.includes("invalid-argument") ||
+          code.includes("invalid-registration-token")
+        ) {
+          invalid.push(tokens[idx]);
+        }
+        logger.error("FCM send failed", {
+          userId,
+          code,
+          msg: r.error?.message,
+        });
+      }
+    });
+
+    if (invalid.length) await pruneInvalidTokens(userId, invalid);
+
+    logger.log("FCM send complete", {
+      userId,
+      tokens: tokens.length,
+      success: resp.successCount,
+      failure: resp.failureCount,
+    });
+}
+
 
 /* =====================================================
    NOTIFICATIONS
@@ -403,3 +539,201 @@ export const reGeocodeAllShifts = onCall(
     return { updated };
   }
 );
+
+/* =====================================================
+   FIRESTORE TRIGGERS
+===================================================== */
+
+const europeWest2 = "europe-west2";
+
+export const onShiftCreated = onDocumentCreated({ document: "shifts/{shiftId}", region: europeWest2 }, async (event) => {
+    const shift = event.data?.data();
+    if (!shift) return;
+
+    const userId = shift.userId;
+    if (!userId) {
+      logger.log("Shift created without userId; no notify", {
+        shiftId: event.params.shiftId,
+      });
+      return;
+    }
+
+    const shiftDate = shift.date?.toDate ? shift.date.toDate() : null;
+    if (!shiftDate) return;
+
+    if (isShiftInPast(shiftDate)) {
+      logger.log("Shift created in past; no notify", {
+        shiftId: event.params.shiftId,
+      });
+      return;
+    }
+
+    const shiftId = event.params.shiftId;
+    await sendFcmToUser(
+      userId,
+      "New shift added",
+      `A new shift was added for ${formatDateUK(shiftDate)}`,
+      pendingGateUrl(),
+      { shiftId, gate: "pending", event: "created" }
+    );
+});
+
+export const onShiftUpdated = onDocumentUpdated({ document: "shifts/{shiftId}", region: europeWest2 }, async (event) => {
+    const before = event.data?.before.data();
+    const after = event.data?.after.data();
+    if (!before || !after) return;
+
+    const shiftId = event.params.shiftId;
+
+    if (before.userId !== after.userId) {
+      if (before.userId) {
+        const d = before.date?.toDate ? before.date.toDate() : null;
+        await sendFcmToUser(
+          before.userId,
+          "Shift unassigned",
+          d
+            ? `Your shift for ${formatDateUK(d)} has been removed.`
+            : "A shift has been removed.",
+          "/dashboard",
+          { shiftId, event: "unassigned" }
+        );
+      }
+      if (after.userId) {
+        const d = after.date?.toDate ? after.date.toDate() : null;
+        if (d && !isShiftInPast(d)) {
+          await sendFcmToUser(
+            after.userId,
+            "New shift added",
+            `A new shift was added for ${formatDateUK(d)}`,
+            pendingGateUrl(),
+            { shiftId, gate: "pending", event: "assigned" }
+          );
+        }
+      }
+      logger.log("Shift reassigned", {
+        shiftId,
+        from: before.userId,
+        to: after.userId,
+      });
+      return;
+    }
+
+    const userId = after.userId;
+    if (!userId) return;
+
+    const afterDate = after.date?.toDate ? after.date.toDate() : null;
+    if (!afterDate) return;
+
+    if (isShiftInPast(afterDate)) {
+      logger.log("Shift updated but in past; no notify", { shiftId });
+      return;
+    }
+
+    const updatedByUid = String(after.updatedByUid || "").trim();
+    if (updatedByUid && updatedByUid === String(userId)) {
+      const statusBefore = String(before.status || "").toLowerCase();
+      const statusAfter = String(after.status || "").toLowerCase();
+
+      if (statusAfter === 'incomplete' || (statusAfter === 'confirmed' && (statusBefore === 'completed' || statusBefore === 'incomplete'))) {
+        logger.log("User performed a self-update to be silenced; skipping notify.", {
+          shiftId,
+          userId,
+          statusBefore,
+          statusAfter,
+        });
+        return;
+      }
+    }
+
+    const fieldsToCompare: (keyof typeof before)[] = [
+      "task",
+      "address",
+      "type",
+      "notes",
+      "status",
+      "date",
+    ];
+
+    const changed = fieldsToCompare.some((field) => {
+      if (field === "date") {
+        const b = before.date;
+        const a = after.date;
+        if (b?.isEqual && a) return !b.isEqual(a);
+        return String(b) !== String(a);
+      }
+      return (before[field] ?? null) !== (after[field] ?? null);
+    });
+
+    if (!changed) {
+      logger.log("Shift updated but no meaningful change", { shiftId });
+      return;
+    }
+
+    const needsAction = String(after.status || "").toLowerCase() === "pending-confirmation";
+    await sendFcmToUser(
+      userId,
+      "Shift updated",
+      `Your shift for ${formatDateUK(afterDate)} has been updated.`,
+      needsAction ? pendingGateUrl() : `/shift/${shiftId}`,
+      {
+        shiftId,
+        event: "updated",
+        ...(needsAction ? { gate: "pending" } : {}),
+      }
+    );
+});
+
+export const onShiftDeleted = onDocumentDeleted({ document: "shifts/{shiftId}", region: europeWest2 }, async (event) => {
+    const deleted = event.data?.data();
+    if (!deleted) return;
+
+    const userId = deleted.userId;
+    if (!userId) return;
+
+    const d = deleted.date?.toDate ? deleted.date.toDate() : null;
+    const status = String(deleted.status || "").toLowerCase();
+    const FINAL_STATUSES = new Set(["completed", "incomplete", "rejected"]);
+
+    if (FINAL_STATUSES.has(status)) {
+        logger.log("Shift deleted but was historical; no notify", {
+        shiftId: event.params.shiftId,
+        status,
+        });
+        return;
+    }
+
+    if (d && isShiftInPast(d)) {
+        logger.log("Shift deleted but in past; no notify", {
+        shiftId: event.params.shiftId,
+        });
+        return;
+    }
+
+    if (!d) {
+        logger.log("Shift deleted but no date; skipping notify", {
+        shiftId: event.params.shiftId,
+        });
+        return;
+    }
+
+    await sendFcmToUser(
+        userId,
+        "Shift removed",
+        `Your shift for ${formatDateUK(d)} has been removed.`,
+        "/dashboard",
+        { shiftId: event.params.shiftId, event: "deleted" }
+    );
+});
+
+
+/* =====================================================
+   SCHEDULED FUNCTIONS
+===================================================== */
+
+export const projectReviewNotifier = onSchedule({ schedule: "every 24 hours", region: europeWest2 }, () => {
+    logger.log("projectReviewNotifier executed.");
+});
+
+export const pendingShiftNotifier = onSchedule({ schedule: "every 1 hours", region: europeWest2 }, () => {
+    logger.log("pendingShiftNotifier executed.");
+});
