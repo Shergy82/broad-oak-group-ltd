@@ -437,7 +437,7 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                     >
                          <div className="relative w-full h-full">
                             <Image
-                                src={viewingFile.url}
+                                src={`/api/file?path=${encodeURIComponent(viewingFile.fullPath)}`}
                                 alt={viewingFile.name}
                                 fill
                                 className="object-contain"
