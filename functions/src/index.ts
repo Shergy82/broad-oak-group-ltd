@@ -638,7 +638,7 @@ export const onShiftUpdated = onDocumentUpdated({ document: "shifts/{shiftId}", 
       const isReopenUpdate = statusAfter === 'confirmed' && (statusBefore === 'completed' || statusBefore === 'incomplete');
 
       if (isIncompleteUpdate || isReopenUpdate) {
-        logger.log("User performed a self-update to be silenced; skipping notify.", {
+        logger.log("User performed a self-update; silencing notification.", {
           shiftId,
           userId,
           statusBefore,
