@@ -566,26 +566,31 @@ export const onShiftCreated = onDocumentCreated({ document: "shifts/{shiftId}", 
 export const onShiftUpdated = onDocumentUpdated({ document: "shifts/{shiftId}", region: europeWest2 }, async (event) => {
     const before = event.data?.before.data();
     const after = event.data?.after.data();
-    if (!before || !after) return;
+
+    // Guard against missing data
+    if (!before || !after) {
+        logger.log("onShiftUpdated trigger fired with missing data.", { event });
+        return;
+    }
 
     const shiftId = event.params.shiftId;
-    const userId = after.userId;
+    const assignedUserId = after.userId;
+    const updatingUserId = after.updatedByUid;
 
-    // FIRST: Check for self-updates that should be silenced.
-    // A user updated their own shift status (e.g., from 'on-site' to 'incomplete').
-    if (after.updatedByUid && after.updatedByUid === userId) {
+    // FIRST: Check for the specific self-update scenarios that should be silenced.
+    if (updatingUserId && updatingUserId === assignedUserId) {
         const statusBefore = String(before.status || "").toLowerCase();
         const statusAfter = String(after.status || "").toLowerCase();
 
         const isIncompleteUpdate = statusAfter === 'incomplete' && statusBefore !== 'incomplete';
         const isReopenUpdate = statusAfter === 'confirmed' && (statusBefore === 'completed' || statusBefore === 'incomplete');
-
+        
+        // If a user is updating their OWN shift to 'incomplete' or is re-opening it, stop.
         if (isIncompleteUpdate || isReopenUpdate) {
             logger.log("Silencing self-update notification.", {
                 shiftId,
-                userId,
-                statusBefore,
-                statusAfter,
+                userId: assignedUserId,
+                action: statusAfter,
             });
             return; // EXIT EARLY
         }
@@ -625,8 +630,8 @@ export const onShiftUpdated = onDocumentUpdated({ document: "shifts/{shiftId}", 
       return; // EXIT
     }
 
-    // THIRD: Handle all other updates (e.g., admin changing details).
-    if (!userId) return;
+    // THIRD: Handle all other updates (e.g., admin changing details for a user).
+    if (!assignedUserId) return;
 
     const afterDate = after.date?.toDate ? after.date.toDate() : null;
     if (!afterDate) return;
@@ -662,7 +667,7 @@ export const onShiftUpdated = onDocumentUpdated({ document: "shifts/{shiftId}", 
 
     const needsAction = String(after.status || "").toLowerCase() === "pending-confirmation";
     await sendShiftNotification(
-      userId,
+      assignedUserId,
       "Shift updated",
       `Your shift for ${formatDateUK(afterDate)} has been updated.`,
       needsAction ? pendingGateUrl() : `/shift/${shiftId}`,
