@@ -303,15 +303,17 @@ export default function Dashboard({
 
       {/* Responsive Scroll Tabs */}
       <Tabs defaultValue="today" className="w-full">
-        <div className="overflow-x-auto pb-2">
-          <TabsList className="flex w-max min-w-full gap-2">
-            <TabsTrigger value="last-week">Last Week</TabsTrigger>
-            <TabsTrigger value="today">Today</TabsTrigger>
-            <TabsTrigger value="this-week">This Week</TabsTrigger>
-            <TabsTrigger value="next-week">Next Week</TabsTrigger>
-            <TabsTrigger value="week-3">Week 3</TabsTrigger>
-            <TabsTrigger value="week-4">Week 4</TabsTrigger>
-          </TabsList>
+        <div className="flex flex-col space-y-2">
+            <TabsList className="grid grid-cols-3">
+                <TabsTrigger value="last-week">Last Week</TabsTrigger>
+                <TabsTrigger value="today">Today</TabsTrigger>
+                <TabsTrigger value="this-week">This Week</TabsTrigger>
+            </TabsList>
+            <TabsList className="grid grid-cols-3">
+                <TabsTrigger value="next-week">Next Week</TabsTrigger>
+                <TabsTrigger value="week-3">Week 3</TabsTrigger>
+                <TabsTrigger value="week-4">Week 4</TabsTrigger>
+            </TabsList>
         </div>
 
         <TabsContent value="today">
