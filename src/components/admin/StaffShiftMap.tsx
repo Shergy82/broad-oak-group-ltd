@@ -30,9 +30,9 @@ interface LocationPin {
 const statusColorMapping: { [key in ShiftStatus]: string } = {
     'on-site': '#14b8a6', // teal
     'confirmed': '#3F51B5', // primary/blue
-    'pending-confirmation': '#f97316', // orange
+    'pending-confirmation': '#FBBF24', // yellow
     'completed': '#22c55e', // green
-    'incomplete': '#f59e0b', // amber
+    'incomplete': '#8B5CF6', // purple
     'rejected': '#ef4444', // red
 };
 
@@ -332,10 +332,10 @@ export function StaffShiftMap() {
                 <Marker 
                     key={pin.address} 
                     position={pin.position} 
-                    onClick={() => setSelectedPin(pin)}
+                    onMouseOver={() => setSelectedPin(pin)}
                     icon={{
                         path: google.maps.SymbolPath.CIRCLE,
-                        scale: 9,
+                        scale: 12,
                         fillColor: pin.color,
                         fillOpacity: 1,
                         strokeColor: '#ffffff',
