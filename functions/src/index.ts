@@ -136,22 +136,37 @@ async function sendShiftNotification(userId: string, title: string, body: string
     }
   });
 
-  const sendPromises = subscriptionsSnapshot.docs.map((subDoc) => {
-      const subscription = subDoc.data();
-      return webPush.sendNotification(subscription, payload).catch((error: any) => {
-        logger.error(`Error sending notification to user ${userId}:`, error);
-        // 410 Gone: The subscription is no longer valid and should be removed.
-        // 404 Not Found: The subscription is invalid and should be removed.
-        if (error?.statusCode === 410 || error?.statusCode === 404) {
-          logger.log(`Deleting invalid subscription for user ${userId}.`);
-          return subDoc.ref.delete();
-        }
-        return null;
-      });
-  });
+  const shiftIdForLog = data.shiftId || 'unknown';
 
-  await Promise.all(sendPromises);
-  logger.log(`Finished sending web-push notifications for user ${userId}.`);
+  const results = await Promise.all(
+    subscriptionsSnapshot.docs.map(async (subDoc) => {
+      const subscription = subDoc.data();
+
+      try {
+        await webPush.sendNotification(subscription, payload);
+        logger.log(`Push sent OK for user ${userId}, subDoc=${subDoc.id}`);
+        return { ok: true, id: subDoc.id };
+      } catch (error: any) {
+        const code = error?.statusCode;
+        logger.error(
+          `Push send FAILED for user ${userId}, subDoc=${subDoc.id}, status=${code}`,
+          error
+        );
+
+        if (code === 410 || code === 404) {
+          logger.log(`Deleting invalid subscription for user ${userId}, subDoc=${subDoc.id}`);
+          await subDoc.ref.delete().catch(() => {});
+          return { ok: false, id: subDoc.id, deleted: true, status: code };
+        }
+
+        return { ok: false, id: subDoc.id, status: code };
+      }
+    })
+  );
+
+  const okCount = results.filter((r) => r.ok).length;
+  const failCount = results.length - okCount;
+  logger.log(`Finished sending notifications for shift ${shiftIdForLog}. ok=${okCount} fail=${failCount}`);
 }
 
 export const getNotificationStatus = onCall(
