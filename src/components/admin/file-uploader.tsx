@@ -563,7 +563,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                         eNumber,
                         manager,
                         contract: sheetName,
-                        department: sheetName,
+                        department: userProfile.department || '',
                       });
                     } else {
                       allFailedShifts.push({
