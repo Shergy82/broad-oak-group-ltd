@@ -507,7 +507,7 @@ export const reGeocodeAllShifts = onCall(
     await assertIsOwner(req.auth?.uid);
 
     if (!GEOCODING_KEY) {
-      throw new HttpsError('failed-precondition', 'Missing GEOCODING_KEY');
+      throw new HttpsError('failed-precondition', 'Missing GOOGLE_GEOCODING_KEY');
     }
 
     const snap = await db.collection('shifts').get();
@@ -634,7 +634,10 @@ export const onShiftUpdated = onDocumentUpdated({ document: "shifts/{shiftId}", 
       const statusBefore = String(before.status || "").toLowerCase();
       const statusAfter = String(after.status || "").toLowerCase();
 
-      if (statusAfter === 'incomplete' || (statusAfter === 'confirmed' && (statusBefore === 'completed' || statusBefore === 'incomplete'))) {
+      const isIncompleteUpdate = statusAfter === 'incomplete';
+      const isReopenUpdate = statusAfter === 'confirmed' && (statusBefore === 'completed' || statusBefore === 'incomplete');
+
+      if (isIncompleteUpdate || isReopenUpdate) {
         logger.log("User performed a self-update to be silenced; skipping notify.", {
           shiftId,
           userId,
@@ -724,6 +727,53 @@ export const onShiftDeleted = onDocumentDeleted({ document: "shifts/{shiftId}", 
         { shiftId: event.params.shiftId, event: "deleted" }
     );
 });
+
+export const geocodeShiftOnCreate = onDocumentCreated(
+  "shifts/{shiftId}",
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+
+    const data = snap.data();
+
+    // Must have a full address
+    if (!data?.address) return;
+
+    // Do not overwrite existing coordinates
+    if (data?.location?.lat && data?.location?.lng) return;
+
+    if (!GEOCODING_KEY) {
+      console.error("Missing Geocoding API key");
+      return;
+    }
+
+    const address = encodeURIComponent(`${data.address}, UK`);
+
+    const url =
+      `https://maps.googleapis.com/maps/api/geocode/json?` +
+      `address=${address}&key=${GEOCODING_KEY}`;
+
+    const res = await fetch(url);
+    const json = (await res.json()) as any;
+
+    if (json.status !== "OK" || !json.results?.length) {
+      console.warn("Geocoding failed", data.address, json.status);
+      return;
+    }
+
+    const result = json.results[0];
+    const { lat, lng } = result.geometry.location;
+    const accuracy = result.geometry.location_type;
+
+    await snap.ref.update({
+      location: {
+        lat,
+        lng,
+        accuracy, // ROOFTOP | RANGE_INTERPOLATED | POSTAL_CODE
+      },
+    });
+  }
+);
 
 
 /* =====================================================
