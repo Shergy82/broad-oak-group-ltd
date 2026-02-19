@@ -274,18 +274,21 @@ exports.onShiftUpdated = (0, firestore_1.onDocumentUpdated)({ document: "shifts/
         v2_1.logger.log("Shift updated but in past; no notify", { shiftId });
         return;
     }
-    // If the shift owner updated their OWN shift, do NOT notify them about their own action.
+    // If the shift owner updated their OWN shift, do NOT notify them for certain actions.
     const updatedByUid = String(after.updatedByUid || "").trim();
     if (updatedByUid && updatedByUid === String(userId)) {
-        v2_1.logger.log("Shift updated by assigned user; skipping notify", {
-            shiftId,
-            userId,
-            updatedByUid,
-            updatedByAction: String(after.updatedByAction || ""),
-            statusBefore: String(before.status || ""),
-            statusAfter: String(after.status || ""),
-        });
-        return;
+        const statusBefore = String(before.status || "").toLowerCase();
+        const statusAfter = String(after.status || "").toLowerCase();
+        // Don't notify when user marks their own shift as incomplete or re-opens it.
+        if (statusAfter === 'incomplete' || (statusAfter === 'confirmed' && (statusBefore === 'completed' || statusBefore === 'incomplete'))) {
+            v2_1.logger.log("User performed a self-update to be silenced; skipping notify.", {
+                shiftId,
+                userId,
+                statusBefore,
+                statusAfter,
+            });
+            return;
+        }
     }
     // Only notify when meaningful fields change
     const fieldsToCompare = [
