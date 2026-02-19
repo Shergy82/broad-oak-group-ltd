@@ -641,18 +641,23 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
               continue;
             }
 
-            const changed =
+            // If the existing shift is already completed/incomplete, we should reactivate it.
+            const needsReactivation = protectedStatuses.includes(existingShift.status);
+
+            // Or, if the active shift's details have changed.
+            const detailsChanged =
               normalizeText(existingShift.address || '') !== normalizeText(excelShift.address || '') ||
               normalizeText((existingShift as any).task || '') !== normalizeText(excelShift.task || '') ||
-              (existingShift as any).type !== (excelShift as any).type ||
+              (existingShift as any).type !== excelShift.type ||
               ((existingShift as any).eNumber || '') !== (excelShift.eNumber || '') ||
               ((existingShift as any).manager || '') !== (excelShift.manager || '') ||
               ((existingShift as any).contract || '') !== (excelShift.contract || '');
 
-            if (changed && !protectedStatuses.includes(existingShift.status)) {
+            if (needsReactivation || detailsChanged) {
               toUpdate.push({ old: existingShift, new: excelShift });
             }
           }
+
 
           // Deletions (only if key missing entirely)
           for (const [key, existingShift] of existingShiftsMap.entries()) {
@@ -734,6 +739,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                 eNumber: newShift.eNumber || '',
                 manager: newShift.manager || '',
                 contract: newShift.contract || '',
+                status: 'pending-confirmation',
               });
             });
 
