@@ -3,7 +3,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { GoogleMap, Marker, InfoWindow, useJsApiLoader } from '@react-google-maps/api';
-import { collection, getDocs, query, where, Timestamp } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, Timestamp } from 'firebase/firestore';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Search } from 'lucide-react';
 
@@ -86,36 +86,33 @@ export function StaffShiftMap() {
   });
 
   useEffect(() => {
-    const loadShifts = async () => {
-      if (!db) {
-        setLoading(false);
-        return;
-      }
-      setLoading(true);
+    if (!db) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
 
-      try {
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
-        const todayEnd = new Date();
-        todayEnd.setHours(23, 59, 59, 999);
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
 
-        const shiftsQuery = query(
-          collection(db, 'shifts'),
-          where('date', '>=', Timestamp.fromDate(todayStart)),
-          where('date', '<=', Timestamp.fromDate(todayEnd))
-        );
+    const shiftsQuery = query(
+      collection(db, 'shifts'),
+      where('date', '>=', Timestamp.fromDate(todayStart)),
+      where('date', '<=', Timestamp.fromDate(todayEnd))
+    );
 
-        const shiftSnapshot = await getDocs(shiftsQuery);
-        const shiftsData = shiftSnapshot.docs.map(doc => ({id: doc.id, ...doc.data()} as Shift));
-        setShifts(shiftsData);
-      } catch (error) {
-        console.error("Failed to load shifts:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
+    const unsubscribe = onSnapshot(shiftsQuery, (snapshot) => {
+      const shiftsData = snapshot.docs.map(doc => ({id: doc.id, ...doc.data()} as Shift));
+      setShifts(shiftsData);
+      setLoading(false);
+    }, (error) => {
+      console.error("Failed to load shifts:", error);
+      setLoading(false);
+    });
 
-    loadShifts();
+    return () => unsubscribe();
   }, []);
 
   const geocodeAddress = useCallback((geocoder: google.maps.Geocoder, address: string) => {
