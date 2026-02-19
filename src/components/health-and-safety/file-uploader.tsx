@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
@@ -24,7 +24,7 @@ export function FileUploader({ userProfile, folder }: Props) {
   const [isDragOver, setIsDragOver] = useState(false);
   const { toast } = useToast();
 
-  const handleFileUpload = (files: FileList | null) => {
+  const handleFileUpload = useCallback((files: FileList | null) => {
     if (!files || files.length === 0) return;
     setIsUploading(true);
 
@@ -92,27 +92,82 @@ export function FileUploader({ userProfile, folder }: Props) {
             fileInput.value = "";
         }
       });
+  }, [userProfile, folder, toast]);
+  
+  const onDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+
+    const getFile = (entry: FileSystemFileEntry): Promise<File> => {
+        return new Promise((resolve, reject) => entry.file(resolve, reject));
+    };
+
+    const getEntries = (reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> => {
+        return new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+    };
+
+    const traverse = async (entry: FileSystemEntry | null): Promise<File[]> => {
+        if (!entry) return [];
+        if (entry.isFile) {
+            const file = await getFile(entry as FileSystemFileEntry);
+            Object.defineProperty(file, 'webkitRelativePath', {
+                value: entry.fullPath.startsWith('/') ? entry.fullPath.substring(1) : entry.fullPath,
+                writable: true,
+                configurable: true,
+            });
+            return [file];
+        }
+        if (entry.isDirectory) {
+            const reader = (entry as FileSystemDirectoryEntry).createReader();
+            let allEntries: FileSystemEntry[] = [];
+            let currentEntries;
+            do {
+                currentEntries = await getEntries(reader);
+                allEntries = allEntries.concat(currentEntries);
+            } while (currentEntries.length > 0);
+
+            const fileArrays = await Promise.all(allEntries.map(e => traverse(e)));
+            return fileArrays.flat();
+        }
+        return [];
+    };
+
+    let allFiles: File[] = [];
+
+    if (e.dataTransfer.items) {
+        const entryPromises = Array.from(e.dataTransfer.items)
+            .map(item => item.webkitGetAsEntry())
+            .map(entry => traverse(entry));
+        allFiles = (await Promise.all(entryPromises)).flat();
+    } else {
+        allFiles = Array.from(e.dataTransfer.files);
+    }
+    
+    if (allFiles.length > 0) {
+      const dataTransfer = new DataTransfer();
+      allFiles.forEach(file => dataTransfer.items.add(file));
+      handleFileUpload(dataTransfer.files);
+    }
+  }, [handleFileUpload]);
+  
+  const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
   };
 
-  const onDragProps = {
-    onDragOver: (e: React.DragEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      setIsDragOver(true);
-    },
-    onDragLeave: (e: React.DragEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      setIsDragOver(false);
-    },
-    onDrop: (e: React.DragEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      setIsDragOver(false);
-      handleFileUpload(e.dataTransfer.files);
-    }
+  const onDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
   };
   
   return (
         <div
-          {...onDragProps}
+          onDrop={onDrop}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
           className={cn(
             "flex flex-col items-center justify-center p-6 border-2 border-dashed border-muted-foreground/30 rounded-lg text-center transition-colors",
             isDragOver && "border-primary bg-primary/10"
