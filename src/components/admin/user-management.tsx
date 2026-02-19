@@ -361,17 +361,14 @@ export function UserManagement() {
                     <Label className="text-xs">Trade / Department</Label>
                     {isPrivilegedUser ? (
                         <div className="flex gap-2">
-                            <Input defaultValue={user.trade || ''} onBlur={(e) => handleTradeChange(user.uid, e.target.value)} placeholder="Trade" className="h-8 text-xs"/>
+                            <Input defaultValue={user.trade || ''} onBlur={(e) => handleTradeChange(user.uid, e.target.value)} onKeyPress={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} placeholder="Trade" className="h-8 text-xs"/>
                             <Input
                                 defaultValue={user.department || ''}
                                 onBlur={(e) => handleDepartmentChange(user.uid, e.target.value)}
+                                onKeyPress={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
                                 placeholder="Dept"
                                 className="h-8 text-xs"
-                                list="department-suggestions"
                             />
-                            <datalist id="department-suggestions">
-                                {availableDepartments.map(dept => <option key={dept} value={dept} />)}
-                            </datalist>
                         </div>
                     ) : ( <p className="text-sm p-2 border rounded-md bg-muted/50 h-8 flex items-center">{user.trade || 'N/A'} / {user.department || 'N/A'}</p> )}
                 </div>
