@@ -1,74 +1,91 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { format } from 'date-fns';
-
+import { useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
-import { acknowledgeAnnouncement } from '@/hooks/use-announcements-ack';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { format } from 'date-fns';
+import { writeBatch, doc, serverTimestamp } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { Spinner } from '@/components/shared/spinner';
+import { CheckCheck } from 'lucide-react';
 
 export function PendingAnnouncementModal() {
-  const { user, pendingAnnouncements } = useAuth();
+  const { user, pendingAnnouncements, hasPendingAnnouncements } = useAuth();
   const [ackLoading, setAckLoading] = useState(false);
 
-  const top = useMemo(
-    () => pendingAnnouncements?.[0] ?? null,
-    [pendingAnnouncements]
-  );
-
   // If no signed-in user or no pending announcement, don't render
-  if (!user || !top) return null;
+  if (!user || !hasPendingAnnouncements) return null;
 
-  async function handleAcknowledge() {
-    const u = user; // capture + narrow for TS
-    const a = top;
-
-    if (!u || !a) return;
-
+  async function handleAcknowledgeAll() {
+    if (!user || pendingAnnouncements.length === 0) return;
     setAckLoading(true);
     try {
-      await acknowledgeAnnouncement(a.id, u, u.displayName ?? 'Unknown');
-      // After ack, the announcements page will refresh state; hard gate will lift once all are ack’d.
-      window.location.href = '/announcements';
+      if (!db) throw new Error("Database not initialized");
+      const batch = writeBatch(db);
+      pendingAnnouncements.forEach(announcement => {
+        const id = `${announcement.id}_${user.uid}`;
+        const ackRef = doc(db, 'announcementAcknowledgements', id);
+        batch.set(ackRef, {
+          announcementId: announcement.id,
+          userId: user.uid,
+          name: user.displayName ?? 'Unknown',
+          acknowledgedAt: serverTimestamp(),
+        });
+      });
+      await batch.commit();
+      window.location.reload(); // Reload to allow AuthProvider to re-check
+    } catch (e) {
+      console.error("Failed to acknowledge announcements:", e);
+      // Maybe show a toast here in a real app.
     } finally {
       setAckLoading(false);
     }
   }
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" />
+    <Dialog open={true}>
+      <DialogContent className="max-w-lg" onInteractOutside={(e) => e.preventDefault()} showCloseButton={false}>
+        <DialogHeader>
+          <DialogTitle>New Announcements ({pendingAnnouncements.length})</DialogTitle>
+          <DialogDescription>
+            Please review the following announcements before continuing.
+          </DialogDescription>
+        </DialogHeader>
 
-      <div className="relative w-full max-w-lg rounded-xl border bg-background p-6 shadow-lg mx-4 space-y-4">
-        <div className="space-y-1">
-          <div className="text-sm text-muted-foreground">
-            New announcement requires acknowledgement
+        <ScrollArea className="max-h-[60vh] my-4 rounded-md border p-4">
+          <div className="space-y-6">
+            {pendingAnnouncements.map(announcement => (
+              <div key={announcement.id} className="p-4 rounded-lg bg-muted/50">
+                <h3 className="font-semibold">{announcement.title}</h3>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Posted by {announcement.authorName} on {announcement.createdAt?.toDate() ? format(announcement.createdAt.toDate(), 'PPP') : '...'}
+                </p>
+                <p className="whitespace-pre-wrap text-sm">{announcement.content}</p>
+              </div>
+            ))}
           </div>
+        </ScrollArea>
 
-          <h2 className="text-xl font-semibold">{top.title || 'Announcement'}</h2>
-
-          <div className="text-xs text-muted-foreground">
-            Posted by {top.authorName || '—'}{' '}
-            {top.createdAt?.toDate
-              ? `on ${format(top.createdAt.toDate(), 'PPP')}`
-              : ''}
-          </div>
-        </div>
-
-        <div className="whitespace-pre-wrap text-sm max-h-[45vh] overflow-auto rounded-lg border p-3">
-          {top.content || ''}
-        </div>
-
-        <div className="flex items-center justify-end gap-2">
-          <Button onClick={handleAcknowledge} disabled={ackLoading}>
-            {ackLoading ? 'Acknowledging…' : 'Acknowledge'}
+        <DialogFooter>
+          <Button onClick={handleAcknowledgeAll} disabled={ackLoading} className="w-full">
+            {ackLoading ? <Spinner /> : 
+            <>
+              <CheckCheck className="mr-2 h-4 w-4" />
+              Acknowledge All & Continue
+            </>
+            }
           </Button>
-        </div>
-
-        <div className="text-xs text-muted-foreground">
-          You must acknowledge this before continuing to use the app.
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

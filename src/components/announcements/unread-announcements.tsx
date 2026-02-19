@@ -17,7 +17,9 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
 import { Spinner } from '@/components/shared/spinner';
 import { Check, X } from 'lucide-react';
-import { useUserProfile } from '@/hooks/use-user-profile';
+import { writeBatch, doc, serverTimestamp } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+
 
 interface UnreadAnnouncementsProps {
   announcements: Announcement[];
@@ -29,21 +31,23 @@ export function UnreadAnnouncements({ announcements, user, onClose }: UnreadAnno
   const [isOpen, setIsOpen] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
-  const { userProfile } = useUserProfile(); // Get the full user profile
 
   const handleAcknowledge = async () => {
     setIsLoading(true);
     try {
-      // Get the list of announcements being displayed in the dialog.
-      const newlyAcknowledgedIds = announcements.map(a => a.id);
-      
-      // Get the existing list of acknowledged IDs from local storage.
-      const storedAcknowledged = localStorage.getItem(`acknowledgedAnnouncements_${user.uid}`);
-      const acknowledgedIds = new Set(storedAcknowledged ? JSON.parse(storedAcknowledged) : []);
-
-      // Add the new IDs to the set and save back to local storage.
-      newlyAcknowledgedIds.forEach(id => acknowledgedIds.add(id));
-      localStorage.setItem(`acknowledgedAnnouncements_${user.uid}`, JSON.stringify(Array.from(acknowledgedIds)));
+      if (!db) throw new Error("Database not ready");
+      const batch = writeBatch(db);
+      announcements.forEach(announcement => {
+        const id = `${announcement.id}_${user.uid}`;
+        const ackRef = doc(db, 'announcementAcknowledgements', id);
+        batch.set(ackRef, {
+            announcementId: announcement.id,
+            userId: user.uid,
+            name: user.displayName ?? 'Unknown',
+            acknowledgedAt: serverTimestamp(),
+        });
+      });
+      await batch.commit();
       
       toast({
         title: 'Announcements Acknowledged',
@@ -52,7 +56,7 @@ export function UnreadAnnouncements({ announcements, user, onClose }: UnreadAnno
       
       onClose();
     } catch (error: any) {
-      console.error("Failed to save acknowledgements to local storage:", error);
+      console.error("Failed to acknowledge announcements:", error);
       toast({
         variant: 'destructive',
         title: 'Error',

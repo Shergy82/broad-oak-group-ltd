@@ -113,11 +113,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         setPendingAnnouncements(pending);
         setHasPendingAnnouncements(pending.length > 0);
-
-        // Hard gate: if pending, force announcements page
-        if (pending.length > 0 && pathname !== '/announcements') {
-          router.replace('/announcements');
-        }
       } finally {
         setCheckingAcks(false);
         setIsLoading(false);

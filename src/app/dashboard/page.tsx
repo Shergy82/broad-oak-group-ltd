@@ -41,15 +41,23 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!user) return;
+    
+    // Using onSnapshot to keep it real-time
+    const q = query(
+      collection(db, 'announcementAcknowledgements'),
+      where('userId', '==', user.uid)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+        const acked = new Set<string>();
+        snap.docs.forEach(d => {
+            const data = d.data();
+            if(data?.announcementId) acked.add(String(data.announcementId));
+        });
+        setAcknowledgedIds(acked);
+    });
 
-    try {
-      const stored = localStorage.getItem(`acknowledgedAnnouncements_${user.uid}`);
-      if (stored) {
-        setAcknowledgedIds(new Set(JSON.parse(stored)));
-      }
-    } catch {
-      setAcknowledgedIds(new Set());
-    }
+    return () => unsub();
+
   }, [user]);
 
   /* =========================
