@@ -579,20 +579,15 @@ export const onShiftUpdated = onDocumentUpdated(
     const beforeDate = before.date?.toDate?.() ?? null;
     const afterDate = after.date?.toDate?.() ?? null;
 
-    /* =====================================================
-       HARD STOPS
-    ===================================================== */
-
-    // No assigned user → no notification
+    // No assigned user => nothing to notify
     if (!assignedAfter) return;
 
-    // Past shifts → no notification
+    // Past shifts => never notify
     if (afterDate && isShiftInPast(afterDate)) return;
 
     /* =====================================================
        SCENARIO 1 — REASSIGNMENT
     ===================================================== */
-
     if (assignedBefore !== assignedAfter) {
       logger.log("Shift reassigned", { shiftId, from: assignedBefore, to: assignedAfter });
 
@@ -620,67 +615,117 @@ export const onShiftUpdated = onDocumentUpdated(
     }
 
     /* =====================================================
-       SCENARIO 2 — USER SELF-UPDATE (ABSOLUTE SILENCE)
+       CHANGE DETECTION (KEY FIX)
+       - Work out what actually changed
+       - Ignore audit/view fields that should never trigger notifications
     ===================================================== */
 
-    const userIsSelfUpdating = updatedByUid === assignedAfter;
+    // Fields that are allowed to change WITHOUT notifying anyone
+    // Add any “re-open/view” fields your UI writes here.
+    const IGNORE_FIELDS = new Set([
+      "updatedByUid",
+      "updatedAt",
+      "lastUpdatedAt",
+      "lastOpenedAt",
+      "lastViewedAt",
+      "viewedAt",
+      "openedAt",
+      "clientVersion",
+    ]);
 
-    if (userIsSelfUpdating) {
-      logger.log("User self-update detected; suppressing notification", {
-        shiftId,
-        userId: assignedAfter,
-        statusBefore: before.status,
-        statusAfter: after.status,
-      });
-      return;
-    }
-
-    /* =====================================================
-       SCENARIO 3 — STATUS-ONLY CHANGE (DEFENSIVE SILENCE)
-       (Covers missing updatedByUid)
-    ===================================================== */
-
-    const meaningfulFields: (keyof typeof after)[] = [
+    // Fields that *do* count as meaningful shift changes
+    const MEANINGFUL_FIELDS = new Set([
       "task",
       "address",
       "type",
       "notes",
+      "status",
       "date",
-    ];
+      "userId",
+    ]);
 
-    const hasNonStatusChange = meaningfulFields.some((field) => {
-      if (field === "date") {
-        return !before.date?.isEqual(after.date);
+    const changedKeys = new Set<string>();
+
+    // Compare scalar-ish fields present in either object
+    const allKeys = new Set<string>([
+      ...Object.keys(before),
+      ...Object.keys(after),
+    ]);
+
+    for (const key of allKeys) {
+      if (key === "date") {
+        const sameDate =
+          before.date?.isEqual?.(after.date) ??
+          (before.date === after.date);
+        if (!sameDate) changedKeys.add("date");
+        continue;
       }
-      return (before[field] ?? null) !== (after[field] ?? null);
-    });
 
-    const statusChanged = before.status !== after.status;
+      const b = (before as any)[key];
+      const a = (after as any)[key];
 
-    // If ONLY status changed, never notify the assigned user
-    if (statusChanged && !hasNonStatusChange) {
-      logger.log("Status-only update detected; suppressing notification", {
+      // Shallow compare is fine for your use-case; nested objects are not meaningful here.
+      if ((b ?? null) !== (a ?? null)) changedKeys.add(key);
+    }
+
+    // Remove ignored fields from consideration
+    const meaningfulChangedKeys = [...changedKeys].filter(
+      (k) => !IGNORE_FIELDS.has(k)
+    );
+
+    // If nothing meaningful changed (e.g. user "re-opened" and UI wrote viewedAt) => NEVER notify
+    if (meaningfulChangedKeys.length === 0) {
+      logger.log("No meaningful change; suppressing notification", { shiftId, changedKeys: [...changedKeys] });
+      return;
+    }
+
+    // If the ONLY meaningful change is status => NEVER notify (covers incomplete/reopen patterns)
+    const onlyStatusMeaningful =
+      meaningfulChangedKeys.length === 1 && meaningfulChangedKeys[0] === "status";
+
+    if (onlyStatusMeaningful) {
+      logger.log("Status-only change; suppressing notification", {
         shiftId,
         statusBefore: before.status,
         statusAfter: after.status,
+        changedKeys: [...changedKeys],
       });
       return;
     }
 
     /* =====================================================
-       SCENARIO 4 — ADMIN / MANAGER UPDATE (NOTIFY)
+       SCENARIO 2 — SELF UPDATE (ABSOLUTE SILENCE)
+       If updatedByUid is reliable, this hard-stops self updates.
+       (Even if meaningful fields changed.)
+    ===================================================== */
+    if (updatedByUid && updatedByUid === assignedAfter) {
+      logger.log("Self-update detected; suppressing notification", {
+        shiftId,
+        userId: assignedAfter,
+        changed: meaningfulChangedKeys,
+      });
+      return;
+    }
+
+    /* =====================================================
+       SCENARIO 3 — ADMIN/MANAGER UPDATE (NOTIFY)
+       We reach here only if:
+       - meaningful changes happened
+       - it wasn't status-only
+       - it wasn't reliably detected as a self-update
     ===================================================== */
 
     if (!afterDate) return;
 
-    logger.log("Admin update detected; sending notification", {
-      shiftId,
-      userId: assignedAfter,
-      updatedBy: updatedByUid,
-    });
-
     const needsAction =
       String(after.status || "").toLowerCase() === "pending-confirmation";
+
+    logger.log("Meaningful non-self update; sending notification", {
+      shiftId,
+      userId: assignedAfter,
+      updatedByUid,
+      changed: meaningfulChangedKeys,
+    });
 
     await sendShiftNotification(
       assignedAfter,
@@ -690,11 +735,13 @@ export const onShiftUpdated = onDocumentUpdated(
       {
         shiftId,
         event: "updated",
+        changed: meaningfulChangedKeys,
         ...(needsAction ? { gate: "pending" } : {}),
       }
     );
   }
 );
+
 
 export const onShiftDeleted = onDocumentDeleted({ document: "shifts/{shiftId}", region: europeWest2 }, async (event) => {
     const deleted = event.data?.data();
