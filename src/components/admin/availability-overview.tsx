@@ -4,11 +4,11 @@ import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { Shift, UserProfile } from '@/types';
-import { isToday } from 'date-fns';
+import type { Shift, UserProfile, Unavailability } from '@/types';
+import { isToday, startOfToday } from 'date-fns';
 import { getCorrectedLocalDate } from '@/lib/utils';
 import { Avatar, AvatarFallback } from '../ui/avatar';
-import { Users, Sun, Moon, MapPin, HardHat } from 'lucide-react';
+import { Users, Sun, Moon, MapPin, HardHat, CalendarOff } from 'lucide-react';
 import { Spinner } from '../shared/spinner';
 import { Button } from '../ui/button';
 import { cn } from '@/lib/utils';
@@ -26,7 +26,7 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/comp
 
 interface AvailableUser {
   user: UserProfile;
-  availability: 'full' | 'am' | 'pm' | 'busy';
+  availability: 'full' | 'am' | 'pm' | 'busy' | 'unavailable';
   shifts: Shift[];
 }
 
@@ -48,7 +48,7 @@ const extractPostcode = (address: string | undefined): string | null => {
 };
 
 
-const UserAvatarList = ({ users, category, onUserClick }: { users: AvailableUser[]; category: 'working' | 'full' | 'semi', onUserClick: (user: AvailableUser) => void; }) => {
+const UserAvatarList = ({ users, category, onUserClick }: { users: AvailableUser[]; category: 'working' | 'full' | 'semi' | 'unavailable', onUserClick: (user: AvailableUser) => void; }) => {
     
     let filteredUsers = users;
     if (category === 'working') {
@@ -57,6 +57,8 @@ const UserAvatarList = ({ users, category, onUserClick }: { users: AvailableUser
         filteredUsers = users.filter(u => u.availability === 'full');
     } else if (category === 'semi') {
         filteredUsers = users.filter(u => u.availability === 'am' || u.availability === 'pm');
+    } else if (category === 'unavailable') {
+        filteredUsers = users.filter(u => u.availability === 'unavailable');
     }
 
     if (filteredUsers.length === 0) {
@@ -74,7 +76,7 @@ const UserAvatarList = ({ users, category, onUserClick }: { users: AvailableUser
                 
                 const uniqueAddresses = [...new Set(shifts.map(s => s.address).filter(Boolean))];
                 
-                const isClickable = availability !== 'full';
+                const isClickable = availability !== 'full' && availability !== 'unavailable';
                 return (
                     <Card 
                         key={user.uid} 
@@ -118,7 +120,7 @@ const UserAvatarList = ({ users, category, onUserClick }: { users: AvailableUser
     )
 }
 
-type ActiveTab = 'working-today' | 'fully-available' | 'semi-available' | null;
+type ActiveTab = 'working-today' | 'fully-available' | 'semi-available' | 'unavailable' | null;
 
 interface AvailabilityOverviewProps {
     userProfile: UserProfile; // Added for type-safety with dashboard
@@ -129,6 +131,7 @@ interface AvailabilityOverviewProps {
 export function AvailabilityOverview({ viewMode = 'normal' }: AvailabilityOverviewProps) {
     const [shifts, setShifts] = useState<Shift[]>([]);
     const [users, setUsers] = useState<UserProfile[]>([]);
+    const [unavailability, setUnavailability] = useState<Unavailability[]>([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<ActiveTab>(null);
     const [selectedUserShifts, setSelectedUserShifts] = useState<AvailableUser | null>(null);
@@ -144,12 +147,14 @@ export function AvailabilityOverview({ viewMode = 'normal' }: AvailabilityOvervi
     useEffect(() => {
         const shiftsQuery = query(collection(db, 'shifts'));
         const usersQuery = query(collection(db, 'users'));
+        const unavailabilityQuery = query(collection(db, 'unavailability'));
 
         let shiftsLoaded = false;
         let usersLoaded = false;
+        let unavailabilityLoaded = false;
 
         const checkAllLoaded = () => {
-            if (shiftsLoaded && usersLoaded) {
+            if (shiftsLoaded && usersLoaded && unavailabilityLoaded) {
                 setLoading(false);
             }
         }
@@ -166,9 +171,16 @@ export function AvailabilityOverview({ viewMode = 'normal' }: AvailabilityOvervi
             checkAllLoaded();
         });
 
+        const unsubUnavailability = onSnapshot(unavailabilityQuery, (snapshot) => {
+            setUnavailability(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Unavailability)));
+            unavailabilityLoaded = true;
+            checkAllLoaded();
+        });
+
         return () => {
             unsubShifts();
             unsubUsers();
+            unsubUnavailability();
         };
     }, []);
 
@@ -176,8 +188,20 @@ export function AvailabilityOverview({ viewMode = 'normal' }: AvailabilityOvervi
         if (loading) return [];
         
         const todaysShifts = shifts.filter(s => isToday(getCorrectedLocalDate(s.date)));
+        const todaysDate = startOfToday();
+        const todaysUnavailable = unavailability.filter(u => {
+            const startDate = getCorrectedLocalDate(u.startDate);
+            const endDate = getCorrectedLocalDate(u.endDate);
+            return todaysDate >= startDate && todaysDate <= endDate;
+        });
+        const unavailableUserIds = new Set(todaysUnavailable.map(u => u.userId));
+
         
         return users.map(user => {
+            if (unavailableUserIds.has(user.uid)) {
+                return { user, availability: 'unavailable', shifts: [] };
+            }
+
             const userShiftsToday = todaysShifts.filter(s => s.userId === user.uid);
             
             if (userShiftsToday.length === 0) {
@@ -199,13 +223,14 @@ export function AvailabilityOverview({ viewMode = 'normal' }: AvailabilityOvervi
             return { user, availability: 'busy', shifts: userShiftsToday };
         }).filter((u): u is AvailableUser => u !== null);
 
-    }, [loading, shifts, users]);
+    }, [loading, shifts, users, unavailability]);
     
-    const { workingTodayCount, fullyAvailableCount, semiAvailableCount } = useMemo(() => {
+    const { workingTodayCount, fullyAvailableCount, semiAvailableCount, unavailableCount } = useMemo(() => {
         return {
             workingTodayCount: todaysAvailability.filter(u => u.availability === 'busy').length,
             fullyAvailableCount: todaysAvailability.filter(u => u.availability === 'full').length,
             semiAvailableCount: todaysAvailability.filter(u => u.availability === 'am' || u.availability === 'pm').length,
+            unavailableCount: todaysAvailability.filter(u => u.availability === 'unavailable').length,
         }
     }, [todaysAvailability]);
 
@@ -231,6 +256,8 @@ export function AvailabilityOverview({ viewMode = 'normal' }: AvailabilityOvervi
                 return <UserAvatarList users={todaysAvailability} category="full" onUserClick={handleUserClick} />;
             case 'semi-available':
                 return <UserAvatarList users={todaysAvailability} category="semi" onUserClick={handleUserClick} />;
+            case 'unavailable':
+                return <UserAvatarList users={todaysAvailability} category="unavailable" onUserClick={handleUserClick} />;
             default:
                 return null;
         }
@@ -253,7 +280,7 @@ export function AvailabilityOverview({ viewMode = 'normal' }: AvailabilityOvervi
             </div>
         ) : (
             <div className="w-full space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     
                     <Card
                         className={cn(
@@ -302,6 +329,23 @@ export function AvailabilityOverview({ viewMode = 'normal' }: AvailabilityOvervi
                              <div className="flex flex-col">
                                 <span className="font-semibold">Semi-Available</span>
                                 <span className="text-2xl font-bold">{semiAvailableCount}</span>
+                            </div>
+                        </CardContent>
+                    </Card>
+
+                     <Card
+                        className={cn(
+                            "transition-colors",
+                            viewMode === 'normal' && "cursor-pointer hover:bg-muted",
+                            activeTab === 'unavailable' && "ring-2 ring-primary bg-muted"
+                        )}
+                        onClick={() => handleTabClick('unavailable')}
+                    >
+                        <CardContent className="p-4 flex items-center gap-4">
+                            <CalendarOff className="h-8 w-8 text-muted-foreground" />
+                             <div className="flex flex-col">
+                                <span className="font-semibold">Unavailable</span>
+                                <span className="text-2xl font-bold">{unavailableCount}</span>
                             </div>
                         </CardContent>
                     </Card>
