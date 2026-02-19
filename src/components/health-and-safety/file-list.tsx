@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -168,31 +167,43 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
     }
   };
   
-  const handleDeleteFolder = async () => {
-      if (!deletingFolder) return;
-      
-      setEmptyFolders(prev => prev.filter(f => f !== deletingFolder));
-      
-      toast({ title: "Deleting folder...", description: "Files inside will be moved to General Files." });
-      try {
-        const q = query(collection(db, 'health_and_safety_files'), where('folder', '==', deletingFolder));
-        const snapshot = await getDocs(q);
-        
-        const batch = writeBatch(db);
-        snapshot.docs.forEach(document => {
-            const docRef = doc(db, 'health_and_safety_files', document.id);
-            batch.update(docRef, { folder: deleteField() });
-        });
+  const handleDeleteFolder = async (folderNameToDelete: string) => {
+    if (!folderNameToDelete || deletingFolder) return;
 
-        await batch.commit();
-        toast({ title: 'Success!', description: `Folder "${deletingFolder}" was deleted.` });
+    setDeletingFolder(folderNameToDelete);
+    toast({ title: `Deleting "${folderNameToDelete}"...`, description: "This will delete the folder and all its contents." });
+    
+    try {
+      const q = query(collection(db, 'health_and_safety_files'), where('folder', '==', folderNameToDelete));
+      const snapshot = await getDocs(q);
+      
+      if (!snapshot.empty) {
+          const batch = writeBatch(db);
+          const storageDeletePromises: Promise<void>[] = [];
+
+          snapshot.docs.forEach(document => {
+              const file = document.data() as HealthAndSafetyFile;
+              if (file.fullPath) {
+                  const fileRef = ref(storage, file.fullPath);
+                  storageDeletePromises.push(deleteObject(fileRef).catch(e => console.warn(`Failed to delete storage file ${file.fullPath}`, e))); // non-blocking
+              }
+              batch.delete(document.ref);
+          });
+
+          await Promise.all(storageDeletePromises);
+          await batch.commit();
+      }
+
+      setEmptyFolders(prev => prev.filter(f => f !== folderNameToDelete));
+
+      toast({ title: 'Success!', description: `Folder "${folderNameToDelete}" and all its files were deleted.` });
     } catch (error) {
-        console.error("Error deleting folder:", error);
-        toast({ variant: 'destructive', title: 'Error', description: "Could not delete folder." });
+      console.error("Error deleting folder and its contents:", error);
+      toast({ variant: 'destructive', title: 'Error', description: "Could not delete the folder and its contents." });
     } finally {
-        setDeletingFolder(null);
+      setDeletingFolder(null);
     }
-  }
+  };
 
 
   const formatFileSize = (bytes?: number) => {
@@ -304,8 +315,10 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
                                 <AlertDialog>
                                     <AlertDialogTrigger asChild><Button size="sm" variant="destructive"><FolderX className="mr-2 h-4 w-4" />Delete</Button></AlertDialogTrigger>
                                     <AlertDialogContent>
-                                        <AlertDialogHeader><AlertDialogTitle>Delete Folder?</AlertDialogTitle><AlertDialogDescription>Are you sure you want to delete the "{folderName}" folder? All files inside will be moved to "General Files".</AlertDialogDescription></AlertDialogHeader>
-                                        <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => {setDeletingFolder(folderName); handleDeleteFolder()}} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">Delete Folder</AlertDialogAction></AlertDialogFooter>
+                                        <AlertDialogHeader><AlertDialogTitle>Delete Folder?</AlertDialogTitle><AlertDialogDescription>This will permanently delete the folder "{folderName}" and all files contained within it. This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
+                                        <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteFolder(folderName)} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground" disabled={deletingFolder === folderName}>
+                                            {deletingFolder === folderName ? <Spinner /> : 'Delete Folder'}
+                                        </AlertDialogAction></AlertDialogFooter>
                                     </AlertDialogContent>
                                 </AlertDialog>
                             </div>
