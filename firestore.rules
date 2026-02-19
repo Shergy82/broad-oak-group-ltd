@@ -97,7 +97,7 @@ service cloud.firestore {
     // ---- HEALTH & SAFETY FILES ----
     match /health_and_safety_files/{id} {
       allow read: if signedIn();
-      allow create, update, delete: if role(request.auth.uid) == 'owner';
+      allow create, update, delete: if isPrivilegedUser(request.auth.uid);
     }
     
     // ---- EVIDENCE CHECKLISTS ----

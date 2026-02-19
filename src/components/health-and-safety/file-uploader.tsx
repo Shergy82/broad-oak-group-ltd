@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 
 import { storage, db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
@@ -10,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/shared/spinner';
 import { useToast } from '@/hooks/use-toast';
 import type { UserProfile } from '@/types';
+import { UploadCloud } from 'lucide-react';
 
 interface Props {
   userProfile: UserProfile;
@@ -54,12 +56,16 @@ export function HealthAndSafetyUploader({ userProfile }: Props) {
       });
 
       setFile(null);
+      // Clear the file input
+      const fileInput = document.getElementById('hs-file-input') as HTMLInputElement;
+      if (fileInput) fileInput.value = '';
+
     } catch (err) {
       console.error(err);
       toast({
         variant: 'destructive',
         title: 'Upload failed',
-        description: 'Could not upload file.',
+        description: 'Could not upload file. Check permissions.',
       });
     } finally {
       setUploading(false);
@@ -67,17 +73,22 @@ export function HealthAndSafetyUploader({ userProfile }: Props) {
   }
 
   return (
-    <div className="border rounded-lg p-4 space-y-3">
-      <h3 className="font-semibold">Upload Document</h3>
-
-      <Input
-        type="file"
-        onChange={(e) => setFile(e.target.files?.[0] || null)}
-      />
-
-      <Button onClick={handleUpload} disabled={!file || uploading}>
-        {uploading ? <Spinner /> : 'Upload'}
-      </Button>
-    </div>
+    <Card>
+        <CardHeader>
+            <CardTitle>Upload H&S Document</CardTitle>
+            <CardDescription>Upload a new health and safety document for the team to access.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col sm:flex-row gap-4 items-center">
+          <Input
+            id="hs-file-input"
+            type="file"
+            onChange={(e) => setFile(e.target.files?.[0] || null)}
+            className="flex-grow"
+          />
+          <Button onClick={handleUpload} disabled={!file || uploading} className="w-full sm:w-auto">
+            {uploading ? <Spinner /> : <><UploadCloud className="mr-2 h-4 w-4" /> Upload Document</>}
+          </Button>
+        </CardContent>
+    </Card>
   );
 }

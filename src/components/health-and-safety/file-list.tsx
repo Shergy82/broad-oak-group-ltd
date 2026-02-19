@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -39,7 +38,7 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
   const [files, setFiles] = useState<HealthAndSafetyFile[]>([]);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
-  const isOwner = userProfile.role === 'owner';
+  const isPrivilegedUser = ['admin', 'owner', 'manager'].includes(userProfile.role);
 
   useEffect(() => {
     const q = query(collection(db, 'health_and_safety_files'), orderBy('uploadedAt', 'desc'));
@@ -127,7 +126,7 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
                         <Download className="h-4 w-4" />
                       </a>
                     </Button>
-                    {isOwner && (
+                    {isPrivilegedUser && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button variant="ghost" size="icon" className="text-destructive/70 hover:text-destructive hover:bg-destructive/10">
