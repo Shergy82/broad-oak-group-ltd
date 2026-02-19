@@ -118,7 +118,7 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
                 <TableRow key={file.id}>
                   <TableCell className="font-medium">{file.name}</TableCell>
                   <TableCell>{file.uploaderName}</TableCell>
-                  <TableCell>{format(file.uploadedAt.toDate(), 'dd MMM yyyy')}</TableCell>
+                  <TableCell>{file.uploadedAt ? format(file.uploadedAt.toDate(), 'dd MMM yyyy') : 'Just now'}</TableCell>
                   <TableCell>{formatFileSize(file.size)}</TableCell>
                   <TableCell className="text-right">
                     <Button variant="ghost" size="icon" asChild>
