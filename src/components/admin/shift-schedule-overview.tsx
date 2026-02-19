@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -265,6 +266,11 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     const d = date.toDate();
     return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
   };
+
+  const departmentFilteredUsers = useMemo(() => {
+    if (!isOwner) return users;
+    return users.filter(user => user.department && selectedDepartments.has(user.department));
+  }, [users, isOwner, selectedDepartments]);
   
   const filteredShifts = useMemo(() => {
     let departmentFilteredShifts = shifts;
@@ -278,7 +284,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     return departmentFilteredShifts.filter(shift => shift.userId === selectedUserId);
   }, [shifts, selectedUserId, isOwner, selectedDepartments, availableDepartments]);
 
-  const { todayShifts, thisWeekShifts, nextWeekShifts, week3Shifts, week4Shifts, archiveShifts } = useMemo(() => {
+  const { todayShifts, thisWeekShifts, lastWeekShifts, nextWeekShifts, week3Shifts, week4Shifts, archiveShifts } = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -972,7 +978,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     );
   }
 
-  const renderWeekSchedule = (weekShifts: Shift[]) => {
+  const renderWeekSchedule = (shiftsToRender: Shift[]) => {
     if (loading) {
       return (
         <div className="border rounded-lg overflow-hidden mt-4">
@@ -996,8 +1002,8 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
         });
     }
 
-    const activeShifts = sortShifts(weekShifts.filter(s => ['pending-confirmation', 'confirmed', 'on-site', 'rejected'].includes(s.status)));
-    const historicalShifts = sortShifts(weekShifts.filter(s => ['completed', 'incomplete'].includes(s.status)))
+    const activeShifts = sortShifts(shiftsToRender.filter(s => ['pending-confirmation', 'confirmed', 'on-site', 'rejected'].includes(s.status)));
+    const historicalShifts = sortShifts(shiftsToRender.filter(s => ['completed', 'incomplete'].includes(s.status)))
       .sort((a,b) => getCorrectedLocalDate(b.date).getTime() - getCorrectedLocalDate(a.date).getTime());
 
     if (activeShifts.length === 0 && historicalShifts.length === 0) {
@@ -1128,7 +1134,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">All Users</SelectItem>
-                            {users.map(user => (
+                            {departmentFilteredUsers.map(user => (
                                 <SelectItem key={user.uid} value={user.uid}>{user.name}</SelectItem>
                             ))}
                         </SelectContent>
