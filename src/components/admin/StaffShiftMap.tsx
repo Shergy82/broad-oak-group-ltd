@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Search } from 'lucide-react';
 
 import { db } from '@/lib/firebase';
-import type { Shift, UserProfile } from '@/types';
+import type { Shift, UserProfile, ShiftStatus } from '@/types';
 import { Spinner } from '@/components/shared/spinner';
 
 interface Coords {
@@ -24,7 +24,26 @@ interface LocationPin {
   address: string;
   position: Coords;
   shifts: Shift[];
+  color: string;
 }
+
+const statusColorMapping: { [key in ShiftStatus]: string } = {
+    'on-site': '#14b8a6', // teal
+    'confirmed': '#3F51B5', // primary/blue
+    'pending-confirmation': '#f97316', // orange
+    'completed': '#22c55e', // green
+    'incomplete': '#f59e0b', // amber
+    'rejected': '#ef4444', // red
+};
+
+const statusPriority: ShiftStatus[] = [
+    'on-site',
+    'confirmed',
+    'pending-confirmation',
+    'incomplete',
+    'rejected',
+    'completed',
+];
 
 const UK_CENTER = { lat: 54.5, lng: -2 };
 
@@ -209,11 +228,27 @@ export function StaffShiftMap() {
         shiftsByAddress.get(shift.address)!.shifts.push(shift);
     });
       
-    return Array.from(shiftsByAddress.entries()).map(([address, data]) => ({
-      address,
-      position: data.coords,
-      shifts: data.shifts,
-    }));
+    return Array.from(shiftsByAddress.entries()).map(([address, data]) => {
+        let highestPriorityStatus: ShiftStatus | null = null;
+        let highestPriorityIndex = Infinity;
+
+        data.shifts.forEach(shift => {
+            const priority = statusPriority.indexOf(shift.status);
+            if (priority !== -1 && priority < highestPriorityIndex) {
+                highestPriorityIndex = priority;
+                highestPriorityStatus = shift.status;
+            }
+        });
+
+        const pinColor = highestPriorityStatus ? statusColorMapping[highestPriorityStatus] : '#6b7280'; // default gray
+
+        return {
+            address,
+            position: data.coords,
+            shifts: data.shifts,
+            color: pinColor
+        };
+    });
   }, [shifts, geocodedLocations, selectedUser]);
 
   const closestUsersForSelectedPin = useMemo(() => {
@@ -272,65 +307,84 @@ export function StaffShiftMap() {
                 </SelectContent>
             </Select>
         </div>
-        <GoogleMap
-          mapContainerStyle={containerStyle}
-          center={mapCenter}
-          zoom={12}
-        >
-          {userLocation && !selectedUser && (
-              <Marker
-                  position={userLocation}
-                  title="Your Location"
-                  icon={{
-                      path: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z',
-                      fillColor: '#1a73e8', // A distinct blue for the user's location
-                      fillOpacity: 1,
-                      strokeWeight: 1,
-                      strokeColor: '#ffffff',
-                      scale: 1.5,
-                      anchor: typeof window !== 'undefined' ? new window.google.maps.Point(12, 24) : undefined
-                  }}
-              />
-          )}
-          {locationPins.map((pin) => (
-            <Marker 
-                key={pin.address} 
-                position={pin.position} 
-                onClick={() => setSelectedPin(pin)}
-            />
-          ))}
-
-          {selectedPin && (
-            <InfoWindow
-              position={selectedPin.position}
-              onCloseClick={() => setSelectedPin(null)}
+        <div className="relative">
+            <GoogleMap
+            mapContainerStyle={containerStyle}
+            center={mapCenter}
+            zoom={12}
             >
-              <div className="space-y-2 p-1 max-w-xs">
-                <h4 className="font-bold text-base">{selectedPin.address}</h4>
-                <hr />
-                <div>
-                  <p className="font-semibold">Operatives at this location:</p>
-                  <ul className="list-none p-0 mt-1 text-sm">
-                      {selectedPin.shifts.map(s => (
-                          <li key={s.id}><strong>{s.userName}:</strong> {s.task}</li>
-                      ))}
-                  </ul>
-                </div>
-                {closestUsersForSelectedPin.length > 0 && (
+            {userLocation && !selectedUser && (
+                <Marker
+                    position={userLocation}
+                    title="Your Location"
+                    icon={{
+                        path: 'M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z',
+                        fillColor: '#1a73e8', // A distinct blue for the user's location
+                        fillOpacity: 1,
+                        strokeWeight: 1,
+                        strokeColor: '#ffffff',
+                        scale: 1.5,
+                        anchor: typeof window !== 'undefined' ? new window.google.maps.Point(12, 24) : undefined
+                    }}
+                />
+            )}
+            {locationPins.map((pin) => (
+                <Marker 
+                    key={pin.address} 
+                    position={pin.position} 
+                    onClick={() => setSelectedPin(pin)}
+                    icon={{
+                        path: google.maps.SymbolPath.CIRCLE,
+                        scale: 9,
+                        fillColor: pin.color,
+                        fillOpacity: 1,
+                        strokeColor: '#ffffff',
+                        strokeWeight: 2,
+                    }}
+                />
+            ))}
+
+            {selectedPin && (
+                <InfoWindow
+                position={selectedPin.position}
+                onCloseClick={() => setSelectedPin(null)}
+                >
+                <div className="space-y-2 p-1 max-w-xs">
+                    <h4 className="font-bold text-base">{selectedPin.address}</h4>
+                    <hr />
                     <div>
-                        <hr className="my-2" />
-                        <p className="font-semibold">Closest Operatives:</p>
-                        <ul className="list-none p-0 mt-1 text-sm text-muted-foreground">
-                          {closestUsersForSelectedPin.map((u, i) => (
-                              <li key={i}>{u.userName} (~{u.distance.toFixed(1)} miles away)</li>
-                          ))}
-                        </ul>
+                    <p className="font-semibold">Operatives at this location:</p>
+                    <ul className="list-none p-0 mt-1 text-sm">
+                        {selectedPin.shifts.map(s => (
+                            <li key={s.id}><strong>{s.userName}:</strong> {s.task}</li>
+                        ))}
+                    </ul>
                     </div>
-                )}
-              </div>
-            </InfoWindow>
-          )}
-        </GoogleMap>
+                    {closestUsersForSelectedPin.length > 0 && (
+                        <div>
+                            <hr className="my-2" />
+                            <p className="font-semibold">Closest Operatives:</p>
+                            <ul className="list-none p-0 mt-1 text-sm text-muted-foreground">
+                            {closestUsersForSelectedPin.map((u, i) => (
+                                <li key={i}>{u.userName} (~{u.distance.toFixed(1)} miles away)</li>
+                            ))}
+                            </ul>
+                        </div>
+                    )}
+                </div>
+                </InfoWindow>
+            )}
+            </GoogleMap>
+            <div className="absolute bottom-3 left-3 bg-white p-2 rounded shadow-lg space-y-1 text-xs z-10">
+                <h4 className="font-bold">Status Legend</h4>
+                {Object.entries(statusColorMapping).map(([status, color]) => (
+                <div key={status} className="flex items-center gap-2">
+                    <div style={{ backgroundColor: color }} className="w-3 h-3 rounded-full border border-gray-300"></div>
+                    <span className="capitalize">{status.replace('-', ' ')}</span>
+                </div>
+                ))}
+            </div>
+        </div>
     </div>
   );
 }
