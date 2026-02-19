@@ -37,6 +37,7 @@ import { cn } from '@/lib/utils';
 import { Spinner } from '@/components/shared/spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useUserProfile } from '@/hooks/use-user-profile';
+import { useDepartmentFilter } from '@/hooks/use-department-filter';
 
 
 type Role = 'user' | 'admin' | 'owner' | 'manager' | 'TLO';
@@ -322,6 +323,8 @@ export default function AvailabilityPage() {
   const [isUnavailabilityManagerOpen, setIsUnavailabilityManagerOpen] = useState(false);
   const { toast } = useToast();
   const { userProfile, loading: profileLoading } = useUserProfile();
+  const { selectedDepartments } = useDepartmentFilter();
+  const isOwner = userProfile?.role === 'owner';
 
   useEffect(() => {
     if (profileLoading || !userProfile) {
@@ -339,7 +342,7 @@ export default function AvailabilityPage() {
     };
     
     const department = userProfile.department;
-    const isOwner = userProfile.role === 'owner';
+    const isOwnerRole = userProfile.role === 'owner';
 
     // Load saved preferences from localStorage on initial mount
     try {
@@ -354,7 +357,7 @@ export default function AvailabilityPage() {
         const tradesToSet = savedTrades ? new Set(JSON.parse(savedTrades)) : null;
        
         let shiftsQuery;
-        if (isOwner) {
+        if (isOwnerRole) {
             shiftsQuery = query(collection(db, 'shifts'));
         } else if (department) {
             shiftsQuery = query(collection(db, 'shifts'), where('department', '==', department));
@@ -368,7 +371,7 @@ export default function AvailabilityPage() {
         }, (err) => { console.error("Error fetching shifts:", err); shiftsLoaded = true; checkAllDataLoaded(); });
 
         let usersQuery;
-        if (isOwner) {
+        if (isOwnerRole) {
             usersQuery = query(collection(db, 'users'));
         } else if (department) {
             usersQuery = query(collection(db, 'users'), where('department', '==', department));
@@ -412,6 +415,23 @@ export default function AvailabilityPage() {
         setLoading(false);
     }
   }, [profileLoading, userProfile]);
+
+  const departmentFilteredUsers = useMemo(() => {
+    if (isOwner) {
+        return allUsers.filter(u => u.department && selectedDepartments.has(u.department));
+    }
+    return allUsers;
+  }, [allUsers, isOwner, selectedDepartments]);
+  
+  const departmentFilteredShifts = useMemo(() => {
+      const userIdsToDisplay = new Set(departmentFilteredUsers.map(u => u.uid));
+      return allShifts.filter(s => userIdsToDisplay.has(s.userId));
+  }, [allShifts, departmentFilteredUsers]);
+
+  const departmentFilteredUnavailability = useMemo(() => {
+    const userIdsToDisplay = new Set(departmentFilteredUsers.map(u => u.uid));
+    return unavailability.filter(u => userIdsToDisplay.has(u.userId));
+  }, [unavailability, departmentFilteredUsers]);
   
   const handleDeleteUnavailability = async (id: string) => {
     try {
@@ -469,7 +489,7 @@ export default function AvailabilityPage() {
   const usersMatchingFilters = useMemo(() => {
     const lowercasedSearchTerm = userSearchTerm.toLowerCase();
 
-    return allUsers.filter(user => {
+    return departmentFilteredUsers.filter(user => {
         // Always apply name search filter first
         if (lowercasedSearchTerm && !user.name?.toLowerCase().includes(lowercasedSearchTerm)) {
             return false;
@@ -490,7 +510,7 @@ export default function AvailabilityPage() {
 
         return true;
     });
-  }, [allUsers, userSearchTerm, viewMode, filterBy, selectedRoles, selectedTrades]);
+  }, [departmentFilteredUsers, userSearchTerm, viewMode, filterBy, selectedRoles, selectedTrades]);
 
 
   useEffect(() => {
@@ -499,18 +519,18 @@ export default function AvailabilityPage() {
   }, [usersMatchingFilters]);
 
   const availableUsers: AvailableUser[] = useMemo(() => {
-    if (!dateRange?.from || allUsers.length === 0) return [];
+    if (!dateRange?.from || departmentFilteredUsers.length === 0) return [];
   
     const start = startOfDay(dateRange.from);
     const end = dateRange.to ? startOfDay(dateRange.to) : start;
     const intervalDays = eachDayOfInterval({ start, end });
   
-    const usersToConsider = allUsers.filter(user => selectedUserIds.has(user.uid));
-    const relevantUnavailability = unavailability.filter(u => usersToConsider.some(user => user.uid === u.userId));
+    const usersToConsider = departmentFilteredUsers.filter(user => selectedUserIds.has(user.uid));
+    const relevantUnavailability = departmentFilteredUnavailability.filter(u => usersToConsider.some(user => user.uid === u.userId));
   
     return usersToConsider
       .map((user): AvailableUser | null => {
-        const userShiftsInRange = allShifts.filter(shift =>
+        const userShiftsInRange = departmentFilteredShifts.filter(shift =>
             shift.userId === user.uid && 
             isBefore(startOfDay(getCorrectedLocalDate(shift.date)), addDays(end, 1)) &&
             isBefore(start, addDays(startOfDay(getCorrectedLocalDate(shift.date)), 1))
@@ -554,7 +574,7 @@ export default function AvailabilityPage() {
       })
       .filter((u): u is AvailableUser => u !== null);
       
-  }, [dateRange, allShifts, allUsers, selectedUserIds, unavailability]);
+  }, [dateRange, departmentFilteredShifts, departmentFilteredUsers, selectedUserIds, departmentFilteredUnavailability]);
 
     const { fullyAvailable, partiallyAvailable, unavailable } = useMemo(() => {
     const data: {
@@ -586,15 +606,15 @@ export default function AvailabilityPage() {
     const gridEnd = addDays(gridStart, 34); // 5 weeks
     const allGridDays = eachDayOfInterval({ start: gridStart, end: gridEnd });
 
-    const usersToConsider = allUsers.filter(user => selectedUserIds.has(user.uid));
+    const usersToConsider = departmentFilteredUsers.filter(user => selectedUserIds.has(user.uid));
 
     return allGridDays.map(day => {
         const availableUsers: DayData['availableUsers'] = [];
         for (const user of usersToConsider) {
-            const isUnavailable = unavailability.some(u => u.userId === user.uid && isWithinInterval(day, { start: getCorrectedLocalDate(u.startDate), end: getCorrectedLocalDate(u.endDate)}));
+            const isUnavailable = departmentFilteredUnavailability.some(u => u.userId === user.uid && isWithinInterval(day, { start: getCorrectedLocalDate(u.startDate), end: getCorrectedLocalDate(u.endDate)}));
             if (isUnavailable) continue;
 
-            const shiftsOnDay = allShifts.filter(shift => shift.userId === user.uid && isSameDay(getCorrectedLocalDate(shift.date), day));
+            const shiftsOnDay = departmentFilteredShifts.filter(shift => shift.userId === user.uid && isSameDay(getCorrectedLocalDate(shift.date), day));
             if (shiftsOnDay.length === 0) availableUsers.push({ user, availability: 'full' });
             else if (shiftsOnDay.length === 1) {
                 const shift = shiftsOnDay[0];
@@ -605,7 +625,7 @@ export default function AvailabilityPage() {
         return { date: day, availableUsers }
     });
 
-  }, [allShifts, allUsers, selectedUserIds, viewMode, unavailability]);
+  }, [departmentFilteredShifts, departmentFilteredUsers, selectedUserIds, viewMode, departmentFilteredUnavailability]);
   
   const handleOpenDayDetail = (dayData: DayData) => {
     setSelectedDayData(dayData);
@@ -661,14 +681,14 @@ export default function AvailabilityPage() {
     
     let finalY = 35;
     
-    const usersToConsider = allUsers.filter(u => selectedUserIds.has(u.uid));
+    const usersToConsider = departmentFilteredUsers.filter(u => selectedUserIds.has(u.uid));
 
     const head = [['Operative', 'Date', 'Availability', 'Notes']];
     const body: string[][] = [];
 
     usersToConsider.forEach(user => {
-      const userShiftsInRange = allShifts.filter(shift => shift.userId === user.uid && isWithinInterval(getCorrectedLocalDate(shift.date), interval));
-      const userUnavailabilityInRange = unavailability.filter(u => u.userId === user.uid && isWithinInterval(getCorrectedLocalDate(u.startDate), interval));
+      const userShiftsInRange = departmentFilteredShifts.filter(shift => shift.userId === user.uid && isWithinInterval(getCorrectedLocalDate(shift.date), interval));
+      const userUnavailabilityInRange = departmentFilteredUnavailability.filter(u => u.userId === user.uid && isWithinInterval(getCorrectedLocalDate(u.startDate), interval));
 
       let addedUserRow = false;
 
@@ -1090,8 +1110,8 @@ export default function AvailabilityPage() {
       </CardContent>
       {renderDayDetailDialog()}
        <UnavailabilityManagerDialog 
-        users={allUsers}
-        unavailability={unavailability}
+        users={departmentFilteredUsers}
+        unavailability={departmentFilteredUnavailability}
         handleDeleteUnavailability={handleDeleteUnavailability}
         open={isUnavailabilityManagerOpen}
         onOpenChange={setIsUnavailabilityManagerOpen}

@@ -1,8 +1,9 @@
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { collection, onSnapshot, query } from 'firebase/firestore';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Shift, UserProfile, Unavailability } from '@/types';
 import { isToday, startOfToday } from 'date-fns';
@@ -22,6 +23,7 @@ import {
 import { Badge } from '../ui/badge';
 import { ScrollArea } from '../ui/scroll-area';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { useDepartmentFilter } from '@/hooks/use-department-filter';
 
 
 interface AvailableUser {
@@ -125,18 +127,19 @@ const UserAvatarList = ({ users, category, onUserClick }: { users: AvailableUser
 type ActiveTab = 'working-today' | 'fully-available' | 'semi-available' | 'unavailable' | null;
 
 interface AvailabilityOverviewProps {
-    userProfile: UserProfile; // Added for type-safety with dashboard
+    userProfile: UserProfile;
     viewMode?: 'normal' | 'simple';
 }
 
 
-export function AvailabilityOverview({ viewMode = 'normal' }: AvailabilityOverviewProps) {
+export function AvailabilityOverview({ viewMode = 'normal', userProfile }: AvailabilityOverviewProps) {
     const [shifts, setShifts] = useState<Shift[]>([]);
     const [users, setUsers] = useState<UserProfile[]>([]);
     const [unavailability, setUnavailability] = useState<Unavailability[]>([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<ActiveTab>(null);
     const [selectedUserShifts, setSelectedUserShifts] = useState<AvailableUser | null>(null);
+    const { selectedDepartments } = useDepartmentFilter();
 
     useEffect(() => {
         if (viewMode === 'normal') {
@@ -147,8 +150,23 @@ export function AvailabilityOverview({ viewMode = 'normal' }: AvailabilityOvervi
     }, [viewMode]);
 
     useEffect(() => {
-        const shiftsQuery = query(collection(db, 'shifts'));
-        const usersQuery = query(collection(db, 'users'));
+        const department = userProfile.department;
+        const isOwner = userProfile.role === 'owner';
+
+        let shiftsQuery;
+        let usersQuery;
+        
+        if (isOwner) {
+            shiftsQuery = query(collection(db, 'shifts'));
+            usersQuery = query(collection(db, 'users'));
+        } else if (department) {
+            shiftsQuery = query(collection(db, 'shifts'), where('department', '==', department));
+            usersQuery = query(collection(db, 'users'), where('department', '==', department));
+        } else {
+            setLoading(false);
+            return;
+        }
+
         const unavailabilityQuery = query(collection(db, 'unavailability'));
 
         let shiftsLoaded = false;
@@ -184,21 +202,29 @@ export function AvailabilityOverview({ viewMode = 'normal' }: AvailabilityOvervi
             unsubUsers();
             unsubUnavailability();
         };
-    }, []);
+    }, [userProfile]);
 
     const todaysAvailability: AvailableUser[] = useMemo(() => {
         if (loading) return [];
         
-        const todaysShifts = shifts.filter(s => isToday(getCorrectedLocalDate(s.date)));
+        const isOwner = userProfile.role === 'owner';
+        const usersToProcess = isOwner 
+            ? users.filter(u => u.department && selectedDepartments.has(u.department))
+            : users;
+
+        const userIdsToProcess = new Set(usersToProcess.map(u => u.uid));
+
+        const todaysShifts = shifts.filter(s => isToday(getCorrectedLocalDate(s.date)) && userIdsToProcess.has(s.userId));
         const todaysDate = startOfToday();
         const todaysUnavailable = unavailability.filter(u => {
+            if (!userIdsToProcess.has(u.userId)) return false;
             const startDate = getCorrectedLocalDate(u.startDate);
             const endDate = getCorrectedLocalDate(u.endDate);
             return todaysDate >= startDate && todaysDate <= endDate;
         });
 
         
-        return users.map(user => {
+        return usersToProcess.map(user => {
             const unavailabilityRecord = todaysUnavailable.find(u => u.userId === user.uid);
             if (unavailabilityRecord) {
                 return { user, availability: 'unavailable', shifts: [], unavailabilityReason: unavailabilityRecord.reason };
@@ -225,7 +251,7 @@ export function AvailabilityOverview({ viewMode = 'normal' }: AvailabilityOvervi
             return { user, availability: 'busy', shifts: userShiftsToday };
         }).filter((u): u is AvailableUser => u !== null);
 
-    }, [loading, shifts, users, unavailability]);
+    }, [loading, shifts, users, unavailability, userProfile.role, selectedDepartments]);
     
     const { workingTodayCount, fullyAvailableCount, semiAvailableCount, unavailableCount } = useMemo(() => {
         return {
