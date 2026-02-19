@@ -19,8 +19,7 @@ import { Spinner } from '@/components/shared/spinner';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-
-const LS_DEPT_FILTER_KEY = 'userManagement_departmentFilter';
+import { useDepartmentFilter } from '@/hooks/use-department-filter';
 
 export function UserManagement() {
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -29,7 +28,8 @@ export function UserManagement() {
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState('all');
-  const [selectedDepartment, setSelectedDepartment] = useState('all');
+
+  const { selectedDepartments, availableDepartments } = useDepartmentFilter();
   
   const isOwner = currentUserProfile?.role === 'owner';
   const isPrivilegedUser = isOwner || currentUserProfile?.role === 'admin' || currentUserProfile?.role === 'manager' || currentUserProfile?.role === 'TLO';
@@ -72,46 +72,14 @@ export function UserManagement() {
     return () => unsubscribe();
   }, [currentUserProfile, toast, isOwner]);
 
-  useEffect(() => {
-    if (isOwner) {
-        try {
-            const savedDept = localStorage.getItem(LS_DEPT_FILTER_KEY);
-            if (savedDept) {
-                setSelectedDepartment(savedDept);
-            }
-        } catch (e) {
-            console.warn("Could not read department filter preference from localStorage.");
-        }
-    }
-  }, [isOwner]);
-
-  const handleDepartmentFilterChange = (dept: string) => {
-      setSelectedDepartment(dept);
-      if (isOwner) {
-          try {
-            localStorage.setItem(LS_DEPT_FILTER_KEY, dept);
-          } catch (e) {
-            console.warn("Could not save department filter preference to localStorage.");
-          }
-      }
-  };
-
-  const availableDepartments = useMemo(() => {
-      const depts = new Set<string>();
-      users.forEach(user => {
-          if(user.department) depts.add(user.department);
-      });
-      return Array.from(depts).sort();
-  }, [users]);
-
   const pendingUsers = useMemo(() => users.filter(user => user.status === 'pending-approval'), [users]);
 
   const usersToDisplay = useMemo(() => {
     const sourceUsers = activeTab === 'pending' ? pendingUsers : users;
     let filtered = sourceUsers;
 
-    if (isOwner && selectedDepartment !== 'all') {
-        filtered = filtered.filter(user => user.department === selectedDepartment);
+    if (isOwner && availableDepartments.length > 0) {
+      filtered = filtered.filter(user => user.department && selectedDepartments.has(user.department));
     }
     
     if (!searchTerm) {
@@ -121,7 +89,7 @@ export function UserManagement() {
     return filtered.filter(user =>
       user.name.toLowerCase().includes(searchTerm.toLowerCase())
     );
-  }, [users, pendingUsers, activeTab, searchTerm, isOwner, selectedDepartment]);
+  }, [users, pendingUsers, activeTab, searchTerm, isOwner, selectedDepartments, availableDepartments]);
 
 
   const adminAndManagerUsers = useMemo(() => usersToDisplay.filter(user =>
@@ -446,17 +414,6 @@ export function UserManagement() {
                         className="w-full sm:w-64 pl-10"
                     />
                 </div>
-                {isOwner && (
-                    <Select value={selectedDepartment} onValueChange={handleDepartmentFilterChange}>
-                        <SelectTrigger className="w-full sm:w-[200px]">
-                            <SelectValue placeholder="Filter by department..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">All Departments</SelectItem>
-                            {availableDepartments.map(dept => <SelectItem key={dept} value={dept}>{dept}</SelectItem>)}
-                        </SelectContent>
-                    </Select>
-                )}
             </div>
             <Button variant="outline" onClick={handleDownloadPdf} disabled={loading || users.length === 0} className="w-full sm:w-auto">
                 <Download className="mr-2 h-4 w-4" />

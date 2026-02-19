@@ -24,6 +24,7 @@ import {
   ListChecks,
   FileArchive,
   Map,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { NotificationButton } from '../shared/notification-button';
 import {
@@ -33,14 +34,21 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuPortal,
+  DropdownMenuSubContent,
+  DropdownMenuCheckboxItem,
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { GlobalShiftImporter } from '@/components/admin/global-shift-importer';
+import { useDepartmentFilter } from '@/hooks/use-department-filter';
 
 export function Header() {
   const { user } = useAuth();
   const { userProfile } = useUserProfile();
   const router = useRouter();
+  const { availableDepartments, selectedDepartments, toggleDepartment, loading: deptsLoading } = useDepartmentFilter();
 
   const handleSignOut = async () => {
     if (auth) {
@@ -50,6 +58,7 @@ export function Header() {
   };
 
   const isPrivilegedUser = userProfile && ['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role);
+  const isOwner = userProfile?.role === 'owner';
 
   const getInitials = (name?: string) => {
     if (!name) return <User className="h-5 w-5" />;
@@ -92,6 +101,37 @@ export function Header() {
                   </DropdownMenuLabel>
                 )}
                 <DropdownMenuSeparator />
+
+                {isOwner && availableDepartments.length > 0 && (
+                  <>
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <SlidersHorizontal className="mr-2 h-4 w-4" />
+                        <span>Filter Departments</span>
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuPortal>
+                        <DropdownMenuSubContent>
+                          <DropdownMenuLabel>Visible Departments</DropdownMenuLabel>
+                          <DropdownMenuSeparator />
+                          {deptsLoading ? <DropdownMenuItem disabled>Loading...</DropdownMenuItem> :
+                            availableDepartments.map(dept => (
+                              <DropdownMenuCheckboxItem
+                                key={dept}
+                                checked={selectedDepartments.has(dept)}
+                                onCheckedChange={() => toggleDepartment(dept)}
+                                onSelect={(e) => e.preventDefault()}
+                              >
+                                {dept}
+                              </DropdownMenuCheckboxItem>
+                            ))
+                          }
+                        </DropdownMenuSubContent>
+                      </DropdownMenuPortal>
+                    </DropdownMenuSub>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
+
                 <DropdownMenuItem onClick={() => router.push('/dashboard')} className="cursor-pointer">
                   <Calendar className="mr-2" />
                   <span>Dashboard</span>

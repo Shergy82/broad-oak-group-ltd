@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -95,6 +93,7 @@ import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogD
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/shared/spinner';
+import { useDepartmentFilter } from '@/hooks/use-department-filter';
 
 const getStatusBadge = (shift: Shift) => {
   const baseProps = { className: 'capitalize' };
@@ -178,6 +177,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
   const { toast } = useToast();
   const router = useRouter();
   
+  const { selectedDepartments, availableDepartments } = useDepartmentFilter();
   const isOwner = userProfile.role === 'owner';
 
   useEffect(() => {
@@ -267,17 +267,23 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
   };
   
   const filteredShifts = useMemo(() => {
-    if (selectedUserId === 'all') {
-      return shifts;
+    let departmentFilteredShifts = shifts;
+    if (isOwner && availableDepartments.length > 0) {
+      departmentFilteredShifts = shifts.filter(shift => shift.department && selectedDepartments.has(shift.department));
     }
-    return shifts.filter(shift => shift.userId === selectedUserId);
-  }, [shifts, selectedUserId]);
+
+    if (selectedUserId === 'all') {
+      return departmentFilteredShifts;
+    }
+    return departmentFilteredShifts.filter(shift => shift.userId === selectedUserId);
+  }, [shifts, selectedUserId, isOwner, selectedDepartments, availableDepartments]);
 
   const { todayShifts, thisWeekShifts, nextWeekShifts, week3Shifts, week4Shifts, archiveShifts } = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const baseShifts = activeTab === 'archive' ? shifts : filteredShifts;
+    const baseShiftsForArchive = isOwner ? shifts.filter(shift => shift.department && selectedDepartments.has(shift.department)) : shifts;
+    const baseShifts = activeTab === 'archive' ? baseShiftsForArchive : filteredShifts;
 
     const todayShifts = baseShifts.filter(s => isToday(getCorrectedLocalDate(s.date)));
     
@@ -305,7 +311,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     
     // Archive logic
     const sixWeeksAgo = startOfWeek(subWeeks(today, 5), { weekStartsOn: 1 });
-    const historicalShifts = shifts.filter(s => {
+    const historicalShifts = baseShifts.filter(s => {
         const shiftDate = getCorrectedLocalDate(s.date);
         return shiftDate >= sixWeeksAgo && shiftDate < startOfWeek(today, {weekStartsOn: 1}) && ['completed', 'incomplete'].includes(s.status);
     });
@@ -318,7 +324,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     );
 
     return { todayShifts, thisWeekShifts, nextWeekShifts, week3Shifts, week4Shifts, archiveShifts };
-  }, [filteredShifts, shifts, selectedUserId, selectedArchiveWeek, activeTab]);
+  }, [filteredShifts, shifts, selectedUserId, selectedArchiveWeek, activeTab, isOwner, selectedDepartments]);
 
   const userNameMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -1240,7 +1246,3 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     </>
   );
 }
-
-    
-
-    
