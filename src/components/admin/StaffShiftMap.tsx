@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { GoogleMap, Marker, InfoWindow, useJsApiLoader } from '@react-google-maps/api';
 import { collection, onSnapshot, query, where, Timestamp } from 'firebase/firestore';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -97,10 +97,32 @@ export function StaffShiftMap() {
   const [mapCenter, setMapCenter] = useState(UK_CENTER);
   const [userLocation, setUserLocation] = useState<Coords | null>(null);
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
+  const infoWindowCloseTimer = useRef<NodeJS.Timeout | null>(null);
+
 
   const { isLoaded, loadError } = useJsApiLoader({
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY!,
   });
+
+  const handleMarkerMouseOver = (pin: LocationPin) => {
+    if (infoWindowCloseTimer.current) {
+        clearTimeout(infoWindowCloseTimer.current);
+    }
+    setSelectedPin(pin);
+  };
+
+  const handleMarkerMouseOut = () => {
+      infoWindowCloseTimer.current = setTimeout(() => {
+          setSelectedPin(null);
+      }, 100);
+  };
+
+  const handleInfoWindowMouseOver = () => {
+      if (infoWindowCloseTimer.current) {
+          clearTimeout(infoWindowCloseTimer.current);
+      }
+  };
+
 
   useEffect(() => {
     if (!db) {
@@ -371,7 +393,8 @@ export function StaffShiftMap() {
                 <Marker 
                     key={pin.address} 
                     position={pin.position} 
-                    onClick={() => setSelectedPin(pin)}
+                    onMouseOver={() => handleMarkerMouseOver(pin)}
+                    onMouseOut={handleMarkerMouseOut}
                     icon={{
                         path: google.maps.SymbolPath.CIRCLE,
                         scale: 15,
@@ -385,40 +408,44 @@ export function StaffShiftMap() {
 
             {selectedPin && (
                 <InfoWindow
-                position={selectedPin.position}
-                onCloseClick={() => setSelectedPin(null)}
+                    position={selectedPin.position}
+                    onCloseClick={() => setSelectedPin(null)}
                 >
-                <div className="space-y-2 p-1 max-w-xs">
-                    <h4 className="font-bold text-base">{selectedPin.address}</h4>
-                    <hr />
-                    <div>
-                    <p className="font-semibold">Operatives at this location:</p>
-                    <ul className="list-none p-0 mt-1 text-sm">
-                        {selectedPin.shifts.map(s => (
-                            <li key={s.id}>
-                                <strong>{s.userName}:</strong> {s.task} -{' '}
-                                <span
-                                    style={{ color: statusColorMapping[s.status] || '#6b7280' }}
-                                    className="font-semibold capitalize"
-                                >
-                                    {s.status.replace(/-/g, ' ')}
-                                </span>
-                            </li>
-                        ))}
-                    </ul>
-                    </div>
-                    {closestUsersForSelectedPin.length > 0 && (
+                    <div 
+                        className="space-y-2 p-1 max-w-xs"
+                        onMouseOver={handleInfoWindowMouseOver}
+                        onMouseOut={handleMarkerMouseOut}
+                    >
+                        <h4 className="font-bold text-base">{selectedPin.address}</h4>
+                        <hr />
                         <div>
-                            <hr className="my-2" />
-                            <p className="font-semibold">Closest Operatives:</p>
-                            <ul className="list-none p-0 mt-1 text-sm text-muted-foreground">
-                            {closestUsersForSelectedPin.map((u, i) => (
-                                <li key={i}>{u.userName} (~{u.distance.toFixed(1)} miles away)</li>
+                        <p className="font-semibold">Operatives at this location:</p>
+                        <ul className="list-none p-0 mt-1 text-sm">
+                            {selectedPin.shifts.map(s => (
+                                <li key={s.id}>
+                                    <strong>{s.userName}:</strong> {s.task} -{' '}
+                                    <span
+                                        style={{ color: statusColorMapping[s.status] || '#6b7280' }}
+                                        className="font-semibold capitalize"
+                                    >
+                                        {s.status.replace(/-/g, ' ')}
+                                    </span>
+                                </li>
                             ))}
-                            </ul>
+                        </ul>
                         </div>
-                    )}
-                </div>
+                        {closestUsersForSelectedPin.length > 0 && (
+                            <div>
+                                <hr className="my-2" />
+                                <p className="font-semibold">Closest Operatives:</p>
+                                <ul className="list-none p-0 mt-1 text-sm text-muted-foreground">
+                                {closestUsersForSelectedPin.map((u, i) => (
+                                    <li key={i}>{u.userName} (~{u.distance.toFixed(1)} miles away)</li>
+                                ))}
+                                </ul>
+                            </div>
+                        )}
+                    </div>
                 </InfoWindow>
             )}
             </GoogleMap>
