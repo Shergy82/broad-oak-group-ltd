@@ -455,20 +455,20 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                         {evidenceState === 'ready' && (
                             <div className="grid grid-cols-2 gap-2">
                                 <EvidenceReportGenerator project={project} files={files} onGenerated={() => onPdfGenerated(project.id)} userProfile={userProfile} />
-                                <Button variant="secondary" size="sm" onClick={() => onPdfGenerated(project.id)}>
+                                <Button variant="secondary" size="sm" className="text-xs px-2" onClick={() => onPdfGenerated(project.id)}>
                                     <CheckCircle className="mr-2 h-4 w-4" /> Mark Complete
                                 </Button>
                             </div>
                         )}
                         {evidenceState === 'generated' && (
                             <div className="grid grid-cols-2 gap-2">
-                                <Button variant="secondary" size="sm" className="text-xs px-2 gap-1.5" onClick={() => onResetStatus(project.id)}>
-                                    <RotateCw className="h-4 w-4" /> More Evidence
+                                <Button variant="secondary" size="sm" className="text-xs px-2" onClick={() => onResetStatus(project.id)}>
+                                    <RotateCw className="mr-2 h-4 w-4" /> More Evidence
                                 </Button>
                                 <AlertDialog>
                                     <AlertDialogTrigger asChild>
-                                        <Button variant="destructive" size="sm" className="text-xs px-2 gap-1.5">
-                                            <Trash2 className="h-4 w-4" /> Remove
+                                        <Button variant="destructive" size="sm" className="text-xs px-2">
+                                            <Trash2 className="mr-2 h-4 w-4" /> Remove
                                         </Button>
                                     </AlertDialogTrigger>
                                     <AlertDialogContent>
