@@ -162,8 +162,8 @@ interface ShiftScheduleOverviewProps {
 
 export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProps) {
   const { user } = useAuth();
-  const [shifts, setShifts] = useState<Shift[]>([]);
-  const { users: allUsersForFilter, loading: usersLoading } = useAllUsers();
+  const [allShifts, setAllShifts] = useState<Shift[]>([]);
+  const { users: allUsers, loading: usersLoading } = useAllUsers();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -190,9 +190,15 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
       return;
     }
     
-    const shiftsQuery = query(collection(db, 'shifts'));
+    let shiftsQuery;
+    if (isOwner) {
+        shiftsQuery = query(collection(db, 'shifts'));
+    } else {
+        shiftsQuery = query(collection(db, 'shifts'), where('userId', '==', userProfile.uid));
+    }
+    
     const unsubShifts = onSnapshot(shiftsQuery, (snapshot) => {
-      setShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
+      setAllShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
       setLoading(false);
     }, (err) => {
       console.error("Error fetching shifts: ", err);
@@ -212,13 +218,13 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
       unsubShifts();
       unsubProjects();
     };
-  }, [isOwner]);
+  }, [isOwner, userProfile.uid]);
 
   const getCorrectedLocalDate = (date: { toDate: () => Date }) => {
     const d = date.toDate();
     return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
   };
-
+  
   const {
     usersForDropdown,
     todayShifts,
@@ -229,37 +235,26 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     week4Shifts,
     archiveShifts,
   } = useMemo(() => {
-    // 1. Determine which users are in scope for the current view
-    let relevantUsers: UserProfile[];
-    if (isOwner) {
-      if (selectedDepartments.size === 0) {
-        relevantUsers = [];
-      } else {
-        relevantUsers = allUsersForFilter.filter(u => u.department && selectedDepartments.has(u.department));
-      }
-    } else {
-      relevantUsers = allUsersForFilter.filter(u => u.uid === userProfile.uid);
-    }
-
-    const usersForDropdownResult = [...relevantUsers].sort((a, b) => a.name.localeCompare(b.name));
-
-    // 2. Filter shifts based on the relevant users and the user dropdown selection
-    const relevantUserIds = new Set(relevantUsers.map(u => u.uid));
-    let baseFilteredShifts: Shift[];
-    if (selectedUserId === 'all') {
-      baseFilteredShifts = shifts.filter(s => relevantUserIds.has(s.userId));
-    } else {
-      if (relevantUserIds.has(selectedUserId)) {
-        baseFilteredShifts = shifts.filter(s => s.userId === selectedUserId);
-      } else {
-        baseFilteredShifts = [];
-      }
-    }
-
-    // 3. Break down the filtered shifts by date for the active tabs
+    // 1. Filter shifts by department (if owner)
+    const departmentFilteredShifts = isOwner 
+      ? allShifts.filter(shift => shift.department && selectedDepartments.has(shift.department)) 
+      : allShifts;
+  
+    // 2. Derive the list of users for the dropdown from the *department-filtered* shifts
+    const userIdsInFilteredShifts = new Set(departmentFilteredShifts.map(s => s.userId));
+    const usersForDropdownResult = allUsers
+      .filter(u => userIdsInFilteredShifts.has(u.uid))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    
+    // 3. Apply the individual user filter to the department-filtered shifts
+    const finalFilteredShifts = selectedUserId === 'all'
+      ? departmentFilteredShifts
+      : departmentFilteredShifts.filter(s => s.userId === selectedUserId);
+    
+    // 4. Group by time
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-
+  
     const processShifts = (shiftsToProcess: Shift[]) => ({
       todayShifts: shiftsToProcess.filter(s => isToday(getCorrectedLocalDate(s.date))),
       thisWeekShifts: shiftsToProcess.filter(s => isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 })),
@@ -268,32 +263,30 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
       week3Shifts: shiftsToProcess.filter(s => isSameWeek(getCorrectedLocalDate(s.date), addDays(today, 14), { weekStartsOn: 1 })),
       week4Shifts: shiftsToProcess.filter(s => isSameWeek(getCorrectedLocalDate(s.date), addDays(today, 21), { weekStartsOn: 1 })),
     });
-
-    const { todayShifts, thisWeekShifts, lastWeekShifts, nextWeekShifts, week3Shifts, week4Shifts } = processShifts(baseFilteredShifts);
-
-    // 4. Handle archive tab separately with its own filtering logic
+  
+    const { todayShifts, thisWeekShifts, lastWeekShifts, nextWeekShifts, week3Shifts, week4Shifts } = processShifts(finalFilteredShifts);
+  
+    // 5. Handle Archive tab separately
     const sixWeeksAgo = startOfWeek(subWeeks(today, 5), { weekStartsOn: 1 });
-    const historicalShifts = shifts.filter(s => {
+    const historicalShifts = finalFilteredShifts.filter(s => {
       const shiftDate = getCorrectedLocalDate(s.date);
       return shiftDate >= sixWeeksAgo && shiftDate < startOfWeek(today, { weekStartsOn: 1 }) && ['completed', 'incomplete'].includes(s.status);
     });
-    
+      
     const selectedArchiveDate = startOfWeek(subWeeks(today, parseInt(selectedArchiveWeek)), { weekStartsOn: 1 });
     const finalArchiveShifts = historicalShifts.filter(s =>
-      isSameWeek(getCorrectedLocalDate(s.date), selectedArchiveDate, { weekStartsOn: 1 }) &&
-      (selectedUserId === 'all' ? relevantUserIds.has(s.userId) : s.userId === selectedUserId)
+      isSameWeek(getCorrectedLocalDate(s.date), selectedArchiveDate, { weekStartsOn: 1 })
     );
-
+  
     return { usersForDropdown: usersForDropdownResult, todayShifts, thisWeekShifts, lastWeekShifts, nextWeekShifts, week3Shifts, week4Shifts, archiveShifts: finalArchiveShifts };
-
-  }, [isOwner, selectedDepartments, allUsersForFilter, userProfile, selectedUserId, shifts, selectedArchiveWeek]);
-
+  
+  }, [allShifts, allUsers, isOwner, selectedDepartments, selectedUserId, selectedArchiveWeek]);
 
   const userNameMap = useMemo(() => {
     const map = new Map<string, string>();
-    allUsersForFilter.forEach(user => map.set(user.uid, user.name));
+    allUsers.forEach(user => map.set(user.uid, user.name));
     return map;
-  }, [allUsersForFilter]);
+  }, [allUsers]);
 
   const archiveWeekOptions = useMemo(() => {
     const options = [];
@@ -338,7 +331,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     const pageContentMargin = 14;
     const pageHeight = doc.internal.pageSize.height;
     
-    const selectedUser = allUsersForFilter.find(u => u.uid === selectedUserId);
+    const selectedUser = allUsers.find(u => u.uid === selectedUserId);
     const title = selectedUser ? `Team Shift Schedule for ${selectedUser.name}` : 'Team Shift Schedule';
 
     const addPageNumbers = () => {
@@ -361,8 +354,8 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     
     const today = new Date();
 
-    const allThisWeekShifts = shifts.filter(s => isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 }));
-    const allNextWeekShifts = shifts.filter(s => {
+    const allThisWeekShifts = allShifts.filter(s => isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 }));
+    const allNextWeekShifts = allShifts.filter(s => {
         const shiftDate = getCorrectedLocalDate(s.date);
         const startOfNextWeek = addDays(today, 7);
         return isSameWeek(shiftDate, startOfNextWeek, { weekStartsOn: 1 });
@@ -392,7 +385,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
             shiftsByUser.get(shift.userId)!.push(shift);
         });
 
-        const usersToIterate = selectedUser ? [selectedUser] : [...allUsersForFilter].sort((a, b) => (a.name || '').localeCompare(b.name || '')).filter(u => shiftsByUser.has(u.uid));
+        const usersToIterate = selectedUser ? [selectedUser] : [...allUsers].sort((a, b) => (a.name || '').localeCompare(b.name || '')).filter(u => shiftsByUser.has(u.uid));
         
         for (const user of usersToIterate) {
             const userShifts = shiftsByUser.get(user.uid) || [];
@@ -537,7 +530,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     const { default: autoTable } = await import('jspdf-autotable');
     
     const today = new Date();
-    const todaysShifts = shifts.filter(s => isToday(getCorrectedLocalDate(s.date)));
+    const todaysShifts = allShifts.filter(s => isToday(getCorrectedLocalDate(s.date)));
     
     if (todaysShifts.length === 0) {
         toast({
@@ -666,7 +659,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     const today = new Date();
     const start = startOfWeek(today, { weekStartsOn: 1 });
     const end = endOfWeek(today, { weekStartsOn: 1 });
-    const weeklyShifts = shifts.filter(s => {
+    const weeklyShifts = allShifts.filter(s => {
         const shiftDate = getCorrectedLocalDate(s.date);
         return shiftDate >= start && shiftDate <= end;
     });
@@ -1171,7 +1164,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
             <ShiftFormDialog 
                 open={isFormOpen} 
                 onOpenChange={setIsFormOpen} 
-                users={allUsersForFilter} 
+                users={allUsers} 
                 shift={selectedShift} 
                 userProfile={userProfile}
                 projects={projects}
