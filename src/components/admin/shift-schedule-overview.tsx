@@ -236,38 +236,65 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     week4Shifts,
     archiveShifts,
   } = useMemo(() => {
-    // 1. Filter shifts by department (if owner)
     const departmentFilteredShifts = isOwner 
       ? allShifts.filter(shift => shift.department && selectedDepartments.has(shift.department)) 
       : allShifts;
   
-    // 2. Derive the list of users for the dropdown from the *department-filtered* shifts
     const userIdsInFilteredShifts = new Set(departmentFilteredShifts.map(s => s.userId));
     const usersForDropdownResult = allUsers
       .filter(u => userIdsInFilteredShifts.has(u.uid))
       .sort((a, b) => a.name.localeCompare(b.name));
     
-    // 3. Apply the individual user filter to the department-filtered shifts
     const finalFilteredShifts = selectedUserId === 'all'
       ? departmentFilteredShifts
       : departmentFilteredShifts.filter(s => s.userId === selectedUserId);
     
-    // 4. Group by time
     const today = new Date();
     today.setHours(0, 0, 0, 0);
   
-    const processShifts = (shiftsToProcess: Shift[]) => ({
-      todayShifts: shiftsToProcess.filter(s => isToday(getCorrectedLocalDate(s.date))),
-      thisWeekShifts: shiftsToProcess.filter(s => isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 })),
-      lastWeekShifts: shiftsToProcess.filter(s => isSameWeek(getCorrectedLocalDate(s.date), subDays(today, 7), { weekStartsOn: 1 })),
-      nextWeekShifts: shiftsToProcess.filter(s => isSameWeek(getCorrectedLocalDate(s.date), addDays(today, 7), { weekStartsOn: 1 })),
-      week3Shifts: shiftsToProcess.filter(s => isSameWeek(getCorrectedLocalDate(s.date), addDays(today, 14), { weekStartsOn: 1 })),
-      week4Shifts: shiftsToProcess.filter(s => isSameWeek(getCorrectedLocalDate(s.date), addDays(today, 21), { weekStartsOn: 1 })),
+    const shiftsToday = finalFilteredShifts.filter(s =>
+      isToday(getCorrectedLocalDate(s.date))
+    );
+
+    const shiftsThisWeek = finalFilteredShifts.filter(s =>
+        isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 })
+    );
+
+    const startOfLastWeek = startOfWeek(subDays(today, 7), {
+      weekStartsOn: 1,
     });
+    const shiftsLastWeek = finalFilteredShifts.filter(s =>
+      isSameWeek(
+        getCorrectedLocalDate(s.date),
+        startOfLastWeek,
+        { weekStartsOn: 1 }
+      )
+    );
+
+    const shiftsNextWeek = finalFilteredShifts.filter(s =>
+      isSameWeek(
+        getCorrectedLocalDate(s.date),
+        addDays(today, 7),
+        { weekStartsOn: 1 }
+      )
+    );
+
+    const shiftsWeek3 = finalFilteredShifts.filter(s =>
+      isSameWeek(
+        getCorrectedLocalDate(s.date),
+        addDays(today, 14),
+        { weekStartsOn: 1 }
+      )
+    );
+
+    const shiftsWeek4 = finalFilteredShifts.filter(s =>
+      isSameWeek(
+        getCorrectedLocalDate(s.date),
+        addDays(today, 21),
+        { weekStartsOn: 1 }
+      )
+    );
   
-    const { todayShifts, thisWeekShifts, lastWeekShifts, nextWeekShifts, week3Shifts, week4Shifts } = processShifts(finalFilteredShifts);
-  
-    // 5. Handle Archive tab separately
     const sixWeeksAgo = startOfWeek(subWeeks(today, 5), { weekStartsOn: 1 });
     const historicalShifts = finalFilteredShifts.filter(s => {
       const shiftDate = getCorrectedLocalDate(s.date);
@@ -279,7 +306,16 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
       isSameWeek(getCorrectedLocalDate(s.date), selectedArchiveDate, { weekStartsOn: 1 })
     );
   
-    return { usersForDropdown: usersForDropdownResult, todayShifts, thisWeekShifts, lastWeekShifts, nextWeekShifts, week3Shifts, week4Shifts, archiveShifts: finalArchiveShifts };
+    return {
+      usersForDropdown: usersForDropdownResult,
+      todayShifts: shiftsToday,
+      thisWeekShifts: shiftsThisWeek,
+      lastWeekShifts: shiftsLastWeek,
+      nextWeekShifts: shiftsNextWeek,
+      week3Shifts: shiftsWeek3,
+      week4Shifts: shiftsWeek4,
+      archiveShifts: finalArchiveShifts
+    };
   
   }, [allShifts, allUsers, isOwner, selectedDepartments, selectedUserId, selectedArchiveWeek]);
 
@@ -1206,3 +1242,5 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     </>
   );
 }
+
+    
