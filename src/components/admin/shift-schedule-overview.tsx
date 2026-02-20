@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -194,7 +192,10 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     let shiftsQuery;
     if (isOwner) {
         shiftsQuery = query(collection(db, 'shifts'));
+    } else if (userProfile.department) {
+        shiftsQuery = query(collection(db, 'shifts'), where('department', '==', userProfile.department));
     } else {
+        // Fallback for privileged users without a department
         shiftsQuery = query(collection(db, 'shifts'), where('userId', '==', userProfile.uid));
     }
     
@@ -219,7 +220,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
       unsubShifts();
       unsubProjects();
     };
-  }, [isOwner, userProfile.uid]);
+  }, [isOwner, userProfile.uid, userProfile.department]);
 
   const getCorrectedLocalDate = (date: { toDate: () => Date }) => {
     const d = date.toDate();
@@ -689,125 +690,6 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     doc.save(`daily_report_${format(today, 'yyyy-MM-dd')}.pdf`);
   };
 
-  const handleDownloadWeeklyReport = async () => {
-    const { default: jsPDF } = await import('jspdf');
-    const { default: autoTable } = await import('jspdf-autotable');
-
-    const today = new Date();
-    const start = startOfWeek(today, { weekStartsOn: 1 });
-    const end = endOfWeek(today, { weekStartsOn: 1 });
-    const weeklyShifts = allShifts.filter(s => {
-        const shiftDate = getCorrectedLocalDate(s.date);
-        return shiftDate >= start && shiftDate <= end;
-    });
-
-    if (weeklyShifts.length === 0) {
-        toast({
-            title: 'No Shifts This Week',
-            description: 'There are no shifts scheduled for the current week to generate a report.',
-        });
-        return;
-    }
-
-    const doc = new jsPDF();
-    
-    // Stats
-    const totalShifts = weeklyShifts.length;
-    const completed = weeklyShifts.filter(s => s.status === 'completed').length;
-    const onSite = weeklyShifts.filter(s => s.status === 'on-site').length;
-    const incomplete = weeklyShifts.filter(s => s.status === 'incomplete').length;
-    const operatives = new Set(weeklyShifts.map(s => s.userId)).size;
-
-    // Man-days calculation
-    const manDaysByManager: { [key: string]: number } = {};
-
-    weeklyShifts.forEach(shift => {
-        const manager = shift.manager || 'Unassigned';
-        
-        if (!manDaysByManager[manager]) {
-            manDaysByManager[manager] = 0;
-        }
-
-        if (shift.type === 'all-day') {
-            manDaysByManager[manager] += 1;
-        } else if (shift.type === 'am' || shift.type === 'pm') {
-            manDaysByManager[manager] += 0.5;
-        }
-    });
-
-
-    doc.setFontSize(18);
-    doc.text(`Weekly Report: ${format(start, 'dd MMM')} - ${format(end, 'dd MMM yyyy')}`, 14, 22);
-
-    let lastY = 25;
-
-    doc.setFontSize(12);
-    doc.text('Man-Days per Manager:', 14, lastY + 10);
-    autoTable(doc, {
-        startY: lastY + 14,
-        head: [['Manager', 'Total Man-Days']],
-        body: Object.entries(manDaysByManager).map(([manager, days]) => [manager, days.toFixed(1)]),
-        theme: 'striped',
-        headStyles: { fillColor: [100, 100, 100] },
-    });
-    lastY = (doc as any).lastAutoTable.finalY;
-
-    doc.text('Summary of Week\'s Activities:', 14, lastY + 10);
-    autoTable(doc, {
-      startY: lastY + 14,
-      body: [
-          ['Total Shifts', totalShifts],
-          ['Operatives on Site', operatives],
-          ['Completed Shifts', completed],
-          ['On Site / In Progress', onSite],
-          ['Marked Incomplete', incomplete],
-      ],
-      theme: 'grid',
-      styles: {
-          fontStyle: 'bold',
-      },
-      columnStyles: {
-          0: { cellWidth: 50 },
-          1: { cellWidth: 'auto', halign: 'center' },
-      }
-    });
-    
-    lastY = (doc as any).lastAutoTable.finalY;
-
-    doc.text('All Shifts for This Week:', 14, lastY + 15);
-
-    // Sort shifts by date, then by user
-    const sortedShifts = [...weeklyShifts].sort((a, b) => {
-        const dateA = getCorrectedLocalDate(a.date).getTime();
-        const dateB = getCorrectedLocalDate(b.date).getTime();
-        if (dateA !== dateB) return dateA - dateB;
-        const nameA = userNameMap.get(a.userId) || '';
-        const nameB = userNameMap.get(b.userId) || '';
-        return nameA.localeCompare(nameB);
-    });
-
-    autoTable(doc, {
-        startY: lastY + 19,
-        head: [['Date', 'Operative', 'Task', 'Address', 'Status']],
-        body: sortedShifts.map(shift => [
-            format(getCorrectedLocalDate(shift.date), 'EEE, dd/MM'),
-            userNameMap.get(shift.userId) || 'Unknown',
-            shift.task,
-            shift.address,
-            shift.status.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
-        ]),
-        headStyles: { fillColor: [6, 95, 212] },
-        styles: {
-            cellPadding: 2,
-            fontSize: 8,
-            valign: 'middle',
-        },
-        rowPageBreak: 'auto',
-    });
-
-    doc.save(`weekly_report_${format(today, 'yyyy-MM-dd')}.pdf`);
-  };
-
   const renderShiftList = (shiftsToRender: Shift[]) => {
     if (shiftsToRender.length === 0) {
         return null;
@@ -1242,5 +1124,3 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     </>
   );
 }
-
-    
