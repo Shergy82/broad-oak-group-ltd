@@ -184,33 +184,14 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
   const isOwner = userProfile.role === 'owner';
 
   useEffect(() => {
-    if (!db || !userProfile) {
+    if (!db) {
       setLoading(false);
-      setError("Firebase is not configured or user profile is not available.");
+      setError("Firebase is not configured.");
       return;
     }
     
-    const department = userProfile.department;
-    const isOwner = userProfile.role === 'owner';
-
-    let shiftsQuery;
-    if (isOwner) {
-        shiftsQuery = query(collection(db, 'shifts'));
-    } else if (department) {
-        shiftsQuery = query(collection(db, 'shifts'), where('department', '==', department));
-    } else {
-        shiftsQuery = query(collection(db, 'shifts'), where('userId', '==', userProfile.uid));
-    }
-    
-    let projectsQuery;
-    if (isOwner) {
-        projectsQuery = query(collection(db, 'projects'));
-    } else if (department) {
-        projectsQuery = query(collection(db, 'projects'), where('department', '==', department));
-    } else {
-        projectsQuery = null;
-    }
-
+    // Always fetch all shifts; filtering is handled client-side.
+    const shiftsQuery = query(collection(db, 'shifts'));
     const unsubShifts = onSnapshot(shiftsQuery, (snapshot) => {
       setShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
       setLoading(false);
@@ -221,7 +202,9 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     });
 
     let unsubProjects = () => {};
-    if (projectsQuery) {
+    // Only owners need the full project list for the shift form.
+    if (isOwner) {
+        const projectsQuery = query(collection(db, 'projects'));
         unsubProjects = onSnapshot(projectsQuery, (snapshot) => {
             setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project)));
         });
@@ -231,7 +214,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
       unsubShifts();
       unsubProjects();
     };
-  }, [userProfile]);
+  }, [isOwner]); // Only re-subscribe if owner status changes
 
   const getCorrectedLocalDate = (date: { toDate: () => Date }) => {
     const d = date.toDate();
@@ -245,25 +228,35 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
   }, [allUsersForFilter, isOwner, selectedDepartments, userProfile.uid]);
 
   const filteredShifts = useMemo(() => {
-    if (!isOwner) {
-        return shifts; // Non-owners see their own shifts from the initial query.
-    }
+    let relevantShifts: Shift[];
 
-    // Owners see shifts based on selected departments.
-    const shiftsInSelectedDepts = shifts.filter(shift => shift.department && selectedDepartments.has(shift.department));
-    
-    if (selectedUserId === 'all') {
-      return shiftsInSelectedDepts;
+    if (isOwner) {
+      // For owners, filter all shifts by the selected departments.
+      if (selectedDepartments.size > 0) {
+        relevantShifts = shifts.filter(shift => shift.department && selectedDepartments.has(shift.department));
+      } else {
+        // If no departments are selected, show nothing.
+        relevantShifts = [];
+      }
+    } else {
+      // For non-owners, filter all shifts to just their own.
+      relevantShifts = shifts.filter(shift => shift.userId === userProfile.uid);
     }
     
-    return shiftsInSelectedDepts.filter(shift => shift.userId === selectedUserId);
-  }, [shifts, selectedUserId, isOwner, selectedDepartments]);
+    // If a specific user is selected in the dropdown, filter further.
+    if (selectedUserId !== 'all') {
+      return relevantShifts.filter(shift => shift.userId === selectedUserId);
+    }
+    
+    return relevantShifts;
+  }, [shifts, selectedUserId, isOwner, selectedDepartments, userProfile.uid]);
   
 
   const { todayShifts, thisWeekShifts, lastWeekShifts, nextWeekShifts, week3Shifts, week4Shifts, archiveShifts } = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
+    // For archive view, we use ALL shifts regardless of dept filters to find historical data, then filter by user.
     const baseShifts = activeTab === 'archive' ? shifts : filteredShifts;
 
     const todayShifts = baseShifts.filter(s => isToday(getCorrectedLocalDate(s.date)));
@@ -272,9 +265,9 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
         isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 })
     );
 
-    const lastWeekDate = subDays(today, 7);
-    const shiftsLastWeek = baseShifts.filter(s => 
-        isSameWeek(getCorrectedLocalDate(s.date), lastWeekDate, { weekStartsOn: 1 })
+    const startOfLastWeek = startOfWeek(subDays(today, 7), { weekStartsOn: 1 });
+    const lastWeekShifts = baseShifts.filter(s => 
+        isSameWeek(getCorrectedLocalDate(s.date), startOfLastWeek, { weekStartsOn: 1 })
     );
 
     const nextWeekShifts = baseShifts.filter(s => {
@@ -307,7 +300,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
         (selectedUserId === 'all' || s.userId === selectedUserId)
     );
 
-    return { todayShifts, thisWeekShifts, lastWeekShifts: shiftsLastWeek, nextWeekShifts, week3Shifts, week4Shifts, archiveShifts: finalArchiveShifts };
+    return { todayShifts, thisWeekShifts, lastWeekShifts, nextWeekShifts, week3Shifts, week4Shifts, archiveShifts: finalArchiveShifts };
   }, [filteredShifts, shifts, selectedUserId, selectedArchiveWeek, activeTab]);
 
   const userNameMap = useMemo(() => {
