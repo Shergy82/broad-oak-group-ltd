@@ -1,5 +1,3 @@
-'use client';
-
 import { Suspense } from 'react';
 import { SignUpFlow } from '@/components/auth/signup-flow';
 import { Spinner } from '@/components/shared/spinner';
