@@ -23,9 +23,7 @@ export const metadata: Metadata = {
     siteName: 'Broad Oak Group',
     images: [
       {
-        url: '/icon-512.png',
-        width: 512,
-        height: 512,
+        url: '/icon.svg',
         alt: 'Broad Oak Group Logo',
       },
     ],
@@ -38,12 +36,12 @@ export const metadata: Metadata = {
     title: 'Broad Oak Group',
     description:
       'Broad Oak Group internal portal for scheduling, projects and site management.',
-    images: ['/icon-512.png'],
+    images: ['/icon.svg'],
   },
 
   icons: {
-    icon: '/icon-192.png',
-    apple: '/icon-192.png',
+    icon: '/icon.svg',
+    apple: '/icon.svg',
   },
 };
 
