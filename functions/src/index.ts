@@ -292,74 +292,40 @@ export const serveFile = onRequest({ region: "europe-west2", cors: true }, async
 
 
 /* =====================================================
-   PROJECT & FILE MANAGEMENT (HTTP — NOT CALLABLE)
+   PROJECT & FILE MANAGEMENT
 ===================================================== */
 
-export const deleteProjectAndFiles = onRequest(
-  {
-    region: 'europe-west2',
-    timeoutSeconds: 540,
-    memory: '1GiB',
-    cors: true,
-  },
-  async (req: Request, res: Response) => {
-    try {
-      if (req.method === 'OPTIONS') {
-        res.set('Access-Control-Allow-Origin', req.headers.origin || '*');
-        res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
-        res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-        res.status(204).send('');
-        return;
-      }
-
-      res.set('Access-Control-Allow-Origin', req.headers.origin || '*');
-
-      if (req.method !== 'POST') {
-        res.status(405).json({ error: 'Method not allowed' });
-        return;
-      }
-
-      const authHeader = req.headers.authorization;
-      if (!authHeader?.startsWith('Bearer ')) {
-        res.status(401).json({ error: 'Authentication required' });
-        return;
-      }
-
-      const idToken = authHeader.replace('Bearer ', '');
-      const decoded = await admin.auth().verifyIdToken(idToken);
-      await assertAdminOrManager(decoded.uid);
-
-      const { projectId } = req.body ?? {};
+export const deleteProjectAndFiles = onCall(
+    { region: 'europe-west2', timeoutSeconds: 540, memory: '1GiB' },
+    async (req) => {
+      assertAuthenticated(req.auth?.uid);
+      await assertAdminOrManager(req.auth!.uid);
+  
+      const { projectId } = req.data as { projectId: string };
       if (!projectId) {
-        res.status(400).json({ error: 'projectId is required' });
-        return;
+        throw new HttpsError('invalid-argument', 'projectId is required');
       }
-
+  
       const bucket = admin.storage().bucket();
       const projectRef = db.collection('projects').doc(projectId);
-
-      await bucket.deleteFiles({ prefix: `project_files/${projectId}/` });
-
+  
+      // Gracefully handle storage deletion errors
+      await bucket.deleteFiles({ prefix: `project_files/${projectId}/` }).catch(e => {
+          logger.warn(`Could not clean up storage for project ${projectId}, but proceeding with Firestore deletion.`, e);
+      });
+  
       const filesSnap = await projectRef.collection('files').get();
       if (!filesSnap.empty) {
-        const batch = db.batch();
-        filesSnap.docs.forEach((d) => batch.delete(d.ref));
-        await batch.commit();
+          const batch = db.batch();
+          filesSnap.docs.forEach((d) => batch.delete(d.ref));
+          await batch.commit();
       }
-
+  
       await projectRef.delete();
-
-      res.json({ success: true });
-    } catch (err: any) {
-        console.error('deleteProjectAndFiles failed', err);
-        if (err instanceof HttpsError) {
-          res.status(403).json({ error: err.message });
-        } else {
-          res.status(500).json({ error: 'Internal server error' });
-        }
+  
+      return { success: true };
     }
-  }
-);
+  );
 
 /* =====================================================
    PROJECT FILE DELETE (CALLABLE)
@@ -855,3 +821,60 @@ export const getVapidPublicKey = onCall({ region: "europe-west2" }, () => {
   }
   return { publicKey: WEBPUSH_PUBLIC_KEY };
 });
+
+export const deleteScheduledProjects = onSchedule({
+    schedule: "every 24 hours",
+    region: "europe-west2",
+    timeoutSeconds: 540,
+    memory: "1GiB",
+  }, async () => {
+    logger.log("Running scheduled project deletion job.");
+    const now = admin.firestore.Timestamp.now();
+    const sevenDaysAgo = admin.firestore.Timestamp.fromMillis(now.toMillis() - 7 * 24 * 60 * 60 * 1000);
+  
+    const projectsToDeleteQuery = db.collection('projects').where('deletionScheduledAt', '<=', sevenDaysAgo);
+  
+    const snapshot = await projectsToDeleteQuery.get();
+  
+    if (snapshot.empty) {
+      logger.log("No projects found for deletion.");
+      return null;
+    }
+  
+    logger.info(`Found ${snapshot.docs.length} project(s) to delete.`);
+    const bucket = admin.storage().bucket();
+  
+    const deletionPromises = snapshot.docs.map(async (doc) => {
+      const projectId = doc.id;
+      const projectData = doc.data() as { address?: string };
+  
+      logger.log(`Deleting project ${projectId} (${projectData.address || 'No Address'}).`);
+  
+      try {
+        // 1. Delete all files in the project's storage folder
+        await bucket.deleteFiles({ prefix: `project_files/${projectId}/` });
+        logger.log(`Deleted storage files for project ${projectId}.`);
+  
+        // 2. Delete all documents in the 'files' subcollection
+        const filesSubcollectionRef = db.collection('projects').doc(projectId).collection('files');
+        const filesSnap = await filesSubcollectionRef.get();
+        if (!filesSnap.empty) {
+          const batch = db.batch();
+          filesSnap.docs.forEach(fileDoc => batch.delete(fileDoc.ref));
+          await batch.commit();
+          logger.log(`Deleted ${filesSnap.size} file documents for project ${projectId}.`);
+        }
+        
+        // 3. Delete the main project document
+        await doc.ref.delete();
+        logger.log(`Successfully deleted project document ${projectId}.`);
+  
+      } catch (error) {
+        logger.error(`Failed to fully delete project ${projectId}.`, error);
+      }
+    });
+  
+    await Promise.all(deletionPromises);
+    logger.log("Finished scheduled project deletion job.");
+    return null;
+  });

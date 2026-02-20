@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -16,9 +17,11 @@ import {
   Timestamp,
   getDocs,
   where,
+  updateDoc,
+  deleteField,
 } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { format } from 'date-fns';
+import { format, differenceInDays, addDays, isBefore } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -43,7 +46,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/shared/spinner';
 import { useToast } from '@/hooks/use-toast';
-import { PlusCircle, UploadCloud, File as FileIcon, Trash2, FolderOpen, Download, Trash, FileArchive, Image as ImageIcon, X } from 'lucide-react';
+import { PlusCircle, UploadCloud, File as FileIcon, Trash2, FolderOpen, Download, Trash, FileArchive, Image as ImageIcon, X, Undo2 } from 'lucide-react';
 import type { Project, ProjectFile, UserProfile } from '@/types';
 import { cn } from '@/lib/utils';
 import {
@@ -520,6 +523,21 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
         });
     }
   };
+  
+  const handleCancelDeletion = async (projectId: string) => {
+    if (!['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role)) {
+        toast({ variant: 'destructive', title: 'Permission Denied' });
+        return;
+    }
+    try {
+        await updateDoc(doc(db, 'projects', projectId), {
+            deletionScheduledAt: deleteField()
+        });
+        toast({ title: 'Deletion Cancelled', description: `Project deletion has been cancelled.` });
+    } catch (error: any) {
+        toast({ variant: 'destructive', title: 'Error', description: error.message || 'Could not cancel deletion.' });
+    }
+  };
 
   const handleDeleteAllProjects = async () => {
     if (!functions) {
@@ -613,92 +631,145 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                     </TableRow>
                 </TableHeader>
                 <TableBody>
-                    {filteredProjects.map(project => (
-                        <TableRow key={project.id}>
-                        <TableCell className="font-medium">{project.address}</TableCell>
-                        <TableCell>{project.eNumber}</TableCell>
-                        <TableCell>{project.manager}</TableCell>
-                        <TableCell>{project.createdAt ? format(project.createdAt.toDate(), 'dd/MM/yyyy') : 'N/A'}</TableCell>
-                        <TableCell>{project.nextReviewDate ? format(project.nextReviewDate.toDate(), 'dd/MM/yyyy') : 'N/A'}</TableCell>
-                        <TableCell className="text-right space-x-2">
-                            <Button variant="outline" size="sm" onClick={() => handleManageFiles(project)}>
-                            <FolderOpen className="mr-2 h-4 w-4" />
-                            Files
-                            </Button>
-                            {['admin', 'owner', 'manager'].includes(userProfile.role) && (
-                                 <AlertDialog>
-                                    <AlertDialogTrigger asChild>
-                                        <Button variant="destructive" size="sm">
-                                            <Trash2 className="mr-2 h-4 w-4" /> Delete
+                    {filteredProjects.map(project => {
+                       const isScheduledForDeletion = !!project.deletionScheduledAt;
+                       let countdownText = '';
+                       if (isScheduledForDeletion) {
+                           const deletionDate = project.deletionScheduledAt!.toDate();
+                           const sevenDaysFromDeletion = addDays(deletionDate, 7);
+                           if (isBefore(new Date(), sevenDaysFromDeletion)) {
+                               const days = differenceInDays(sevenDaysFromDeletion, new Date());
+                               countdownText = `${days} day(s) remaining`;
+                           } else {
+                               countdownText = 'Deletion pending';
+                           }
+                       }
+
+                       return (
+                        <TableRow key={project.id} className={isScheduledForDeletion ? 'bg-destructive/10 hover:bg-destructive/20' : ''}>
+                            <TableCell className="font-medium">{project.address}</TableCell>
+                            <TableCell>{project.eNumber}</TableCell>
+                            <TableCell>{project.manager}</TableCell>
+                            <TableCell>{project.createdAt ? format(project.createdAt.toDate(), 'dd/MM/yyyy') : 'N/A'}</TableCell>
+                            <TableCell>{project.nextReviewDate ? format(project.nextReviewDate.toDate(), 'dd/MM/yyyy') : 'N/A'}</TableCell>
+                            <TableCell className="text-right space-x-2">
+                                {isScheduledForDeletion ? (
+                                    <div className="flex flex-col items-end gap-1">
+                                        <span className="text-xs font-semibold text-destructive">{countdownText}</span>
+                                        <Button variant="ghost" size="sm" onClick={() => handleCancelDeletion(project.id)}>
+                                            <Undo2 className="mr-2 h-4 w-4" /> Cancel
                                         </Button>
-                                    </AlertDialogTrigger>
-                                    <AlertDialogContent>
-                                        <AlertDialogHeader>
-                                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                                            <AlertDialogDescription>
-                                                This will permanently delete the project <span className="font-semibold">"{project.address}"</span> and all of its associated files. This action cannot be undone.
-                                            </AlertDialogDescription>
-                                        </AlertDialogHeader>
-                                        <AlertDialogFooter>
-                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                            <AlertDialogAction onClick={() => handleDeleteProject(project)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                                                Delete Project
-                                            </AlertDialogAction>
-                                        </AlertDialogFooter>
-                                    </AlertDialogContent>
-                                </AlertDialog>
-                            )}
-                        </TableCell>
+                                    </div>
+                                ) : (
+                                <>
+                                    <Button variant="outline" size="sm" onClick={() => handleManageFiles(project)}>
+                                    <FolderOpen className="mr-2 h-4 w-4" />
+                                    Files
+                                    </Button>
+                                    {['admin', 'owner', 'manager'].includes(userProfile.role) && (
+                                        <AlertDialog>
+                                            <AlertDialogTrigger asChild>
+                                                <Button variant="destructive" size="sm">
+                                                    <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                                </Button>
+                                            </AlertDialogTrigger>
+                                            <AlertDialogContent>
+                                                <AlertDialogHeader>
+                                                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                                    <AlertDialogDescription>
+                                                        This will permanently delete the project <span className="font-semibold">"{project.address}"</span> and all of its associated files. This action cannot be undone.
+                                                    </AlertDialogDescription>
+                                                </AlertDialogHeader>
+                                                <AlertDialogFooter>
+                                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                    <AlertDialogAction onClick={() => handleDeleteProject(project)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                                        Delete Project
+                                                    </AlertDialogAction>
+                                                </AlertDialogFooter>
+                                            </AlertDialogContent>
+                                        </AlertDialog>
+                                    )}
+                                </>
+                                )}
+                            </TableCell>
                         </TableRow>
-                    ))}
+                       )
+                    })}
                 </TableBody>
                 </Table>
             </div>
 
             {/* Mobile Card View */}
             <div className="grid gap-4 md:hidden">
-                {filteredProjects.map(project => (
-                    <Card key={project.id}>
-                        <CardHeader>
-                            <CardTitle>{project.address}</CardTitle>
-                            <CardDescription>Number: {project.eNumber || 'N/A'}</CardDescription>
-                        </CardHeader>
-                        <CardContent className="text-sm space-y-2">
-                             <div><strong>Manager:</strong> {project.manager || 'N/A'}</div>
-                             <div><strong>Created:</strong> {project.createdAt ? format(project.createdAt.toDate(), 'dd/MM/yyyy') : 'N/A'}</div>
-                             <div><strong>Next Review:</strong> {project.nextReviewDate ? format(project.nextReviewDate.toDate(), 'dd/MM/yyyy') : 'N/A'}</div>
-                        </CardContent>
-                        <CardFooter className="grid grid-cols-2 gap-2">
-                            <Button variant="outline" className="w-full" onClick={() => handleManageFiles(project)}>
-                                <FolderOpen className="mr-2 h-4 w-4" />
-                                Manage Files
-                            </Button>
-                             {['admin', 'owner', 'manager'].includes(userProfile.role) && (
-                                <AlertDialog>
-                                    <AlertDialogTrigger asChild>
-                                        <Button variant="destructive" className="w-full">
-                                            <Trash2 className="mr-2 h-4 w-4" /> Delete
+                {filteredProjects.map(project => {
+                    const isScheduledForDeletion = !!project.deletionScheduledAt;
+                    let countdownText = '';
+                    if (isScheduledForDeletion) {
+                        const deletionDate = project.deletionScheduledAt!.toDate();
+                        const sevenDaysFromDeletion = addDays(deletionDate, 7);
+                        if (isBefore(new Date(), sevenDaysFromDeletion)) {
+                            const days = differenceInDays(sevenDaysFromDeletion, new Date());
+                            countdownText = `${days} day(s) remaining`;
+                        } else {
+                            countdownText = 'Deletion pending';
+                        }
+                    }
+                    return (
+                        <Card key={project.id} className={isScheduledForDeletion ? 'border-destructive bg-destructive/10' : ''}>
+                            <CardHeader>
+                                <CardTitle>{project.address}</CardTitle>
+                                <CardDescription>Number: {project.eNumber || 'N/A'}</CardDescription>
+                            </CardHeader>
+                            <CardContent className="text-sm space-y-2">
+                                <div><strong>Manager:</strong> {project.manager || 'N/A'}</div>
+                                <div><strong>Created:</strong> {project.createdAt ? format(project.createdAt.toDate(), 'dd/MM/yyyy') : 'N/A'}</div>
+                                <div><strong>Next Review:</strong> {project.nextReviewDate ? format(project.nextReviewDate.toDate(), 'dd/MM/yyyy') : 'N/A'}</div>
+                            </CardContent>
+                            <CardFooter className="grid grid-cols-1 gap-2">
+                                {isScheduledForDeletion ? (
+                                    <div className="text-center w-full space-y-2">
+                                        <p className="text-sm font-semibold text-destructive">Scheduled for deletion</p>
+                                        <p className="text-xs text-destructive">{countdownText}</p>
+                                        <Button variant="outline" size="sm" onClick={() => handleCancelDeletion(project.id)} className="w-full">
+                                            <Undo2 className="mr-2 h-4 w-4" />
+                                            Cancel Deletion
                                         </Button>
-                                    </AlertDialogTrigger>
-                                    <AlertDialogContent>
-                                        <AlertDialogHeader>
-                                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                                            <AlertDialogDescription>
-                                                This will permanently delete the project <span className="font-semibold">"{project.address}"</span> and all of its associated files. This action cannot be undone.
-                                            </AlertDialogDescription>
-                                        </AlertDialogHeader>
-                                        <AlertDialogFooter>
-                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                            <AlertDialogAction onClick={() => handleDeleteProject(project)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                                                Delete Project
-                                            </AlertDialogAction>
-                                        </AlertDialogFooter>
-                                    </AlertDialogContent>
-                                </AlertDialog>
-                            )}
-                        </CardFooter>
-                    </Card>
-                ))}
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-2 gap-2 w-full">
+                                        <Button variant="outline" className="w-full" onClick={() => handleManageFiles(project)}>
+                                            <FolderOpen className="mr-2 h-4 w-4" />
+                                            Manage Files
+                                        </Button>
+                                        {['admin', 'owner', 'manager'].includes(userProfile.role) && (
+                                            <AlertDialog>
+                                                <AlertDialogTrigger asChild>
+                                                    <Button variant="destructive" className="w-full">
+                                                        <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                                    </Button>
+                                                </AlertDialogTrigger>
+                                                <AlertDialogContent>
+                                                    <AlertDialogHeader>
+                                                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                                        <AlertDialogDescription>
+                                                            This will permanently delete the project <span className="font-semibold">"{project.address}"</span> and all of its associated files. This action cannot be undone.
+                                                        </AlertDialogDescription>
+                                                    </AlertDialogHeader>
+                                                    <AlertDialogFooter>
+                                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                        <AlertDialogAction onClick={() => handleDeleteProject(project)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                                            Delete Project
+                                                        </AlertDialogAction>
+                                                    </AlertDialogFooter>
+                                                </AlertDialogContent>
+                                            </AlertDialog>
+                                        )}
+                                    </div>
+                                )}
+                            </CardFooter>
+                        </Card>
+                    )
+                })}
             </div>
         </>
       )}
