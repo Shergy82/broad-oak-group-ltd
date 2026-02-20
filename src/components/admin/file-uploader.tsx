@@ -147,7 +147,7 @@ const findUser = (name: string, userMap: UserMapEntry[]): UserMapEntry | null =>
         if (parts.length > 1) {
             const first = parts[0];
             const lastInitial = parts[parts.length - 1].charAt(0);
-            if (normalizeText(`${'${first}'}${'${lastInitial}'}`) === normalizedName) {
+            if (normalizeText(`${first}${lastInitial}`) === normalizedName) {
                 return true;
             }
         }
@@ -398,7 +398,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
   const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string }): string => {
     const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
     const normalizedDate = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-    return `${'${normalizedDate.toISOString().slice(0, 10)}'}-${'${shift.userId}'}-${'${normalizeText(shift.address)}'}`;
+    return `${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${normalizeText(shift.address)}`;
   };
 
   const runImport = useCallback(
@@ -475,11 +475,11 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
               if (!address) {
                 allFailedShifts.push({
                   date: null,
-                  projectAddress: `Block at row ${'${blockStartRowIndex + 1}'}`,
+                  projectAddress: `Block at row ${blockStartRowIndex + 1}`,
                   cellContent: '',
                   reason: 'Could not find a valid Address within this site block.',
                   sheetName,
-                  cellRef: `A${'${blockStartRowIndex + 1}'}`,
+                  cellRef: `A${blockStartRowIndex + 1}`,
                 });
                 continue;
               }
@@ -497,7 +497,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                   cellContent: '',
                   reason: 'Could not find a valid Date Header Row within this site block.',
                   sheetName,
-                  cellRef: `A${'${blockStartRowIndex + 1}'}`,
+                  cellRef: `A${blockStartRowIndex + 1}`,
                 });
                 continue;
               }
@@ -570,7 +570,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                         date: shiftDate,
                         projectAddress: address,
                         cellContent: cellContentRaw,
-                        reason: `Could not find a user matching "${'${userName}'}".`,
+                        reason: `Could not find a user matching "${userName}".`,
                         sheetName,
                         cellRef,
                       });
@@ -736,14 +736,14 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
             await batch.commit();
             
             const parts: string[] = [];
-            if (toCreate.length > 0) parts.push(`created ${'${toCreate.length}'} new shift(s)`);
-            if (toUpdate.length > 0) parts.push(`updated ${'${toUpdate.length}'} shift(s)`);
-            if (toDelete.length > 0) parts.push(`deleted ${'${toDelete.length}'} old shift(s)`);
+            if (toCreate.length > 0) parts.push(`created ${toCreate.length} new shift(s)`);
+            if (toUpdate.length > 0) parts.push(`updated ${toUpdate.length} shift(s)`);
+            if (toDelete.length > 0) parts.push(`deleted ${toDelete.length} old shift(s)`);
 
             if (parts.length > 0) {
               toast({
                 title: 'Import Complete & Reconciled',
-                description: `Successfully processed the file: ${'${parts.join(', ')}'}.`,
+                description: `Successfully processed the file: ${parts.join(', ')}.`,
               });
             } else if (allFailedShifts.length === 0) {
               toast({
@@ -877,7 +877,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                           ? 'Select sheets...'
                           : selectedSheets.length === 1
                           ? selectedSheets[0]
-                          : `${'${selectedSheets.length}'} sheets selected`}
+                          : `${selectedSheets.length} sheets selected`}
                       </span>
                       <ChevronDown className="h-4 w-4 opacity-50" />
                     </Button>
