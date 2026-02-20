@@ -371,8 +371,7 @@ export function StaffShiftMap() {
                 <Marker 
                     key={pin.address} 
                     position={pin.position} 
-                    onMouseOver={() => setSelectedPin(pin)}
-                    onMouseOut={() => setSelectedPin(null)}
+                    onClick={() => setSelectedPin(pin)}
                     icon={{
                         path: google.maps.SymbolPath.CIRCLE,
                         scale: 15,
