@@ -330,6 +330,7 @@ export function StaffShiftMap() {
                     key={pin.address} 
                     position={pin.position} 
                     onMouseOver={() => setSelectedPin(pin)}
+                    onMouseOut={() => setSelectedPin(null)}
                     icon={{
                         path: google.maps.SymbolPath.CIRCLE,
                         scale: 15,
