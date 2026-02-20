@@ -140,7 +140,7 @@ async function sendShiftNotification(userId: string, title: string, body: string
 
   const results = await Promise.all(
     subscriptionsSnapshot.docs.map(async (subDoc) => {
-      const subscription = subDoc.data();
+      const subscription = subDoc.data() as webPush.PushSubscription;
 
       try {
         await webPush.sendNotification(subscription, payload);
