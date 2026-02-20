@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -329,7 +328,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
         (selectedUserId === 'all' || s.userId === selectedUserId)
     );
 
-    return { todayShifts, thisWeekShifts, nextWeekShifts, week3Shifts, week4Shifts, archiveShifts };
+    return { todayShifts, thisWeekShifts, lastWeekShifts, nextWeekShifts, week3Shifts, week4Shifts, archiveShifts };
   }, [filteredShifts, shifts, selectedUserId, selectedArchiveWeek, activeTab, isOwner, selectedDepartments]);
 
   const userNameMap = useMemo(() => {
