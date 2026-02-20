@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -265,60 +266,10 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
     const [isChecklistEditorOpen, setChecklistEditorOpen] = useState(false);
     
     const isScheduledForDeletion = !!project.deletionScheduledAt;
-    const [countdown, setCountdown] = useState('');
 
-     useEffect(() => {
-        if (!isScheduledForDeletion) return;
-
-        const calculateCountdown = () => {
-            const scheduledTime = project.deletionScheduledAt!.toDate();
-            const deletionTime = new Date(scheduledTime.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days
-            const now = new Date();
-            const diff = deletionTime.getTime() - now.getTime();
-
-            if (diff <= 0) {
-                setCountdown("Ready for permanent deletion");
-                return;
-            }
-
-            const d = Math.floor(diff / (1000 * 60 * 60 * 24));
-            const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
-            const m = Math.floor((diff / 1000 / 60) % 60);
-
-            if (d > 0) setCountdown(`in ~${d} day${d > 1 ? 's' : ''}`);
-            else if (h > 0) setCountdown(`in ~${h} hour${h > 1 ? 's' : ''}`);
-            else if (m > 0) setCountdown(`in ~${m} minute${m > 1 ? 's' : ''}`);
-            else setCountdown('in less than a minute');
-        };
-
-        calculateCountdown(); // Initial call
-        const interval = setInterval(calculateCountdown, 30000); // Update every 30s
-
-        return () => clearInterval(interval);
-    }, [project.deletionScheduledAt, isScheduledForDeletion]);
-
-    const handleRestoreProject = async () => {
-        if (!userProfile || !['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role)) {
-            toast({ variant: "destructive", title: "Permission Denied" });
-            return;
-        }
-
-        try {
-            const projectRef = doc(db, 'projects', project.id);
-            await updateDoc(projectRef, {
-                deletionScheduledAt: deleteField()
-            });
-            toast({ title: "Project Restored", description: "The deletion schedule has been cancelled." });
-        } catch (error: any) {
-            console.error("Error restoring project:", error);
-            toast({
-                variant: 'destructive',
-                title: 'Restore Failed',
-                description: error.message || 'An unknown error occurred.'
-            });
-        }
-    };
-
+    if (isScheduledForDeletion) {
+        return null;
+    }
 
     const activeChecklistItems = useMemo(() => {
         return project.checklist ?? checklist?.items ?? [];
@@ -444,27 +395,6 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
         }
     };
 
-
-    if (isScheduledForDeletion) {
-        return (
-            <Card className="bg-destructive/10 border-destructive/30 flex flex-col hover:shadow-md transition-shadow">
-                <CardHeader className="p-4 pb-2">
-                     <CardTitle className="text-sm font-semibold leading-tight text-destructive">{project.address}</CardTitle>
-                    {project.eNumber && <p className="text-lg font-bold pt-1 text-destructive/80">{project.eNumber}</p>}
-                </CardHeader>
-                <CardContent className="p-4 pt-2 flex-grow flex flex-col justify-center items-center text-center">
-                    <Trash2 className="h-8 w-8 text-destructive/70 mb-2"/>
-                    <p className="text-sm font-semibold text-destructive">Scheduled for Deletion</p>
-                    <p className="text-xs text-destructive/80">{countdown}</p>
-                </CardContent>
-                 <CardFooter className="p-2 border-t mt-auto">
-                    <Button variant="ghost" size="sm" className="w-full text-destructive hover:bg-destructive/20 hover:text-destructive" onClick={handleRestoreProject}>
-                        <Undo2 className="mr-2 h-4 w-4" /> Cancel Deletion
-                    </Button>
-                </CardFooter>
-            </Card>
-        );
-    }
 
     const cardColorClass = {
         incomplete: 'bg-red-800 border-red-950',
