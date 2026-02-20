@@ -201,7 +201,7 @@ export const setNotificationStatus = onCall(
         .doc(uid)
         .collection('pushSubscriptions')
         .doc('browser')
-        .set(subscription, { merge: true });
+        .set(subscription as webPush.PushSubscription, { merge: true });
     }
 
     return { success: true };
