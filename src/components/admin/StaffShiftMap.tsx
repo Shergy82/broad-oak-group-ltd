@@ -93,7 +93,8 @@ export function StaffShiftMap() {
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
   const [geocodedLocations, setGeocodedLocations] = useState<Map<string, Coords>>(new Map());
-  const [selectedPin, setSelectedPin] = useState<LocationPin | null>(null);
+  const [hoveredPin, setHoveredPin] = useState<LocationPin | null>(null);
+  const [clickedPin, setClickedPin] = useState<LocationPin | null>(null);
   const [mapCenter, setMapCenter] = useState(UK_CENTER);
   const [userLocation, setUserLocation] = useState<Coords | null>(null);
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
@@ -104,22 +105,49 @@ export function StaffShiftMap() {
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY!,
   });
 
+  const activePin = useMemo(() => clickedPin || hoveredPin, [clickedPin, hoveredPin]);
+
   const handleMarkerMouseOver = (pin: LocationPin) => {
     if (infoWindowCloseTimer.current) {
         clearTimeout(infoWindowCloseTimer.current);
     }
-    setSelectedPin(pin);
+    // Only show hover if no pin is clicked
+    if (!clickedPin) {
+        setHoveredPin(pin);
+    }
   };
 
   const handleMarkerMouseOut = () => {
-      infoWindowCloseTimer.current = setTimeout(() => {
-          setSelectedPin(null);
-      }, 100);
+    infoWindowCloseTimer.current = setTimeout(() => {
+        setHoveredPin(null);
+    }, 100);
+  };
+  
+  const handleMarkerClick = (pin: LocationPin) => {
+      // If clicking the currently clicked pin, unclick it. Otherwise, set the new clicked pin.
+      if (clickedPin && clickedPin.address === pin.address) {
+          setClickedPin(null);
+      } else {
+          setClickedPin(pin);
+          setHoveredPin(null); // Clear any hover state
+      }
+  };
+
+  const handleInfoWindowClose = () => {
+      setClickedPin(null);
+      setHoveredPin(null);
   };
 
   const handleInfoWindowMouseOver = () => {
       if (infoWindowCloseTimer.current) {
           clearTimeout(infoWindowCloseTimer.current);
+      }
+  };
+  
+  const handleInfoWindowMouseOut = () => {
+      // Only close if it's not a clicked pin
+      if (!clickedPin) {
+          handleMarkerMouseOut();
       }
   };
 
@@ -288,17 +316,17 @@ export function StaffShiftMap() {
   }, [shifts, geocodedLocations, selectedUser]);
 
   const closestUsersForSelectedPin = useMemo(() => {
-    if (!selectedPin) return [];
+    if (!activePin) return [];
 
-    const usersAtSelectedPin = new Set(selectedPin.shifts.map(s => s.userName));
+    const usersAtSelectedPin = new Set(activePin.shifts.map(s => s.userName));
 
-    const otherPins = locationPins.filter(p => p.address !== selectedPin.address);
+    const otherPins = locationPins.filter(p => p.address !== activePin.address);
     const distances: {userName: string, distance: number}[] = [];
 
     otherPins.forEach(otherPin => {
         otherPin.shifts.forEach(shift => {
             if (shift.userName && !usersAtSelectedPin.has(shift.userName)) {
-                const distance = haversineDistance(selectedPin.position, otherPin.position);
+                const distance = haversineDistance(activePin.position, otherPin.position);
                 distances.push({ userName: shift.userName, distance });
             }
         });
@@ -312,7 +340,7 @@ export function StaffShiftMap() {
     
     return uniqueUsers.slice(0, 4);
 
-  }, [selectedPin, locationPins]);
+  }, [activePin, locationPins]);
 
   const shiftsByStatus = useMemo(() => {
     const grouped = new Map<ShiftStatus, Shift[]>();
@@ -395,6 +423,7 @@ export function StaffShiftMap() {
                     position={pin.position} 
                     onMouseOver={() => handleMarkerMouseOver(pin)}
                     onMouseOut={handleMarkerMouseOut}
+                    onClick={() => handleMarkerClick(pin)}
                     icon={{
                         path: google.maps.SymbolPath.CIRCLE,
                         scale: 15,
@@ -406,22 +435,22 @@ export function StaffShiftMap() {
                 />
             ))}
 
-            {selectedPin && (
+            {activePin && (
                 <InfoWindow
-                    position={selectedPin.position}
-                    onCloseClick={() => setSelectedPin(null)}
+                    position={activePin.position}
+                    onCloseClick={handleInfoWindowClose}
                 >
                     <div 
                         className="space-y-2 p-1 max-w-xs"
                         onMouseOver={handleInfoWindowMouseOver}
-                        onMouseOut={handleMarkerMouseOut}
+                        onMouseOut={handleInfoWindowMouseOut}
                     >
-                        <h4 className="font-bold text-base">{selectedPin.address}</h4>
+                        <h4 className="font-bold text-base">{activePin.address}</h4>
                         <hr />
                         <div>
                         <p className="font-semibold">Operatives at this location:</p>
                         <ul className="list-none p-0 mt-1 text-sm">
-                            {selectedPin.shifts.map(s => (
+                            {activePin.shifts.map(s => (
                                 <li key={s.id}>
                                     <strong>{s.userName}:</strong> {s.task} -{' '}
                                     <span
