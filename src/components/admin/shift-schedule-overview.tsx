@@ -20,6 +20,7 @@ import {
   startOfWeek,
   endOfWeek,
   subWeeks,
+  subDays,
 } from 'date-fns';
 import {
   Card,
@@ -294,6 +295,11 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     
     const thisWeekShifts = baseShifts.filter(s => 
         isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 })
+    );
+
+    const lastWeekDate = subDays(today, 7);
+    const lastWeekShifts = baseShifts.filter(s => 
+        isSameWeek(getCorrectedLocalDate(s.date), lastWeekDate, { weekStartsOn: 1 })
     );
 
     const nextWeekShifts = baseShifts.filter(s => {
@@ -1160,19 +1166,22 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
           <Tabs defaultValue="today" onValueChange={setActiveTab}>
             <div className="flex flex-col space-y-2">
               <TabsList className="grid grid-cols-3">
+                <TabsTrigger value="last-week">Last Week</TabsTrigger>
                 <TabsTrigger value="today">Today</TabsTrigger>
                 <TabsTrigger value="this-week">This Week</TabsTrigger>
-                <TabsTrigger value="next-week">Next Week</TabsTrigger>
               </TabsList>
               <TabsList className="grid grid-cols-3">
+                <TabsTrigger value="next-week">Next Week</TabsTrigger>
                 <TabsTrigger value="week-3">Week 3</TabsTrigger>
                 <TabsTrigger value="week-4">Week 4</TabsTrigger>
-                <TabsTrigger value="archive">Archive</TabsTrigger>
               </TabsList>
             </div>
 
             <TabsContent value="today" className="mt-4">
               {renderWeekSchedule(todayShifts)}
+            </TabsContent>
+            <TabsContent value="last-week" className="mt-4">
+              {renderWeekSchedule(lastWeekShifts)}
             </TabsContent>
             <TabsContent value="this-week" className="mt-4">
               {renderWeekSchedule(thisWeekShifts)}
