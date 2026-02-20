@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -515,54 +516,6 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     doc.save(`team_schedule_${format(generationDate, 'yyyy-MM-dd')}.pdf`);
   };
 
-  const handleDeleteAllShifts = async () => {
-    if (!functions) {
-        toast({ variant: 'destructive', title: 'Error', description: 'Firebase Functions service is not available.' });
-        return;
-    }
-    setIsDeleting(true);
-    toast({ title: 'Deleting All Active Shifts...', description: 'This may take a moment.' });
-    
-    try {
-        const deleteAllShiftsFn = httpsCallable(functions, 'deleteAllShifts');
-        const result = await deleteAllShiftsFn();
-        toast({ title: 'Success', description: (result.data as any).message });
-    } catch (error: any) {
-        console.error("Error deleting all shifts:", error);
-        toast({
-            variant: 'destructive',
-            title: 'Deletion Failed',
-            description: error.message || 'An unknown error occurred.',
-        });
-    } finally {
-        setIsDeleting(false);
-    }
-  };
-
-  const handlePasswordConfirmedDeleteAll = async () => {
-    if (!user || !user.email) {
-      toast({ title: 'Could not verify user.', variant: 'destructive' });
-      return;
-    }
-    if (!password) {
-      setReauthError('Password is required.');
-      return;
-    }
-    setIsReauthenticating(true);
-    setReauthError(null);
-    try {
-      const credential = EmailAuthProvider.credential(user.email, password);
-      await reauthenticateWithCredential(user, credential);
-      await handleDeleteAllShifts();
-      setIsConfirmDeleteAllOpen(false);
-    } catch (error) {
-      setReauthError('Incorrect password. Deletion cancelled.');
-    } finally {
-      setIsReauthenticating(false);
-      setPassword('');
-    }
-  };
-
   const handleDownloadDailyReport = async () => {
     const { default: jsPDF } = await import('jspdf');
     const { default: autoTable } = await import('jspdf-autotable');
@@ -688,6 +641,58 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     });
 
     doc.save(`daily_report_${format(today, 'yyyy-MM-dd')}.pdf`);
+  };
+
+  const handleDownloadWeeklyReport = () => {
+    handleDownloadPdf('this');
+  };
+
+  const handleDeleteAllShifts = async () => {
+    if (!functions) {
+        toast({ variant: 'destructive', title: 'Error', description: 'Firebase Functions service is not available.' });
+        return;
+    }
+    setIsDeleting(true);
+    toast({ title: 'Deleting All Active Shifts...', description: 'This may take a moment.' });
+    
+    try {
+        const deleteAllShiftsFn = httpsCallable(functions, 'deleteAllShifts');
+        const result = await deleteAllShiftsFn();
+        toast({ title: 'Success', description: (result.data as any).message });
+    } catch (error: any) {
+        console.error("Error deleting all shifts:", error);
+        toast({
+            variant: 'destructive',
+            title: 'Deletion Failed',
+            description: error.message || 'An unknown error occurred.',
+        });
+    } finally {
+        setIsDeleting(false);
+    }
+  };
+
+  const handlePasswordConfirmedDeleteAll = async () => {
+    if (!user || !user.email) {
+      toast({ title: 'Could not verify user.', variant: 'destructive' });
+      return;
+    }
+    if (!password) {
+      setReauthError('Password is required.');
+      return;
+    }
+    setIsReauthenticating(true);
+    setReauthError(null);
+    try {
+      const credential = EmailAuthProvider.credential(user.email, password);
+      await reauthenticateWithCredential(user, credential);
+      await handleDeleteAllShifts();
+      setIsConfirmDeleteAllOpen(false);
+    } catch (error) {
+      setReauthError('Incorrect password. Deletion cancelled.');
+    } finally {
+      setIsReauthenticating(false);
+      setPassword('');
+    }
   };
 
   const renderShiftList = (shiftsToRender: Shift[]) => {
