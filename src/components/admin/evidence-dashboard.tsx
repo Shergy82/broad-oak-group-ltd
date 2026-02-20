@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -264,12 +265,6 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
     const [isCameraOpen, setIsCameraOpen] = useState(false);
     const [selectedCameraItem, setSelectedCameraItem] = useState<{ text: string, count: number } | null>(null);
     const [isChecklistEditorOpen, setChecklistEditorOpen] = useState(false);
-    
-    const isScheduledForDeletion = !!project.deletionScheduledAt;
-
-    if (isScheduledForDeletion) {
-        return null;
-    }
 
     const activeChecklistItems = useMemo(() => {
         return project.checklist ?? checklist?.items ?? [];
@@ -748,7 +743,9 @@ export function EvidenceDashboard() {
         return differenceInDays(new Date(), project.createdAt.toDate());
     }
 
-    const enrichedProjects = filteredProjects.map(project => {
+    const enrichedProjects = filteredProjects
+    .filter(p => !p.deletionScheduledAt)
+    .map(project => {
         const contractChecklist = evidenceChecklists.get(project.contract || '');
         const activeChecklistItems = project.checklist ?? contractChecklist?.items ?? [];
         const projectFiles = filesByProject.get(project.id) || [];
@@ -778,9 +775,6 @@ export function EvidenceDashboard() {
 
     const priorityOrder = { 'ready': 1, 'incomplete': 2, 'generated': 3 };
     enrichedProjects.sort((a, b) => {
-        if (a.deletionScheduledAt && !b.deletionScheduledAt) return 1;
-        if (!a.deletionScheduledAt && b.deletionScheduledAt) return -1;
-        
         const statePriorityA = priorityOrder[a.evidenceState];
         const statePriorityB = priorityOrder[b.evidenceState];
 
