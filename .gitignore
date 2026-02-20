@@ -56,3 +56,5 @@ firebase-debug.log*
 firebase-backup.zip
 firebase-backup.zip
 app_BACKUP_*
+.firebase/
+functions/lib/
