@@ -43,6 +43,7 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { GlobalShiftImporter } from '@/components/admin/global-shift-importer';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
+import { ShareAppLink } from './ShareAppLink';
 
 export function Header() {
   const { user } = useAuth();
@@ -74,8 +75,9 @@ export function Header() {
       <div className="flex flex-col items-start">
         <Logo />
         {isPrivilegedUser && userProfile && (
-          <div className="pl-9 pt-1">
+          <div className="pl-9 pt-1 flex items-center gap-2">
             <GlobalShiftImporter userProfile={userProfile} />
+            <ShareAppLink />
           </div>
         )}
       </div>

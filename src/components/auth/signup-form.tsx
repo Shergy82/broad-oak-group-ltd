@@ -35,9 +35,10 @@ const formSchema = z.object({
 
 interface SignUpFormProps {
     onSignupSuccess: () => void;
+    department?: string;
 }
 
-export function SignUpForm({ onSignupSuccess }: SignUpFormProps) {
+export function SignUpForm({ onSignupSuccess, department }: SignUpFormProps) {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -84,6 +85,7 @@ export function SignUpForm({ onSignupSuccess }: SignUpFormProps) {
           status: 'pending-approval', // New users start as pending
           createdAt: serverTimestamp(),
           operativeId: '', // Add empty operativeId field
+          department: department || '',
       });
 
       onSignupSuccess();
