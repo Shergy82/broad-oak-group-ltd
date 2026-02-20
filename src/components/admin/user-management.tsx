@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { collection, onSnapshot, query, doc, updateDoc, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, doc, updateDoc, where, getDoc } from 'firebase/firestore';
 import { db, functions } from '@/lib/firebase';
 import { httpsCallable } from 'firebase/functions';
 import type { UserProfile } from '@/types';
@@ -149,7 +149,7 @@ export function UserManagement() {
     }
   };
 
-  const handleDepartmentChange = async (uid: string, department: string) => {
+  const handleDepartmentChange = async (uid: string, newDepartment: string) => {
     if (!isPrivilegedUser) {
         toast({ variant: "destructive", title: "Permission Denied", description: "You cannot change the department." });
         return;
@@ -158,12 +158,32 @@ export function UserManagement() {
       toast({ variant: 'destructive', title: 'Database not configured' });
       return;
     }
+
     const userDocRef = doc(db, 'users', uid);
+
     try {
-        await updateDoc(userDocRef, { department });
+      if (!newDepartment.trim()) {
+        const userDoc = await getDoc(userDocRef);
+        if (userDoc.exists()) {
+            const userData = userDoc.data() as UserProfile;
+            // Restore to base department, or current department if base isn't set (for older users)
+            const restoreTo = userData.baseDepartment ?? userData.department; 
+
+            if (restoreTo) {
+                await updateDoc(userDocRef, { department: restoreTo });
+                toast({ title: "Department Restored", description: `Department cannot be empty. It has been restored to "${restoreTo}".` });
+            } else {
+                // This case should be rare, but prevents creating a user with no department at all.
+                toast({ variant: "destructive", title: "Update Failed", description: "Department cannot be empty, and no original department was found to restore." });
+            }
+        }
+      } else {
+        await updateDoc(userDocRef, { department: newDepartment });
         toast({ title: "Success", description: "User department updated." });
+      }
     } catch (error: any) {
-        toast({ variant: "destructive", title: "Update Failed", description: error.message || "Could not update department." });
+        console.error("Error updating department:", error);
+        toast({ variant: "destructive", title: "Update Failed", description: error.message || "Could not update user department." });
     }
   };
   

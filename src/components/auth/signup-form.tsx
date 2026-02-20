@@ -86,6 +86,7 @@ export function SignUpForm({ onSignupSuccess, department }: SignUpFormProps) {
           createdAt: serverTimestamp(),
           operativeId: '', // Add empty operativeId field
           department: department || '',
+          baseDepartment: department || '',
       });
 
       onSignupSuccess();

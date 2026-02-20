@@ -46,6 +46,7 @@ export interface UserProfile {
   operativeId?: string;
   trade?: string;
   department?: string;
+  baseDepartment?: string;
 }
 
 /* =========================
