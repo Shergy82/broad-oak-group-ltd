@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -90,11 +91,12 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useAuth } from '@/hooks/use-auth';
 import { EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
-import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Dialog, DialogHeader, DialogTitle, DialogContent, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/shared/spinner';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
+import { useAllUsers } from '@/hooks/use-all-users';
 
 const getStatusBadge = (shift: Shift) => {
   const baseProps = { className: 'capitalize' };
@@ -161,7 +163,7 @@ interface ShiftScheduleOverviewProps {
 export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProps) {
   const { user } = useAuth();
   const [shifts, setShifts] = useState<Shift[]>([]);
-  const [users, setUsers] = useState<UserProfile[]>([]);
+  const { users: allUsersForFilter } = useAllUsers(); // Use hook to get all users for owner filtering
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -178,57 +180,18 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
   const { toast } = useToast();
   const router = useRouter();
   
-  const { selectedDepartments, availableDepartments } = useDepartmentFilter();
+  const { selectedDepartments } = useDepartmentFilter();
   const isOwner = userProfile.role === 'owner';
 
   useEffect(() => {
-    if (!db) {
+    if (!db || !userProfile) {
       setLoading(false);
-      setError("Firebase is not configured.");
+      setError("Firebase is not configured or user profile is not available.");
       return;
     }
     
     const department = userProfile.department;
     const isOwner = userProfile.role === 'owner';
-
-    let usersQuery;
-    if (isOwner) {
-        usersQuery = query(collection(db, 'users'));
-    } else if (department) {
-        usersQuery = query(collection(db, 'users'), where('department', '==', department));
-    } else {
-        usersQuery = query(collection(db, 'users'), where('__name__', '==', userProfile.uid));
-    }
-
-    const unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
-      const fetchedUsers = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
-      fetchedUsers.sort((a, b) => a.name.localeCompare(b.name));
-      setUsers(fetchedUsers);
-    }, (err) => {
-      console.error("Error fetching users: ", err);
-      setError("Could not fetch user data.");
-      setLoading(false);
-    });
-
-    let projectsQuery;
-    if (isOwner) {
-        projectsQuery = query(collection(db, 'projects'));
-    } else if (department) {
-        projectsQuery = query(collection(db, 'projects'), where('department', '==', department));
-    } else {
-        setProjects([]);
-        projectsQuery = null;
-    }
-
-    let unsubscribeProjects = () => {};
-    if (projectsQuery) {
-        unsubscribeProjects = onSnapshot(projectsQuery, (snapshot) => {
-            setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project)));
-        }, (err) => {
-            console.error("Error fetching projects: ", err);
-            setError("Could not fetch project data.");
-        });
-    }
 
     let shiftsQuery;
     if (isOwner) {
@@ -238,27 +201,35 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     } else {
         shiftsQuery = query(collection(db, 'shifts'), where('userId', '==', userProfile.uid));
     }
+    
+    let projectsQuery;
+    if (isOwner) {
+        projectsQuery = query(collection(db, 'projects'));
+    } else if (department) {
+        projectsQuery = query(collection(db, 'projects'), where('department', '==', department));
+    } else {
+        projectsQuery = null;
+    }
 
-    const unsubscribeShifts = onSnapshot(shiftsQuery, (snapshot) => {
-      const fetchedShifts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift));
-      setShifts(fetchedShifts);
+    const unsubShifts = onSnapshot(shiftsQuery, (snapshot) => {
+      setShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
       setLoading(false);
     }, (err) => {
       console.error("Error fetching shifts: ", err);
-      let errorMessage = 'Failed to fetch schedule. Please try again later.';
-      if (err.code === 'permission-denied') {
-        errorMessage = "You don't have permission to view the full schedule. This is because your project's Firestore security rules are too restrictive. Please open the `firestore.rules` file in your project, copy its contents, and paste them into the 'Rules' tab of your Cloud Firestore database in the Firebase Console.";
-      } else if (err.code === 'failed-precondition') {
-        errorMessage = 'Could not fetch schedule. This is likely due to a missing database index. Please check the browser console for a link to create the required index in Firebase.';
-      }
-      setError(errorMessage);
+      setError('Failed to fetch schedule.');
       setLoading(false);
     });
 
+    let unsubProjects = () => {};
+    if (projectsQuery) {
+        unsubProjects = onSnapshot(projectsQuery, (snapshot) => {
+            setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project)));
+        });
+    }
+
     return () => {
-      unsubscribeUsers();
-      unsubscribeShifts();
-      unsubscribeProjects();
+      unsubShifts();
+      unsubProjects();
     };
   }, [userProfile]);
 
@@ -267,29 +238,33 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
   };
 
-  const departmentFilteredUsers = useMemo(() => {
-    if (!isOwner) return users;
-    return users.filter(user => user.department && selectedDepartments.has(user.department));
-  }, [users, isOwner, selectedDepartments]);
-  
+  const usersForDropdown = useMemo(() => {
+    if (!isOwner) return allUsersForFilter.filter(u => u.uid === userProfile.uid);
+    if (selectedDepartments.size === 0) return [];
+    return allUsersForFilter.filter(user => user.department && selectedDepartments.has(user.department));
+  }, [allUsersForFilter, isOwner, selectedDepartments, userProfile.uid]);
+
   const filteredShifts = useMemo(() => {
-    let departmentFilteredShifts = shifts;
-    if (isOwner && availableDepartments.length > 0) {
-      departmentFilteredShifts = shifts.filter(shift => shift.department && selectedDepartments.has(shift.department));
+    if (!isOwner) {
+        return shifts; // Non-owners see their own shifts from the initial query.
     }
 
+    // Owners see shifts based on selected departments.
+    const shiftsInSelectedDepts = shifts.filter(shift => shift.department && selectedDepartments.has(shift.department));
+    
     if (selectedUserId === 'all') {
-      return departmentFilteredShifts;
+      return shiftsInSelectedDepts;
     }
-    return departmentFilteredShifts.filter(shift => shift.userId === selectedUserId);
-  }, [shifts, selectedUserId, isOwner, selectedDepartments, availableDepartments]);
+    
+    return shiftsInSelectedDepts.filter(shift => shift.userId === selectedUserId);
+  }, [shifts, selectedUserId, isOwner, selectedDepartments]);
+  
 
   const { todayShifts, thisWeekShifts, lastWeekShifts, nextWeekShifts, week3Shifts, week4Shifts, archiveShifts } = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-
-    const baseShiftsForArchive = isOwner ? shifts.filter(shift => shift.department && selectedDepartments.has(shift.department)) : shifts;
-    const baseShifts = activeTab === 'archive' ? baseShiftsForArchive : filteredShifts;
+    
+    const baseShifts = activeTab === 'archive' ? shifts : filteredShifts;
 
     const todayShifts = baseShifts.filter(s => isToday(getCorrectedLocalDate(s.date)));
     
@@ -298,7 +273,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     );
 
     const lastWeekDate = subDays(today, 7);
-    const lastWeekShifts = baseShifts.filter(s => 
+    const shiftsLastWeek = baseShifts.filter(s => 
         isSameWeek(getCorrectedLocalDate(s.date), lastWeekDate, { weekStartsOn: 1 })
     );
 
@@ -320,7 +295,6 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
         return isSameWeek(shiftDate, startOfWeek4, { weekStartsOn: 1 });
     });
     
-    // Archive logic
     const sixWeeksAgo = startOfWeek(subWeeks(today, 5), { weekStartsOn: 1 });
     const historicalShifts = baseShifts.filter(s => {
         const shiftDate = getCorrectedLocalDate(s.date);
@@ -328,20 +302,19 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     });
     
     const selectedArchiveDate = startOfWeek(subWeeks(today, parseInt(selectedArchiveWeek)), { weekStartsOn: 1 });
-
-    const archiveShifts = historicalShifts.filter(s => 
+    const finalArchiveShifts = historicalShifts.filter(s => 
         isSameWeek(getCorrectedLocalDate(s.date), selectedArchiveDate, { weekStartsOn: 1 }) &&
         (selectedUserId === 'all' || s.userId === selectedUserId)
     );
 
-    return { todayShifts, thisWeekShifts, lastWeekShifts, nextWeekShifts, week3Shifts, week4Shifts, archiveShifts };
-  }, [filteredShifts, shifts, selectedUserId, selectedArchiveWeek, activeTab, isOwner, selectedDepartments]);
+    return { todayShifts, thisWeekShifts, lastWeekShifts: shiftsLastWeek, nextWeekShifts, week3Shifts, week4Shifts, archiveShifts: finalArchiveShifts };
+  }, [filteredShifts, shifts, selectedUserId, selectedArchiveWeek, activeTab]);
 
   const userNameMap = useMemo(() => {
     const map = new Map<string, string>();
-    users.forEach(user => map.set(user.uid, user.name));
+    allUsersForFilter.forEach(user => map.set(user.uid, user.name));
     return map;
-  }, [users]);
+  }, [allUsersForFilter]);
 
   const archiveWeekOptions = useMemo(() => {
     const options = [];
@@ -386,7 +359,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     const pageContentMargin = 14;
     const pageHeight = doc.internal.pageSize.height;
     
-    const selectedUser = users.find(u => u.uid === selectedUserId);
+    const selectedUser = allUsersForFilter.find(u => u.uid === selectedUserId);
     const title = selectedUser ? `Team Shift Schedule for ${selectedUser.name}` : 'Team Shift Schedule';
 
     const addPageNumbers = () => {
@@ -440,7 +413,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
             shiftsByUser.get(shift.userId)!.push(shift);
         });
 
-        const usersToIterate = selectedUser ? [selectedUser] : [...users].sort((a, b) => (a.name || '').localeCompare(b.name || '')).filter(u => shiftsByUser.has(u.uid));
+        const usersToIterate = selectedUser ? [selectedUser] : [...allUsersForFilter].sort((a, b) => (a.name || '').localeCompare(b.name || '')).filter(u => shiftsByUser.has(u.uid));
         
         for (const user of usersToIterate) {
             const userShifts = shiftsByUser.get(user.uid) || [];
@@ -1139,7 +1112,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">All Users</SelectItem>
-                            {departmentFilteredUsers.map(user => (
+                            {usersForDropdown.map(user => (
                                 <SelectItem key={user.uid} value={user.uid}>{user.name}</SelectItem>
                             ))}
                         </SelectContent>
@@ -1219,7 +1192,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
             <ShiftFormDialog 
                 open={isFormOpen} 
                 onOpenChange={setIsFormOpen} 
-                users={users} 
+                users={allUsersForFilter} 
                 shift={selectedShift} 
                 userProfile={userProfile}
                 projects={projects}
