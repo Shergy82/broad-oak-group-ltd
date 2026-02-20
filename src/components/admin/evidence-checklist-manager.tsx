@@ -11,6 +11,7 @@ import { Spinner } from '@/components/shared/spinner';
 import { PlusCircle, Trash2, Camera, Tags } from 'lucide-react';
 import type { EvidenceChecklistItem, EvidenceChecklist, Project } from '@/types';
 import { Label } from '../ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface EvidenceChecklistManagerProps {
   contractName?: string;
@@ -162,15 +163,20 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
               className="flex-grow"
             />
             <div className="flex items-center gap-2">
-                <Input
-                    id="photo-count"
-                    type="number"
-                    min="1"
-                    value={newItemPhotoCount}
-                    onChange={(e) => setNewItemPhotoCount(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                    className="w-20 h-10"
-                />
-                <Label htmlFor="photo-count" className="text-sm text-muted-foreground whitespace-nowrap">photo(s)</Label>
+                <Select
+                    value={newItemPhotoCount.toString()}
+                    onValueChange={(value) => setNewItemPhotoCount(parseInt(value, 10) || 1)}
+                >
+                    <SelectTrigger className="w-20 h-10">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {Array.from({ length: 20 }, (_, i) => i + 1).map(num => (
+                            <SelectItem key={num} value={num.toString()}>{num}</SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+                <Label className="text-sm text-muted-foreground whitespace-nowrap">photo(s)</Label>
             </div>
             <Button onClick={handleAddItem} className="w-full sm:w-auto">
               <PlusCircle className="mr-2 h-4 w-4" /> Add
