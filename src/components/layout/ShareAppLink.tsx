@@ -14,8 +14,9 @@ export function ShareAppLink() {
   }
 
   const handleShare = () => {
+    const appUrl = 'https://broad-oak-group-ltd--the-final-project-5e248.europe-west4.hosted.app';
     const department = encodeURIComponent(userProfile.department!);
-    const shareUrl = `${window.location.origin}/signup?department=${department}`;
+    const shareUrl = `${appUrl}/signup?department=${department}`;
     navigator.clipboard.writeText(shareUrl);
     toast({
       title: 'Link Copied!',
