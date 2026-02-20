@@ -83,6 +83,11 @@ const getInitials = (name?: string) => {
       .toUpperCase();
 };
 
+const shortenAddress = (address?: string) => {
+    if (!address) return '';
+    return address.split(',')[0];
+};
+
 
 export function StaffShiftMap() {
   const [shifts, setShifts] = useState<Shift[]>([]);
@@ -432,7 +437,7 @@ export function StaffShiftMap() {
         <div className="mt-6 pt-6 border-t">
             <h3 className="text-lg font-semibold mb-4">Live Status Report</h3>
             {shifts.length > 0 ? (
-                <Accordion type="multiple" defaultValue={['on-site', 'confirmed']} className="w-full">
+                <Accordion type="multiple" defaultValue={['on-site', 'confirmed', 'pending-confirmation']} className="w-full">
                     {Array.from(shiftsByStatus.entries()).map(([status, statusShifts]) => (
                         <AccordionItem key={status} value={status}>
                             <AccordionTrigger>
@@ -443,16 +448,16 @@ export function StaffShiftMap() {
                                 </div>
                             </AccordionTrigger>
                             <AccordionContent>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pt-2">
+                                <div className="flex flex-wrap gap-3 pt-2">
                                     {statusShifts.map(shift => (
-                                        <div key={shift.id} className="flex items-center gap-3 p-3 border rounded-md bg-background">
-                                            <Avatar className="h-9 w-9">
-                                                <AvatarFallback>{getInitials(shift.userName)}</AvatarFallback>
+                                        <div key={shift.id} className="flex items-start gap-2 p-2 border rounded-md bg-background" style={{ flexBasis: '220px' }}>
+                                            <Avatar className="h-8 w-8">
+                                                <AvatarFallback className="text-xs">{getInitials(shift.userName)}</AvatarFallback>
                                             </Avatar>
-                                            <div>
-                                                <p className="font-semibold text-sm">{shift.userName}</p>
-                                                <p className="text-xs text-muted-foreground truncate">{shift.task}</p>
-                                                <p className="text-xs text-muted-foreground truncate">{shift.address}</p>
+                                            <div className="overflow-hidden">
+                                                <p className="font-semibold text-sm truncate" title={shift.userName}>{shift.userName}</p>
+                                                <p className="text-xs text-muted-foreground truncate" title={shift.task}>{shift.task}</p>
+                                                <p className="text-xs text-muted-foreground truncate" title={shift.address}>{shortenAddress(shift.address)}</p>
                                             </div>
                                         </div>
                                     ))}
