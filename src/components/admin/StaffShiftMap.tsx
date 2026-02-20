@@ -27,7 +27,7 @@ interface LocationPin {
   address: string;
   position: Coords;
   shifts: Shift[];
-  color: string;
+  icon: any;
 }
 
 const statusColorMapping: { [key in ShiftStatus]: string } = {
@@ -277,6 +277,8 @@ export function StaffShiftMap() {
   };
 
   const locationPins = useMemo((): LocationPin[] => {
+    if (typeof window === 'undefined' || !window.google) return [];
+    
     const shiftsToProcess = selectedUser ? shifts.filter(s => s.userId === selectedUser) : shifts;
 
     const shiftsWithCoords = shiftsToProcess.map(shift => {
@@ -293,24 +295,59 @@ export function StaffShiftMap() {
     });
       
     return Array.from(shiftsByAddress.entries()).map(([address, data]) => {
-        let highestPriorityStatus: ShiftStatus | null = null;
-        let highestPriorityIndex = Infinity;
+        const uniqueStatuses = [...new Set(data.shifts.map(s => s.status))];
+        let pinIcon: any;
 
-        data.shifts.forEach(shift => {
-            const priority = statusPriority.indexOf(shift.status);
-            if (priority !== -1 && priority < highestPriorityIndex) {
-                highestPriorityIndex = priority;
-                highestPriorityStatus = shift.status;
-            }
-        });
+        if (uniqueStatuses.length <= 1) {
+            const status = uniqueStatuses[0] || 'pending-confirmation';
+            const pinColor = statusColorMapping[status] || '#6b7280';
+            pinIcon = {
+                path: google.maps.SymbolPath.CIRCLE,
+                scale: 15,
+                fillColor: pinColor,
+                fillOpacity: 1,
+                strokeColor: '#ffffff',
+                strokeWeight: 2,
+            };
+        } else {
+            const colors = uniqueStatuses.map(status => statusColorMapping[status] || '#6b7280');
+            const radius = 12;
+            const center = 12;
+            const total = colors.length;
+            let start_angle = -90;
 
-        const pinColor = highestPriorityStatus ? statusColorMapping[highestPriorityStatus] : '#6b7280'; // default gray
+            const paths = colors.map(color => {
+                const slice_angle = 360 / total;
+                const end_angle = start_angle + slice_angle;
+                
+                const x1 = center + radius * Math.cos(start_angle * Math.PI / 180);
+                const y1 = center + radius * Math.sin(start_angle * Math.PI / 180);
+
+                const x2 = center + radius * Math.cos(end_angle * Math.PI / 180);
+                const y2 = center + radius * Math.sin(end_angle * Math.PI / 180);
+
+                const largeArcFlag = slice_angle > 180 ? 1 : 0;
+                
+                const d = `M${center},${center} L${x1},${y1} A${radius},${radius} 0 ${largeArcFlag},1 ${x2},${y2} Z`;
+
+                start_angle = end_angle;
+                return `<path d="${d}" fill="${color}" />`;
+            }).join('');
+            
+            const svg = `<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">${paths}<circle cx="12" cy="12" r="12" fill="transparent" stroke="#ffffff" stroke-width="2"/></svg>`;
+            
+            pinIcon = {
+                url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+                scaledSize: new window.google.maps.Size(30, 30),
+                anchor: new window.google.maps.Point(15, 15),
+            };
+        }
 
         return {
             address,
             position: data.coords,
             shifts: data.shifts,
-            color: pinColor
+            icon: pinIcon,
         };
     });
   }, [shifts, geocodedLocations, selectedUser]);
@@ -424,14 +461,7 @@ export function StaffShiftMap() {
                     onMouseOver={() => handleMarkerMouseOver(pin)}
                     onMouseOut={handleMarkerMouseOut}
                     onClick={() => handleMarkerClick(pin)}
-                    icon={{
-                        path: google.maps.SymbolPath.CIRCLE,
-                        scale: 15,
-                        fillColor: pin.color,
-                        fillOpacity: 1,
-                        strokeColor: '#ffffff',
-                        strokeWeight: 2,
-                    }}
+                    icon={pin.icon}
                 />
             ))}
 
