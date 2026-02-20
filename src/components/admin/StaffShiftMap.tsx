@@ -6,6 +6,9 @@ import { GoogleMap, Marker, InfoWindow, useJsApiLoader } from '@react-google-map
 import { collection, onSnapshot, query, where, Timestamp } from 'firebase/firestore';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Search } from 'lucide-react';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+
 
 import { db } from '@/lib/firebase';
 import type { Shift, UserProfile, ShiftStatus } from '@/types';
@@ -69,6 +72,15 @@ const haversineDistance = (coords1: Coords, coords2: Coords): number => {
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
     return R * c;
+};
+
+const getInitials = (name?: string) => {
+    if (!name) return '??';
+    return name
+      .split(' ')
+      .map((n) => n[0])
+      .join('')
+      .toUpperCase();
 };
 
 
@@ -275,6 +287,31 @@ export function StaffShiftMap() {
 
   }, [selectedPin, locationPins]);
 
+  const shiftsByStatus = useMemo(() => {
+    const grouped = new Map<ShiftStatus, Shift[]>();
+    const shiftsToProcess = selectedUser ? shifts.filter(s => s.userId === selectedUser) : shifts;
+
+    shiftsToProcess.forEach(shift => {
+        if (!shift.status) return;
+        if (!grouped.has(shift.status)) {
+            grouped.set(shift.status, []);
+        }
+        grouped.get(shift.status)!.push(shift);
+    });
+
+    // Sort shifts within each group by user name
+    for (const shiftArray of grouped.values()) {
+        shiftArray.sort((a, b) => (a.userName || '').localeCompare(b.userName || ''));
+    }
+
+    // Sort the groups by the priority order
+    const sortedGrouped = new Map([...grouped.entries()].sort((a, b) => {
+        return statusPriority.indexOf(a[0]) - statusPriority.indexOf(b[0]);
+    }));
+
+    return sortedGrouped;
+  }, [shifts, selectedUser]);
+
 
   if (loadError) {
     return <div className="h-[500px] flex items-center justify-center bg-muted rounded-md text-destructive">Error loading maps. Please check your API key.</div>;
@@ -390,6 +427,43 @@ export function StaffShiftMap() {
                 </div>
                 ))}
             </div>
+        </div>
+
+        <div className="mt-6 pt-6 border-t">
+            <h3 className="text-lg font-semibold mb-4">Live Status Report</h3>
+            {shifts.length > 0 ? (
+                <Accordion type="multiple" defaultValue={['on-site', 'confirmed']} className="w-full">
+                    {Array.from(shiftsByStatus.entries()).map(([status, statusShifts]) => (
+                        <AccordionItem key={status} value={status}>
+                            <AccordionTrigger>
+                                <div className="flex items-center gap-2">
+                                    <div style={{ backgroundColor: statusColorMapping[status] || '#6b7280' }} className="w-3 h-3 rounded-full"></div>
+                                    <span className="capitalize font-medium">{status.replace('-', ' ')}</span>
+                                    <span className="text-sm font-normal text-muted-foreground">({statusShifts.length})</span>
+                                </div>
+                            </AccordionTrigger>
+                            <AccordionContent>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pt-2">
+                                    {statusShifts.map(shift => (
+                                        <div key={shift.id} className="flex items-center gap-3 p-3 border rounded-md bg-background">
+                                            <Avatar className="h-9 w-9">
+                                                <AvatarFallback>{getInitials(shift.userName)}</AvatarFallback>
+                                            </Avatar>
+                                            <div>
+                                                <p className="font-semibold text-sm">{shift.userName}</p>
+                                                <p className="text-xs text-muted-foreground truncate">{shift.task}</p>
+                                                <p className="text-xs text-muted-foreground truncate">{shift.address}</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </AccordionContent>
+                        </AccordionItem>
+                    ))}
+                </Accordion>
+            ) : (
+                <p className="text-sm text-muted-foreground text-center p-4">No live shift data for today.</p>
+            )}
         </div>
     </div>
   );
