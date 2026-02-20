@@ -13,6 +13,7 @@ import { db } from '@/lib/firebase';
 import { collection, onSnapshot, addDoc, deleteDoc, doc, updateDoc, arrayUnion, arrayRemove, query, orderBy } from 'firebase/firestore';
 import { Spinner } from '../shared/spinner';
 import type { Trade, TradeTask } from '@/types';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export function TaskManager() {
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -210,15 +211,20 @@ export function TaskManager() {
                         {newSubTaskPhotoRequired[trade.id] && (
                             <div className="flex-grow flex flex-col sm:flex-row gap-4 items-center">
                                 <div className="flex items-center gap-2">
-                                    <Input
-                                        id={`photo-count-${trade.id}`}
-                                        type="number"
-                                        min="1"
-                                        value={newSubTaskPhotoCount[trade.id] || 1}
-                                        onChange={(e) => setNewSubTaskPhotoCount({ ...newSubTaskPhotoCount, [trade.id]: Math.max(1, parseInt(e.target.value, 10) || 1)})}
-                                        className="w-20 h-8"
-                                    />
-                                    <Label htmlFor={`photo-count-${trade.id}`} className="text-sm text-muted-foreground whitespace-nowrap">photo(s)</Label>
+                                    <Select
+                                        value={(newSubTaskPhotoCount[trade.id] || 1).toString()}
+                                        onValueChange={(value) => setNewSubTaskPhotoCount({ ...newSubTaskPhotoCount, [trade.id]: parseInt(value, 10) || 1 })}
+                                    >
+                                        <SelectTrigger className="w-20 h-8">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {Array.from({ length: 20 }, (_, i) => i + 1).map(num => (
+                                                <SelectItem key={num} value={num.toString()}>{num}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <Label className="text-sm text-muted-foreground whitespace-nowrap">photo(s)</Label>
                                 </div>
                                  <div className="flex items-center gap-2 w-full flex-grow">
                                     <Tags className="h-4 w-4 text-muted-foreground" />
