@@ -145,7 +145,7 @@ const getStatusBadge = (shift: Shift) => {
               <PopoverContent className="w-64 sm:w-80">
                 <div className="space-y-2">
                   <h4 className="font-medium leading-none">Notes</h4>
-                  <p className="text-sm text-muted-foreground">{shift.notes}</p>
+                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">{shift.notes}</p>
                 </div>
               </PopoverContent>
             </Popover>
@@ -239,19 +239,31 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     week4Shifts,
     archiveShifts,
   } = useMemo(() => {
-    const departmentFilteredShifts = isOwner 
-      ? allShifts.filter(shift => shift.department && selectedDepartments.has(shift.department)) 
-      : allShifts;
-  
-    const userIdsInFilteredShifts = new Set(departmentFilteredShifts.map(s => s.userId));
-    const usersForDropdownResult = allUsers
-      .filter(u => userIdsInFilteredShifts.has(u.uid))
-      .sort((a, b) => a.name.localeCompare(b.name));
+    // Determine the pool of users to display based on role and department filters.
+    const relevantUsers = allUsers.filter(u => {
+        if (isOwner) {
+          // Owners see users from the departments they have selected in the filter.
+          return u.department && selectedDepartments.has(u.department);
+        }
+        if (userProfile.department) {
+          // Non-owners see users only from their own department.
+          return u.department === userProfile.department;
+        }
+        // Fallback for users with no department (they see only themselves).
+        return u.uid === userProfile.uid;
+      });
+
+    const usersForDropdownResult = [...relevantUsers].sort((a, b) => a.name.localeCompare(b.name));
+    const relevantUserIds = new Set(relevantUsers.map(u => u.uid));
+
+    // Filter all shifts to include only those belonging to the relevant users.
+    const departmentFilteredShifts = allShifts.filter(shift => relevantUserIds.has(shift.userId));
     
+    // Now, apply the user selection from the dropdown.
     const finalFilteredShifts = selectedUserId === 'all'
       ? departmentFilteredShifts
       : departmentFilteredShifts.filter(s => s.userId === selectedUserId);
-    
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
   
@@ -320,7 +332,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
       archiveShifts: finalArchiveShifts
     };
   
-  }, [allShifts, allUsers, isOwner, selectedDepartments, selectedUserId, selectedArchiveWeek]);
+  }, [allShifts, allUsers, isOwner, selectedDepartments, selectedUserId, userProfile.department, userProfile.uid, selectedArchiveWeek]);
 
   const userNameMap = useMemo(() => {
     const map = new Map<string, string>();
