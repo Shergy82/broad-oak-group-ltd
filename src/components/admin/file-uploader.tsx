@@ -516,12 +516,13 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
       const workbook = XLSX.read(data, { type: 'array' });
       
       const visibleSheetNames = workbook.SheetNames.filter(name => {
-          if (name.startsWith('_xlfn.')) {
-              return false;
-          }
           const sheet = workbook.Sheets[name];
           // @ts-ignore
           if (sheet && sheet.Hidden) {
+              return false;
+          }
+          // Filter out names starting with underscore, which are often internal.
+          if (name.startsWith('_')) {
               return false;
           }
           return true;
