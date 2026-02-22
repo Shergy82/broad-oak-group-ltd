@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -20,6 +21,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Search, Check, Ban, Trash, Edit, AlertTriangle } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { cn } from '@/lib/utils';
 
 function EditUserDialog({ user, open, onOpenChange }: { user: UserProfile, open: boolean, onOpenChange: (open: boolean) => void }) {
     const { toast } = useToast();
@@ -180,34 +182,53 @@ export default function UserManagementPage() {
                             <TableHead>Phone Number</TableHead>
                             <TableHead>Trade</TableHead>
                             <TableHead>Role</TableHead>
+                            <TableHead>Status</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {usersToRender.map(user => (
-                            <TableRow key={user.uid}>
-                                <TableCell className="font-medium">
-                                    {user.name}
-                                    {user.operativeId && <div className="text-xs text-muted-foreground">{user.operativeId}</div>}
-                                </TableCell>
-                                <TableCell>{user.phoneNumber || 'N/A'}</TableCell>
-                                <TableCell>{user.trade || 'N/A'}</TableCell>
-                                <TableCell><Badge variant="outline" className="capitalize">{user.role}</Badge></TableCell>
-                                <TableCell className="text-right space-x-1">
-                                    {type === 'pending' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')}><Check className="mr-2 h-4 w-4" />Activate</Button>}
-                                    {type === 'active' && <Button size="sm" variant="destructive" onClick={() => handleSetUserStatus(user, 'suspended')}><Ban className="mr-2 h-4 w-4" />Suspend</Button>}
-                                    {type === 'suspended' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')}><Check className="mr-2 h-4 w-4" />Re-activate</Button>}
-                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEditUser(user)}><Edit className="h-4 w-4" /></Button>
-                                    <AlertDialog>
-                                        <AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/70"><Trash className="h-4 w-4" /></Button></AlertDialogTrigger>
-                                        <AlertDialogContent>
-                                            <AlertDialogHeader><AlertDialogTitle>Delete User?</AlertDialogTitle><AlertDialogDescription>This will permanently delete {user.name} and their authentication account. This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
-                                            <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteUser(user)} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">Delete User</AlertDialogAction></AlertDialogFooter>
-                                        </AlertDialogContent>
-                                    </AlertDialog>
-                                </TableCell>
-                            </TableRow>
-                        ))}
+                        {usersToRender.map(user => {
+                            const status = user.status || 'active';
+                            return (
+                                <TableRow key={user.uid}>
+                                    <TableCell className="font-medium">
+                                        {user.name}
+                                        {user.operativeId && <div className="text-xs text-muted-foreground">{user.operativeId}</div>}
+                                    </TableCell>
+                                    <TableCell>{user.phoneNumber || 'N/A'}</TableCell>
+                                    <TableCell>{user.trade || 'N/A'}</TableCell>
+                                    <TableCell><Badge variant="outline" className="capitalize">{user.role}</Badge></TableCell>
+                                    <TableCell>
+                                        <Badge
+                                            variant={
+                                                status === 'suspended' ? 'destructive' :
+                                                status === 'pending-approval' ? 'secondary' :
+                                                'default'
+                                            }
+                                            className={cn(
+                                                "capitalize",
+                                                status === 'active' && 'bg-green-600 hover:bg-green-700 text-primary-foreground'
+                                            )}
+                                        >
+                                            {status.replace('-', ' ')}
+                                        </Badge>
+                                    </TableCell>
+                                    <TableCell className="text-right space-x-1">
+                                        {type === 'pending' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')}><Check className="mr-2 h-4 w-4" />Activate</Button>}
+                                        {type === 'active' && <Button size="sm" variant="destructive" onClick={() => handleSetUserStatus(user, 'suspended')}><Ban className="mr-2 h-4 w-4" />Suspend</Button>}
+                                        {type === 'suspended' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')}><Check className="mr-2 h-4 w-4" />Re-activate</Button>}
+                                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEditUser(user)}><Edit className="h-4 w-4" /></Button>
+                                        <AlertDialog>
+                                            <AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/70"><Trash className="h-4 w-4" /></Button></AlertDialogTrigger>
+                                            <AlertDialogContent>
+                                                <AlertDialogHeader><AlertDialogTitle>Delete User?</AlertDialogTitle><AlertDialogDescription>This will permanently delete {user.name} and their authentication account. This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
+                                                <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteUser(user)} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">Delete User</AlertDialogAction></AlertDialogFooter>
+                                            </AlertDialogContent>
+                                        </AlertDialog>
+                                    </TableCell>
+                                </TableRow>
+                            )
+                        })}
                     </TableBody>
                 </Table>
             </div>
