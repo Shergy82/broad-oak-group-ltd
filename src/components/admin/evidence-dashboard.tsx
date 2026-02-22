@@ -23,6 +23,7 @@ import { Dialog, DialogDescription, DialogHeader, DialogTitle, DialogContent, Di
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '@/components/ui/carousel';
 import NextImage from 'next/image';
 import { MultiPhotoCamera } from '@/components/shared/multi-photo-camera';
+import { useDepartmentFilter } from '@/hooks/use-department-filter';
 
 const isMatch = (checklistText: string, fileTag: string | undefined): boolean => {
     if (!fileTag || !checklistText) return false;
@@ -593,6 +594,8 @@ export function EvidenceDashboard() {
   const [editingChecklist, setEditingChecklist] = useState<string | null>(null);
   const { userProfile } = useUserProfile();
   const { toast } = useToast();
+  const { selectedDepartments } = useDepartmentFilter();
+  const isOwner = userProfile?.role === 'owner';
 
   const [filesByProject, setFilesByProject] = useState<Map<string, ProjectFile[]>>(new Map());
   const LOCAL_STORAGE_KEY_GENERATED = 'evidence_pdf_generated_projects_v5';
@@ -733,13 +736,16 @@ export function EvidenceDashboard() {
 
 
   const filteredProjects = useMemo(() => {
-    const activeProjects = projects;
-    if (!searchTerm) return activeProjects;
-    return activeProjects.filter(project =>
+    const departmentFilteredProjects = isOwner
+        ? projects.filter(p => p.department && selectedDepartments.has(p.department))
+        : projects;
+
+    if (!searchTerm) return departmentFilteredProjects;
+    return departmentFilteredProjects.filter(project =>
       project.address.toLowerCase().includes(searchTerm.toLowerCase()) ||
       project.contract?.toLowerCase().includes(searchTerm.toLowerCase())
     );
-  }, [projects, searchTerm]);
+  }, [projects, searchTerm, isOwner, selectedDepartments]);
 
   const groupedProjects = useMemo(() => {
     if (loading) return [];

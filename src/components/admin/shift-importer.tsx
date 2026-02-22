@@ -1,17 +1,20 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { FileUploader, type FailedShift, type DryRunResult } from './file-uploader';
 import type { UserProfile } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { CheckCircle, FileWarning, Upload, List, AlertCircle, ArrowRight, Trash2, Edit, Plus } from 'lucide-react';
+import { CheckCircle, FileWarning, Upload, List, ArrowRight, Edit, Plus, Trash2 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from '../ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { format } from 'date-fns';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useAllUsers } from '@/hooks/use-all-users';
+import { Label } from '../ui/label';
 
 interface ShiftImporterProps {
   userProfile: UserProfile;
@@ -25,6 +28,25 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
   } | null>(null);
 
   const [isConfirmed, setIsConfirmed] = useState(false);
+  const [importDepartment, setImportDepartment] = useState(userProfile.department || '');
+  const { users: allUsers, loading: usersLoading } = useAllUsers();
+
+  const isOwner = userProfile.role === 'owner';
+
+  const availableDepartments = useMemo(() => {
+    if (!isOwner) return [];
+    const depts = new Set<string>();
+    allUsers.forEach(u => {
+        if (u.department) depts.add(u.department);
+    });
+    return Array.from(depts).sort();
+  }, [isOwner, allUsers]);
+
+  useEffect(() => {
+    if (isOwner && !importDepartment && availableDepartments.length > 0) {
+      setImportDepartment(availableDepartments[0]);
+    }
+  }, [isOwner, importDepartment, availableDepartments]);
 
   const handleImportComplete = (
     failedShifts: FailedShift[],
@@ -187,7 +209,30 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <FileUploader onImportComplete={handleImportComplete} onFileSelect={handleFileSelect} userProfile={userProfile} />
+        {isOwner && (
+            <div className="space-y-2 mb-4">
+                <Label htmlFor="import-format-select">Select Import Format</Label>
+                <Select value={importDepartment} onValueChange={setImportDepartment}>
+                    <SelectTrigger id="import-format-select">
+                        <SelectValue placeholder="Select department's format..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {usersLoading 
+                            ? <SelectItem value="" disabled>Loading departments...</SelectItem>
+                            : availableDepartments.map(dept => <SelectItem key={dept} value={dept}>{dept} Department Format</SelectItem>)
+                        }
+                        <SelectItem value="Other">Standard/ECO Format</SelectItem>
+                    </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">Select 'Build' for the new layout, 'Standard/ECO' for the old one.</p>
+            </div>
+        )}
+        <FileUploader
+          onImportComplete={handleImportComplete}
+          onFileSelect={handleFileSelect}
+          userProfile={userProfile}
+          importDepartment={importDepartment}
+        />
       </CardContent>
 
       {importResults && (

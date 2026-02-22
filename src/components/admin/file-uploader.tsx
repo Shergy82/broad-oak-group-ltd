@@ -80,6 +80,7 @@ interface FileUploaderProps {
   ) => void;
   onFileSelect: () => void;
   userProfile: UserProfile;
+  importDepartment: string;
 }
 
 // ------------------------
@@ -216,7 +217,11 @@ const isSiteSeparatorRow = (row: any[]) => {
     .filter(Boolean);
 
   if (cells.length === 0) return false;
-  return cells.some((c) => c.includes('JOB MANAGER') || c.includes('SITE MANAGER') || c.includes('PROJECT MANAGER'));
+  // A row with "Job Manager" and likely not much else.
+  if (cells.length < 5 && cells.some((c) => c.includes('JOB MANAGER') || c.includes('SITE MANAGER') || c.includes('PROJECT MANAGER'))) {
+    return true;
+  }
+  return false;
 };
 
 const findAddressInBlock = (jsonData: any[][], startRow: number, endRow: number) => {
@@ -483,7 +488,7 @@ const parseBuildSheet = (
 
 const LOCAL_STORAGE_KEY = 'shiftImport_selectedSheets_v2';
 
-export function FileUploader({ onImportComplete, onFileSelect, userProfile }: FileUploaderProps) {
+export function FileUploader({ onImportComplete, onFileSelect, userProfile, importDepartment }: FileUploaderProps) {
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -518,10 +523,9 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
       const visibleSheetNames = workbook.SheetNames.filter(name => {
           const sheet = workbook.Sheets[name];
           // @ts-ignore
-          if (sheet && sheet.Hidden) {
+          if (sheet?.Hidden === 1 || sheet?.Hidden === '1' || sheet?.Hidden === true) {
               return false;
           }
-          // Filter out names starting with underscore, which are often internal.
           if (name.startsWith('_')) {
               return false;
           }
@@ -616,12 +620,12 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
             const worksheet = workbook.Sheets[sheetName];
             if (!worksheet) continue;
             
-            if (userProfile.department === 'Build') {
+            if (importDepartment === 'Build') {
               const { shifts, failed } = parseBuildSheet(
                 worksheet,
                 userMap,
                 sheetName,
-                userProfile.department || 'Build'
+                importDepartment
               );
               allShiftsFromExcel.push(...shifts);
               allFailedShifts.push(...failed);
@@ -748,7 +752,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                           manager,
                           notes,
                           contract: sheetName,
-                          department: userProfile.department || '',
+                          department: importDepartment === 'Other' ? '' : importDepartment,
                         });
                       } else {
                         allFailedShifts.push({
@@ -973,7 +977,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
 
       reader.readAsArrayBuffer(file);
     },
-    [file, selectedSheets, toast, onImportComplete, onFileSelect, userProfile]
+    [file, selectedSheets, toast, onImportComplete, onFileSelect, userProfile, importDepartment]
   );
 
   const handleImport = () => {

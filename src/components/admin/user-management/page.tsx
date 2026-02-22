@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -20,6 +21,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Search, Check, Ban, Trash, Edit, AlertTriangle } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { useDepartmentFilter } from '@/hooks/use-department-filter';
+import { cn } from '@/lib/utils';
 
 function EditUserDialog({ user, open, onOpenChange }: { user: UserProfile, open: boolean, onOpenChange: (open: boolean) => void }) {
     const { toast } = useToast();
@@ -111,6 +114,7 @@ export default function UserManagementPage() {
     const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
     const [isEditUserOpen, setIsEditUserOpen] = useState(false);
     const { toast } = useToast();
+    const { selectedDepartments } = useDepartmentFilter();
 
     useEffect(() => {
         const q = query(collection(db, 'users'));
@@ -125,13 +129,18 @@ export default function UserManagementPage() {
     }, []);
 
     const { pendingUsers, activeUsers, suspendedUsers } = useMemo(() => {
-        const filtered = users.filter(u => u.name?.toLowerCase().includes(searchTerm.toLowerCase()));
+        const isOwner = currentUserProfile?.role === 'owner';
+        const departmentFilteredUsers = isOwner && selectedDepartments.size > 0
+            ? users.filter(u => u.department && selectedDepartments.has(u.department))
+            : users;
+
+        const filtered = departmentFilteredUsers.filter(u => u.name?.toLowerCase().includes(searchTerm.toLowerCase()));
         return {
             pendingUsers: filtered.filter(u => u.status === 'pending-approval'),
             activeUsers: filtered.filter(u => u.status === 'active' || !u.status),
             suspendedUsers: filtered.filter(u => u.status === 'suspended'),
         };
-    }, [users, searchTerm]);
+    }, [users, searchTerm, currentUserProfile, selectedDepartments]);
     
     const handleSetUserStatus = async (user: UserProfile, newStatus: 'active' | 'suspended') => {
         if (!functions) {
@@ -155,7 +164,7 @@ export default function UserManagementPage() {
         try {
             const deleteUserFn = httpsCallable<{uid: string}, {success: boolean}>(functions, 'deleteUser');
             await deleteUserFn({ uid: user.uid });
-            toast({ title: "User Deleted", description: "The user and their auth account have been permanently removed." });
+            toast({ title: "User Deleted", description: "The user and their authentication account have been permanently removed." });
         } catch (error: any) {
             toast({ variant: 'destructive', title: "Error", description: error.message });
         }
@@ -166,13 +175,15 @@ export default function UserManagementPage() {
         setIsEditUserOpen(true);
     };
 
-    const renderUserTable = (usersToRender: UserProfile[], type: 'pending' | 'active' | 'suspended') => {
+    const renderUserList = (usersToRender: UserProfile[], type: 'pending' | 'active' | 'suspended') => {
         if (usersToRender.length === 0) {
             return <p className="text-center text-sm text-muted-foreground p-4">No users in this category.</p>
         }
         
         return (
-            <div className="border rounded-lg">
+          <>
+            {/* Desktop Table View */}
+            <div className="border rounded-lg hidden md:block">
                 <Table>
                     <TableHeader>
                         <TableRow>
@@ -186,43 +197,95 @@ export default function UserManagementPage() {
                     </TableHeader>
                     <TableBody>
                         {usersToRender.map(user => {
-                             const status = user.status || 'active';
-                             const statusVariant =
-                               status === 'active' ? 'default' :
-                               status === 'suspended' ? 'destructive' :
-                               'secondary';
+                            const status = user.status || 'active';
                             return (
-                            <TableRow key={user.uid}>
-                                <TableCell className="font-medium">
-                                    {user.name}
-                                    {user.operativeId && <div className="text-xs text-muted-foreground">{user.operativeId}</div>}
-                                </TableCell>
-                                <TableCell>{user.phoneNumber || 'N/A'}</TableCell>
-                                <TableCell>{user.trade || 'N/A'}</TableCell>
-                                <TableCell><Badge variant="outline" className="capitalize">{user.role}</Badge></TableCell>
-                                <TableCell>
-                                    <Badge variant={statusVariant} className="capitalize">
-                                        {status.replace('-', ' ')}
-                                    </Badge>
-                                </TableCell>
-                                <TableCell className="text-right space-x-1">
-                                    {type === 'pending' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')}><Check className="mr-2 h-4 w-4" />Activate</Button>}
-                                    {type === 'active' && <Button size="sm" variant="destructive" onClick={() => handleSetUserStatus(user, 'suspended')}><Ban className="mr-2 h-4 w-4" />Suspend</Button>}
-                                    {type === 'suspended' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')}><Check className="mr-2 h-4 w-4" />Re-activate</Button>}
-                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEditUser(user)}><Edit className="h-4 w-4" /></Button>
+                                <TableRow key={user.uid}>
+                                    <TableCell className="font-medium">
+                                        {user.name}
+                                        {user.operativeId && <div className="text-xs text-muted-foreground">{user.operativeId}</div>}
+                                    </TableCell>
+                                    <TableCell>{user.phoneNumber || 'N/A'}</TableCell>
+                                    <TableCell>{user.trade || 'N/A'}</TableCell>
+                                    <TableCell><Badge variant="outline" className="capitalize">{user.role}</Badge></TableCell>
+                                    <TableCell>
+                                        <Badge
+                                            variant={
+                                                status === 'suspended' ? 'destructive' :
+                                                status === 'pending-approval' ? 'secondary' :
+                                                'default'
+                                            }
+                                            className={cn(
+                                                "capitalize",
+                                                status === 'active' && 'bg-green-600 hover:bg-green-700 text-primary-foreground'
+                                            )}
+                                        >
+                                            {status.replace('-', ' ')}
+                                        </Badge>
+                                    </TableCell>
+                                    <TableCell className="text-right space-x-1">
+                                        {type === 'pending' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')}><Check className="mr-2 h-4 w-4" />Activate</Button>}
+                                        {type === 'active' && <Button size="sm" variant="destructive" onClick={() => handleSetUserStatus(user, 'suspended')}><Ban className="mr-2 h-4 w-4" />Suspend</Button>}
+                                        {type === 'suspended' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')}><Check className="mr-2 h-4 w-4" />Re-activate</Button>}
+                                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEditUser(user)}><Edit className="h-4 w-4" /></Button>
+                                        <AlertDialog>
+                                            <AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/70"><Trash className="h-4 w-4" /></Button></AlertDialogTrigger>
+                                            <AlertDialogContent>
+                                                <AlertDialogHeader><AlertDialogTitle>Delete User?</AlertDialogTitle><AlertDialogDescription>This will permanently delete {user.name} and their authentication account. This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
+                                                <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteUser(user)} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">Delete User</AlertDialogAction></AlertDialogFooter>
+                                            </AlertDialogContent>
+                                        </AlertDialog>
+                                    </TableCell>
+                                </TableRow>
+                            )
+                        })}
+                    </TableBody>
+                </Table>
+            </div>
+            
+            {/* Mobile Card View */}
+            <div className="grid gap-4 md:hidden">
+              {usersToRender.map(user => {
+                  const status = user.status || 'active';
+                  return (
+                      <Card key={user.uid}>
+                          <CardHeader>
+                              <CardTitle>{user.name}</CardTitle>
+                              {user.operativeId && <CardDescription>ID: {user.operativeId}</CardDescription>}
+                          </CardHeader>
+                          <CardContent className="text-sm space-y-3">
+                              <div><strong>Phone:</strong> {user.phoneNumber || 'N/A'}</div>
+                              <div><strong>Trade:</strong> {user.trade || 'N/A'}</div>
+                              <div className="flex items-center gap-2"><strong>Role:</strong> <Badge variant="outline" className="capitalize">{user.role}</Badge></div>
+                              <div className="flex items-center gap-2"><strong>Status:</strong>
+                                  <Badge
+                                      variant={status === 'suspended' ? 'destructive' : status === 'pending-approval' ? 'secondary' : 'default'}
+                                      className={cn("capitalize", status === 'active' && 'bg-green-600 hover:bg-green-700 text-primary-foreground')}
+                                  >
+                                      {status.replace('-', ' ')}
+                                  </Badge>
+                              </div>
+                          </CardContent>
+                          <CardFooter className="flex flex-col gap-2">
+                                {type === 'pending' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')} className="w-full"><Check className="mr-2 h-4 w-4" />Activate</Button>}
+                                {type === 'active' && <Button size="sm" variant="destructive" onClick={() => handleSetUserStatus(user, 'suspended')} className="w-full"><Ban className="mr-2 h-4 w-4" />Suspend</Button>}
+                                {type === 'suspended' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')} className="w-full"><Check className="mr-2 h-4 w-4" />Re-activate</Button>}
+                                
+                                <div className="grid grid-cols-2 gap-2 w-full">
+                                    <Button variant="outline" className="w-full" onClick={() => handleEditUser(user)}><Edit className="mr-2 h-4 w-4" />Edit</Button>
                                     <AlertDialog>
-                                        <AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/70"><Trash className="h-4 w-4" /></Button></AlertDialogTrigger>
+                                        <AlertDialogTrigger asChild><Button variant="destructive" className="w-full"><Trash className="mr-2 h-4 w-4" />Delete</Button></AlertDialogTrigger>
                                         <AlertDialogContent>
                                             <AlertDialogHeader><AlertDialogTitle>Delete User?</AlertDialogTitle><AlertDialogDescription>This will permanently delete {user.name} and their authentication account. This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
                                             <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteUser(user)} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">Delete User</AlertDialogAction></AlertDialogFooter>
                                         </AlertDialogContent>
                                     </AlertDialog>
-                                </TableCell>
-                            </TableRow>
-                        )})}
-                    </TableBody>
-                </Table>
+                                </div>
+                          </CardFooter>
+                      </Card>
+                  )
+              })}
             </div>
+          </>
         );
     }
     
@@ -240,13 +303,13 @@ export default function UserManagementPage() {
         );
     }
     
-    if (currentUserProfile?.role !== 'owner') {
+    if (!['owner', 'admin'].includes(currentUserProfile?.role || '')) {
         return (
             <Alert variant="destructive">
                 <AlertTriangle className="h-4 w-4" />
                 <AlertTitle>Access Denied</AlertTitle>
                 <AlertDescription>
-                You do not have permission to view this page. User management is restricted to owners.
+                You do not have permission to view this page. User management is restricted to owners and admins.
                 </AlertDescription>
             </Alert>
         );
@@ -270,14 +333,14 @@ export default function UserManagementPage() {
                         />
                     </div>
                     <Tabs defaultValue="pending">
-                        <TabsList className="grid w-full grid-cols-3">
-                            <TabsTrigger value="pending">Pending Applications ({pendingUsers.length})</TabsTrigger>
-                            <TabsTrigger value="active">Active Users ({activeUsers.length})</TabsTrigger>
-                            <TabsTrigger value="suspended">Suspended Users ({suspendedUsers.length})</TabsTrigger>
+                        <TabsList className="grid w-full grid-cols-1 gap-1 sm:grid-cols-3">
+                            <TabsTrigger value="pending">Pending ({pendingUsers.length})</TabsTrigger>
+                            <TabsTrigger value="active">Active ({activeUsers.length})</TabsTrigger>
+                            <TabsTrigger value="suspended">Suspended ({suspendedUsers.length})</TabsTrigger>
                         </TabsList>
-                        <TabsContent value="pending" className="mt-4">{renderUserTable(pendingUsers, 'pending')}</TabsContent>
-                        <TabsContent value="active" className="mt-4">{renderUserTable(activeUsers, 'active')}</TabsContent>
-                        <TabsContent value="suspended" className="mt-4">{renderUserTable(suspendedUsers, 'suspended')}</TabsContent>
+                        <TabsContent value="pending" className="mt-4">{renderUserList(pendingUsers, 'pending')}</TabsContent>
+                        <TabsContent value="active" className="mt-4">{renderUserList(activeUsers, 'active')}</TabsContent>
+                        <TabsContent value="suspended" className="mt-4">{renderUserList(suspendedUsers, 'suspended')}</TabsContent>
                     </Tabs>
                 </CardContent>
             </Card>

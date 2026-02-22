@@ -64,6 +64,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import jsPDF from 'jspdf';
 import Image from 'next/image';
+import { useDepartmentFilter } from '@/hooks/use-department-filter';
 
 
 const projectSchema = z.object({
@@ -471,6 +472,8 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [isDeletingAll, setIsDeletingAll] = useState(false);
   const { toast } = useToast();
+  const { selectedDepartments } = useDepartmentFilter();
+  const isOwner = userProfile.role === 'owner';
 
   useEffect(() => {
     const q = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
@@ -485,13 +488,17 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
   }, []);
 
   const filteredProjects = useMemo(() => {
-    return projects.filter(project =>
+    const departmentFilteredProjects = isOwner
+        ? projects.filter(p => p.department && selectedDepartments.has(p.department))
+        : projects;
+
+    return departmentFilteredProjects.filter(project =>
       project.address.toLowerCase().includes(searchTerm.toLowerCase()) ||
       project.eNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       project.council?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       project.manager?.toLowerCase().includes(searchTerm.toLowerCase())
     );
-  }, [projects, searchTerm]);
+  }, [projects, searchTerm, isOwner, selectedDepartments]);
 
   const handleManageFiles = (project: Project) => {
     setSelectedProject(project);
