@@ -377,11 +377,14 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
       const data = e.target?.result;
       if (!data) return;
 
-      const workbook = XLSX.read(data, { type: 'array', bookSheets: true });
+      const workbook = XLSX.read(data, { type: 'array' });
       const allSheets = workbook.SheetNames.filter(name => {
         // Filter out internal/hidden Excel sheets.
-        // These often start with '_xlfn.' or are GUIDs.
         if (name.startsWith('_xlfn.')) {
+            return false;
+        }
+        // Filter out long hex strings or GUIDs.
+        if (/^[a-fA-F0-9]{20,}$/.test(name)) {
             return false;
         }
         if (/^[a-f\d]{8}-([a-f\d]{4}-){3}[a-f\d]{12}$/i.test(name)) {
