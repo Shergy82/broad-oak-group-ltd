@@ -38,10 +38,24 @@ export default function FinancePage() {
     }
 
     setLoading(true);
+    let purchasesLoaded = false;
+    let shiftsLoaded = false;
+    let usersLoaded = false;
+
+    const checkAllLoaded = () => {
+        if (purchasesLoaded && shiftsLoaded && usersLoaded) {
+            setLoading(false);
+        }
+    }
 
     const purchasesQuery = query(collectionGroup(db, 'materialPurchases'), orderBy('purchasedAt', 'desc'));
     const unsubPurchases = onSnapshot(purchasesQuery, (snapshot) => {
         setPurchases(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as MaterialPurchase)));
+        purchasesLoaded = true;
+        checkAllLoaded();
+    }, () => {
+        purchasesLoaded = true;
+        checkAllLoaded();
     });
     
     let shiftsQuery;
@@ -57,18 +71,21 @@ export default function FinancePage() {
     
     const unsubShifts = onSnapshot(shiftsQuery, (snapshot) => {
         setShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
+        shiftsLoaded = true;
+        checkAllLoaded();
+    }, () => {
+        shiftsLoaded = true;
+        checkAllLoaded();
     });
 
     const unsubUsers = onSnapshot(usersQuery, (snapshot) => {
         setUsers(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile)));
+        usersLoaded = true;
+        checkAllLoaded();
+    }, () => {
+        usersLoaded = true;
+        checkAllLoaded();
     });
-
-    // Combine loading states
-    Promise.all([
-        new Promise(resolve => onSnapshot(purchasesQuery, () => resolve(true))),
-        new Promise(resolve => onSnapshot(shiftsQuery, () => resolve(true))),
-        new Promise(resolve => onSnapshot(usersQuery, () => resolve(true))),
-    ]).then(() => setLoading(false));
 
     return () => {
         unsubPurchases();
