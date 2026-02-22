@@ -378,7 +378,14 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
       if (!data) return;
 
       const workbook = XLSX.read(data, { type: 'array', bookSheets: true });
-      const allSheets = workbook.SheetNames;
+      const allSheets = workbook.SheetNames.filter(name => {
+        // Filter out typical internal/hidden sheet names. 
+        // These often start with an underscore and are long alphanumeric strings, or are GUIDs.
+        const isLikelyInternal = name.startsWith('_') && name.length > 30;
+        const isGuid = /^[a-f\d]{8}-([a-f\d]{4}-){3}[a-f\d]{12}$/i.test(name);
+        return !isLikelyInternal && !isGuid;
+      });
+      
       setSheetNames(allSheets);
 
       try {
@@ -979,3 +986,5 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
     </div>
   );
 }
+
+    
