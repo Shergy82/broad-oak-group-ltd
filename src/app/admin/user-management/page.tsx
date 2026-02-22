@@ -168,13 +168,15 @@ export default function UserManagementPage() {
         setIsEditUserOpen(true);
     };
 
-    const renderUserTable = (usersToRender: UserProfile[], type: 'pending' | 'active' | 'suspended') => {
+    const renderUserList = (usersToRender: UserProfile[], type: 'pending' | 'active' | 'suspended') => {
         if (usersToRender.length === 0) {
             return <p className="text-center text-sm text-muted-foreground p-4">No users in this category.</p>
         }
         
         return (
-            <div className="border rounded-lg">
+          <>
+            {/* Desktop Table View */}
+            <div className="border rounded-lg hidden md:block">
                 <Table>
                     <TableHeader>
                         <TableRow>
@@ -232,6 +234,51 @@ export default function UserManagementPage() {
                     </TableBody>
                 </Table>
             </div>
+            
+            {/* Mobile Card View */}
+            <div className="grid gap-4 md:hidden">
+              {usersToRender.map(user => {
+                  const status = user.status || 'active';
+                  return (
+                      <Card key={user.uid}>
+                          <CardHeader>
+                              <CardTitle>{user.name}</CardTitle>
+                              {user.operativeId && <CardDescription>ID: {user.operativeId}</CardDescription>}
+                          </CardHeader>
+                          <CardContent className="text-sm space-y-3">
+                              <div><strong>Phone:</strong> {user.phoneNumber || 'N/A'}</div>
+                              <div><strong>Trade:</strong> {user.trade || 'N/A'}</div>
+                              <div className="flex items-center gap-2"><strong>Role:</strong> <Badge variant="outline" className="capitalize">{user.role}</Badge></div>
+                              <div className="flex items-center gap-2"><strong>Status:</strong>
+                                  <Badge
+                                      variant={status === 'suspended' ? 'destructive' : status === 'pending-approval' ? 'secondary' : 'default'}
+                                      className={cn("capitalize", status === 'active' && 'bg-green-600 hover:bg-green-700 text-primary-foreground')}
+                                  >
+                                      {status.replace('-', ' ')}
+                                  </Badge>
+                              </div>
+                          </CardContent>
+                          <CardFooter className="flex flex-col gap-2">
+                                {type === 'pending' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')} className="w-full"><Check className="mr-2 h-4 w-4" />Activate</Button>}
+                                {type === 'active' && <Button size="sm" variant="destructive" onClick={() => handleSetUserStatus(user, 'suspended')} className="w-full"><Ban className="mr-2 h-4 w-4" />Suspend</Button>}
+                                {type === 'suspended' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')} className="w-full"><Check className="mr-2 h-4 w-4" />Re-activate</Button>}
+                                
+                                <div className="grid grid-cols-2 gap-2 w-full">
+                                    <Button variant="outline" className="w-full" onClick={() => handleEditUser(user)}><Edit className="mr-2 h-4 w-4" />Edit</Button>
+                                    <AlertDialog>
+                                        <AlertDialogTrigger asChild><Button variant="destructive" className="w-full"><Trash className="mr-2 h-4 w-4" />Delete</Button></AlertDialogTrigger>
+                                        <AlertDialogContent>
+                                            <AlertDialogHeader><AlertDialogTitle>Delete User?</AlertDialogTitle><AlertDialogDescription>This will permanently delete {user.name} and their authentication account. This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
+                                            <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteUser(user)} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">Delete User</AlertDialogAction></AlertDialogFooter>
+                                        </AlertDialogContent>
+                                    </AlertDialog>
+                                </div>
+                          </CardFooter>
+                      </Card>
+                  )
+              })}
+            </div>
+          </>
         );
     }
     
@@ -279,14 +326,14 @@ export default function UserManagementPage() {
                         />
                     </div>
                     <Tabs defaultValue="pending">
-                        <TabsList className="grid w-full grid-cols-3">
-                            <TabsTrigger value="pending">Pending Applications ({pendingUsers.length})</TabsTrigger>
-                            <TabsTrigger value="active">Active Users ({activeUsers.length})</TabsTrigger>
-                            <TabsTrigger value="suspended">Suspended Users ({suspendedUsers.length})</TabsTrigger>
+                        <TabsList className="grid w-full grid-cols-1 gap-1 sm:grid-cols-3">
+                            <TabsTrigger value="pending">Pending ({pendingUsers.length})</TabsTrigger>
+                            <TabsTrigger value="active">Active ({activeUsers.length})</TabsTrigger>
+                            <TabsTrigger value="suspended">Suspended ({suspendedUsers.length})</TabsTrigger>
                         </TabsList>
-                        <TabsContent value="pending" className="mt-4">{renderUserTable(pendingUsers, 'pending')}</TabsContent>
-                        <TabsContent value="active" className="mt-4">{renderUserTable(activeUsers, 'active')}</TabsContent>
-                        <TabsContent value="suspended" className="mt-4">{renderUserTable(suspendedUsers, 'suspended')}</TabsContent>
+                        <TabsContent value="pending" className="mt-4">{renderUserList(pendingUsers, 'pending')}</TabsContent>
+                        <TabsContent value="active" className="mt-4">{renderUserList(activeUsers, 'active')}</TabsContent>
+                        <TabsContent value="suspended" className="mt-4">{renderUserList(suspendedUsers, 'suspended')}</TabsContent>
                     </Tabs>
                 </CardContent>
             </Card>

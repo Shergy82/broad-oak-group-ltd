@@ -88,7 +88,7 @@ export function Header() {
       <div className="flex flex-col items-start">
         <Logo />
         {isPrivilegedUser && userProfile && (
-          <div className="pl-9 pt-1 flex items-center gap-2">
+          <div className="pl-9 pt-1 hidden sm:flex items-center gap-2">
             <GlobalShiftImporter userProfile={userProfile} />
             <ShareAppLink />
           </div>
