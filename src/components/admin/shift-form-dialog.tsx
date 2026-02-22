@@ -32,6 +32,7 @@ const formSchema = z.object({
   address: z.string().min(1, 'Address is required.'),
   eNumber: z.string().optional(),
   department: z.string().min(1, 'Department is required.'),
+  notes: z.string().optional(),
 });
 
 interface ShiftFormDialogProps {
@@ -60,6 +61,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
       address: '',
       eNumber: '',
       department: '',
+      notes: '',
     },
   });
 
@@ -89,6 +91,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
           address: shift.address,
           eNumber: shift.eNumber || '',
           department: shift.department || '',
+          notes: shift.notes || '',
         });
       } else {
         form.reset({
@@ -99,6 +102,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
           address: '',
           eNumber: '',
           department: '',
+          notes: '',
         });
       }
     }
@@ -124,6 +128,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
       userName: selectedUser.name, // Add userName to the shift data
       date: Timestamp.fromDate(correctedDate),
       eNumber: values.eNumber || '',
+      notes: values.notes || '',
     };
     
     try {
@@ -351,6 +356,19 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
                   <FormLabel>Task Description</FormLabel>
                   <FormControl>
                     <Textarea placeholder="e.g., First fix electrics" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+             <FormField
+              control={form.control}
+              name="notes"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Notes (Optional)</FormLabel>
+                  <FormControl>
+                    <Textarea placeholder="Additional information, e.g., TLO contact" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

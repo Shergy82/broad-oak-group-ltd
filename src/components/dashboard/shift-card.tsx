@@ -538,6 +538,13 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
           </a>
           {shift.eNumber && <p className="text-xs text-muted-foreground">Number: {shift.eNumber}</p>}
           {shift.manager && <p className="text-xs text-muted-foreground">Manager: {shift.manager}</p>}
+          
+          {shift.notes && (shift.status !== 'incomplete' && shift.status !== 'rejected') && (
+             <div className="mt-3 p-3 bg-muted/50 border-l-4 border-muted-foreground/30 rounded-r-md">
+              <p className="text-sm font-semibold text-muted-foreground">Notes:</p>
+              <p className="text-sm text-foreground whitespace-pre-wrap">{shift.notes}</p>
+            </div>
+          )}
 
           {(shift.status === 'incomplete' || shift.status === 'rejected') && shift.notes && (
             <div className="mt-3 p-3 bg-destructive/10 border-l-4 border-destructive rounded-r-md">

@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -742,7 +743,24 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                                             </Tooltip>
                                             <div className="text-xs text-muted-foreground">{shift.address}</div>
                                         </TableCell>
-                                        <TableCell className="text-xs text-muted-foreground">{shift.manager || 'N/A'}</TableCell>
+                                        <TableCell className="text-xs text-muted-foreground">
+                                            {shift.manager || 'N/A'}
+                                            {shift.notes && (shift.status !== 'incomplete' && shift.status !== 'rejected') && (
+                                                <Popover>
+                                                <PopoverTrigger asChild>
+                                                    <Button variant="ghost" size="icon" className="h-7 w-7 ml-1">
+                                                    <MessageSquareText className="h-4 w-4 text-muted-foreground" />
+                                                    </Button>
+                                                </PopoverTrigger>
+                                                <PopoverContent className="w-64 sm:w-80">
+                                                    <div className="space-y-2">
+                                                    <h4 className="font-medium leading-none">Notes</h4>
+                                                    <p className="text-sm text-muted-foreground whitespace-pre-wrap">{shift.notes}</p>
+                                                    </div>
+                                                </PopoverContent>
+                                                </Popover>
+                                            )}
+                                        </TableCell>
                                         <TableCell className="text-right">
                                             <Badge
                                                 variant={shift.type === 'am' ? 'default' : shift.type === 'pm' ? 'secondary' : 'outline'}
@@ -811,6 +829,12 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                             { (selectedUserId === 'all' || activeTab === 'archive') && <div><strong>Operative:</strong> {userNameMap.get(shift.userId) || 'Unknown'}</div> }
                             <div><strong>Date:</strong> {format(getCorrectedLocalDate(shift.date), 'eeee, MMM d')}</div>
                              {shift.manager && <div><strong>Manager:</strong> {shift.manager}</div>}
+                              {shift.notes && (shift.status !== 'incomplete' && shift.status !== 'rejected') && (
+                                <div className="pt-1">
+                                    <strong>Notes:</strong>
+                                    <p className="whitespace-pre-wrap">{shift.notes}</p>
+                                </div>
+                             )}
                         </CardContent>
                         <CardFooter className="p-2 bg-muted/30 flex justify-between items-center">
                             {getStatusBadge(shift)}
