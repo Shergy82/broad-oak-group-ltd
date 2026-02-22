@@ -341,7 +341,7 @@ const parseBuildSheet = (
 ): { shifts: ParsedShift[], failed: FailedShift[] } => {
     const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, {
         header: 1,
-        blankrows: false,
+        blankrows: true, // Keep empty rows as separators
         defval: null,
       });
 
@@ -352,41 +352,50 @@ const parseBuildSheet = (
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
 
-    if (jsonData.length < 5) {
-        failed.push({ date: null, projectAddress: 'Sheet', cellContent: '', reason: 'Sheet has too few rows to be a valid schedule.', sheetName, cellRef: 'A1' });
+    const blocks: any[][][] = [];
+    let currentBlock: any[][] = [];
+
+    for (const row of jsonData) {
+        const isRowEmpty = !row || row.length === 0 || row.every(cell => cell === null);
+        if (isRowEmpty) {
+            if (currentBlock.length > 2) {
+                blocks.push(currentBlock);
+            }
+            currentBlock = [];
+        } else {
+            currentBlock.push(row);
+        }
+    }
+    if (currentBlock.length > 2) {
+        blocks.push(currentBlock);
+    }
+    
+    if (blocks.length === 0) {
+        failed.push({ date: null, projectAddress: 'Sheet', cellContent: '', reason: 'Could not find any project blocks separated by empty rows.', sheetName, cellRef: 'A1' });
         return { shifts, failed };
     }
 
     const { dateRowIndex, dateRow } = findDateHeaderRowInBlock(jsonData, 0, 10);
+
     if (dateRowIndex === -1) {
         failed.push({ date: null, projectAddress: 'Sheet', cellContent: '', reason: 'Could not find a valid Date Header Row in the first 10 rows.', sheetName, cellRef: 'A1' });
         return { shifts, failed };
     }
     
-    const blockStartRows: number[] = [];
-    jsonData.forEach((row, index) => {
-        if (row && row.length > 0 && isProbablyAddressText(String(row[0]))) {
-            blockStartRows.push(index);
-        }
-    });
+    for (const block of blocks) {
+        const firstRowOfBlock = block[0];
+        if (!firstRowOfBlock) continue;
 
-    if (blockStartRows.length === 0) {
-        failed.push({ date: null, projectAddress: 'Sheet', cellContent: '', reason: 'Could not find any project address blocks in the first column.', sheetName, cellRef: 'A1' });
-        return { shifts, failed };
-    }
+        const addressCell = String(firstRowOfBlock[0] || '').trim();
+        if (!isProbablyAddressText(addressCell)) continue;
 
-    for (let i = 0; i < blockStartRows.length; i++) {
-        const blockStart = blockStartRows[i];
-        const blockEnd = (i + 1 < blockStartRows.length) ? blockStartRows[i + 1] : jsonData.length;
-
-        const addressCell = String(jsonData[blockStart][0] || '').trim();
         const bNumberMatch = addressCell.match(/\b(B\d+)\b/i);
         const eNumber = bNumberMatch ? bNumberMatch[0].toUpperCase() : '';
         const address = bNumberMatch ? addressCell.replace(bNumberMatch[0], '').trim() : addressCell;
         
         let contract = '';
         for (let c = 1; c < 5; c++) {
-            const cellVal = String(jsonData[blockStart][c] || '');
+            const cellVal = String(firstRowOfBlock[c] || '');
             if (cellVal.includes('CC')) {
                 contract = cellVal.trim();
                 break;
@@ -395,15 +404,15 @@ const parseBuildSheet = (
 
         if (!address) continue;
 
-        for (let r = blockStart; r < blockEnd; r++) {
-            const rowData = jsonData[r];
-            if (!rowData || r === dateRowIndex) continue;
+        for (let r = 0; r < block.length; r++) {
+            const rowData = block[r];
+            if (!rowData || jsonData.indexOf(rowData) === dateRowIndex) continue;
 
             for (let c = 0; c < dateRow.length; c++) {
                 const shiftDate = dateRow[c];
-                const cellRef = XLSX.utils.encode_cell({ r, c });
-                const cell = worksheet[cellRef];
-                const cellContentRaw = cell?.w || cell?.v;
+                const originalRowIndex = jsonData.indexOf(rowData);
+                const cellRef = XLSX.utils.encode_cell({ r: originalRowIndex, c });
+                const cellContentRaw = rowData[c];
 
                 if (!shiftDate || !cellContentRaw || typeof cellContentRaw !== 'string' ) continue;
                 
@@ -413,10 +422,8 @@ const parseBuildSheet = (
                 if (cellContent.length < 5) continue;
 
                 const lastDashIndex = cellContent.lastIndexOf('-');
-                if (lastDashIndex === -1 || lastDashIndex === cellContent.length - 1) {
-                    continue;
-                }
-
+                if (lastDashIndex === -1 || lastDashIndex === cellContent.length - 1) continue;
+                
                 const task = cellContent.substring(0, lastDashIndex).trim();
                 const potentialUserNames = cellContent.substring(lastDashIndex + 1).trim();
 
@@ -511,7 +518,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
       const visibleSheetNames = workbook.SheetNames.filter(name => {
           const sheet = workbook.Sheets[name];
           // @ts-ignore
-          return !sheet.Hidden && !name.startsWith('_xlfn');
+          return !sheet.Hidden;
       });
       
       setSheetNames(visibleSheetNames);
@@ -1011,7 +1018,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
             <Input
               id="shift-file-input"
               type="file"
-              accept=".xlsx, .xls"
+              accept=".xlsx, .xls, .xlsm"
               className="sr-only"
               onChange={handleFileChange}
             />
