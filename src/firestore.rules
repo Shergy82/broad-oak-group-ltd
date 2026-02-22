@@ -15,25 +15,34 @@ service cloud.firestore {
       return signedIn() &&
         (role(uid) == 'admin' || role(uid) == 'owner' || role(uid) == 'manager' || role(uid) == 'TLO');
     }
+    
+    function userDepartment(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data.department;
+    }
+
 
     // ---- USERS ----
     match /users/{userId} {
       allow create: if signedIn() && request.auth.uid == userId;
 
       allow read: if signedIn() &&
-        (request.auth.uid == userId || isPrivilegedUser(request.auth.uid));
+        (request.auth.uid == userId || isPrivilegedUser(request.auth.uid) || userDepartment(request.auth.uid) == resource.data.department);
 
       allow update: if signedIn() &&
         (request.auth.uid == userId || isPrivilegedUser(request.auth.uid));
 
       allow delete: if role(request.auth.uid) == 'owner';
 
-      allow list: if isPrivilegedUser(request.auth.uid);
+      allow list: if signedIn();
 
       // ---- PUSH SUBSCRIPTIONS ----
       match /pushSubscriptions/{docId} {
         allow read, write, delete: if request.auth != null && request.auth.uid == userId;
       }
+    }
+    
+    match /contacts/{contactId} {
+        allow read, list: if signedIn();
     }
 
     // ---- SHIFTS ----
@@ -47,6 +56,12 @@ service cloud.firestore {
            request.resource.data.userId == request.auth.uid)
           || isPrivilegedUser(request.auth.uid)
         );
+        
+      match /materialPurchases/{purchaseId} {
+        allow read, list: if signedIn();
+        allow create: if request.auth.uid == get(/databases/$(database)/documents/shifts/$(shiftId)).data.userId;
+        allow delete: if isPrivilegedUser(request.auth.uid) || request.auth.uid == resource.data.userId;
+      }
     }
 
     // ---- PROJECTS ----
@@ -97,7 +112,18 @@ service cloud.firestore {
     // ---- HEALTH & SAFETY FILES ----
     match /health_and_safety_files/{id} {
       allow read: if signedIn();
-      allow create, update, delete: if role(request.auth.uid) == 'owner';
+      allow create, update, delete: if isPrivilegedUser(request.auth.uid);
+    }
+    
+    // ---- EVIDENCE CHECKLISTS ----
+    match /evidence_checklists/{contractName} {
+        allow read: if signedIn();
+        allow write: if isPrivilegedUser(request.auth.uid);
+    }
+
+    // ---- COLLECTION GROUP QUERIES ----
+     match /{path=**}/materialPurchases/{purchaseId} {
+        allow read: if isPrivilegedUser(request.auth.uid);
     }
 
   }

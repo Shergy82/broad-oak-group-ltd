@@ -15,6 +15,9 @@ import {
   getDocs,
   addDoc,
   serverTimestamp,
+  onSnapshot,
+  deleteDoc,
+  Timestamp
 } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { db, isFirebaseConfigured, storage } from '@/lib/firebase';
@@ -41,7 +44,7 @@ import {
   Plus,
 } from 'lucide-react';
 import { Spinner } from '@/components/shared/spinner';
-import type { Shift, ShiftStatus, UserProfile, TradeTask, Trade } from '@/types';
+import type { Shift, ShiftStatus, UserProfile, TradeTask, Trade, MaterialPurchase } from '@/types';
 import { useAuth } from '@/hooks/use-auth';
 import {
   Dialog,
@@ -70,13 +73,152 @@ import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { Input } from '../ui/input';
 import { Table, TableBody, TableCell, TableHeader, TableRow } from '../ui/table';
 
-interface MaterialPurchase {
-  id: string;
-  supplier: string;
-  amount: string;
+interface PurchaseLogDialogProps {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    onConfirm: () => void;
+    mode: 'query' | 'add';
+    shiftId: string;
+    userProfile: UserProfile | null;
 }
 
-const LS_PURCHASES_KEY_PREFIX = 'shift_material_purchases_v2_';
+function PurchaseLogDialog({ open, onOpenChange, onConfirm, mode, shiftId, userProfile }: PurchaseLogDialogProps) {
+  const [didBuy, setDidBuy] = useState<'no' | 'yes'>(mode === 'add' ? 'yes' : 'no');
+  const [purchases, setPurchases] = useState<MaterialPurchase[]>([]);
+  const [supplier, setSupplier] = useState('');
+  const [amount, setAmount] = useState('');
+  const [loading, setLoading] = useState(false);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    if (!open || !shiftId) return;
+
+    setLoading(true);
+    const purchasesQuery = query(collection(db, `shifts/${shiftId}/materialPurchases`));
+    const unsubscribe = onSnapshot(purchasesQuery, (snapshot) => {
+        const fetchedPurchases = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as MaterialPurchase));
+        setPurchases(fetchedPurchases);
+        if (mode === 'query' && fetchedPurchases.length > 0) {
+            setDidBuy('yes');
+        }
+        setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [open, shiftId, mode]);
+
+
+  const handleAddPurchase = async () => {
+    if (!supplier.trim() || !amount.trim() || !userProfile) {
+        toast({ variant: 'destructive', title: "Missing Information", description: "Please enter supplier and amount." });
+        return;
+    }
+    try {
+        await addDoc(collection(db, `shifts/${shiftId}/materialPurchases`), {
+            shiftId,
+            userId: userProfile.uid,
+            userName: userProfile.name,
+            supplier: supplier.trim(),
+            amount: parseFloat(amount),
+            purchasedAt: serverTimestamp(),
+        });
+        toast({ title: 'Purchase Added' });
+        setSupplier('');
+        setAmount('');
+    } catch (e) {
+        console.error("Error adding purchase:", e);
+        toast({ variant: 'destructive', title: "Error", description: "Could not log purchase." });
+    }
+  };
+
+  const handleDeletePurchase = async (id: string) => {
+    try {
+        await deleteDoc(doc(db, `shifts/${shiftId}/materialPurchases`, id));
+        toast({ title: 'Purchase Removed' });
+    } catch(e) {
+        console.error("Error deleting purchase:", e);
+        toast({ variant: 'destructive', title: "Error", description: "Could not remove purchase." });
+    }
+  };
+  
+  const handleConfirmClick = () => {
+    onConfirm();
+    onOpenChange(false);
+  };
+  
+  const totalAmount = purchases.reduce((sum, p) => sum + p.amount, 0).toFixed(2);
+
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent>
+            <DialogHeader>
+                <DialogTitle>Log Material Purchases</DialogTitle>
+                <DialogDescription>
+                    {mode === 'query' ? 'Before you go on-site, please log any materials you purchased for this shift.' : 'Add any additional purchases for this shift.'}
+                </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+                {mode === 'query' && (
+                    <RadioGroup value={didBuy} onValueChange={(value) => setDidBuy(value as 'yes' | 'no')} className="flex items-center space-x-4">
+                        <Label>Did you buy any materials for this shift?</Label>
+                        <div className="flex items-center space-x-2"><RadioGroupItem value="no" id="mat-no" /><Label htmlFor="mat-no">No</Label></div>
+                        <div className="flex items-center space-x-2"><RadioGroupItem value="yes" id="mat-yes" /><Label htmlFor="mat-yes">Yes</Label></div>
+                    </RadioGroup>
+                )}
+
+                {didBuy === 'yes' && (
+                    <div className="space-y-4 pt-4 border-t">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
+                            <div className="col-span-3 sm:col-span-2 grid grid-cols-2 gap-2">
+                                <div className="space-y-1">
+                                    <Label htmlFor="supplier">Supplier</Label>
+                                    <Input id="supplier" value={supplier} onChange={e => setSupplier(e.target.value)} placeholder="e.g., Screwfix" />
+                                </div>
+                                <div className="space-y-1">
+                                    <Label htmlFor="amount">Amount (£)</Label>
+                                    <Input id="amount" type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} placeholder="e.g., 25.50" />
+                                </div>
+                            </div>
+                            <Button onClick={handleAddPurchase} className="w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> Add Purchase</Button>
+                        </div>
+
+                        {loading ? <Spinner /> : purchases.length > 0 && (
+                            <div className="space-y-2">
+                                <Label>Logged Purchases</Label>
+                                <div className="border rounded-md max-h-48 overflow-y-auto">
+                                <Table>
+                                    <TableBody>
+                                        {purchases.map(p => (
+                                            <TableRow key={p.id}>
+                                                <TableCell className="font-medium">{p.supplier}</TableCell>
+                                                <TableCell className="text-right font-mono">£{p.amount.toFixed(2)}</TableCell>
+                                                <TableCell className="text-right w-10 p-1">
+                                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive/70" onClick={() => handleDeletePurchase(p.id)}><Trash2 className="h-4 w-4" /></Button>
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                        <TableRow className="font-bold bg-muted/50">
+                                            <TableCell>Total</TableCell>
+                                            <TableCell className="text-right font-mono">£{totalAmount}</TableCell>
+                                            <TableCell></TableCell>
+                                        </TableRow>
+                                    </TableBody>
+                                </Table>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+            <DialogFooter>
+                <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                <Button onClick={handleConfirmClick}>Confirm</Button>
+            </DialogFooter>
+        </DialogContent>
+    </Dialog>
+  );
+}
 
 
 interface ShiftCardProps {
@@ -152,142 +294,6 @@ const FINAL_STATUSES = new Set(['completed', 'incomplete', 'rejected']);
 
 const LS_SHIFT_TASKS_KEY = 'shiftTaskCompletion_v2';
 
-
-function PurchaseLogDialog({ 
-    open, 
-    onOpenChange, 
-    onConfirm,
-    mode, 
-    shiftId
-}: { 
-    open: boolean, 
-    onOpenChange: (open: boolean) => void, 
-    onConfirm: (purchases: MaterialPurchase[]) => void,
-    mode: 'query' | 'add',
-    shiftId: string
-}) {
-  const [didBuy, setDidBuy] = useState<'no' | 'yes'>('no');
-  const [purchases, setPurchases] = useState<MaterialPurchase[]>([]);
-  const [supplier, setSupplier] = useState('');
-  const [amount, setAmount] = useState('');
-
-  useEffect(() => {
-    if (open) {
-      try {
-        const stored = localStorage.getItem(`${LS_PURCHASES_KEY_PREFIX}${shiftId}`);
-        const existing = stored ? JSON.parse(stored) : [];
-        setPurchases(existing);
-        
-        if (mode === 'add') {
-            setDidBuy('yes');
-        } else {
-            setDidBuy(existing.length > 0 ? 'yes' : 'no');
-        }
-      } catch (e) {
-        console.error("Failed to load purchases from localStorage", e);
-        setPurchases([]);
-        setDidBuy(mode === 'add' ? 'yes' : 'no');
-      }
-    }
-  }, [open, shiftId, mode]);
-
-  const handleAddPurchase = () => {
-    if (!supplier.trim() || !amount.trim()) {
-        alert("Please enter both supplier and amount.");
-        return;
-    }
-    const newPurchase: MaterialPurchase = {
-        id: new Date().toISOString(),
-        supplier: supplier.trim(),
-        amount: parseFloat(amount).toFixed(2),
-    };
-    setPurchases(prev => [...prev, newPurchase]);
-    setSupplier('');
-    setAmount('');
-  };
-
-  const handleDeletePurchase = (id: string) => {
-    setPurchases(prev => prev.filter(p => p.id !== id));
-  };
-  
-  const handleConfirmClick = () => {
-    onConfirm(purchases);
-  };
-  
-  const totalAmount = purchases.reduce((sum, p) => sum + parseFloat(p.amount), 0).toFixed(2);
-
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent>
-            <DialogHeader>
-                <DialogTitle>Log Material Purchases</DialogTitle>
-                <DialogDescription>
-                    {mode === 'query' ? 'Before you go on-site, please log any materials you purchased for this shift.' : 'Add any additional purchases for this shift.'}
-                </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-                {mode === 'query' && (
-                    <RadioGroup value={didBuy} onValueChange={(value) => setDidBuy(value as 'yes' | 'no')} className="flex items-center space-x-4">
-                        <Label>Did you buy any materials for this shift?</Label>
-                        <div className="flex items-center space-x-2"><RadioGroupItem value="no" id="mat-no" /><Label htmlFor="mat-no">No</Label></div>
-                        <div className="flex items-center space-x-2"><RadioGroupItem value="yes" id="mat-yes" /><Label htmlFor="mat-yes">Yes</Label></div>
-                    </RadioGroup>
-                )}
-
-                {didBuy === 'yes' && (
-                    <div className="space-y-4 pt-4 border-t">
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
-                            <div className="col-span-3 sm:col-span-2 grid grid-cols-2 gap-2">
-                                <div className="space-y-1">
-                                    <Label htmlFor="supplier">Supplier</Label>
-                                    <Input id="supplier" value={supplier} onChange={e => setSupplier(e.target.value)} placeholder="e.g., Screwfix" />
-                                </div>
-                                <div className="space-y-1">
-                                    <Label htmlFor="amount">Amount (£)</Label>
-                                    <Input id="amount" type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} placeholder="e.g., 25.50" />
-                                </div>
-                            </div>
-                            <Button onClick={handleAddPurchase} className="w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> Add Purchase</Button>
-                        </div>
-
-                        {purchases.length > 0 && (
-                            <div className="space-y-2">
-                                <Label>Logged Purchases</Label>
-                                <div className="border rounded-md max-h-48 overflow-y-auto">
-                                <Table>
-                                    <TableBody>
-                                        {purchases.map(p => (
-                                            <TableRow key={p.id}>
-                                                <TableCell className="font-medium">{p.supplier}</TableCell>
-                                                <TableCell className="text-right font-mono">£{p.amount}</TableCell>
-                                                <TableCell className="text-right w-10 p-1">
-                                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive/70" onClick={() => handleDeletePurchase(p.id)}><Trash2 className="h-4 w-4" /></Button>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
-                                        <TableRow className="font-bold bg-muted/50">
-                                            <TableCell>Total</TableCell>
-                                            <TableCell className="text-right font-mono">£{totalAmount}</TableCell>
-                                            <TableCell></TableCell>
-                                        </TableRow>
-                                    </TableBody>
-                                </Table>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                )}
-            </div>
-            <DialogFooter>
-                <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                <Button onClick={handleConfirmClick}>Confirm</Button>
-            </DialogFooter>
-        </DialogContent>
-    </Dialog>
-  );
-}
-
 export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
   const router = useRouter();
   const { user } = useAuth();
@@ -339,44 +345,30 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
 
   // --- Purchase Logic ---
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(`${LS_PURCHASES_KEY_PREFIX}${shift.id}`);
-      if (stored) {
-        setPurchases(JSON.parse(stored));
-      }
-    } catch (e) {
-      console.error("Failed to load purchases from localStorage", e);
-    }
+    if (!shift.id) return;
+    const purchasesQuery = query(collection(db, `shifts/${shift.id}/materialPurchases`), orderBy('purchasedAt', 'asc'));
+    const unsubscribe = onSnapshot(purchasesQuery, (snapshot) => {
+        setPurchases(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as MaterialPurchase)));
+    });
+    return () => unsubscribe();
   }, [shift.id]);
 
-  const savePurchases = (newPurchases: MaterialPurchase[]) => {
-    setPurchases(newPurchases);
+  const handleDeletePurchase = async (purchaseId: string) => {
     try {
-      localStorage.setItem(`${LS_PURCHASES_KEY_PREFIX}${shift.id}`, JSON.stringify(newPurchases));
-    } catch (e) {
-      toast({ variant: 'destructive', title: 'Could not save purchases' });
-      console.error("Failed to save purchases to localStorage", e);
+        await deleteDoc(doc(db, `shifts/${shift.id}/materialPurchases`, purchaseId));
+        toast({ title: 'Purchase removed.' });
+    } catch(e) {
+        toast({ variant: 'destructive', title: 'Could not remove purchase' });
     }
-  }
-  
-  const handleDeletePurchase = (purchaseId: string) => {
-    const updatedPurchases = purchases.filter(p => p.id !== purchaseId);
-    savePurchases(updatedPurchases);
-    toast({ title: 'Purchase removed.' });
-  }
+  };
 
   const handleLogPurchaseClick = () => {
     setPurchaseLogMode('add');
     setIsPurchaseLogOpen(true);
   };
   
-  const handleConfirmPurchasesAndGoOnSite = (newPurchases: MaterialPurchase[]) => {
-    savePurchases(newPurchases);
-    if (newPurchases.length > 0) {
-        toast({ title: 'Purchases logged.' });
-    }
+  const handleConfirmPurchasesAndGoOnSite = () => {
     handleUpdateStatus('on-site');
-    setIsPurchaseLogOpen(false);
   };
 
 
@@ -702,7 +694,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
   const renderPurchaseLog = () => {
     if (purchases.length === 0) return null;
     
-    const totalAmount = purchases.reduce((sum, p) => sum + parseFloat(p.amount), 0).toFixed(2);
+    const totalAmount = purchases.reduce((sum, p) => sum + p.amount, 0).toFixed(2);
 
     return (
         <div className="mt-4 p-4 border-t">
@@ -722,7 +714,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
                         {purchases.map(p => (
                             <TableRow key={p.id}>
                                 <TableCell className="font-medium">{p.supplier}</TableCell>
-                                <TableCell className="text-right font-mono">£{p.amount}</TableCell>
+                                <TableCell className="text-right font-mono">£{p.amount.toFixed(2)}</TableCell>
                                 <TableCell className="text-right p-1 w-10">
                                     <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive/70" onClick={() => handleDeletePurchase(p.id)}><Trash2 className="h-4 w-4" /></Button>
                                 </TableCell>
@@ -887,6 +879,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
         onConfirm={handleConfirmPurchasesAndGoOnSite}
         mode={purchaseLogMode}
         shiftId={shift.id}
+        userProfile={userProfile}
       />
 
       {selectedCameraTask && (
