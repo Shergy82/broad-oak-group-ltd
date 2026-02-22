@@ -17,10 +17,10 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Spinner } from '@/components/shared/spinner';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Search, UserCog, Check, Ban, Trash2, Edit } from 'lucide-react';
+import { Search, Check, Ban, Trash, Edit, AlertTriangle } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
-// Edit User Dialog
 function EditUserDialog({ user, open, onOpenChange }: { user: UserProfile, open: boolean, onOpenChange: (open: boolean) => void }) {
     const { toast } = useToast();
     const [isLoading, setIsLoading] = useState(false);
@@ -103,8 +103,7 @@ function EditUserDialog({ user, open, onOpenChange }: { user: UserProfile, open:
     );
 }
 
-// Main Component
-export function UserManagement() {
+export default function UserManagementPage() {
     const { userProfile: currentUserProfile, loading: currentUserLoading } = useUserProfile();
     const [users, setUsers] = useState<UserProfile[]>([]);
     const [loading, setLoading] = useState(true);
@@ -195,9 +194,9 @@ export function UserManagement() {
                                     {type === 'pending' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')}><Check className="mr-2 h-4 w-4" />Activate</Button>}
                                     {type === 'active' && <Button size="sm" variant="destructive" onClick={() => handleSetUserStatus(user, 'suspended')}><Ban className="mr-2 h-4 w-4" />Suspend</Button>}
                                     {type === 'suspended' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')}><Check className="mr-2 h-4 w-4" />Re-activate</Button>}
-                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEditUser(user)}><UserCog className="h-4 w-4" /></Button>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEditUser(user)}><Edit className="h-4 w-4" /></Button>
                                     <AlertDialog>
-                                        <AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/70"><Trash2 className="h-4 w-4" /></Button></AlertDialogTrigger>
+                                        <AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/70"><Trash className="h-4 w-4" /></Button></AlertDialogTrigger>
                                         <AlertDialogContent>
                                             <AlertDialogHeader><AlertDialogTitle>Delete User?</AlertDialogTitle><AlertDialogDescription>This will permanently delete {user.name} and their authentication account. This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
                                             <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteUser(user)} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">Delete User</AlertDialogAction></AlertDialogFooter>
@@ -213,35 +212,61 @@ export function UserManagement() {
     }
     
     if (loading || currentUserLoading) {
-        return <Skeleton className="h-96 w-full" />;
+        return (
+             <Card>
+                <CardHeader>
+                    <CardTitle>User Management</CardTitle>
+                    <CardDescription>Approve new users, manage roles, and suspend or delete accounts.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <Skeleton className="h-96 w-full" />
+                </CardContent>
+             </Card>
+        );
     }
     
     if (currentUserProfile?.role !== 'owner') {
-        return <p>You do not have permission to manage users.</p>;
+        return (
+            <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>Access Denied</AlertTitle>
+                <AlertDescription>
+                You do not have permission to view this page. User management is restricted to owners.
+                </AlertDescription>
+            </Alert>
+        );
     }
 
     return (
-        <div className="space-y-4">
-             <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                    placeholder="Search by name..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full max-w-sm pl-10"
-                />
-            </div>
-             <Tabs defaultValue="pending">
-                <TabsList className="grid w-full grid-cols-3">
-                    <TabsTrigger value="pending">Pending Applications ({pendingUsers.length})</TabsTrigger>
-                    <TabsTrigger value="active">Active Users ({activeUsers.length})</TabsTrigger>
-                    <TabsTrigger value="suspended">Suspended Users ({suspendedUsers.length})</TabsTrigger>
-                </TabsList>
-                <TabsContent value="pending" className="mt-4">{renderUserTable(pendingUsers, 'pending')}</TabsContent>
-                <TabsContent value="active" className="mt-4">{renderUserTable(activeUsers, 'active')}</TabsContent>
-                <TabsContent value="suspended" className="mt-4">{renderUserTable(suspendedUsers, 'suspended')}</TabsContent>
-            </Tabs>
+        <>
+            <Card>
+                <CardHeader>
+                    <CardTitle>User Management</CardTitle>
+                    <CardDescription>Approve new users, manage roles, and suspend or delete accounts.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                            placeholder="Search by name..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full max-w-sm pl-10"
+                        />
+                    </div>
+                    <Tabs defaultValue="pending">
+                        <TabsList className="grid w-full grid-cols-3">
+                            <TabsTrigger value="pending">Pending Applications ({pendingUsers.length})</TabsTrigger>
+                            <TabsTrigger value="active">Active Users ({activeUsers.length})</TabsTrigger>
+                            <TabsTrigger value="suspended">Suspended Users ({suspendedUsers.length})</TabsTrigger>
+                        </TabsList>
+                        <TabsContent value="pending" className="mt-4">{renderUserTable(pendingUsers, 'pending')}</TabsContent>
+                        <TabsContent value="active" className="mt-4">{renderUserTable(activeUsers, 'active')}</TabsContent>
+                        <TabsContent value="suspended" className="mt-4">{renderUserTable(suspendedUsers, 'suspended')}</TabsContent>
+                    </Tabs>
+                </CardContent>
+            </Card>
             {selectedUser && <EditUserDialog user={selectedUser} open={isEditUserOpen} onOpenChange={setIsEditUserOpen} />}
-        </div>
+        </>
     )
 }
