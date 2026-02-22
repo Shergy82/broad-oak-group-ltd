@@ -7,6 +7,9 @@ import { PendingAnnouncementModal } from '@/components/announcements/pending-ann
 import './globals.css';
 
 const siteUrl = `https://broad-oak-group-ltd--the-final-project-5e248.europe-west4.hosted.app`;
+const imageUrl = `https://images.weserv.nl/?url=${encodeURIComponent(
+  siteUrl + '/icon.svg'
+)}&w=1200&h=630&fit=contain&a=center&output=png`;
 
 export const metadata: Metadata = {
   // No metadataBase, use absolute URLs
@@ -23,7 +26,7 @@ export const metadata: Metadata = {
     siteName: 'Broad Oak Group',
     images: [
       {
-        url: 'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158', // Simple, static, reliable JPG
+        url: imageUrl,
         width: 1200,
         height: 630,
         alt: 'Broad Oak Group',
@@ -38,7 +41,7 @@ export const metadata: Metadata = {
     title: 'Broad Oak Group',
     description:
       'Broad Oak Group internal portal for scheduling, projects and site management.',
-    images: ['https://images.unsplash.com/photo-1581091226825-a6a2a5aee158'],
+    images: [imageUrl],
   },
 
   icons: {
