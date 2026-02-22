@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useCallback } from 'react';
@@ -195,23 +196,16 @@ const parseDate = (dateValue: any): Date | null => {
   return null;
 };
 
-const looksLikePostcode = (text: string) =>
-  /\b[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}\b/i.test(text);
-
-const isProbablyAddressText = (text: string) => {
+const isProbablyAddressText = (text: string): boolean => {
   const t = (text || '').toString().trim();
   if (!t) return false;
-
-  // E-number or B-number prefix
-  if (/^(E|B)\d{4,}/i.test(t)) return true;
-
   // UK postcode
-  if (looksLikePostcode(t)) return true;
-
+  if (/\b[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}\b/i.test(t)) return true;
   // Common street words
-  if (/\b(road|rd|street|st|avenue|ave|close|cl|drive|dr|lane|ln|grove|court|ct|way)\b/i.test(t))
+  if (/\b(road|rd|street|st|avenue|ave|close|cl|drive|dr|lane|ln|grove|court|ct|way|crescent|cres)\b/i.test(t))
     return true;
-
+  // Contains numbers (for house number) and is long enough
+  if (/\d/.test(t) && t.length > 8) return true;
   return false;
 };
 
@@ -329,16 +323,13 @@ const findDateHeaderRowInBlock = (jsonData: any[][], startRow: number, endRow: n
   for (let r = startRow; r < endRow; r++) {
     const row = jsonData[r] || [];
     let dateCount = 0;
-
     for (let c = 0; c < row.length; c++) {
       if (parseDate(row[c])) dateCount++;
     }
-
-    if (dateCount >= 1) {
+    if (dateCount >= 3) {
       return { dateRowIndex: r, dateRow: row.map((cell) => parseDate(cell)) as (Date | null)[] };
     }
   }
-
   return { dateRowIndex: -1, dateRow: [] as (Date | null)[] };
 };
 
@@ -354,97 +345,112 @@ const parseBuildSheet = (
         defval: null,
       });
 
-    if (jsonData.length < 2) {
-    return { shifts: [], failed: [{
-        date: null,
-        projectAddress: 'Sheet',
-        cellContent: '',
-        reason: 'Build sheet has fewer than two rows (header + data).',
-        sheetName,
-        cellRef: 'A1'
-    }] };
-    }
-
-    const headers = (jsonData[0] as any[]).map(h => String(h || '').trim().toLowerCase());
-    const dateIndex = headers.indexOf('date');
-    const addressIndex = headers.indexOf('address');
-    const taskIndex = headers.indexOf('task');
-    const operativeIndex = headers.indexOf('operative');
-    const typeIndex = headers.indexOf('type');
-    const eNumberIndex = headers.indexOf('enumber');
-    const managerIndex = headers.indexOf('manager');
-    const notesIndex = headers.indexOf('notes');
-
-    if (dateIndex === -1 || addressIndex === -1 || taskIndex === -1 || operativeIndex === -1) {
-        return { shifts: [], failed: [{
-            date: null,
-            projectAddress: 'Sheet Headers',
-            cellContent: headers.join(', '),
-            reason: 'Build sheet is missing required columns: "date", "address", "task", "operative".',
-            sheetName,
-            cellRef: 'A1'
-        }] };
-    }
-
     const shifts: ParsedShift[] = [];
     const failed: FailedShift[] = [];
+    const manager = sheetName;
 
-    for (let i = 1; i < jsonData.length; i++) {
-        const row = jsonData[i] as any[];
-        const rowNum = i + 1;
+    if (jsonData.length < 5) {
+        failed.push({ date: null, projectAddress: 'Sheet', cellContent: '', reason: 'Sheet has too few rows to be a valid schedule.', sheetName, cellRef: 'A1' });
+        return { shifts, failed };
+    }
 
-        const date = parseDate(row[dateIndex]);
-        const address = row[addressIndex];
-        const task = row[taskIndex];
-        const operativeName = row[operativeIndex];
-
-        if (!date || !address || !task || !operativeName) {
-            failed.push({
-                date: date,
-                projectAddress: address || 'N/A',
-                cellContent: row.join(', '),
-                reason: `Row ${'\'\''}${rowNum}${'\'\''} is missing required data (Date, Address, Task, or Operative).`,
-                sheetName,
-                cellRef: `A${'\'\''}${rowNum}${'\'\''}`
-            });
-            continue;
+    const { dateRowIndex, dateRow } = findDateHeaderRowInBlock(jsonData, 0, 10);
+    if (dateRowIndex === -1) {
+        failed.push({ date: null, projectAddress: 'Sheet', cellContent: '', reason: 'Could not find a valid Date Header Row in the first 10 rows.', sheetName, cellRef: 'A1' });
+        return { shifts, failed };
+    }
+    
+    const blockStartRows: number[] = [];
+    jsonData.forEach((row, index) => {
+        if (row && row.length > 0 && isProbablyAddressText(String(row[0]))) {
+            blockStartRows.push(index);
         }
+    });
+
+    if (blockStartRows.length === 0) {
+        failed.push({ date: null, projectAddress: 'Sheet', cellContent: '', reason: 'Could not find any project address blocks in the first column.', sheetName, cellRef: 'A1' });
+        return { shifts, failed };
+    }
+
+    for (let i = 0; i < blockStartRows.length; i++) {
+        const blockStart = blockStartRows[i];
+        const blockEnd = (i + 1 < blockStartRows.length) ? blockStartRows[i + 1] : jsonData.length;
+
+        const addressCell = String(jsonData[blockStart][0] || '').trim();
+        const bNumberMatch = addressCell.match(/\b(B\d+)\b/i);
+        const eNumber = bNumberMatch ? bNumberMatch[0].toUpperCase() : '';
+        const address = bNumberMatch ? addressCell.replace(bNumberMatch[0], '').trim() : addressCell;
         
-        const user = findUser(operativeName, userMap);
-        if (!user) {
-            failed.push({
-                date,
-                projectAddress: address,
-                cellContent: operativeName,
-                reason: `Could not find a user matching "${'\'\''}${operativeName}${'\'\''}".`,
-                sheetName,
-                cellRef: XLSX.utils.encode_cell({r: i, c: operativeIndex})
-            });
-            continue;
+        let contract = '';
+        for (let c = 1; c < 5; c++) {
+            const cellVal = String(jsonData[blockStart][c] || '');
+            if (cellVal.includes('CC')) {
+                contract = cellVal.trim();
+                break;
+            }
         }
 
-        let type: 'am' | 'pm' | 'all-day' = 'all-day';
-        const rawType = (row[typeIndex] || '').toLowerCase();
-        if (rawType === 'am') type = 'am';
-        if (rawType === 'pm') type = 'pm';
+        if (!address) continue;
 
-        shifts.push({
-            date,
-            address,
-            task,
-            userId: user.uid,
-            userName: user.originalName,
-            type,
-            eNumber: row[eNumberIndex] || '',
-            manager: row[managerIndex] || '',
-            notes: row[notesIndex] || '',
-            contract: sheetName,
-            department: department || '',
-        });
+        for (let r = blockStart; r < blockEnd; r++) {
+            const rowData = jsonData[r];
+            if (!rowData || r === dateRowIndex) continue;
+
+            for (let c = 0; c < dateRow.length; c++) {
+                const shiftDate = dateRow[c];
+                const cellContentRaw = rowData[c];
+
+                if (!shiftDate || !cellContentRaw || typeof cellContentRaw !== 'string' ) continue;
+                
+                const cellContent = cellContentRaw.trim();
+                if (cellContent.length < 5) continue;
+
+                let task = cellContent;
+                let userName = '';
+                const parts = cellContent.split('-');
+                
+                if (parts.length > 1) {
+                    const potentialName = parts[parts.length - 1].trim();
+                    const userMatch = findUser(potentialName, userMap);
+                    if (userMatch) {
+                        userName = userMatch.originalName;
+                        task = parts.slice(0, -1).join('-').trim();
+                    }
+                }
+                
+                if (userName) {
+                    const user = userMap.find(u => u.originalName === userName)!;
+                    
+                    let shiftType: 'am' | 'pm' | 'all-day' = 'all-day';
+                    if (/^\s*AM\b/i.test(task)) {
+                        shiftType = 'am';
+                        task = task.replace(/^\s*AM\b/i, '').trim();
+                    } else if (/^\s*PM\b/i.test(task)) {
+                        shiftType = 'pm';
+                        task = task.replace(/^\s*PM\b/i, '').trim();
+                    }
+
+                    shifts.push({
+                        date: shiftDate,
+                        address,
+                        eNumber,
+                        task,
+                        userId: user.uid,
+                        userName: user.originalName,
+                        type: shiftType,
+                        manager,
+                        contract,
+                        department,
+                        notes: '',
+                    });
+                }
+            }
+        }
     }
 
     return { shifts, failed };
 }
+
 
 const LOCAL_STORAGE_KEY = 'shiftImport_selectedSheets';
 
@@ -480,7 +486,10 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
 
       const workbook = XLSX.read(data, { type: 'array' });
       
-      const visibleSheetNames = workbook.SheetNames.filter(name => workbook.Sheets[name].Hidden === undefined || workbook.Sheets[name].Hidden === 0);
+      const visibleSheetNames = workbook.SheetNames.filter(name => {
+          const sheet = workbook.Sheets[name];
+          return !sheet.Hidden;
+      });
       
       setSheetNames(visibleSheetNames);
 
