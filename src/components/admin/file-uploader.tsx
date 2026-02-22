@@ -405,7 +405,6 @@ const parseBuildSheet = (
                 const cell = worksheet[cellRef];
                 const cellContentRaw = cell?.w || cell?.v;
 
-
                 if (!shiftDate || !cellContentRaw || typeof cellContentRaw !== 'string' ) continue;
                 
                 if (shiftDate < today) continue;
@@ -413,55 +412,59 @@ const parseBuildSheet = (
                 const cellContent = cellContentRaw.trim();
                 if (cellContent.length < 5) continue;
 
-                let task = cellContent;
-                let userName = '';
-                let potentialName = '';
-                const parts = cellContent.split('-');
-                
-                if (parts.length > 1) {
-                    potentialName = parts[parts.length - 1].trim();
-                    const userMatch = findUser(potentialName, userMap);
-                    if (userMatch) {
-                        userName = userMatch.originalName;
-                        task = parts.slice(0, -1).join('-').trim();
-                    }
+                const lastDashIndex = cellContent.lastIndexOf('-');
+                if (lastDashIndex === -1 || lastDashIndex === cellContent.length - 1) {
+                    continue;
                 }
-                
-                if (userName) {
-                    const user = userMap.find(u => u.originalName === userName)!;
-                    
-                    let shiftType: 'am' | 'pm' | 'all-day' = 'all-day';
-                    if (/^\s*AM\b/i.test(task)) {
-                        shiftType = 'am';
-                        task = task.replace(/^\s*AM\b/i, '').trim();
-                    } else if (/^\s*PM\b/i.test(task)) {
-                        shiftType = 'pm';
-                        task = task.replace(/^\s*PM\b/i, '').trim();
-                    }
 
-                    shifts.push({
-                        date: shiftDate,
-                        address,
-                        eNumber,
-                        task,
-                        userId: user.uid,
-                        userName: user.originalName,
-                        type: shiftType,
-                        manager,
-                        contract,
-                        department,
-                        notes: '',
-                    });
-                } else if (potentialName) {
-                    // A name was found but couldn't be matched to a user
-                    failed.push({
-                      date: shiftDate,
-                      projectAddress: address,
-                      cellContent: cellContentRaw,
-                      reason: `Could not find a user matching "${potentialName}".`,
-                      sheetName,
-                      cellRef,
-                    });
+                const task = cellContent.substring(0, lastDashIndex).trim();
+                const potentialUserNames = cellContent.substring(lastDashIndex + 1).trim();
+
+                if (!task || !potentialUserNames) continue;
+
+                const usersInCell = potentialUserNames
+                    .split(/[&,+/]/g)
+                    .map((n) => n.trim())
+                    .filter(Boolean);
+
+                if (usersInCell.length === 0) continue;
+
+                for (const userName of usersInCell) {
+                    const user = findUser(userName, userMap);
+                    if (user) {
+                        let shiftType: 'am' | 'pm' | 'all-day' = 'all-day';
+                        let finalTask = task;
+                        if (/^\s*AM\b/i.test(finalTask)) {
+                            shiftType = 'am';
+                            finalTask = finalTask.replace(/^\s*AM\b/i, '').trim();
+                        } else if (/^\s*PM\b/i.test(finalTask)) {
+                            shiftType = 'pm';
+                            finalTask = finalTask.replace(/^\s*PM\b/i, '').trim();
+                        }
+
+                        shifts.push({
+                            date: shiftDate,
+                            address,
+                            eNumber,
+                            task: finalTask,
+                            userId: user.uid,
+                            userName: user.originalName,
+                            type: shiftType,
+                            manager,
+                            contract,
+                            department,
+                            notes: '',
+                        });
+                    } else {
+                        failed.push({
+                            date: shiftDate,
+                            projectAddress: address,
+                            cellContent: cellContentRaw,
+                            reason: `Could not find a user matching "${userName}".`,
+                            sheetName,
+                            cellRef,
+                        });
+                    }
                 }
             }
         }
@@ -471,7 +474,7 @@ const parseBuildSheet = (
 }
 
 
-const LOCAL_STORAGE_KEY = 'shiftImport_selectedSheets';
+const LOCAL_STORAGE_KEY = 'shiftImport_selectedSheets_v2';
 
 export function FileUploader({ onImportComplete, onFileSelect, userProfile }: FileUploaderProps) {
   const [file, setFile] = useState<File | null>(null);
@@ -508,7 +511,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
       const visibleSheetNames = workbook.SheetNames.filter(name => {
           const sheet = workbook.Sheets[name];
           // @ts-ignore
-          return !sheet.Hidden;
+          return !sheet.Hidden && !name.startsWith('_xlfn');
       });
       
       setSheetNames(visibleSheetNames);
@@ -518,12 +521,12 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
         if (stored) {
           const parsed = JSON.parse(stored);
           const valid = parsed.filter((s: string) => visibleSheetNames.includes(s));
-          setSelectedSheets(valid.length > 0 ? valid : visibleSheetNames.length > 0 ? [visibleSheetNames[0]] : []);
+          setSelectedSheets(valid);
         } else {
-          setSelectedSheets(visibleSheetNames.length > 0 ? [visibleSheetNames[0]] : []);
+          setSelectedSheets(visibleSheetNames);
         }
       } catch {
-        setSelectedSheets(visibleSheetNames.length > 0 ? [visibleSheetNames[0]] : []);
+        setSelectedSheets(visibleSheetNames);
       }
     };
 
