@@ -19,7 +19,6 @@ import { Spinner } from '../shared/spinner';
 import { ShiftScheduleOverview } from './shift-schedule-overview';
 import { HealthAndSafetyFileList } from '../health-and-safety/file-list';
 import { Faq } from '../landing/faq';
-import { UserManagement } from './user-management';
 import { StaffShiftMap } from './StaffShiftMap';
 import { EvidenceDashboard } from './evidence-dashboard';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
