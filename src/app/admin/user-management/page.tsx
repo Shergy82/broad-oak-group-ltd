@@ -249,13 +249,13 @@ export default function UserManagementPage() {
         );
     }
     
-    if (currentUserProfile?.role !== 'owner') {
+    if (!['owner', 'admin'].includes(currentUserProfile?.role || '')) {
         return (
             <Alert variant="destructive">
                 <AlertTriangle className="h-4 w-4" />
                 <AlertTitle>Access Denied</AlertTitle>
                 <AlertDescription>
-                You do not have permission to view this page. User management is restricted to owners.
+                You do not have permission to view this page. User management is restricted to owners and admins.
                 </AlertDescription>
             </Alert>
         );

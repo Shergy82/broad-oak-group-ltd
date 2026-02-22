@@ -46,12 +46,22 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { GlobalShiftImporter } from '@/components/admin/global-shift-importer';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
 import { ShareAppLink } from './ShareAppLink';
+import { useMemo } from 'react';
+import { useAllUsers } from '@/hooks/use-all-users';
 
 export function Header() {
   const { user } = useAuth();
   const { userProfile } = useUserProfile();
   const router = useRouter();
   const { availableDepartments, selectedDepartments, toggleDepartment, loading: deptsLoading } = useDepartmentFilter();
+  const { users: allUsers } = useAllUsers();
+  
+  const pendingUserCount = useMemo(() => {
+    if (!userProfile || !['admin', 'owner'].includes(userProfile.role)) {
+      return 0;
+    }
+    return allUsers.filter(u => u.status === 'pending-approval').length;
+  }, [allUsers, userProfile]);
 
   const handleSignOut = async () => {
     if (auth) {
@@ -62,6 +72,7 @@ export function Header() {
 
   const isPrivilegedUser = userProfile && ['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role);
   const isOwner = userProfile?.role === 'owner';
+  const isAdmin = userProfile?.role === 'admin';
 
   const getInitials = (name?: string) => {
     if (!name) return <User className="h-5 w-5" />;
@@ -90,10 +101,13 @@ export function Header() {
             <NotificationButton />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="secondary" size="icon" className="rounded-full">
+                <Button variant="secondary" size="icon" className="rounded-full relative">
                   <Avatar className="h-8 w-8">
                     <AvatarFallback>{getInitials(userProfile?.name)}</AvatarFallback>
                   </Avatar>
+                  {pendingUserCount > 0 && (
+                    <span className="absolute top-0 right-0 block h-2.5 w-2.5 rounded-full bg-destructive ring-2 ring-background" />
+                  )}
                   <span className="sr-only">Toggle user menu</span>
                 </Button>
               </DropdownMenuTrigger>
@@ -187,10 +201,13 @@ export function Header() {
                       <Shield className="mr-2" />
                       <span>Control Panel</span>
                     </DropdownMenuItem>
-                    {isOwner && (
+                    {(isOwner || isAdmin) && (
                         <DropdownMenuItem onClick={() => router.push('/admin/user-management')} className="cursor-pointer">
                             <UserCog className="mr-2" />
                             <span>User Management</span>
+                            {pendingUserCount > 0 && (
+                                <span className="ml-auto flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-xs font-medium text-destructive-foreground">{pendingUserCount}</span>
+                            )}
                         </DropdownMenuItem>
                     )}
                     <DropdownMenuItem onClick={() => router.push('/schedule')} className="cursor-pointer">
