@@ -25,6 +25,7 @@ import {
   FileArchive,
   Map,
   SlidersHorizontal,
+  DollarSign,
 } from 'lucide-react';
 import { NotificationButton } from '../shared/notification-button';
 import {
@@ -138,6 +139,10 @@ export function Header() {
                   <Calendar className="mr-2" />
                   <span>Dashboard</span>
                 </DropdownMenuItem>
+                 <DropdownMenuItem onClick={() => router.push('/contacts')} className="cursor-pointer">
+                  <Users className="mr-2" />
+                  <span>Contacts</span>
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => router.push('/ai')} className="cursor-pointer">
                   <Map className="mr-2" />
                   <span>AI Assistant</span>
@@ -201,6 +206,12 @@ export function Header() {
                       <Briefcase className="mr-2" />
                       <span>Contracts</span>
                     </DropdownMenuItem>
+                     {userProfile?.department === 'Build' && (
+                        <DropdownMenuItem onClick={() => router.push('/admin/finance')} className="cursor-pointer">
+                            <DollarSign className="mr-2" />
+                            <span>Finance</span>
+                        </DropdownMenuItem>
+                    )}
                     <DropdownMenuItem onClick={() => router.push('/admin/performance')} className="cursor-pointer">
                       <TrendingUp className="mr-2" />
                       <span>Performance</span>
