@@ -47,6 +47,12 @@ service cloud.firestore {
            request.resource.data.userId == request.auth.uid)
           || isPrivilegedUser(request.auth.uid)
         );
+        
+      match /materialPurchases/{purchaseId} {
+        allow read, list: if signedIn();
+        allow create: if isPrivilegedUser(request.auth.uid) || request.auth.uid == get(/databases/$(database)/documents/shifts/$(shiftId)).data.userId;
+        allow delete: if isPrivilegedUser(request.auth.uid) || request.auth.uid == resource.data.userId;
+      }
     }
 
     // ---- PROJECTS ----
