@@ -516,9 +516,15 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
       const workbook = XLSX.read(data, { type: 'array' });
       
       const visibleSheetNames = workbook.SheetNames.filter(name => {
+          if (name.startsWith('_xlfn.')) {
+              return false;
+          }
           const sheet = workbook.Sheets[name];
           // @ts-ignore
-          return !sheet.Hidden;
+          if (sheet && sheet.Hidden) {
+              return false;
+          }
+          return true;
       });
       
       setSheetNames(visibleSheetNames);
