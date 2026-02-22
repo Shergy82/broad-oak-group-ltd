@@ -16,7 +16,7 @@ import {
   onSnapshot,
   deleteDoc,
   Timestamp,
-  orderBy
+  orderBy,
 } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { db, isFirebaseConfigured, storage } from '@/lib/firebase';
@@ -107,10 +107,10 @@ function PurchaseLogDialog({ open, onOpenChange, onConfirm, mode, shiftId, userP
   }, [open, shiftId, mode]);
 
 
-  const handleAddPurchase = async () => {
+  const handleAddPurchase = async (): Promise<boolean> => {
     if (!supplier.trim() || !amount.trim() || !userProfile) {
         toast({ variant: 'destructive', title: "Missing Information", description: "Please enter supplier and amount." });
-        return;
+        return false;
     }
     try {
         await addDoc(collection(db, `shifts/${shiftId}/materialPurchases`), {
@@ -124,9 +124,11 @@ function PurchaseLogDialog({ open, onOpenChange, onConfirm, mode, shiftId, userP
         toast({ title: 'Purchase Added' });
         setSupplier('');
         setAmount('');
+        return true;
     } catch (e) {
         console.error("Error adding purchase:", e);
         toast({ variant: 'destructive', title: "Error", description: "Could not log purchase." });
+        return false;
     }
   };
 
@@ -140,7 +142,13 @@ function PurchaseLogDialog({ open, onOpenChange, onConfirm, mode, shiftId, userP
     }
   };
   
-  const handleConfirmClick = () => {
+  const handleConfirmClick = async () => {
+    if (didBuy === 'yes' && supplier.trim() && amount.trim()) {
+        const success = await handleAddPurchase();
+        if (!success) {
+            return; // Don't proceed if adding the final item fails
+        }
+    }
     onConfirm();
     onOpenChange(false);
   };
