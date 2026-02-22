@@ -401,7 +401,10 @@ const parseBuildSheet = (
 
             for (let c = 0; c < dateRow.length; c++) {
                 const shiftDate = dateRow[c];
-                const cellContentRaw = rowData[c];
+                const cellRef = XLSX.utils.encode_cell({ r, c });
+                const cell = worksheet[cellRef];
+                const cellContentRaw = cell?.w || cell?.v;
+
 
                 if (!shiftDate || !cellContentRaw || typeof cellContentRaw !== 'string' ) continue;
                 
@@ -412,10 +415,11 @@ const parseBuildSheet = (
 
                 let task = cellContent;
                 let userName = '';
+                let potentialName = '';
                 const parts = cellContent.split('-');
                 
                 if (parts.length > 1) {
-                    const potentialName = parts[parts.length - 1].trim();
+                    potentialName = parts[parts.length - 1].trim();
                     const userMatch = findUser(potentialName, userMap);
                     if (userMatch) {
                         userName = userMatch.originalName;
@@ -447,6 +451,16 @@ const parseBuildSheet = (
                         contract,
                         department,
                         notes: '',
+                    });
+                } else if (potentialName) {
+                    // A name was found but couldn't be matched to a user
+                    failed.push({
+                      date: shiftDate,
+                      projectAddress: address,
+                      cellContent: cellContentRaw,
+                      reason: `Could not find a user matching "${potentialName}".`,
+                      sheetName,
+                      cellRef,
                     });
                 }
             }
@@ -493,6 +507,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
       
       const visibleSheetNames = workbook.SheetNames.filter(name => {
           const sheet = workbook.Sheets[name];
+          // @ts-ignore
           return !sheet.Hidden;
       });
       
