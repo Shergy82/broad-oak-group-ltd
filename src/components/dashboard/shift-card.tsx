@@ -534,7 +534,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
             className="text-xs text-muted-foreground hover:underline flex items-center gap-1.5"
           >
             <MapPin className="h-4 w-4 shrink-0" />
-            <span className="truncate">{shift.address}</span>
+            <span>{shift.address}</span>
           </a>
           {shift.eNumber && <p className="text-xs text-muted-foreground">Number: {shift.eNumber}</p>}
           {shift.manager && <p className="text-xs text-muted-foreground">Manager: {shift.manager}</p>}
