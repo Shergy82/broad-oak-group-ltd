@@ -104,6 +104,17 @@ export default function FinancePage() {
     }
   }, [userProfile, profileLoading]);
 
+  const userOperativeIdMap = useMemo(() => {
+    const map = new Map<string, string>();
+    users.forEach(u => {
+        if (u.operativeId) {
+            map.set(u.uid, u.operativeId);
+        }
+    });
+    return map;
+  }, [users]);
+
+
   const filteredPurchases = useMemo(() => {
     let filtered = purchases;
 
@@ -138,14 +149,18 @@ export default function FinancePage() {
     // Search term filter
     if (searchTerm.trim()) {
         const lowercasedSearch = searchTerm.toLowerCase();
-        filtered = filtered.filter(p => 
-            p.supplier.toLowerCase().includes(lowercasedSearch) ||
-            p.userName.toLowerCase().includes(lowercasedSearch)
-        );
+        filtered = filtered.filter(p => {
+            const operativeId = userOperativeIdMap.get(p.userId) || '';
+            return (
+                p.supplier.toLowerCase().includes(lowercasedSearch) ||
+                p.userName.toLowerCase().includes(lowercasedSearch) ||
+                operativeId.toLowerCase().includes(lowercasedSearch)
+            );
+        });
     }
 
     return filtered;
-  }, [purchases, shifts, timeFilter, selectedDate, selectedUser, selectedSite, searchTerm]);
+  }, [purchases, shifts, timeFilter, selectedDate, selectedUser, selectedSite, searchTerm, userOperativeIdMap]);
 
   const totalSpend = useMemo(() => {
     return filteredPurchases.reduce((acc, p) => acc + p.amount, 0);
@@ -249,7 +264,7 @@ export default function FinancePage() {
                         </Popover>
                          <Select value={selectedUser} onValueChange={setSelectedUser}>
                             <SelectTrigger><div className="flex items-center gap-2"><Users className="h-4 w-4 text-muted-foreground" /><span>Filter by user...</span></div></SelectTrigger>
-                            <SelectContent><ScrollArea className="h-72"><SelectItem value="all">All Users</SelectItem>{users.map(u => <SelectItem key={u.uid} value={u.uid}>{u.name}</SelectItem>)}</ScrollArea></SelectContent>
+                            <SelectContent><ScrollArea className="h-72"><SelectItem value="all">All Users</SelectItem>{users.map(u => <SelectItem key={u.uid} value={u.uid}>{u.name} {u.operativeId && `(${u.operativeId})`}</SelectItem>)}</ScrollArea></SelectContent>
                         </Select>
                          <Select value={selectedSite} onValueChange={setSelectedSite}>
                              <SelectTrigger><div className="flex items-center gap-2"><Building className="h-4 w-4 text-muted-foreground" /><span>Filter by site...</span></div></SelectTrigger>
@@ -257,7 +272,7 @@ export default function FinancePage() {
                         </Select>
                         <div className="relative">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input placeholder="Search supplier..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-10" />
+                            <Input placeholder="Search supplier, user, or ID..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-10" />
                         </div>
                     </div>
                 </div>
@@ -277,11 +292,15 @@ export default function FinancePage() {
                             <TableBody>
                                 {filteredPurchases.length > 0 ? filteredPurchases.map(p => {
                                     const shift = shifts.find(s => s.id === p.shiftId);
+                                    const operativeId = userOperativeIdMap.get(p.userId);
                                     return (
                                         <TableRow key={p.id}>
                                             <TableCell>{format(p.purchasedAt.toDate(), 'dd/MM/yyyy')}</TableCell>
-                                            <TableCell>{p.userName}</TableCell>
-                                            <TableCell className="truncate max-w-[200px]">{shift?.address || 'N/A'}</TableCell>
+                                            <TableCell>
+                                                {p.userName}
+                                                {operativeId && <span className="text-xs text-muted-foreground ml-2">({operativeId})</span>}
+                                            </TableCell>
+                                            <TableCell className="whitespace-pre-wrap">{shift?.address || 'N/A'}</TableCell>
                                             <TableCell>{p.supplier}</TableCell>
                                             <TableCell className="text-right font-mono">£{p.amount.toFixed(2)}</TableCell>
                                         </TableRow>
