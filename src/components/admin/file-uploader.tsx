@@ -224,7 +224,7 @@ const isSiteSeparatorRow = (row: any[]) => {
     .filter(Boolean);
 
   if (cells.length === 0) return false;
-  return cells.some((c) => c.includes('JOB MANAGER'));
+  return cells.some((c) => c.includes('JOB MANAGER') || c.includes('SITE MANAGER') || c.includes('PROJECT MANAGER'));
 };
 
 const findAddressInBlock = (jsonData: any[][], startRow: number, endRow: number) => {
@@ -277,28 +277,55 @@ const findAddressInBlock = (jsonData: any[][], startRow: number, endRow: number)
   return { address: '', eNumber: '' };
 };
 
-const findManagerInBlock = (jsonData: any[][], startRow: number, endRow: number): string => {
+interface SiteContact {
+  role: string;
+  name: string;
+  phone: string;
+}
+
+const findSiteContacts = (jsonData: any[][], startRow: number, endRow: number): SiteContact[] => {
+    const contacts: SiteContact[] = [];
+    const roles = ['SITE MANAGER', 'PROJECT MANAGER', 'JOB MANAGER', 'TLO'];
+    
     for (let r = startRow; r < endRow; r++) {
         const row = jsonData[r] || [];
-        const managerCellIndex = row.findIndex(cell => 
-            (cell || '').toString().trim().toUpperCase().includes('JOB MANAGER')
-        );
+        for (let c = 0; c < row.length; c++) {
+            const cellText = (row[c] || '').toString().trim();
+            if (!cellText) continue;
 
-        if (managerCellIndex !== -1) {
-            // The manager's name is expected to be in the cell directly below.
-            const nextRow = jsonData[r + 1];
-            if (nextRow && nextRow[managerCellIndex]) {
-                const managerNameAndPhone = (nextRow[managerCellIndex] || '').toString().trim();
-                // The cell might contain "STEVE CONWAY - 0789654342". Extract just the name part.
-                const namePart = managerNameAndPhone.split('-')[0].trim();
-                if (namePart.length > 2) {
-                    return namePart;
+            const upperCellText = cellText.toUpperCase();
+
+            for (const role of roles) {
+                if (upperCellText.startsWith(role)) {
+                    let restOfText = cellText.substring(role.length).trim();
+                    
+                    let phoneMatch = restOfText.match(/(0\d[\d\s-]{8,})/);
+                    let name = phoneMatch ? restOfText.substring(0, phoneMatch.index).trim() : restOfText;
+                    let phone = phoneMatch ? phoneMatch[0].trim() : '';
+
+                    if (!name) continue;
+
+                    if (!phone && (r + 1 < endRow)) {
+                        const textBelow = (jsonData[r+1]?.[c] || '').toString().trim();
+                        if (/^(0\d[\d\s-]{8,})$/.test(textBelow)) {
+                            phone = textBelow;
+                        }
+                    }
+
+                    contacts.push({
+                        role,
+                        name: name.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' '),
+                        phone
+                    });
+                    
+                    break;
                 }
             }
         }
     }
-    return '';
+    return contacts;
 };
+
 
 const findDateHeaderRowInBlock = (jsonData: any[][], startRow: number, endRow: number) => {
   for (let r = startRow; r < endRow; r++) {
@@ -502,7 +529,11 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                 continue;
               }
 
-              const manager = findManagerInBlock(jsonData, blockStartRowIndex, blockEndRowIndex);
+              const contacts = findSiteContacts(jsonData, blockStartRowIndex, blockEndRowIndex);
+              const managerContact = contacts.find(c => c.role.includes('MANAGER'));
+              const manager = managerContact ? managerContact.name : '';
+              const otherContacts = contacts.filter(c => c !== managerContact);
+              const notes = otherContacts.map(c => `${c.role}: ${c.name} ${c.phone}`).join('\n');
 
               // Parse grid
               for (let r = dateRowIndex + 1; r < blockEndRowIndex; r++) {
@@ -562,6 +593,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                         address,
                         eNumber,
                         manager,
+                        notes,
                         contract: sheetName,
                         department: userProfile.department || '',
                       });
@@ -724,6 +756,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                 type: newShift.type,
                 eNumber: newShift.eNumber || '',
                 manager: newShift.manager || '',
+                notes: newShift.notes || '',
                 contract: newShift.contract || '',
                 status: 'pending-confirmation',
               });
