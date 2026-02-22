@@ -378,7 +378,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
       const data = e.target?.result;
       if (!data) return;
 
-      const workbook = XLSX.read(data, { type: 'array' });
+      const workbook = XLSX.read(data, { type: 'array', bookSheets: true });
       
       const allSheets = workbook.Workbook?.Sheets
         ? workbook.Workbook.Sheets
@@ -986,3 +986,4 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
     </div>
   );
 }
+
