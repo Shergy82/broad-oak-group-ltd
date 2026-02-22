@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useCallback } from 'react';
@@ -147,8 +145,7 @@ const findUser = (name: string, userMap: UserMapEntry[]): UserMapEntry | null =>
         if (parts.length > 1) {
             const first = parts[0];
             const lastInitial = parts[parts.length - 1].charAt(0);
-            if (normalizeText(`${'\'\''}
-` + first + lastInitial + `'\'\'\'`) === normalizedName) {
+            if (normalizeText(`${'\'\''}' + first + lastInitial + ''\'\'\'`) === normalizedName) {
                 return true;
             }
         }
@@ -378,27 +375,23 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
       const data = e.target?.result;
       if (!data) return;
 
-      const workbook = XLSX.read(data, { type: 'array', bookSheets: true });
+      const workbook = XLSX.read(data, { type: 'array' });
       
-      const allSheets = workbook.Workbook?.Sheets
-        ? workbook.Workbook.Sheets
-            .filter(s => s.Hidden === 0 || s.Hidden === undefined)
-            .map(s => s.Name)
-        : workbook.SheetNames;
+      const visibleSheetNames = workbook.SheetNames.filter(name => !name.startsWith('_'));
       
-      setSheetNames(allSheets);
+      setSheetNames(visibleSheetNames);
 
       try {
         const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
         if (stored) {
           const parsed = JSON.parse(stored);
-          const valid = parsed.filter((s: string) => allSheets.includes(s));
-          setSelectedSheets(valid.length > 0 ? valid : allSheets.length > 0 ? [allSheets[0]] : []);
+          const valid = parsed.filter((s: string) => visibleSheetNames.includes(s));
+          setSelectedSheets(valid.length > 0 ? valid : visibleSheetNames.length > 0 ? [visibleSheetNames[0]] : []);
         } else {
-          setSelectedSheets(allSheets.length > 0 ? [allSheets[0]] : []);
+          setSelectedSheets(visibleSheetNames.length > 0 ? [visibleSheetNames[0]] : []);
         }
       } catch {
-        setSelectedSheets(allSheets.length > 0 ? [allSheets[0]] : []);
+        setSelectedSheets(visibleSheetNames.length > 0 ? [visibleSheetNames[0]] : []);
       }
     };
 
@@ -986,4 +979,3 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
     </div>
   );
 }
-
