@@ -91,6 +91,14 @@ function PurchaseLogDialog({ open, onOpenChange, onConfirm, mode, shiftId, userP
   const { toast } = useToast();
 
   useEffect(() => {
+    if (open) {
+      setDidBuy(mode === 'add' ? 'yes' : 'no');
+      setSupplier('');
+      setAmount('');
+    }
+  }, [open, mode]);
+
+  useEffect(() => {
     if (!open || !shiftId) return;
 
     setLoading(true);
@@ -150,7 +158,9 @@ function PurchaseLogDialog({ open, onOpenChange, onConfirm, mode, shiftId, userP
             return; // Don't proceed if adding the final item fails
         }
     }
-    onConfirm();
+    if (mode === 'query') {
+      onConfirm();
+    }
     onOpenChange(false);
   };
   
