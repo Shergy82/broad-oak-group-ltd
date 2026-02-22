@@ -49,7 +49,6 @@ export default function FinancePage() {
         return;
     }
 
-    setLoading(true);
     let purchasesLoaded = false;
     let shiftsLoaded = false;
     let usersLoaded = false;
@@ -60,6 +59,7 @@ export default function FinancePage() {
         }
     }
 
+    setLoading(true);
     const purchasesQuery = query(collectionGroup(db, 'materialPurchases'), orderBy('purchasedAt', 'desc'));
     const unsubPurchases = onSnapshot(purchasesQuery, (snapshot) => {
         setPurchases(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as MaterialPurchase)));
@@ -223,11 +223,12 @@ export default function FinancePage() {
     const body = filteredPurchases.map(p => {
         const shift = shifts.find(s => s.id === p.shiftId);
         const operativeId = userOperativeIdMap.get(p.userId) || '';
+        const siteDisplay = shift ? `${shift.address || ''}${shift.eNumber ? `\n${shift.eNumber}` : ''}` : 'N/A';
         return [
             format(p.purchasedAt.toDate(), 'dd/MM/yyyy'),
             p.userName,
             operativeId,
-            shift?.address || 'N/A',
+            siteDisplay,
             p.supplier,
             p.amount.toFixed(2),
         ];
@@ -377,7 +378,10 @@ export default function FinancePage() {
                                                 {p.userName}
                                                 {operativeId && <span className="text-xs text-muted-foreground ml-2">({operativeId})</span>}
                                             </TableCell>
-                                            <TableCell className="whitespace-pre-wrap">{shift?.address || 'N/A'}</TableCell>
+                                            <TableCell className="whitespace-pre-wrap">
+                                                {shift?.address || 'N/A'}
+                                                {shift?.eNumber && <div className="text-xs text-muted-foreground">{shift.eNumber}</div>}
+                                            </TableCell>
                                             <TableCell>{p.supplier}</TableCell>
                                             <TableCell className="text-right font-mono">£{p.amount.toFixed(2)}</TableCell>
                                         </TableRow>
