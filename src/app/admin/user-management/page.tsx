@@ -180,7 +180,6 @@ export default function UserManagementPage() {
                             <TableHead>Phone Number</TableHead>
                             <TableHead>Trade</TableHead>
                             <TableHead>Role</TableHead>
-                            <TableHead>Department</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
                     </TableHeader>
@@ -194,7 +193,6 @@ export default function UserManagementPage() {
                                 <TableCell>{user.phoneNumber || 'N/A'}</TableCell>
                                 <TableCell>{user.trade || 'N/A'}</TableCell>
                                 <TableCell><Badge variant="outline" className="capitalize">{user.role}</Badge></TableCell>
-                                <TableCell>{user.department || 'N/A'}</TableCell>
                                 <TableCell className="text-right space-x-1">
                                     {type === 'pending' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')}><Check className="mr-2 h-4 w-4" />Activate</Button>}
                                     {type === 'active' && <Button size="sm" variant="destructive" onClick={() => handleSetUserStatus(user, 'suspended')}><Ban className="mr-2 h-4 w-4" />Suspend</Button>}
