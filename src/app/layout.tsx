@@ -6,10 +6,10 @@ import { PendingAnnouncementModal } from '@/components/announcements/pending-ann
 
 import './globals.css';
 
-const siteUrl = `https://${process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID}.web.app`;
+const siteUrl = `https://broad-oak-group-ltd--the-final-project-5e248.europe-west4.hosted.app`;
 
 export const metadata: Metadata = {
-  metadataBase: new URL(siteUrl),
+  // No metadataBase, use absolute URLs
   title: 'Broad Oak Group',
   description:
     'Broad Oak Group internal portal for scheduling, projects and site management.',
@@ -19,12 +19,14 @@ export const metadata: Metadata = {
     title: 'Broad Oak Group',
     description:
       'Broad Oak Group internal portal for scheduling, projects and site management.',
-    url: '/',
+    url: siteUrl, // Absolute URL
     siteName: 'Broad Oak Group',
     images: [
       {
-        url: '/icon.svg',
-        alt: 'Broad Oak Group Logo',
+        url: 'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158', // Simple, static, reliable JPG
+        width: 1200,
+        height: 630,
+        alt: 'Broad Oak Group',
       },
     ],
     locale: 'en_GB',
@@ -36,7 +38,7 @@ export const metadata: Metadata = {
     title: 'Broad Oak Group',
     description:
       'Broad Oak Group internal portal for scheduling, projects and site management.',
-    images: ['/icon.svg'],
+    images: ['https://images.unsplash.com/photo-1581091226825-a6a2a5aee158'],
   },
 
   icons: {
