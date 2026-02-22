@@ -6,48 +6,42 @@ import { PendingAnnouncementModal } from '@/components/announcements/pending-ann
 
 import './globals.css';
 
-const siteUrl = `https://broad-oak-group-ltd--the-final-project-5e248.europe-west4.hosted.app`;
-const imageUrl = `https://images.weserv.nl/?url=${encodeURIComponent(
-  siteUrl + '/icon.svg'
-)}&w=1200&h=630&fit=contain&a=center&output=png`;
+const siteUrl =
+  'https://broad-oak-group-ltd--the-final-project-5e248.europe-west4.hosted.app';
 
 export const metadata: Metadata = {
-  // No metadataBase, use absolute URLs
   title: 'Broad Oak Group',
-  description:
-    'Broad Oak Group internal portal for scheduling, projects and site management.',
-  manifest: '/manifest.json',
+
+  // 🔒 Locks canonical + prevents reuse of old cached OG data
+  metadataBase: new URL(siteUrl),
 
   openGraph: {
     title: 'Broad Oak Group',
-    description:
-      'Broad Oak Group internal portal for scheduling, projects and site management.',
-    url: siteUrl, // Absolute URL
+    url: siteUrl,
     siteName: 'Broad Oak Group',
+    type: 'website',
     images: [
       {
-        url: imageUrl,
+        url: '/og-image.png', // resolved via metadataBase
         width: 1200,
         height: 630,
         alt: 'Broad Oak Group',
       },
     ],
-    locale: 'en_GB',
-    type: 'website',
   },
 
   twitter: {
     card: 'summary_large_image',
     title: 'Broad Oak Group',
-    description:
-      'Broad Oak Group internal portal for scheduling, projects and site management.',
-    images: [imageUrl],
+    images: ['/og-image.png'],
   },
 
   icons: {
     icon: '/icon.svg',
     apple: '/icon.svg',
   },
+
+  manifest: '/manifest.json',
 };
 
 export const viewport: Viewport = {
@@ -63,9 +57,6 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="h-full">
-       <head>
-        
-      </head>
       <body className="h-full font-body antialiased overflow-x-hidden bg-background">
         <Providers>
           <PendingAnnouncementModal />

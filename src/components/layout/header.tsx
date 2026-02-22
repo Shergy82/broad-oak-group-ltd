@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useRouter } from 'next/navigation';
@@ -25,6 +26,7 @@ import {
   Map,
   SlidersHorizontal,
   DollarSign,
+  UserCog,
 } from 'lucide-react';
 import { NotificationButton } from '../shared/notification-button';
 import {
@@ -185,6 +187,12 @@ export function Header() {
                       <Shield className="mr-2" />
                       <span>Control Panel</span>
                     </DropdownMenuItem>
+                    {isOwner && (
+                        <DropdownMenuItem onClick={() => router.push('/admin/user-management')} className="cursor-pointer">
+                            <UserCog className="mr-2" />
+                            <span>User Management</span>
+                        </DropdownMenuItem>
+                    )}
                     <DropdownMenuItem onClick={() => router.push('/schedule')} className="cursor-pointer">
                       <Users className="mr-2" />
                       <span>Team Schedule</span>

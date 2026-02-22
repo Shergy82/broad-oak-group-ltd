@@ -25,7 +25,7 @@ import { EvidenceDashboard } from './evidence-dashboard';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { cn } from '@/lib/utils';
 
-type WidgetKey = 'availability' | 'performance' | 'contracts' | 'tasks' | 'projects' | 'schedule' | 'users' | 'healthAndSafety' | 'help' | 'mapping' | 'evidence';
+type WidgetKey = 'availability' | 'performance' | 'contracts' | 'tasks' | 'projects' | 'schedule' | 'healthAndSafety' | 'help' | 'mapping' | 'evidence';
 
 interface Widget {
   key: WidgetKey;
@@ -40,7 +40,6 @@ const ALL_WIDGETS: Widget[] = [
   { key: 'contracts', title: 'Contract Dashboard', description: 'High-level statistics for each contract.' },
   { key: 'performance', title: 'Stats', description: 'KPIs for all users, ranked.' },
   { key: 'tasks', title: 'Task Management', description: 'Create and manage reusable tasks.' },
-  { key: 'users', title: 'User Management', description: 'View and manage all user accounts.' },
   { key: 'evidence', title: 'Evidence Dashboard', description: 'Overview of all project sites evidence collection status.' },
   { key: 'projects', title: 'Projects', description: 'Create projects and manage files.' },
   { key: 'healthAndSafety', title: 'Health & Safety', description: 'View and manage H&S documents.' },
@@ -56,7 +55,6 @@ const WIDGET_COMPONENTS: Record<WidgetKey, React.ComponentType<any>> = {
     contracts: ContractStatsDashboard,
     performance: PerformanceDashboard,
     tasks: TaskManager,
-    users: UserManagement,
     evidence: EvidenceDashboard,
     projects: ProjectManager,
     healthAndSafety: HealthAndSafetyFileList,
