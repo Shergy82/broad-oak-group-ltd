@@ -8,14 +8,18 @@ import { useUserProfile } from '@/hooks/use-user-profile';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Spinner } from '@/components/shared/spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertTriangle, Banknote, Calendar, Search, Users, Building, Euro } from 'lucide-react';
+import { AlertTriangle, Banknote, Calendar as CalendarIcon, Search, Users, Building, Euro } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { startOfWeek, startOfMonth, format, startOfToday } from 'date-fns';
+import { startOfWeek, startOfMonth, format, startOfToday, isSameDay } from 'date-fns';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Button } from '@/components/ui/button';
+import { Calendar } from '@/components/ui/calendar';
+import { cn } from '@/lib/utils';
 
 export default function FinancePage() {
   const { userProfile, loading: profileLoading } = useUserProfile();
@@ -26,9 +30,15 @@ export default function FinancePage() {
 
   // Filters
   const [timeFilter, setTimeFilter] = useState('week');
+  const [selectedDate, setSelectedDate] = useState<Date>();
   const [selectedUser, setSelectedUser] = useState('all');
   const [selectedSite, setSelectedSite] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  
+  const handleTimeFilterChange = (value: string) => {
+    setSelectedDate(undefined);
+    setTimeFilter(value);
+  }
 
   useEffect(() => {
     if (profileLoading) return;
@@ -97,15 +107,21 @@ export default function FinancePage() {
   const filteredPurchases = useMemo(() => {
     let filtered = purchases;
 
-    // Time filter
-    const now = startOfToday();
-    if (timeFilter === 'week') {
-        const start = startOfWeek(now, { weekStartsOn: 1 });
-        filtered = filtered.filter(p => p.purchasedAt.toDate() >= start);
-    } else if (timeFilter === 'month') {
-        const start = startOfMonth(now);
-        filtered = filtered.filter(p => p.purchasedAt.toDate() >= start);
+    // Date picker takes precedence
+    if (selectedDate) {
+        filtered = filtered.filter(p => isSameDay(p.purchasedAt.toDate(), selectedDate));
+    } else {
+        // Time filter
+        const now = startOfToday();
+        if (timeFilter === 'week') {
+            const start = startOfWeek(now, { weekStartsOn: 1 });
+            filtered = filtered.filter(p => p.purchasedAt.toDate() >= start);
+        } else if (timeFilter === 'month') {
+            const start = startOfMonth(now);
+            filtered = filtered.filter(p => p.purchasedAt.toDate() >= start);
+        }
     }
+
 
     // User filter
     if (selectedUser !== 'all') {
@@ -129,7 +145,7 @@ export default function FinancePage() {
     }
 
     return filtered;
-  }, [purchases, shifts, timeFilter, selectedUser, selectedSite, searchTerm]);
+  }, [purchases, shifts, timeFilter, selectedDate, selectedUser, selectedSite, searchTerm]);
 
   const totalSpend = useMemo(() => {
     return filteredPurchases.reduce((acc, p) => acc + p.amount, 0);
@@ -196,14 +212,41 @@ export default function FinancePage() {
 
             <div className="space-y-4">
                 <div className="flex flex-col md:flex-row gap-4">
-                    <Tabs value={timeFilter} onValueChange={setTimeFilter} className="w-full md:w-auto">
+                    <Tabs value={timeFilter} onValueChange={handleTimeFilterChange} className="w-full md:w-auto">
                         <TabsList className="grid w-full grid-cols-3">
                             <TabsTrigger value="week">This Week</TabsTrigger>
                             <TabsTrigger value="month">This Month</TabsTrigger>
                             <TabsTrigger value="all">All Time</TabsTrigger>
                         </TabsList>
                     </Tabs>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2 flex-grow">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 flex-grow">
+                         <Popover>
+                            <PopoverTrigger asChild>
+                                <Button
+                                    variant={"outline"}
+                                    className={cn(
+                                        "w-full justify-start text-left font-normal",
+                                        !selectedDate && "text-muted-foreground"
+                                    )}
+                                >
+                                    <CalendarIcon className="mr-2 h-4 w-4" />
+                                    {selectedDate ? format(selectedDate, "PPP") : <span>Pick a date</span>}
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0">
+                                <Calendar
+                                    mode="single"
+                                    selected={selectedDate}
+                                    onSelect={(date) => {
+                                        setSelectedDate(date as Date);
+                                        if (date) {
+                                            setTimeFilter(''); // Deselect tabs
+                                        }
+                                    }}
+                                    initialFocus
+                                />
+                            </PopoverContent>
+                        </Popover>
                          <Select value={selectedUser} onValueChange={setSelectedUser}>
                             <SelectTrigger><div className="flex items-center gap-2"><Users className="h-4 w-4 text-muted-foreground" /><span>Filter by user...</span></div></SelectTrigger>
                             <SelectContent><ScrollArea className="h-72"><SelectItem value="all">All Users</SelectItem>{users.map(u => <SelectItem key={u.uid} value={u.uid}>{u.name}</SelectItem>)}</ScrollArea></SelectContent>
