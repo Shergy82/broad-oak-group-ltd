@@ -177,7 +177,8 @@ export default function UserManagementPage() {
                     <TableHeader>
                         <TableRow>
                             <TableHead>Name</TableHead>
-                            <TableHead>Email</TableHead>
+                            <TableHead>Phone Number</TableHead>
+                            <TableHead>Trade</TableHead>
                             <TableHead>Role</TableHead>
                             <TableHead>Department</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
@@ -186,8 +187,12 @@ export default function UserManagementPage() {
                     <TableBody>
                         {usersToRender.map(user => (
                             <TableRow key={user.uid}>
-                                <TableCell className="font-medium">{user.name}</TableCell>
-                                <TableCell>{user.email}</TableCell>
+                                <TableCell className="font-medium">
+                                    {user.name}
+                                    {user.operativeId && <div className="text-xs text-muted-foreground">{user.operativeId}</div>}
+                                </TableCell>
+                                <TableCell>{user.phoneNumber || 'N/A'}</TableCell>
+                                <TableCell>{user.trade || 'N/A'}</TableCell>
                                 <TableCell><Badge variant="outline" className="capitalize">{user.role}</Badge></TableCell>
                                 <TableCell>{user.department || 'N/A'}</TableCell>
                                 <TableCell className="text-right space-x-1">
