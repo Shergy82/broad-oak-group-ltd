@@ -218,7 +218,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                     </SelectTrigger>
                     <SelectContent>
                         {usersLoading 
-                            ? <SelectItem value="" disabled>Loading departments...</SelectItem>
+                            ? <div className="p-2 text-sm text-muted-foreground">Loading departments...</div>
                             : availableDepartments.map(dept => <SelectItem key={dept} value={dept}>{dept} Department Format</SelectItem>)
                         }
                         <SelectItem value="Other">Standard/ECO Format</SelectItem>
