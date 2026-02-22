@@ -15,7 +15,6 @@ import {
   Megaphone,
   Shield,
   User,
-  UserCog,
   Users,
   TrendingUp,
   HelpCircle,
@@ -139,10 +138,6 @@ export function Header() {
                   <Calendar className="mr-2" />
                   <span>Dashboard</span>
                 </DropdownMenuItem>
-                 <DropdownMenuItem onClick={() => router.push('/contacts')} className="cursor-pointer">
-                  <Users className="mr-2" />
-                  <span>Contacts</span>
-                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => router.push('/ai')} className="cursor-pointer">
                   <Map className="mr-2" />
                   <span>AI Assistant</span>
@@ -219,10 +214,6 @@ export function Header() {
                     <DropdownMenuItem onClick={() => router.push('/admin/tasks')} className="cursor-pointer">
                       <ListChecks className="mr-2" />
                       <span>Tasks</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => router.push('/admin/users')} className="cursor-pointer">
-                      <UserCog className="mr-2" />
-                      <span>User Management</span>
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => router.push('/admin/evidence')} className="cursor-pointer">
                       <FileArchive className="mr-2" />
