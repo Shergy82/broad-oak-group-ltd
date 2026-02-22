@@ -37,6 +37,8 @@ import {
   Camera,
   Undo,
   MapPin,
+  Coins,
+  Plus,
 } from 'lucide-react';
 import { Spinner } from '@/components/shared/spinner';
 import type { Shift, ShiftStatus, UserProfile, TradeTask, Trade } from '@/types';
@@ -64,6 +66,18 @@ import {
 } from '../ui/alert-dialog';
 import { Checkbox } from '../ui/checkbox';
 import { MultiPhotoCamera } from '../shared/multi-photo-camera';
+import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
+import { Input } from '../ui/input';
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '../ui/table';
+
+interface MaterialPurchase {
+  id: string;
+  supplier: string;
+  amount: string;
+}
+
+const LS_PURCHASES_KEY_PREFIX = 'shift_material_purchases_v2_';
+
 
 interface ShiftCardProps {
   shift: Shift;
@@ -138,6 +152,142 @@ const FINAL_STATUSES = new Set(['completed', 'incomplete', 'rejected']);
 
 const LS_SHIFT_TASKS_KEY = 'shiftTaskCompletion_v2';
 
+
+function PurchaseLogDialog({ 
+    open, 
+    onOpenChange, 
+    onConfirm,
+    mode, 
+    shiftId
+}: { 
+    open: boolean, 
+    onOpenChange: (open: boolean) => void, 
+    onConfirm: (purchases: MaterialPurchase[]) => void,
+    mode: 'query' | 'add',
+    shiftId: string
+}) {
+  const [didBuy, setDidBuy] = useState<'no' | 'yes'>('no');
+  const [purchases, setPurchases] = useState<MaterialPurchase[]>([]);
+  const [supplier, setSupplier] = useState('');
+  const [amount, setAmount] = useState('');
+
+  useEffect(() => {
+    if (open) {
+      try {
+        const stored = localStorage.getItem(`${LS_PURCHASES_KEY_PREFIX}${shiftId}`);
+        const existing = stored ? JSON.parse(stored) : [];
+        setPurchases(existing);
+        
+        if (mode === 'add') {
+            setDidBuy('yes');
+        } else {
+            setDidBuy(existing.length > 0 ? 'yes' : 'no');
+        }
+      } catch (e) {
+        console.error("Failed to load purchases from localStorage", e);
+        setPurchases([]);
+        setDidBuy(mode === 'add' ? 'yes' : 'no');
+      }
+    }
+  }, [open, shiftId, mode]);
+
+  const handleAddPurchase = () => {
+    if (!supplier.trim() || !amount.trim()) {
+        alert("Please enter both supplier and amount.");
+        return;
+    }
+    const newPurchase: MaterialPurchase = {
+        id: new Date().toISOString(),
+        supplier: supplier.trim(),
+        amount: parseFloat(amount).toFixed(2),
+    };
+    setPurchases(prev => [...prev, newPurchase]);
+    setSupplier('');
+    setAmount('');
+  };
+
+  const handleDeletePurchase = (id: string) => {
+    setPurchases(prev => prev.filter(p => p.id !== id));
+  };
+  
+  const handleConfirmClick = () => {
+    onConfirm(purchases);
+  };
+  
+  const totalAmount = purchases.reduce((sum, p) => sum + parseFloat(p.amount), 0).toFixed(2);
+
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent>
+            <DialogHeader>
+                <DialogTitle>Log Material Purchases</DialogTitle>
+                <DialogDescription>
+                    {mode === 'query' ? 'Before you go on-site, please log any materials you purchased for this shift.' : 'Add any additional purchases for this shift.'}
+                </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+                {mode === 'query' && (
+                    <RadioGroup value={didBuy} onValueChange={(value) => setDidBuy(value as 'yes' | 'no')} className="flex items-center space-x-4">
+                        <Label>Did you buy any materials for this shift?</Label>
+                        <div className="flex items-center space-x-2"><RadioGroupItem value="no" id="mat-no" /><Label htmlFor="mat-no">No</Label></div>
+                        <div className="flex items-center space-x-2"><RadioGroupItem value="yes" id="mat-yes" /><Label htmlFor="mat-yes">Yes</Label></div>
+                    </RadioGroup>
+                )}
+
+                {didBuy === 'yes' && (
+                    <div className="space-y-4 pt-4 border-t">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
+                            <div className="col-span-3 sm:col-span-2 grid grid-cols-2 gap-2">
+                                <div className="space-y-1">
+                                    <Label htmlFor="supplier">Supplier</Label>
+                                    <Input id="supplier" value={supplier} onChange={e => setSupplier(e.target.value)} placeholder="e.g., Screwfix" />
+                                </div>
+                                <div className="space-y-1">
+                                    <Label htmlFor="amount">Amount (£)</Label>
+                                    <Input id="amount" type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} placeholder="e.g., 25.50" />
+                                </div>
+                            </div>
+                            <Button onClick={handleAddPurchase} className="w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> Add Purchase</Button>
+                        </div>
+
+                        {purchases.length > 0 && (
+                            <div className="space-y-2">
+                                <Label>Logged Purchases</Label>
+                                <div className="border rounded-md max-h-48 overflow-y-auto">
+                                <Table>
+                                    <TableBody>
+                                        {purchases.map(p => (
+                                            <TableRow key={p.id}>
+                                                <TableCell className="font-medium">{p.supplier}</TableCell>
+                                                <TableCell className="text-right font-mono">£{p.amount}</TableCell>
+                                                <TableCell className="text-right w-10 p-1">
+                                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive/70" onClick={() => handleDeletePurchase(p.id)}><Trash2 className="h-4 w-4" /></Button>
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                        <TableRow className="font-bold bg-muted/50">
+                                            <TableCell>Total</TableCell>
+                                            <TableCell className="text-right font-mono">£{totalAmount}</TableCell>
+                                            <TableCell></TableCell>
+                                        </TableRow>
+                                    </TableBody>
+                                </Table>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+            <DialogFooter>
+                <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                <Button onClick={handleConfirmClick}>Confirm</Button>
+            </DialogFooter>
+        </DialogContent>
+    </Dialog>
+  );
+}
+
 export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
   const router = useRouter();
   const { user } = useAuth();
@@ -156,6 +306,9 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [selectedCameraTask, setSelectedCameraTask] = useState<{task: TradeTask, index: number} | null>(null);
 
+  const [purchases, setPurchases] = useState<MaterialPurchase[]>([]);
+  const [isPurchaseLogOpen, setIsPurchaseLogOpen] = useState(false);
+  const [purchaseLogMode, setPurchaseLogMode] = useState<'query' | 'add'>('query');
 
   const d = shift.date.toDate();
   const shiftDate = new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
@@ -183,6 +336,49 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
         taskStatuses[index]?.status === 'completed' ||
         taskStatuses[index]?.status === 'rejected'
     );
+
+  // --- Purchase Logic ---
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(`${LS_PURCHASES_KEY_PREFIX}${shift.id}`);
+      if (stored) {
+        setPurchases(JSON.parse(stored));
+      }
+    } catch (e) {
+      console.error("Failed to load purchases from localStorage", e);
+    }
+  }, [shift.id]);
+
+  const savePurchases = (newPurchases: MaterialPurchase[]) => {
+    setPurchases(newPurchases);
+    try {
+      localStorage.setItem(`${LS_PURCHASES_KEY_PREFIX}${shift.id}`, JSON.stringify(newPurchases));
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Could not save purchases' });
+      console.error("Failed to save purchases to localStorage", e);
+    }
+  }
+  
+  const handleDeletePurchase = (purchaseId: string) => {
+    const updatedPurchases = purchases.filter(p => p.id !== purchaseId);
+    savePurchases(updatedPurchases);
+    toast({ title: 'Purchase removed.' });
+  }
+
+  const handleLogPurchaseClick = () => {
+    setPurchaseLogMode('add');
+    setIsPurchaseLogOpen(true);
+  };
+  
+  const handleConfirmPurchasesAndGoOnSite = (newPurchases: MaterialPurchase[]) => {
+    savePurchases(newPurchases);
+    if (newPurchases.length > 0) {
+        toast({ title: 'Purchases logged.' });
+    }
+    handleUpdateStatus('on-site');
+    setIsPurchaseLogOpen(false);
+  };
+
 
   useEffect(() => {
     async function fetchTasks() {
@@ -502,6 +698,47 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
       </div>
     );
   };
+  
+  const renderPurchaseLog = () => {
+    if (purchases.length === 0) return null;
+    
+    const totalAmount = purchases.reduce((sum, p) => sum + parseFloat(p.amount), 0).toFixed(2);
+
+    return (
+        <div className="mt-4 p-4 border-t">
+             <div className="flex justify-between items-center mb-3">
+                <h4 className="font-semibold text-sm flex items-center gap-2 text-muted-foreground">
+                  <Coins /> Logged Purchases
+                </h4>
+                {['on-site', 'completed', 'incomplete'].includes(shift.status) && !isExpired && (
+                    <Button size="sm" variant="outline" onClick={handleLogPurchaseClick}>
+                        <Plus className="mr-2 h-4 w-4" /> Add
+                    </Button>
+                )}
+             </div>
+             <div className="border rounded-md max-h-48 overflow-y-auto">
+                <Table>
+                    <TableBody>
+                        {purchases.map(p => (
+                            <TableRow key={p.id}>
+                                <TableCell className="font-medium">{p.supplier}</TableCell>
+                                <TableCell className="text-right font-mono">£{p.amount}</TableCell>
+                                <TableCell className="text-right p-1 w-10">
+                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive/70" onClick={() => handleDeletePurchase(p.id)}><Trash2 className="h-4 w-4" /></Button>
+                                </TableCell>
+                            </TableRow>
+                        ))}
+                         <TableRow className="font-bold bg-muted/50">
+                            <TableCell>Total</TableCell>
+                            <TableCell className="text-right font-mono">£{totalAmount}</TableCell>
+                            <TableCell></TableCell>
+                        </TableRow>
+                    </TableBody>
+                </Table>
+             </div>
+        </div>
+    )
+  }
 
   return (
     <>
@@ -534,7 +771,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
             className="text-xs text-muted-foreground hover:underline flex items-center gap-1.5"
           >
             <MapPin className="h-4 w-4 shrink-0" />
-            <span>{shift.address}</span>
+            <span className="whitespace-pre-wrap">{shift.address}</span>
           </a>
           {shift.eNumber && <p className="text-xs text-muted-foreground">Number: {shift.eNumber}</p>}
           {shift.manager && <p className="text-xs text-muted-foreground">Manager: {shift.manager}</p>}
@@ -560,6 +797,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
           )}
         </CardContent>
 
+        {renderPurchaseLog()}
         {renderTaskList()}
 
         <CardFooter className="p-2 bg-muted/30 grid grid-cols-1 gap-2">
@@ -575,7 +813,10 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
 
           {!isExpired && shift.status === 'confirmed' && (
             <Button
-              onClick={() => handleUpdateStatus('on-site')}
+              onClick={() => {
+                setPurchaseLogMode('query');
+                setIsPurchaseLogOpen(true);
+              }}
               className="w-full bg-teal-500 text-white hover:bg-teal-600"
               disabled={isLoading}
             >
@@ -639,6 +880,14 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
           )}
         </CardFooter>
       </Card>
+
+      <PurchaseLogDialog
+        open={isPurchaseLogOpen}
+        onOpenChange={setIsPurchaseLogOpen}
+        onConfirm={handleConfirmPurchasesAndGoOnSite}
+        mode={purchaseLogMode}
+        shiftId={shift.id}
+      />
 
       {selectedCameraTask && (
         <MultiPhotoCamera
