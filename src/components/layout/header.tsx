@@ -25,7 +25,7 @@ import {
   FileArchive,
   Map,
   SlidersHorizontal,
-  DollarSign,
+  PoundSterling,
   UserCog,
 } from 'lucide-react';
 import { NotificationButton } from '../shared/notification-button';
@@ -228,7 +228,7 @@ export function Header() {
                     </DropdownMenuItem>
                      {userProfile?.department === 'Build' && (
                         <DropdownMenuItem onClick={() => router.push('/admin/finance')} className="cursor-pointer">
-                            <DollarSign className="mr-2" />
+                            <PoundSterling className="mr-2 h-4 w-4" />
                             <span>Finance</span>
                         </DropdownMenuItem>
                     )}
