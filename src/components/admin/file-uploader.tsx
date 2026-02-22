@@ -42,7 +42,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { ScrollArea } from '../ui/scroll-area';
 import { cn } from '@/lib/utils';
 
 type ParsedShift = Omit<
@@ -147,7 +147,8 @@ const findUser = (name: string, userMap: UserMapEntry[]): UserMapEntry | null =>
         if (parts.length > 1) {
             const first = parts[0];
             const lastInitial = parts[parts.length - 1].charAt(0);
-            if (normalizeText(`${first}${lastInitial}`) === normalizedName) {
+            if (normalizeText(`${'\'\''}
+` + first + lastInitial + `'\'\'\'`) === normalizedName) {
                 return true;
             }
         }
@@ -378,20 +379,12 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
       if (!data) return;
 
       const workbook = XLSX.read(data, { type: 'array' });
-      const allSheets = workbook.SheetNames.filter(name => {
-        // Filter out internal/hidden Excel sheets.
-        if (name.startsWith('_xlfn.')) {
-            return false;
-        }
-        // Filter out long hex strings or GUIDs.
-        if (/^[a-fA-F0-9]{20,}$/.test(name)) {
-            return false;
-        }
-        if (/^[a-f\d]{8}-([a-f\d]{4}-){3}[a-f\d]{12}$/i.test(name)) {
-            return false;
-        }
-        return true;
-      });
+      
+      const allSheets = workbook.Workbook?.Sheets
+        ? workbook.Workbook.Sheets
+            .filter(s => s.Hidden === 0 || s.Hidden === undefined)
+            .map(s => s.Name)
+        : workbook.SheetNames;
       
       setSheetNames(allSheets);
 
@@ -439,7 +432,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
   const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string }): string => {
     const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
     const normalizedDate = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-    return `${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${normalizeText(shift.address)}`;
+    return `${'\'\''}' + normalizedDate.toISOString().slice(0, 10) + '-' + shift.userId + '-' + normalizeText(shift.address) + ''\'\'\'`;
   };
 
   const runImport = useCallback(
@@ -516,11 +509,11 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
               if (!address) {
                 allFailedShifts.push({
                   date: null,
-                  projectAddress: `Block at row ${blockStartRowIndex + 1}`,
+                  projectAddress: `Block at row ${'\'\''}${blockStartRowIndex + 1}${'\'\''}`,
                   cellContent: '',
                   reason: 'Could not find a valid Address within this site block.',
                   sheetName,
-                  cellRef: `A${blockStartRowIndex + 1}`,
+                  cellRef: `A${'\'\''}${blockStartRowIndex + 1}${'\'\''}`,
                 });
                 continue;
               }
@@ -538,7 +531,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                   cellContent: '',
                   reason: 'Could not find a valid Date Header Row within this site block.',
                   sheetName,
-                  cellRef: `A${blockStartRowIndex + 1}`,
+                  cellRef: `A${'\'\''}${blockStartRowIndex + 1}${'\'\''}`,
                 });
                 continue;
               }
@@ -547,7 +540,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
               const managerContact = contacts.find(c => c.role.includes('MANAGER'));
               const manager = managerContact ? managerContact.name : '';
               const otherContacts = contacts.filter(c => c !== managerContact);
-              const notes = otherContacts.map(c => `${c.role}: ${c.name} ${c.phone}`).join('\n');
+              const notes = otherContacts.map(c => `${'\'\''}${c.role}: ${c.name} ${c.phone}${'\'\''}`).join('\n');
 
               // Parse grid
               for (let r = dateRowIndex + 1; r < blockEndRowIndex; r++) {
@@ -783,14 +776,14 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
             await batch.commit();
             
             const parts: string[] = [];
-            if (toCreate.length > 0) parts.push(`created ${toCreate.length} new shift(s)`);
-            if (toUpdate.length > 0) parts.push(`updated ${toUpdate.length} shift(s)`);
-            if (toDelete.length > 0) parts.push(`deleted ${toDelete.length} old shift(s)`);
+            if (toCreate.length > 0) parts.push(`created ${'\'\''}${toCreate.length}${'\'\''} new shift(s)`);
+            if (toUpdate.length > 0) parts.push(`updated ${'\'\''}${toUpdate.length}${'\'\''} shift(s)`);
+            if (toDelete.length > 0) parts.push(`deleted ${'\'\''}${toDelete.length}${'\'\''} old shift(s)`);
 
             if (parts.length > 0) {
               toast({
                 title: 'Import Complete & Reconciled',
-                description: `Successfully processed the file: ${parts.join(', ')}.`,
+                description: `Successfully processed the file: ${'\'\''}${parts.join(', ')}${'\'\''}.`,
               });
             } else if (allFailedShifts.length === 0) {
               toast({
@@ -924,7 +917,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                           ? 'Select sheets...'
                           : selectedSheets.length === 1
                           ? selectedSheets[0]
-                          : `${selectedSheets.length} sheets selected`}
+                          : `${'\'\''}${selectedSheets.length}${'\'\''} sheets selected`}
                       </span>
                       <ChevronDown className="h-4 w-4 opacity-50" />
                     </Button>
