@@ -8,7 +8,7 @@ import { useUserProfile } from '@/hooks/use-user-profile';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Spinner } from '@/components/shared/spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertTriangle, Banknote, Calendar as CalendarIcon, Search, Users, Building, Euro } from 'lucide-react';
+import { AlertTriangle, Banknote, Calendar as CalendarIcon, Search, Users, Building } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { startOfWeek, startOfMonth, format, startOfToday, isSameDay } from 'date-fns';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
@@ -201,7 +201,7 @@ export default function FinancePage() {
                  <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium">Total Transactions</CardTitle>
-                        <Euro className="h-4 w-4 text-muted-foreground" />
+                        <Banknote className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold">{filteredPurchases.length}</div>
