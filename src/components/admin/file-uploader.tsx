@@ -42,7 +42,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '../ui/scroll-area';
-import { cn } from '@/lib/utils';
+import { cn, getCorrectedLocalDate } from '@/lib/utils';
 
 type ParsedShift = Omit<
   Shift,
@@ -349,6 +349,9 @@ const parseBuildSheet = (
     const failed: FailedShift[] = [];
     const manager = sheetName;
 
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+
     if (jsonData.length < 5) {
         failed.push({ date: null, projectAddress: 'Sheet', cellContent: '', reason: 'Sheet has too few rows to be a valid schedule.', sheetName, cellRef: 'A1' });
         return { shifts, failed };
@@ -401,6 +404,8 @@ const parseBuildSheet = (
                 const cellContentRaw = rowData[c];
 
                 if (!shiftDate || !cellContentRaw || typeof cellContentRaw !== 'string' ) continue;
+                
+                if (shiftDate < today) continue;
                 
                 const cellContent = cellContentRaw.trim();
                 if (cellContent.length < 5) continue;
@@ -532,7 +537,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
   const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string }): string => {
     const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
     const normalizedDate = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-    return `'${normalizedDate.toISOString().slice(0, 10)}-${'\'\''}' + shift.userId + '-' + normalizeText(shift.address) + ''`;
+    return `${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${normalizeText(shift.address)}`;
   };
 
   const runImport = useCallback(
@@ -619,11 +624,11 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                 if (!address) {
                   allFailedShifts.push({
                     date: null,
-                    projectAddress: `Block at row ${'\'\''}${blockStartRowIndex + 1}${'\'\''}`,
+                    projectAddress: `Block at row ${blockStartRowIndex + 1}`,
                     cellContent: '',
                     reason: 'Could not find a valid Address within this site block.',
                     sheetName,
-                    cellRef: `A${'\'\''}${blockStartRowIndex + 1}${'\'\''}`,
+                    cellRef: `A${blockStartRowIndex + 1}`,
                   });
                   continue;
                 }
@@ -641,7 +646,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                     cellContent: '',
                     reason: 'Could not find a valid Date Header Row within this site block.',
                     sheetName,
-                    cellRef: `A${'\'\''}${blockStartRowIndex + 1}${'\'\''}`,
+                    cellRef: `A${blockStartRowIndex + 1}`,
                   });
                   continue;
                 }
@@ -718,7 +723,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                           date: shiftDate,
                           projectAddress: address,
                           cellContent: cellContentRaw,
-                          reason: `Could not find a user matching "${'\'\''}${userName}${'\'\''}".`,
+                          reason: `Could not find a user matching "${userName}".`,
                           sheetName,
                           cellRef,
                         });
@@ -797,7 +802,10 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
           // Deletions (only if key missing entirely)
           for (const [key, existingShift] of existingShiftsMap.entries()) {
             if (!excelShiftsMap.has(key) && !protectedStatuses.includes(existingShift.status)) {
-              toDelete.push(existingShift);
+              const shiftDate = getCorrectedLocalDate(existingShift.date as any);
+              if (shiftDate >= today) {
+                toDelete.push(existingShift);
+              }
             }
           }
 
@@ -886,19 +894,19 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
             await batch.commit();
             
             const parts: string[] = [];
-            if (toCreate.length > 0) parts.push(`created ${'\'\''}${toCreate.length}${'\'\''} new shift(s)`);
-            if (toUpdate.length > 0) parts.push(`updated ${'\'\''}${toUpdate.length}${'\'\''} shift(s)`);
-            if (toDelete.length > 0) parts.push(`deleted ${'\'\''}${toDelete.length}${'\'\''} old shift(s)`);
+            if (toCreate.length > 0) parts.push(`created ${toCreate.length} new shift(s)`);
+            if (toUpdate.length > 0) parts.push(`updated ${toUpdate.length} shift(s)`);
+            if (toDelete.length > 0) parts.push(`deleted ${toDelete.length} old shift(s)`);
 
             if (parts.length > 0) {
               toast({
                 title: 'Import Complete & Reconciled',
-                description: `Successfully processed the file: ${'\'\''}${parts.join(', ')}${'\'\''}.`,
+                description: `Successfully processed the file: ${parts.join(', ')}.`,
               });
             } else if (allFailedShifts.length === 0) {
               toast({
                 title: 'No Changes Detected',
-                description: 'The schedule was up-to-date with the selected file.',
+                description: 'The schedule is already up-to-date with the selected file.',
               });
             }
           };
@@ -1027,7 +1035,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                           ? 'Select sheets...'
                           : selectedSheets.length === 1
                           ? selectedSheets[0]
-                          : `'${selectedSheets.length}' sheets selected`}
+                          : `${selectedSheets.length} sheets selected`}
                       </span>
                       <ChevronDown className="h-4 w-4 opacity-50" />
                     </Button>
