@@ -145,7 +145,7 @@ const findUser = (name: string, userMap: UserMapEntry[]): UserMapEntry | null =>
         if (parts.length > 1) {
             const first = parts[0];
             const lastInitial = parts[parts.length - 1].charAt(0);
-            if (normalizeText(`${'\'\''}' + first + lastInitial + ''\'\'\'`) === normalizedName) {
+            if (normalizeText(`'${first + lastInitial}'`) === normalizedName) {
                 return true;
             }
         }
@@ -334,7 +334,6 @@ const findDateHeaderRowInBlock = (jsonData: any[][], startRow: number, endRow: n
       if (parseDate(row[c])) dateCount++;
     }
 
-    // ✅ allow single-date rows too
     if (dateCount >= 1) {
       return { dateRowIndex: r, dateRow: row.map((cell) => parseDate(cell)) as (Date | null)[] };
     }
@@ -342,6 +341,110 @@ const findDateHeaderRowInBlock = (jsonData: any[][], startRow: number, endRow: n
 
   return { dateRowIndex: -1, dateRow: [] as (Date | null)[] };
 };
+
+const parseBuildSheet = (
+    worksheet: XLSX.WorkSheet, 
+    userMap: UserMapEntry[], 
+    sheetName: string,
+    department: string
+): { shifts: ParsedShift[], failed: FailedShift[] } => {
+    const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, {
+        header: 1,
+        blankrows: false,
+        defval: null,
+      });
+
+    if (jsonData.length < 2) {
+    return { shifts: [], failed: [{
+        date: null,
+        projectAddress: 'Sheet',
+        cellContent: '',
+        reason: 'Build sheet has fewer than two rows (header + data).',
+        sheetName,
+        cellRef: 'A1'
+    }] };
+    }
+
+    const headers = (jsonData[0] as any[]).map(h => String(h || '').trim().toLowerCase());
+    const dateIndex = headers.indexOf('date');
+    const addressIndex = headers.indexOf('address');
+    const taskIndex = headers.indexOf('task');
+    const operativeIndex = headers.indexOf('operative');
+    const typeIndex = headers.indexOf('type');
+    const eNumberIndex = headers.indexOf('enumber');
+    const managerIndex = headers.indexOf('manager');
+    const notesIndex = headers.indexOf('notes');
+
+    if (dateIndex === -1 || addressIndex === -1 || taskIndex === -1 || operativeIndex === -1) {
+        return { shifts: [], failed: [{
+            date: null,
+            projectAddress: 'Sheet Headers',
+            cellContent: headers.join(', '),
+            reason: 'Build sheet is missing required columns: "date", "address", "task", "operative".',
+            sheetName,
+            cellRef: 'A1'
+        }] };
+    }
+
+    const shifts: ParsedShift[] = [];
+    const failed: FailedShift[] = [];
+
+    for (let i = 1; i < jsonData.length; i++) {
+        const row = jsonData[i] as any[];
+        const rowNum = i + 1;
+
+        const date = parseDate(row[dateIndex]);
+        const address = row[addressIndex];
+        const task = row[taskIndex];
+        const operativeName = row[operativeIndex];
+
+        if (!date || !address || !task || !operativeName) {
+            failed.push({
+                date: date,
+                projectAddress: address || 'N/A',
+                cellContent: row.join(', '),
+                reason: `Row ${'\'\''}${rowNum}${'\'\''} is missing required data (Date, Address, Task, or Operative).`,
+                sheetName,
+                cellRef: `A${'\'\''}${rowNum}${'\'\''}`
+            });
+            continue;
+        }
+        
+        const user = findUser(operativeName, userMap);
+        if (!user) {
+            failed.push({
+                date,
+                projectAddress: address,
+                cellContent: operativeName,
+                reason: `Could not find a user matching "${'\'\''}${operativeName}${'\'\''}".`,
+                sheetName,
+                cellRef: XLSX.utils.encode_cell({r: i, c: operativeIndex})
+            });
+            continue;
+        }
+
+        let type: 'am' | 'pm' | 'all-day' = 'all-day';
+        const rawType = (row[typeIndex] || '').toLowerCase();
+        if (rawType === 'am') type = 'am';
+        if (rawType === 'pm') type = 'pm';
+
+        shifts.push({
+            date,
+            address,
+            task,
+            userId: user.uid,
+            userName: user.originalName,
+            type,
+            eNumber: row[eNumberIndex] || '',
+            manager: row[managerIndex] || '',
+            notes: row[notesIndex] || '',
+            contract: sheetName,
+            department: department || '',
+        });
+    }
+
+    return { shifts, failed };
+}
 
 const LOCAL_STORAGE_KEY = 'shiftImport_selectedSheets';
 
@@ -377,7 +480,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
 
       const workbook = XLSX.read(data, { type: 'array' });
       
-      const visibleSheetNames = workbook.SheetNames.filter(name => !name.startsWith('_'));
+      const visibleSheetNames = workbook.SheetNames.filter(name => workbook.Sheets[name].Hidden === undefined || workbook.Sheets[name].Hidden === 0);
       
       setSheetNames(visibleSheetNames);
 
@@ -417,15 +520,10 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
     }
   };
 
-  /**
-   * ✅ UNIQUE KEY
-   * User + Date + Address
-   * (Type/task changes should UPDATE, not delete+create.)
-   */
   const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string }): string => {
     const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
     const normalizedDate = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-    return `${'\'\''}' + normalizedDate.toISOString().slice(0, 10) + '-' + shift.userId + '-' + normalizeText(shift.address) + ''\'\'\'`;
+    return `'${normalizedDate.toISOString().slice(0, 10)}-${'\'\''}' + shift.userId + '-' + normalizeText(shift.address) + ''`;
   };
 
   const runImport = useCallback(
@@ -471,141 +569,151 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
           for (const sheetName of selectedSheets) {
             const worksheet = workbook.Sheets[sheetName];
             if (!worksheet) continue;
-
-            const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, {
-              header: 1,
-              blankrows: false,
-              defval: null,
-            });
-
-            // --- Site blocks start around JOB MANAGER; include a few rows above for date headers ---
-            const blockStarts: number[] = [];
-            for (let i = 0; i < jsonData.length; i++) {
-              if (isSiteSeparatorRow(jsonData[i])) {
-                const start = Math.max(0, i - 3);
-                blockStarts.push(start);
-              }
-            }
-            if (blockStarts.length === 0) blockStarts.push(0);
-
-            // De-dupe and sort starts
-            const starts = Array.from(new Set(blockStarts)).sort((a, b) => a - b);
-
-            for (let i = 0; i < starts.length; i++) {
-              const blockStartRowIndex = starts[i];
-              const blockEndRowIndex = i + 1 < starts.length ? starts[i + 1] : jsonData.length;
-
-              if (blockEndRowIndex - blockStartRowIndex < 5) continue;
-
-              const { address, eNumber } = findAddressInBlock(jsonData, blockStartRowIndex, blockEndRowIndex);
-
-              if (!address) {
-                allFailedShifts.push({
-                  date: null,
-                  projectAddress: `Block at row ${'\'\''}${blockStartRowIndex + 1}${'\'\''}`,
-                  cellContent: '',
-                  reason: 'Could not find a valid Address within this site block.',
-                  sheetName,
-                  cellRef: `A${'\'\''}${blockStartRowIndex + 1}${'\'\''}`,
-                });
-                continue;
-              }
-
-              const { dateRowIndex, dateRow } = findDateHeaderRowInBlock(
-                jsonData,
-                blockStartRowIndex,
-                blockEndRowIndex
+            
+            if (userProfile.department === 'Build') {
+              const { shifts, failed } = parseBuildSheet(
+                worksheet,
+                userMap,
+                sheetName,
+                userProfile.department || 'Build'
               );
+              allShiftsFromExcel.push(...shifts);
+              allFailedShifts.push(...failed);
 
-              if (dateRowIndex === -1) {
-                allFailedShifts.push({
-                  date: null,
-                  projectAddress: address,
-                  cellContent: '',
-                  reason: 'Could not find a valid Date Header Row within this site block.',
-                  sheetName,
-                  cellRef: `A${'\'\''}${blockStartRowIndex + 1}${'\'\''}`,
-                });
-                continue;
+            } else {
+              // Existing logic for other departments
+              const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, {
+                header: 1,
+                blankrows: false,
+                defval: null,
+              });
+
+              const blockStarts: number[] = [];
+              for (let i = 0; i < jsonData.length; i++) {
+                if (isSiteSeparatorRow(jsonData[i])) {
+                  const start = Math.max(0, i);
+                  blockStarts.push(start);
+                }
               }
+              if (blockStarts.length === 0) blockStarts.push(0);
 
-              const contacts = findSiteContacts(jsonData, blockStartRowIndex, blockEndRowIndex);
-              const managerContact = contacts.find(c => c.role.includes('MANAGER'));
-              const manager = managerContact ? managerContact.name : '';
-              const otherContacts = contacts.filter(c => c !== managerContact);
-              const notes = otherContacts.map(c => `${'\'\''}${c.role}: ${c.name} ${c.phone}${'\'\''}`).join('\n');
+              const starts = Array.from(new Set(blockStarts)).sort((a, b) => a - b);
 
-              // Parse grid
-              for (let r = dateRowIndex + 1; r < blockEndRowIndex; r++) {
-                const rowData = jsonData[r];
-                if (!rowData) continue;
+              for (let i = 0; i < starts.length; i++) {
+                const blockStartRowIndex = starts[i];
+                const blockEndRowIndex = i + 1 < starts.length ? starts[i + 1] : jsonData.length;
 
-                for (let c = 1; c < dateRow.length; c++) {
-                  const shiftDate = dateRow[c];
-                  const cellRef = XLSX.utils.encode_cell({ r, c });
+                if (blockEndRowIndex - blockStartRowIndex < 5) continue;
 
-                  if (!shiftDate) continue;
-                  if (shiftDate < today) continue;
+                const { address, eNumber } = findAddressInBlock(jsonData, blockStartRowIndex, blockEndRowIndex);
 
-                  const cell = worksheet[cellRef];
-                  const cellContentRaw = cell?.w || cell?.v;
-                  if (!cellContentRaw || typeof cellContentRaw !== 'string') continue;
+                if (!address) {
+                  allFailedShifts.push({
+                    date: null,
+                    projectAddress: `Block at row ${'\'\''}${blockStartRowIndex + 1}${'\'\''}`,
+                    cellContent: '',
+                    reason: 'Could not find a valid Address within this site block.',
+                    sheetName,
+                    cellRef: `A${'\'\''}${blockStartRowIndex + 1}${'\'\''}`,
+                  });
+                  continue;
+                }
 
-                  const cellContent = cellContentRaw.replace(/\s+/g, ' ').trim();
-                  if (!cellContent) continue;
+                const { dateRowIndex, dateRow } = findDateHeaderRowInBlock(
+                  jsonData,
+                  blockStartRowIndex,
+                  blockEndRowIndex
+                );
 
-                  let shiftType: 'am' | 'pm' | 'all-day' = 'all-day';
-                  let remainingContent = cellContent;
+                if (dateRowIndex === -1) {
+                  allFailedShifts.push({
+                    date: null,
+                    projectAddress: address,
+                    cellContent: '',
+                    reason: 'Could not find a valid Date Header Row within this site block.',
+                    sheetName,
+                    cellRef: `A${'\'\''}${blockStartRowIndex + 1}${'\'\''}`,
+                  });
+                  continue;
+                }
 
-                  if (/^\s*AM\b/i.test(remainingContent)) {
-                    shiftType = 'am';
-                    remainingContent = remainingContent.replace(/^\s*AM\b/i, '').trim();
-                  } else if (/^\s*PM\b/i.test(remainingContent)) {
-                    shiftType = 'pm';
-                    remainingContent = remainingContent.replace(/^\s*PM\b/i, '').trim();
-                  }
+                const contacts = findSiteContacts(jsonData, blockStartRowIndex, blockEndRowIndex);
+                const managerContact = contacts.find(c => c.role.includes('MANAGER'));
+                const manager = managerContact ? managerContact.name : '';
+                const otherContacts = contacts.filter(c => c !== managerContact);
+                const notes = otherContacts.map(c => `'${c.role}: ${c.name} ${c.phone}'`).join('\n');
 
-                  const lastDashIndex = remainingContent.lastIndexOf('-');
-                  if (lastDashIndex === -1) continue;
+                for (let r = dateRowIndex + 1; r < blockEndRowIndex; r++) {
+                  const rowData = jsonData[r];
+                  if (!rowData) continue;
 
-                  const task = remainingContent.substring(0, lastDashIndex).trim();
-                  const potentialUserNames = remainingContent.substring(lastDashIndex + 1).trim();
+                  for (let c = 1; c < dateRow.length; c++) {
+                    const shiftDate = dateRow[c];
+                    const cellRef = XLSX.utils.encode_cell({ r, c });
 
-                  if (!task || !potentialUserNames) continue;
+                    if (!shiftDate) continue;
+                    if (shiftDate < today) continue;
+
+                    const cell = worksheet[cellRef];
+                    const cellContentRaw = cell?.w || cell?.v;
+                    if (!cellContentRaw || typeof cellContentRaw !== 'string') continue;
+
+                    const cellContent = cellContentRaw.replace(/\s+/g, ' ').trim();
+                    if (!cellContent) continue;
+
+                    let shiftType: 'am' | 'pm' | 'all-day' = 'all-day';
+                    let remainingContent = cellContent;
+
+                    if (/^\s*AM\b/i.test(remainingContent)) {
+                      shiftType = 'am';
+                      remainingContent = remainingContent.replace(/^\s*AM\b/i, '').trim();
+                    } else if (/^\s*PM\b/i.test(remainingContent)) {
+                      shiftType = 'pm';
+                      remainingContent = remainingContent.replace(/^\s*PM\b/i, '').trim();
+                    }
+
+                    const lastDashIndex = remainingContent.lastIndexOf('-');
+                    if (lastDashIndex === -1) continue;
+
+                    const task = remainingContent.substring(0, lastDashIndex).trim();
+                    const potentialUserNames = remainingContent.substring(lastDashIndex + 1).trim();
+
+                    if (!task || !potentialUserNames) continue;
 
 
-                  const usersInCell = potentialUserNames
-                    .split(/[&,+/]/g)
-                    .map((n) => n.trim())
-                    .filter(Boolean);
+                    const usersInCell = potentialUserNames
+                      .split(/[&,+/]/g)
+                      .map((n) => n.trim())
+                      .filter(Boolean);
 
-                  if (usersInCell.length === 0) continue;
+                    if (usersInCell.length === 0) continue;
 
-                  for (const userName of usersInCell) {
-                    const user = findUser(userName, userMap);
-                    if (user) {
-                      allShiftsFromExcel.push({
-                        task,
-                        userId: user.uid,
-                        userName: user.originalName,
-                        type: shiftType,
-                        date: shiftDate,
-                        address,
-                        eNumber,
-                        manager,
-                        notes,
-                        contract: sheetName,
-                        department: userProfile.department || '',
-                      });
-                    } else {
-                      allFailedShifts.push({
-                        date: shiftDate,
-                        projectAddress: address,
-                        cellContent: cellContentRaw,
-                        reason: `Could not find a user matching "${userName}".`,
-                        sheetName,
-                        cellRef,
-                      });
+                    for (const userName of usersInCell) {
+                      const user = findUser(userName, userMap);
+                      if (user) {
+                        allShiftsFromExcel.push({
+                          task,
+                          userId: user.uid,
+                          userName: user.originalName,
+                          type: shiftType,
+                          date: shiftDate,
+                          address,
+                          eNumber,
+                          manager,
+                          notes,
+                          contract: sheetName,
+                          department: userProfile.department || '',
+                        });
+                      } else {
+                        allFailedShifts.push({
+                          date: shiftDate,
+                          projectAddress: address,
+                          cellContent: cellContentRaw,
+                          reason: `Could not find a user matching "${'\'\''}${userName}${'\'\''}".`,
+                          sheetName,
+                          cellRef,
+                        });
+                      }
                     }
                   }
                 }
@@ -910,7 +1018,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
                           ? 'Select sheets...'
                           : selectedSheets.length === 1
                           ? selectedSheets[0]
-                          : `${'\'\''}${selectedSheets.length}${'\'\''} sheets selected`}
+                          : `'${selectedSheets.length}' sheets selected`}
                       </span>
                       <ChevronDown className="h-4 w-4 opacity-50" />
                     </Button>
