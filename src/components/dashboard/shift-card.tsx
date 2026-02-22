@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -699,8 +700,16 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
   };
   
   const renderPurchaseLog = () => {
-    if (purchases.length === 0) return null;
-    
+    // Only show this section for shifts where purchases can be logged.
+    if (!['on-site', 'completed', 'incomplete'].includes(shift.status)) {
+        return null;
+    }
+
+    // Don't show for past shifts that were never closed out.
+    if (isExpired) {
+        return null;
+    }
+
     const totalAmount = purchases.reduce((sum, p) => sum + p.amount, 0).toFixed(2);
 
     return (
@@ -709,32 +718,36 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
                 <h4 className="font-semibold text-sm flex items-center gap-2 text-muted-foreground">
                   <Coins /> Logged Purchases
                 </h4>
-                {['on-site', 'completed', 'incomplete'].includes(shift.status) && !isExpired && (
-                    <Button size="sm" variant="outline" onClick={handleLogPurchaseClick}>
-                        <Plus className="mr-2 h-4 w-4" /> Add
-                    </Button>
-                )}
+                <Button size="sm" className="bg-teal-500 hover:bg-teal-600 text-white" onClick={handleLogPurchaseClick}>
+                    <Plus className="mr-2 h-4 w-4" /> Add
+                </Button>
              </div>
-             <div className="border rounded-md max-h-48 overflow-y-auto">
-                <Table>
-                    <TableBody>
-                        {purchases.map(p => (
-                            <TableRow key={p.id}>
-                                <TableCell className="font-medium">{p.supplier}</TableCell>
-                                <TableCell className="text-right font-mono">£{p.amount.toFixed(2)}</TableCell>
-                                <TableCell className="text-right p-1 w-10">
-                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive/70" onClick={() => handleDeletePurchase(p.id)}><Trash2 className="h-4 w-4" /></Button>
-                                </TableCell>
+             {purchases.length > 0 ? (
+                 <div className="border rounded-md max-h-48 overflow-y-auto">
+                    <Table>
+                        <TableBody>
+                            {purchases.map(p => (
+                                <TableRow key={p.id}>
+                                    <TableCell className="font-medium">{p.supplier}</TableCell>
+                                    <TableCell className="text-right font-mono">£{p.amount.toFixed(2)}</TableCell>
+                                    <TableCell className="text-right p-1 w-10">
+                                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive/70" onClick={() => handleDeletePurchase(p.id)}><Trash2 className="h-4 w-4" /></Button>
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                             <TableRow className="font-bold bg-muted/50">
+                                <TableCell>Total</TableCell>
+                                <TableCell className="text-right font-mono">£{totalAmount}</TableCell>
+                                <TableCell></TableCell>
                             </TableRow>
-                        ))}
-                         <TableRow className="font-bold bg-muted/50">
-                            <TableCell>Total</TableCell>
-                            <TableCell className="text-right font-mono">£{totalAmount}</TableCell>
-                            <TableCell></TableCell>
-                        </TableRow>
-                    </TableBody>
-                </Table>
-             </div>
+                        </TableBody>
+                    </Table>
+                 </div>
+             ) : (
+                <div className="text-sm text-muted-foreground text-center p-4 border rounded-md border-dashed">
+                    No materials have been logged for this shift yet.
+                </div>
+             )}
         </div>
     )
   }
