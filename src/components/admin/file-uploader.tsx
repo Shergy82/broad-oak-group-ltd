@@ -346,7 +346,7 @@ const parseBuildSheet = (
 ): { shifts: ParsedShift[], failed: FailedShift[] } => {
     const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, {
         header: 1,
-        blankrows: true, // Keep empty rows as separators
+        blankrows: true,
         defval: null,
       });
 
@@ -388,26 +388,32 @@ const parseBuildSheet = (
     }
     
     for (const block of blocks) {
-        const firstRowOfBlock = block[0];
-        if (!firstRowOfBlock) continue;
-
-        const addressCell = String(firstRowOfBlock[0] || '').trim();
-        if (!isProbablyAddressText(addressCell)) continue;
-
-        const bNumberMatch = addressCell.match(/\b(B\d+)\b/i);
-        const eNumber = bNumberMatch ? bNumberMatch[0].toUpperCase() : '';
-        const address = bNumberMatch ? addressCell.replace(bNumberMatch[0], '').trim() : addressCell;
-        
+        let address = '';
+        let eNumber = '';
         let contract = '';
-        for (let c = 1; c < 5; c++) {
-            const cellVal = String(firstRowOfBlock[c] || '');
-            if (cellVal.includes('CC')) {
-                contract = cellVal.trim();
-                break;
+        
+        // Scan the block for address, eNumber, and contract
+        for (const row of block) {
+            for (let c = 0; c < row.length; c++) {
+                const cellVal = String(row[c] || '').trim();
+                if (!cellVal) continue;
+
+                if (isProbablyAddressText(cellVal) && !address) {
+                    address = cellVal;
+                }
+                const bNumberMatch = cellVal.match(/\b((E|B)\d+)\b/i);
+                if (bNumberMatch && !eNumber) {
+                    eNumber = bNumberMatch[0].toUpperCase();
+                }
+                if (cellVal.includes('CC') && !contract) {
+                    contract = cellVal;
+                }
             }
         }
 
-        if (!address) continue;
+        if (!address) {
+            continue; // Skip blocks where no address-like text is found.
+        }
 
         for (let r = 0; r < block.length; r++) {
             const rowData = block[r];
