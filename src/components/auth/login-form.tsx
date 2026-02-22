@@ -93,9 +93,9 @@ export function LoginForm({ onLoginStatusChange }: LoginFormProps) {
       }
 
       if (userProfile.status === 'pending-approval') {
-        await auth.signOut();
-        setIsLoading(false);
         onLoginStatusChange('pending');
+        // The UserProfileProvider will redirect the now-logged-in user.
+        // We just need to stop execution here to prevent the success toast.
         return;
       }
 
