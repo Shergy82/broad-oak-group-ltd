@@ -8,7 +8,7 @@ import { useUserProfile } from '@/hooks/use-user-profile';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Spinner } from '@/components/shared/spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertTriangle, Banknote, Calendar as CalendarIcon, Search, Users, Building } from 'lucide-react';
+import { AlertTriangle, Banknote, Calendar as CalendarIcon, Search, Users, Building, Download } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { startOfWeek, startOfMonth, format, startOfToday, isSameDay } from 'date-fns';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
@@ -20,6 +20,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { cn } from '@/lib/utils';
+import { useToast } from '@/hooks/use-toast';
 
 export default function FinancePage() {
   const { userProfile, loading: profileLoading } = useUserProfile();
@@ -34,6 +35,7 @@ export default function FinancePage() {
   const [selectedUser, setSelectedUser] = useState('all');
   const [selectedSite, setSelectedSite] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const { toast } = useToast();
   
   const handleTimeFilterChange = (value: string) => {
     setSelectedDate(undefined);
@@ -171,6 +173,77 @@ export default function FinancePage() {
       return Array.from(sites).sort();
   }, [shifts]);
 
+  const handleDownloadPdf = async () => {
+    const { default: jsPDF } = await import('jspdf');
+    const { default: autoTable } = await import('jspdf-autotable');
+
+    if (filteredPurchases.length === 0) {
+        toast({
+            title: "No Data",
+            description: "There are no purchases matching the current filters to export."
+        });
+        return;
+    }
+
+    const doc = new jsPDF();
+    
+    doc.setFontSize(18);
+    doc.text('Finance Report', 14, 22);
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+    doc.text(`Generated on: ${format(new Date(), 'PPP p')}`, 14, 28);
+
+    let filterSummary = `Period: ${selectedDate ? format(selectedDate, 'PPP') : (timeFilter ? (timeFilter.charAt(0).toUpperCase() + timeFilter.slice(1)) : 'Custom Date')}`;
+    if (selectedUser !== 'all') {
+        const user = users.find(u => u.uid === selectedUser);
+        filterSummary += ` | User: ${user?.name || 'Unknown'}`;
+    }
+    if (selectedSite !== 'all') {
+        filterSummary += ` | Site: ${selectedSite}`;
+    }
+     if (searchTerm) {
+        filterSummary += ` | Search: "${searchTerm}"`;
+    }
+    doc.setFontSize(9);
+    doc.text(filterSummary, 14, 34);
+    
+    autoTable(doc, {
+        body: [
+            ['Total Spend', `£${totalSpend.toFixed(2)}`],
+            ['Total Transactions', filteredPurchases.length.toString()],
+        ],
+        startY: 40,
+        theme: 'plain',
+        tableWidth: 'wrap',
+    });
+
+    const tableY = (doc as any).lastAutoTable.finalY + 5;
+
+    const head = [['Date', 'Operative', 'ID', 'Site', 'Supplier', 'Amount (£)']];
+    const body = filteredPurchases.map(p => {
+        const shift = shifts.find(s => s.id === p.shiftId);
+        const operativeId = userOperativeIdMap.get(p.userId) || '';
+        return [
+            format(p.purchasedAt.toDate(), 'dd/MM/yyyy'),
+            p.userName,
+            operativeId,
+            shift?.address || 'N/A',
+            p.supplier,
+            p.amount.toFixed(2),
+        ];
+    });
+
+    autoTable(doc, {
+        head,
+        body,
+        startY: tableY,
+        headStyles: { fillColor: [6, 95, 212] },
+        columnStyles: { 5: { halign: 'right' } }
+    });
+
+    doc.save(`finance_report_${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+  };
+
   if (profileLoading) {
     return <div className="flex justify-center p-6"><Spinner size="lg" /></div>;
   }
@@ -234,7 +307,7 @@ export default function FinancePage() {
                             <TabsTrigger value="all">All Time</TabsTrigger>
                         </TabsList>
                     </Tabs>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 flex-grow">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-[repeat(5,minmax(0,1fr))] gap-2 flex-grow">
                          <Popover>
                             <PopoverTrigger asChild>
                                 <Button
@@ -274,6 +347,10 @@ export default function FinancePage() {
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                             <Input placeholder="Search supplier, user, or ID..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-10" />
                         </div>
+                         <Button onClick={handleDownloadPdf} variant="outline" className="w-full">
+                            <Download className="mr-2 h-4 w-4"/>
+                            PDF
+                        </Button>
                     </div>
                 </div>
 
