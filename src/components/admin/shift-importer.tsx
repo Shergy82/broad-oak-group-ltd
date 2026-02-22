@@ -108,17 +108,17 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                             <Table>
                                 <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Task</TableHead><TableHead>Address</TableHead></TableRow></TableHeader>
                                 <TableBody>
-  {[...dryRun.toCreate]
-    .sort((a, b) => a.date.getTime() - b.date.getTime())
-    .map((s, i) => (
-      <TableRow key={i}>
-        <TableCell>{format(s.date, 'PPP')}</TableCell>
-        <TableCell>{s.userName}</TableCell>
-        <TableCell>{s.task}</TableCell>
-        <TableCell>{s.address}</TableCell>
-      </TableRow>
-    ))}
-</TableBody>
+                                  {[...dryRun.toCreate]
+                                    .sort((a, b) => a.date.getTime() - b.date.getTime())
+                                    .map((s, i) => (
+                                      <TableRow key={i}>
+                                        <TableCell>{format(s.date, 'PPP')}</TableCell>
+                                        <TableCell>{s.userName}</TableCell>
+                                        <TableCell>{s.task}</TableCell>
+                                        <TableCell>{s.address}</TableCell>
+                                      </TableRow>
+                                    ))}
+                                </TableBody>
 
                             </Table>
                         </ScrollArea>
@@ -193,11 +193,14 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
       {importResults && (
         <CardFooter className="flex-col items-start gap-4 pt-6">
           {isConfirmed ? (
-             <Alert>
-                <CheckCircle className="h-4 w-4" />
-                <AlertTitle>Import Successful!</AlertTitle>
-                <AlertDescription>Your changes have been published.</AlertDescription>
-            </Alert>
+             <>
+                <Alert>
+                    <CheckCircle className="h-4 w-4" />
+                    <AlertTitle>Import Successful!</AlertTitle>
+                    <AlertDescription>Your changes have been published.</AlertDescription>
+                </Alert>
+                {importResults.failedShifts.length > 0 && renderFailedShifts(importResults.failedShifts)}
+             </>
           ) : (
              <>
                 {importResults.dryRunResult && renderDryRunResults(importResults.dryRunResult)}
