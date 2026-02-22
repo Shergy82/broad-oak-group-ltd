@@ -710,8 +710,8 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
   };
   
   const renderPurchaseLog = () => {
-    // Only show this section for shifts where purchases can be logged.
-    if (!['on-site', 'completed', 'incomplete'].includes(shift.status)) {
+    // Show for confirmed shifts onwards
+    if (!['confirmed', 'on-site', 'completed', 'incomplete'].includes(shift.status)) {
         return null;
     }
 
