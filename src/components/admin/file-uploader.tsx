@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useCallback } from 'react';
@@ -44,7 +45,7 @@ import {
 import { ScrollArea } from '../ui/scroll-area';
 import { cn, getCorrectedLocalDate } from '@/lib/utils';
 
-type ParsedShift = Omit<
+export type ParsedShift = Omit<
   Shift,
   'id' | 'status' | 'date' | 'createdAt' | 'userName' | 'contract'
 > & {
@@ -225,46 +226,46 @@ const findDateHeaderRow = (jsonData: any[][]) => {
 };
 
 const findProjectDetailsInBlock = (blockData: any[][]): { address: string, eNumber: string, contract: string } => {
-    const addressLines: string[] = [];
+    const headerRows = blockData.slice(0, 4);
+    const headerTexts = headerRows.flat().map(cell => String(cell || '').trim()).filter(Boolean);
+
+    let address = '';
     let eNumber = '';
     let contract = '';
 
-    // Define the range of rows to scan for address and contract info
-    const headerRows = blockData.slice(0, 4); // Scan first 4 rows of the block for header info
-
-    // 1. Find Address and E-Number from the first column
-    for (const row of headerRows) {
-        const cellVal = String(row?.[0] || '').trim();
-        if (cellVal) {
-          // Heuristic: if it contains a dash, it's probably a shift task, so stop.
-          if (cellVal.includes('-')) break;
-          addressLines.push(cellVal);
-        }
+    const firstAddressLike = headerTexts.find(text => isProbablyAddressText(text));
+    if (firstAddressLike) {
+        address = firstAddressLike;
     }
     
-    let fullAddress = addressLines.join(', ');
-    const eNumberMatch = fullAddress.match(/\b((E|B)\d+)\b/i);
+    const eNumberMatch = headerTexts.join(' ').match(/\b((E|B)\d+)\b/i);
     if (eNumberMatch) {
         eNumber = eNumberMatch[0].toUpperCase();
-        fullAddress = fullAddress.replace(eNumberMatch[0], '').replace(/,\s*$/, '').trim();
     }
+
+    const contractKeywords = ['CONTRACT', 'COUNCIL', 'HOUSING'];
+    const contractText = headerTexts.find(text => 
+        !isProbablyAddressText(text) && 
+        !text.match(/\b((E|B)\d+)\b/i) &&
+        contractKeywords.some(kw => text.toUpperCase().includes(kw))
+    );
     
-    // 2. Find Contract from other columns in the header rows
-    for (const row of headerRows) {
-        // Scan columns from B onwards (index 1)
-        for (let c = 1; c < row.length; c++) {
-            const cellVal = String(row[c] || '').trim();
-            // A contract name is likely short, doesn't contain a dash, is not a date, and not a shift task-like entry
-            if (cellVal && !cellVal.includes('-') && !parseDate(cellVal)) {
-                contract = cellVal;
-                break; // Found it, stop scanning this row
-            }
+    if (contractText) {
+        contract = contractText;
+    } else {
+        // Fallback for colored boxes or other non-standard indicators
+        const potentialContracts = headerTexts.filter(text =>
+            !isProbablyAddressText(text) &&
+            !text.match(/\b((E|B)\d+)\b/i) &&
+            !parseDate(text) &&
+            text.length > 2 && text.length < 25 // Reasonable length for a contract name
+        );
+        if (potentialContracts.length === 1) {
+            contract = potentialContracts[0];
         }
-        if (contract) break; // Found it, stop scanning other rows
     }
 
-
-    return { address: fullAddress.replace(/\s+/g, ' ').trim(), eNumber, contract };
+    return { address: address.replace(/\s+/g, ' ').trim(), eNumber, contract };
 };
 
 

@@ -1,10 +1,11 @@
 
+
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { FileUploader, type FailedShift, type DryRunResult } from './file-uploader';
-import type { UserProfile } from '@/types';
+import { FileUploader, type FailedShift, type DryRunResult, type ParsedShift } from './file-uploader';
+import type { UserProfile, Shift } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { CheckCircle, FileWarning, Upload, List, ArrowRight, Edit, Plus, Trash2 } from 'lucide-react';
@@ -71,6 +72,45 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
 
   const renderDryRunResults = (dryRun: DryRunResult) => {
     const hasChanges = dryRun.toCreate.length > 0 || dryRun.toUpdate.length > 0 || dryRun.toDelete.length > 0;
+    
+    const renderChanges = (oldShift: Shift, newShift: ParsedShift) => {
+        const changes: React.ReactNode[] = [];
+        const fieldsToCompare: { key: keyof Shift | keyof ParsedShift, label: string }[] = [
+            { key: 'task', label: 'Task' },
+            { key: 'type', label: 'Type' },
+            { key: 'eNumber', label: 'Number' },
+            { key: 'manager', label: 'Manager' },
+            { key: 'contract', label: 'Contract' },
+            { key: 'department', label: 'Department' },
+            { key: 'notes', label: 'Notes' },
+        ];
+
+        fieldsToCompare.forEach(field => {
+            const oldValue = (oldShift as any)[field.key] || '';
+            const newValue = (newShift as any)[field.key] || '';
+            
+            if (oldValue !== newValue) {
+                changes.push(
+                    <div key={field.key} className="flex items-start gap-1">
+                        <span className="font-semibold">{field.label}:</span>
+                        <div className="flex flex-col text-left">
+                            <span className="text-red-600 line-through">{oldValue || 'N/A'}</span>
+                            <div className="flex items-center">
+                                <ArrowRight className="inline h-3 w-3 mr-1" />
+                                <span className="text-green-600">{newValue || 'N/A'}</span>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+        });
+
+        if (changes.length === 0) {
+            return <span className="text-muted-foreground italic">No significant changes detected.</span>
+        }
+
+        return <div className="space-y-1">{changes}</div>;
+    };
     
     return (
         <Tabs defaultValue="overview">
@@ -149,12 +189,26 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
             </TabsContent>
             <TabsContent value="update">
                  <Card>
-                    <CardHeader><CardTitle>Updated Shifts</CardTitle></CardHeader>
+                    <CardHeader><CardTitle>Updated Shifts</CardTitle><CardDescription>Only shifts with meaningful changes are shown here.</CardDescription></CardHeader>
                     <CardContent>
                          <ScrollArea className="h-72">
                             <Table>
-                                <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Task</TableHead><TableHead>Changes</TableHead></TableRow></TableHeader>
-                                <TableBody>{dryRun.toUpdate.map((u,i) => <TableRow key={i}><TableCell>{format(u.new.date, 'PPP')}</TableCell><TableCell>{u.new.userName}</TableCell><TableCell>{u.new.task}</TableCell><TableCell className="text-xs">eNumber: {u.old.eNumber} <ArrowRight className="inline"/> {u.new.eNumber}<br/>Manager: {u.old.manager} <ArrowRight className="inline"/> {u.new.manager}</TableCell></TableRow>)}</TableBody>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Date</TableHead>
+                                        <TableHead>User</TableHead>
+                                        <TableHead>Changes</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {dryRun.toUpdate.map((u,i) => (
+                                        <TableRow key={i}>
+                                            <TableCell>{format(u.new.date, 'PPP')}</TableCell>
+                                            <TableCell>{u.new.userName}</TableCell>
+                                            <TableCell className="text-xs">{renderChanges(u.old, u.new)}</TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
                             </Table>
                         </ScrollArea>
                     </CardContent>
