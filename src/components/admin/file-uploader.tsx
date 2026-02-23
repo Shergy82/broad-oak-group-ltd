@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useCallback, useMemo } from 'react';
@@ -72,10 +73,6 @@ export interface DryRunResult {
   failed: FailedShift[];
 }
 
-// =================================================================================================
-// NEW, ROBUST PARSING LOGIC
-// =================================================================================================
-
 const normalizeText = (text: string) => (text || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 const parseDate = (dateValue: any): Date | null => {
@@ -130,12 +127,10 @@ const extractUserAndTask = (text: string, userMap: UserMapEntry[]): { user: User
     for (const user of sortedUsers) {
         if (trimmedText.toLowerCase().endsWith(user.originalName.toLowerCase())) {
             const task = trimmedText.substring(0, trimmedText.length - user.originalName.length).trim();
-            // It's a valid shift if there's a task part, or even if it's just the user's name
             return { user, task: task || "No task description" };
         }
     }
 
-    // If no user was found, but there was text, return a failure object.
     return { user: null, task: trimmedText, reason: `User not found in cell text.` };
 };
 
@@ -148,12 +143,12 @@ const processProjectBlock = (
   department: string,
   today: Date,
   sheetName: string,
-  startRowIndexInSheet: number
+  startRowIndexInSheet: number,
+  contractColIndex: number
 ): { shifts: ParsedShift[], failed: FailedShift[] } => {
     const shifts: ParsedShift[] = [];
     const failed: FailedShift[] = [];
 
-    // Rule: Address is in the first row of the block, column A.
     const headerRow = block[0] || [];
     const cellA = String(headerRow[0] || '').trim();
     
@@ -180,15 +175,27 @@ const processProjectBlock = (
         return { shifts, failed };
     }
 
-    // Rule: Contract is in the first row of the block, column C. All other rows in this column are notes.
-    const cellC = String(headerRow[2] || '').trim();
+    const cellC = String(headerRow[contractColIndex] || '').trim();
     const contract = cellC || 'Uncategorized';
+    
+    let shiftRowStartIndex = -1;
+    for (let i = 1; i < block.length; i++) {
+        const row = block[i] || [];
+        for (let j = 5; j < row.length; j++) {
+            const cellText = String(row[j] || '').trim();
+            if (cellText && userMap.some(u => cellText.toLowerCase().includes(u.originalName.toLowerCase()))) {
+                shiftRowStartIndex = i;
+                break;
+            }
+        }
+        if (shiftRowStartIndex !== -1) break;
+    }
 
-    // Rule: Shifts start from column F onwards.
-    const shiftStartCol = 5; // Column F (0-indexed)
+    if (shiftRowStartIndex === -1) shiftRowStartIndex = 1;
 
-    // Process all rows within the block for shifts.
-    for (let r = 0; r < block.length; r++) {
+    const shiftStartCol = 5;
+
+    for (let r = shiftRowStartIndex; r < block.length; r++) {
         const sRow = block[r];
         if (isRowEmpty(sRow)) continue;
 
@@ -197,7 +204,7 @@ const processProjectBlock = (
             const cellText = String(sRow[c] || '').trim();
             const cellRef = XLSX.utils.encode_cell({ c: c, r: startRowIndexInSheet + r });
 
-            if (cellText) {
+            if (cellText && /[a-zA-Z]/.test(cellText)) {
                 if (!date) {
                     failed.push({
                         date: null, projectAddress: address, cellContent: cellText,
@@ -207,7 +214,7 @@ const processProjectBlock = (
                     continue;
                 }
 
-                if (date < today) continue; // Ignore past shifts
+                if (date < today) continue;
 
                 const extraction = extractUserAndTask(cellText, userMap);
                 if (extraction && extraction.user) {
@@ -218,7 +225,7 @@ const processProjectBlock = (
                         userName: extraction.user.originalName,
                         type: 'all-day', manager, contract, department, notes: '',
                     });
-                } else if (extraction) { // Handles the case where user is null (not found)
+                } else if (extraction) {
                     failed.push({
                         date, projectAddress: address, cellContent: cellText,
                         reason: extraction.reason,
@@ -241,25 +248,46 @@ const parseBuildSheet = (
     const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, blankrows: true, defval: null });
     const allShifts: ParsedShift[] = [];
     const allFailed: FailedShift[] = [];
+    
+    if (jsonData.length < 2) {
+        allFailed.push({ date: null, projectAddress: 'Entire Sheet', cellContent: '', reason: 'Sheet has less than 2 rows, cannot process.', sheetName, cellRef: 'Sheet' });
+        return { shifts: allShifts, failed: allFailed };
+    }
 
-    // Rule: Date row is ALWAYS Row 1
     const dateRow = (jsonData[0] || []).map(cell => parseDate(cell));
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
 
-    if (dateRow.length === 0 || dateRow.slice(5).every(d => d === null)) { // Check from column F onwards
+    if (dateRow.length === 0 || dateRow.slice(5).every(d => d === null)) {
         allFailed.push({ date: null, projectAddress: 'Entire Sheet', cellContent: '', reason: 'Could not find any valid dates in Row 1 from Column F onwards.', sheetName, cellRef: 'Row 1' });
         return { shifts: allShifts, failed: allFailed };
     }
 
     let currentBlock: any[][] = [];
     let blockStartRowIndex = -1;
+    
+    // Determine the contract column index from the first block
+    let contractColIndex = 2; // Default to 'C'
+    let firstBlockFound = false;
+    for (let r = 1; r < jsonData.length && !firstBlockFound; r++) {
+        const row = jsonData[r] || [];
+        if (!isRowEmpty(row) && isRowEmpty(jsonData[r-1] || [])) {
+             for (let c = 1; c < 5; c++) {
+                if (String(row[c] || '').trim()) {
+                    contractColIndex = c;
+                    break;
+                }
+            }
+            firstBlockFound = true;
+        }
+    }
+
 
     for (let r = 1; r < jsonData.length; r++) {
         const row = jsonData[r] || [];
         if (isRowEmpty(row)) {
             if (currentBlock.length > 0) {
-                const { shifts, failed } = processProjectBlock(currentBlock, dateRow, userMap, sheetName, department, today, sheetName, blockStartRowIndex);
+                const { shifts, failed } = processProjectBlock(currentBlock, dateRow, userMap, sheetName, department, today, sheetName, blockStartRowIndex, contractColIndex);
                 allShifts.push(...shifts);
                 allFailed.push(...failed);
             }
@@ -274,16 +302,13 @@ const parseBuildSheet = (
     }
     
     if (currentBlock.length > 0) {
-        const { shifts, failed } = processProjectBlock(currentBlock, dateRow, userMap, sheetName, department, today, sheetName, blockStartRowIndex);
+        const { shifts, failed } = processProjectBlock(currentBlock, dateRow, userMap, sheetName, department, today, sheetName, blockStartRowIndex, contractColIndex);
         allShifts.push(...shifts);
         allFailed.push(...failed);
     }
 
     return { shifts: allShifts, failed: allFailed };
 };
-// =================================================================================================
-// END OF NEW PARSING LOGIC
-// =================================================================================================
 
 
 interface FileUploaderProps {
@@ -331,9 +356,8 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           if (name.startsWith('_')) {
               return false;
           }
-          // @ts-ignore
           const sheet = workbook.Sheets[name];
-          if (sheet?.Hidden === 1 || sheet?.Hidden === '1' || sheet?.Hidden === true) {
+          if ((sheet as any)?.Hidden === 1 || (sheet as any)?.Hidden === '1' || (sheet as any)?.Hidden === true) {
               return false;
           }
           return true;
