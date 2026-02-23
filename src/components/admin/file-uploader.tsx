@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useCallback, useMemo } from 'react';
@@ -72,98 +71,166 @@ export interface DryRunResult {
   failed: FailedShift[];
 }
 
-interface FileUploaderProps {
-  onImportComplete: (
-    failedShifts: FailedShift[],
-    onConfirm: () => Promise<void>,
-    dryRunResult?: DryRunResult
-  ) => void;
-  onFileSelect: () => void;
-  userProfile: UserProfile;
-  importDepartment: string;
-}
-
-// ------------------------
-// Helper functions
-// ------------------------
+// =================================================================================================
+// NEW, ROBUST PARSING LOGIC
+// =================================================================================================
 
 const normalizeText = (text: string) => (text || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 const parseDate = (dateValue: any): Date | null => {
-    if (!dateValue) return null;
+  if (!dateValue) return null;
+  if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
+    return dateValue;
+  }
+  if (typeof dateValue === 'number' && dateValue > 1) {
+    const excelEpoch = new Date(1899, 11, 30);
+    const d = new Date(excelEpoch.getTime() + dateValue * 24 * 60 * 60 * 1000);
+    if (!isNaN(d.getTime())) {
+      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    }
+  }
+  if (typeof dateValue === 'string') {
+    const s = dateValue.trim();
+    if (!s) return null;
+    const parts = s.match(/^(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?$/);
+    if (parts) {
+      const day = parseInt(parts[1], 10);
+      const month = parseInt(parts[2], 10) - 1;
+      let year = parts[3] ? parseInt(parts[3], 10) : new Date().getFullYear();
+      if (year < 100) year += 2000;
+      if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
+        const d = new Date(Date.UTC(year, month, day));
+        if (d.getUTCFullYear() === year && d.getUTCMonth() === month && d.getUTCDate() === day) {
+          return d;
+        }
+      }
+    }
+    const parsed = new Date(s);
+    if (!isNaN(parsed.getTime())) {
+      return new Date(Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()));
+    }
+  }
+  return null;
+};
 
-    if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
-        // This is a JS date from XLSX, which is already in UTC.
-        return dateValue;
+const isRowEmpty = (row: any[]): boolean => {
+  if (!row || row.length === 0) return true;
+  return row.every(cell => cell === null || cell === undefined || String(cell).trim() === '');
+};
+
+const extractUserAndTask = (text: string, userMap: UserMapEntry[]): { user: UserMapEntry, task: string } | null => {
+  if (!text || typeof text !== 'string') return null;
+  const trimmedText = text.trim();
+  if (!trimmedText) return null;
+  const sortedUsers = [...userMap].sort((a, b) => b.originalName.length - a.originalName.length);
+  for (const user of sortedUsers) {
+    if (trimmedText.toLowerCase().endsWith(user.originalName.toLowerCase())) {
+      const task = trimmedText.substring(0, trimmedText.length - user.originalName.length).trim();
+      if (task) {
+        return { user, task };
+      }
+    }
+  }
+  return null;
+};
+
+/**
+ * Processes a single block of rows from the spreadsheet. A block is defined as a set of rows
+ * between two empty "black line" rows.
+ */
+const processProjectBlock = (
+  block: any[][],
+  dateRow: (Date | null)[],
+  userMap: UserMapEntry[],
+  manager: string,
+  department: string,
+  today: Date
+): { shifts: ParsedShift[], failed: FailedShift[] } => {
+    const shifts: ParsedShift[] = [];
+    const failed: FailedShift[] = [];
+
+    // 1. Find the split between the header (project info) and the body (shift data)
+    let firstShiftRowIndex = -1;
+    for (let i = 0; i < block.length; i++) {
+        const row = block[i];
+        // Scan cells starting from column B (index 1) to find the first user name
+        for (let c = 1; c < row.length; c++) {
+            if (extractUserAndTask(String(row[c] || ''), userMap)) {
+                firstShiftRowIndex = i;
+                break;
+            }
+        }
+        if (firstShiftRowIndex !== -1) break;
     }
 
-    // Handle Excel serial numbers
-    if (typeof dateValue === 'number' && dateValue > 1) {
-        const excelEpoch = new Date(1899, 11, 30);
-        const d = new Date(excelEpoch.getTime() + dateValue * 24 * 60 * 60 * 1000);
-        if (!isNaN(d.getTime())) {
-             // Re-create as UTC date to strip timezone
-            return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    if (firstShiftRowIndex === -1) {
+        // This block has no recognizable shifts, so we skip it.
+        return { shifts, failed };
+    }
+
+    const headerRows = block.slice(0, firstShiftRowIndex);
+    const shiftRows = block.slice(firstShiftRowIndex);
+
+    // 2. Extract project information from the header rows
+    let address = '', eNumber = '', contract = '';
+    for (const hRow of headerRows) {
+        // Address and E-Number are always in the first column (A)
+        const cellA = String(hRow[0] || '').trim();
+        if (cellA) {
+            const eNumMatch = cellA.match(/\b([BE]\d+\S*)$/i);
+            if (eNumMatch) {
+                eNumber = eNumMatch[0].toUpperCase();
+                address = cellA.replace(eNumMatch[0], '').trim().replace(/,$/, '').trim();
+            } else {
+                address = cellA;
+            }
+        }
+        // The contract is in any *other* column in the header
+        for (let c = 1; c < hRow.length; c++) {
+            const potentialContract = String(hRow[c] || '').trim();
+            if (potentialContract) {
+                contract = potentialContract;
+            }
         }
     }
-    
-    // Handle string dates (less reliable, but as a fallback)
-    if (typeof dateValue === 'string') {
-        const s = dateValue.trim();
-        if (!s) return null;
-        
-        // Try to parse common formats like dd/mm/yyyy
-        const parts = s.match(/^(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?$/);
-        if (parts) {
-            const day = parseInt(parts[1], 10);
-            const month = parseInt(parts[2], 10) - 1;
-            let year = parts[3] ? parseInt(parts[3], 10) : new Date().getFullYear();
-            if (year < 100) year += 2000;
 
-            if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
-                const d = new Date(Date.UTC(year, month, day));
-                if (d.getUTCFullYear() === year && d.getUTCMonth() === month && d.getUTCDate() === day) {
-                    return d;
+    if (!address) {
+        // If we couldn't find an address for this block, we can't create shifts for it.
+        return { shifts, failed };
+    }
+
+    // 3. Process the shift rows to create shift objects
+    for (const sRow of shiftRows) {
+        // Ignore rows that only have content in the first column (likely header remnants)
+        const hasShiftContent = sRow.slice(1).some(cell => String(cell || '').trim());
+        if (!hasShiftContent) continue;
+
+        for (let c = 1; c < Math.min(sRow.length, dateRow.length); c++) {
+            const date = dateRow[c];
+            const cellText = String(sRow[c] || '').trim();
+
+            if (date && cellText && date >= today) {
+                const extraction = extractUserAndTask(cellText, userMap);
+                if (extraction) {
+                    shifts.push({
+                        date,
+                        address,
+                        eNumber,
+                        task: extraction.task,
+                        userId: extraction.user.uid,
+                        userName: extraction.user.originalName,
+                        type: 'all-day',
+                        manager,
+                        contract: contract || 'Uncategorized',
+                        department,
+                        notes: '',
+                    });
                 }
             }
         }
-        
-        // Final fallback for ISO-like strings
-        const parsed = new Date(s);
-        if (!isNaN(parsed.getTime())) {
-             return new Date(Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()));
-        }
     }
 
-    return null;
-};
-
-
-const isRowEmpty = (row: any[]): boolean => {
-    if (!row || row.length === 0) return true;
-    return row.every(cell => cell === null || cell === undefined || String(cell).trim() === '');
-};
-
-
-const extractUserAndTask = (text: string, userMap: UserMapEntry[]): { user: UserMapEntry, task: string } | null => {
-    if (!text || typeof text !== 'string') return null;
-    const trimmedText = text.trim();
-    if (!trimmedText) return null;
-
-    // Sort users by name length, descending, to match longer names first (e.g., "Smith" before "John Smith")
-    const sortedUsers = [...userMap].sort((a, b) => b.originalName.length - a.originalName.length);
-
-    for (const user of sortedUsers) {
-        if (trimmedText.toLowerCase().endsWith(user.originalName.toLowerCase())) {
-            const task = trimmedText.substring(0, trimmedText.length - user.originalName.length).trim();
-            // A task must exist, it can't just be the user's name
-            if (task) {
-                return { user, task };
-            }
-        }
-    }
-
-    return null;
+    return { shifts, failed };
 };
 
 const parseBuildSheet = (
@@ -173,117 +240,47 @@ const parseBuildSheet = (
     department: string
 ): { shifts: ParsedShift[], failed: FailedShift[] } => {
     const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, blankrows: true, defval: null });
-    const shifts: ParsedShift[] = [];
-    const failed: FailedShift[] = [];
-    const manager = sheetName;
+    const allShifts: ParsedShift[] = [];
+    const allFailed: FailedShift[] = [];
+    
+    // Rule 1: Date row is ALWAYS Row 1
+    const dateRow = (jsonData[0] || []).map(cell => parseDate(cell));
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
 
-    // Rule 1: Date row is ALWAYS Row 1
-    const dateRow = (jsonData[0] || []).map(cell => parseDate(cell));
     if (dateRow.length === 0 || dateRow.slice(1).every(d => d === null)) {
-        failed.push({ date: null, projectAddress: 'Entire Sheet', cellContent: '', reason: 'Could not find a valid date row in Row 1.', sheetName, cellRef: 'Row 1' });
-        return { shifts, failed };
+        allFailed.push({ date: null, projectAddress: 'Entire Sheet', cellContent: '', reason: 'Could not find a valid date row in Row 1.', sheetName, cellRef: 'Row 1' });
+        return { shifts: allShifts, failed: allFailed };
     }
-
+    
     // Find all blocks separated by empty rows
-    const blocks: any[][][] = [];
     let currentBlock: any[][] = [];
-    // Start scanning from row 2 (index 1) since row 1 is dates
     for (let r = 1; r < jsonData.length; r++) {
         const row = jsonData[r] || [];
         if (isRowEmpty(row)) {
             if (currentBlock.length > 0) {
-                blocks.push(currentBlock);
+                const { shifts, failed } = processProjectBlock(currentBlock, dateRow, userMap, sheetName, department, today);
+                allShifts.push(...shifts);
+                allFailed.push(...failed);
             }
             currentBlock = [];
         } else {
             currentBlock.push(row);
         }
     }
+    // Process the last block if the file doesn't end with an empty row
     if (currentBlock.length > 0) {
-        blocks.push(currentBlock);
+        const { shifts, failed } = processProjectBlock(currentBlock, dateRow, userMap, sheetName, department, today);
+        allShifts.push(...shifts);
+        allFailed.push(...failed);
     }
     
-    for (const block of blocks) {
-        let firstShiftRowIndex = -1;
-        // Find the split between header and shift rows by finding the first operative
-        for (let i = 0; i < block.length; i++) {
-            const row = block[i];
-            // Start from column C (index 2) to avoid matching names in address/contract
-            for (let c = 2; c < row.length; c++) { 
-                if (extractUserAndTask(String(row[c] || ''), userMap)) {
-                    firstShiftRowIndex = i;
-                    break;
-                }
-            }
-            if (firstShiftRowIndex !== -1) break;
-        }
-
-        if (firstShiftRowIndex === -1) continue; // No shifts found in this block
-
-        const headerRows = block.slice(0, firstShiftRowIndex);
-        const shiftRows = block.slice(firstShiftRowIndex);
-        
-        let address = '', eNumber = '', contract = '';
-
-        // Extract Address, E-Number, and Contract from header rows
-        for (const hRow of headerRows) {
-            const cellA = String(hRow[0] || '').trim();
-            if (cellA) {
-                // E-Number is assumed to be the last "word" if it matches the pattern
-                const eNumMatch = cellA.match(/\b([BE]\d+\S*)$/i);
-                if (eNumMatch) {
-                    eNumber = eNumMatch[0].toUpperCase();
-                    address = cellA.replace(eNumMatch[0], '').trim().replace(/,$/, '').trim();
-                } else {
-                    address = cellA;
-                }
-            }
-            // All other non-empty cells in header rows are potential contract names
-            for (let c = 1; c < hRow.length; c++) {
-                const potentialContract = String(hRow[c] || '').trim();
-                if (potentialContract) {
-                    contract = potentialContract;
-                }
-            }
-        }
-        
-        if (!address) continue; // Skip block if no address could be found
-
-        for (const row of shiftRows) {
-            // A row is valid if it has content in columns other than the first
-            const hasShiftContent = row.slice(1).some(cell => String(cell || '').trim());
-            if (!hasShiftContent) continue;
-            
-            for (let c = 1; c < Math.min(row.length, dateRow.length); c++) {
-                const date = dateRow[c];
-                const cellText = String(row[c] || '').trim();
-                
-                if (date && cellText && date >= today) {
-                    const extraction = extractUserAndTask(cellText, userMap);
-                    if (extraction) {
-                        shifts.push({
-                            date,
-                            address,
-                            eNumber,
-                            task: extraction.task,
-                            userId: extraction.user.uid,
-                            userName: extraction.user.originalName,
-                            type: 'all-day',
-                            manager,
-                            contract: contract || 'Uncategorized',
-                            department,
-                            notes: '',
-                        });
-                    }
-                }
-            }
-        }
-    }
-    
-    return { shifts, failed };
+    return { shifts: allShifts, failed: allFailed };
 };
+
+// =================================================================================================
+// END OF NEW PARSING LOGIC
+// =================================================================================================
 
 
 const LOCAL_STORAGE_KEY = 'shiftImport_selectedSheets_v2';
@@ -811,4 +808,3 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
     </div>
   );
 }
-
