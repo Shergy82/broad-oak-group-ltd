@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useCallback, useMemo } from 'react';
@@ -124,56 +125,31 @@ const extractUsersAndTask = (
   const raw = text.trim();
   if (!raw) return null;
 
-  // 1. Split task from names using the hyphen.
-  const parts = raw.split(/\s+-\s+/);
-  const taskPart = parts[0].trim();
-  const namesPartRaw = parts.slice(1).join(' ').trim();
+  // Split task and names (your format uses " - ")
+  const [taskPart, namesPart] = raw.split(/\s+-\s+/);
 
-  if (!namesPartRaw) {
-    return { users: [], task: taskPart, reason: 'No names found after task delimiter (-).' };
+  if (!namesPart) {
+    return {
+      users: [],
+      task: taskPart,
+      reason: 'No names found after task.',
+    };
   }
 
-  // 2. Split multiple names into "chunks"
-  const nameChunks = namesPartRaw
+  // Split multiple names
+  const nameChunks = namesPart
     .split(/\s*(?:&|and|,|\/)\s*/i)
-    .map(n => n.trim())
+    .map(n => normalizeText(n))
     .filter(Boolean);
 
   const matchedUsers: UserMapEntry[] = [];
-  const usedUserIds = new Set<string>();
 
-  // 3. For each name chunk from the cell, find the best matching user
-  for (const chunk of nameChunks) {
-    const chunkTokens = new Set(chunk.toLowerCase().split(/\s+/).filter(Boolean));
-    if (chunkTokens.size === 0) continue;
+  for (const user of userMap) {
+    const userName = normalizeText(user.originalName);
 
-    let bestMatch: { user: UserMapEntry; score: number } | null = null;
-
-    for (const user of userMap) {
-      // Avoid matching the same user twice
-      if (usedUserIds.has(user.uid)) continue;
-
-      const userTokens = new Set(user.originalName.toLowerCase().split(/\s+/).filter(Boolean));
-      
-      // Calculate a match score
-      let score = 0;
-      for (const token of chunkTokens) {
-        if (userTokens.has(token)) {
-          score++;
-        }
-      }
-      
-      // To be a valid match, all tokens from the excel chunk must be in the user's name tokens
-      if (score > 0 && score === chunkTokens.size) {
-        if (!bestMatch || score > bestMatch.score) {
-          bestMatch = { user, score };
-        }
-      }
-    }
-    
-    if (bestMatch) {
-      matchedUsers.push(bestMatch.user);
-      usedUserIds.add(bestMatch.user.uid);
+    // Match if ANY chunk fully contains the user name
+    if (nameChunks.some(chunk => chunk.includes(userName))) {
+      matchedUsers.push(user);
     }
   }
 
@@ -181,7 +157,7 @@ const extractUsersAndTask = (
     return {
       users: [],
       task: taskPart,
-      reason: `No users in database match the names found in cell: "${namesPartRaw}"`,
+      reason: `No users in database match the names found in cell: "${namesPart}"`,
     };
   }
 
@@ -879,5 +855,3 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
     </div>
   );
 }
-
-    
