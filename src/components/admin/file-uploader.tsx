@@ -161,55 +161,66 @@ const findUser = (name: string, userMap: UserMapEntry[]): UserMapEntry | null =>
 };
 
 const parseDate = (dateValue: any): Date | null => {
-  if (!dateValue) return null;
+    if (!dateValue) return null;
 
-  // Excel numeric date
-  if (typeof dateValue === 'number' && dateValue > 1) {
-    const excelEpoch = new Date(1899, 11, 30);
-    const d = new Date(excelEpoch.getTime() + dateValue * 24 * 60 * 60 * 1000);
-    if (!isNaN(d.getTime())) return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  }
-
-  // String date
-  if (typeof dateValue === 'string') {
-    const s = dateValue.trim();
-    const parsed = new Date(s);
-    if (!isNaN(parsed.getTime())) {
-      return new Date(Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()));
+    // If it's already a valid Date object
+    if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
+        return new Date(Date.UTC(dateValue.getFullYear(), dateValue.getMonth(), dateValue.getDate()));
     }
 
-    const lower = s.toLowerCase();
-    const dateMatch = lower.match(/(\d{1,2})[ -/]+([a-z]{3})/);
-    if (dateMatch) {
-      const day = parseInt(dateMatch[1], 10);
-      const monthStr = dateMatch[2];
-      const monthIndex = new Date(Date.parse(monthStr + ' 1, 2012')).getMonth();
-      if (!isNaN(day) && monthIndex !== -1) {
-        const year = new Date().getFullYear();
-        return new Date(Date.UTC(year, monthIndex, day));
-      }
+    // Handle Excel's numeric date format
+    if (typeof dateValue === 'number' && dateValue > 1) {
+        const excelEpoch = new Date(1899, 11, 30);
+        const d = new Date(excelEpoch.getTime() + dateValue * 24 * 60 * 60 * 1000);
+        if (!isNaN(d.getTime())) return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
     }
-  }
 
-  if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
-    return new Date(Date.UTC(dateValue.getFullYear(), dateValue.getMonth(), dateValue.getDate()));
-  }
+    if (typeof dateValue === 'string') {
+        const s = dateValue.trim();
+        if (!s) return null;
 
-  return null;
+        // Try parsing common formats like 'DD/MM/YYYY', 'DD-MM-YYYY', 'DD.MM.YYYY'
+        const parts = s.match(/^(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?$/);
+        if (parts) {
+            const day = parseInt(parts[1], 10);
+            const month = parseInt(parts[2], 10) - 1; // JS months are 0-indexed
+            let year = parts[3] ? parseInt(parts[3], 10) : new Date().getFullYear();
+
+            if (year < 100) {
+                year += 2000; // Handle '24' as 2024
+            }
+
+            if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
+                const d = new Date(Date.UTC(year, month, day));
+                // Check if the created date is valid (e.g., handles non-existent dates like 31st Feb)
+                if (d.getUTCFullYear() === year && d.getUTCMonth() === month && d.getUTCDate() === day) {
+                    return d;
+                }
+            }
+        }
+        
+        // Fallback for other string formats that JS can handle, like 'YYYY-MM-DD' or 'Feb 19, 2024'
+        const parsed = new Date(s);
+        if (!isNaN(parsed.getTime())) {
+            return new Date(Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()));
+        }
+    }
+
+    return null;
 };
+
 
 const isProbablyAddressText = (text: string): boolean => {
   const t = (text || '').toString().trim();
-  if (!t) return false;
-  // UK postcode
-  if (/\b[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}\b/i.test(t)) return true;
+  if (!t || t.length < 5) return false;
+  // Contains numbers
+  if (/\d/.test(t)) return true;
   // Common street words
-  if (/\b(road|rd|street|st|avenue|ave|close|cl|drive|dr|lane|ln|grove|court|ct|way|crescent|cres)\b/i.test(t))
-    return true;
-  // Contains numbers (for house number) and is long enough
-  if (/\d/.test(t) && t.length > 8) return true;
+  if (/\b(road|rd|street|st|avenue|ave|close|cl|drive|dr|lane|ln|grove|court|ct|way|crescent|cres|house)\b/i.test(t)) return true;
+  
   return false;
 };
+
 
 const findDateHeaderRow = (jsonData: any[][]) => {
     for (let r = 0; r < Math.min(20, jsonData.length); r++) {
@@ -226,37 +237,43 @@ const findDateHeaderRow = (jsonData: any[][]) => {
 };
 
 const findProjectDetailsInBlock = (headerData: any[][]): { address: string, eNumber: string, contract: string } => {
-    const texts: string[] = [];
-    headerData.forEach(row => {
-        (row || []).forEach(cell => {
-            const text = String(cell || '').trim();
-            if (text && text.length > 2 && !/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(text) && !parseDate(text)) {
-                texts.push(text.replace(/\s+/g, ' '));
-            }
-        });
-    });
-    
-    const uniqueTexts = [...new Set(texts)];
-    
-    const addressParts: string[] = [];
-    const contractParts: string[] = [];
+    let address = '';
     let eNumber = '';
-    
-    uniqueTexts.forEach(text => {
-        const eNumberMatch = text.match(/\b([EB]\d+)\b/i);
-        if (eNumberMatch) {
-            eNumber = eNumberMatch[0].toUpperCase();
-        }
-        
-        if (isProbablyAddressText(text)) {
-            addressParts.push(text);
-        } else {
-            contractParts.push(text);
-        }
-    });
+    let contract = '';
 
-    const address = [...new Set(addressParts.map(part => part.replace(/\b([EB]\d+)\b/i, '').trim()).filter(Boolean))].join(', ');
-    const contract = [...new Set(contractParts)].join('; ');
+    const allHeaderText = headerData.flat().map(c => String(c || '').trim()).filter(Boolean);
+    const uniqueTexts = [...new Set(allHeaderText)];
+    
+    const eNumberMatch = uniqueTexts.find(text => /\b([EB]\d+)\b/i.test(text));
+    if (eNumberMatch) {
+        eNumber = eNumberMatch.match(/\b([EB]\d+)\b/i)![0].toUpperCase();
+    }
+
+    let remainingTexts = uniqueTexts.filter(text => !text.toUpperCase().includes(eNumber.toUpperCase()) || !eNumber);
+
+    // Heuristic: Anything with a keyword is the contract.
+    const contractCandidate = remainingTexts.find(text => /\b(contracts?|council|housing|ltd)\b/i.test(text));
+    if(contractCandidate) {
+        contract = contractCandidate;
+        remainingTexts = remainingTexts.filter(t => t !== contract);
+    }
+    
+    // Heuristic: The text with numbers is most likely the address.
+    const addressCandidate = remainingTexts.find(text => /\d/.test(text));
+    if(addressCandidate) {
+        address = addressCandidate;
+        remainingTexts = remainingTexts.filter(t => t !== address);
+    } else if (remainingTexts.length > 0) {
+        // Fallback: if no numbers, assume the longest remaining text is the address.
+        const sortedByLength = [...remainingTexts].sort((a,b) => b.length - a.length);
+        address = sortedByLength[0];
+        remainingTexts = remainingTexts.filter(t => t !== address);
+    }
+
+    // If contract is still empty, use whatever is left.
+    if (!contract && remainingTexts.length > 0) {
+        contract = remainingTexts.join('; ');
+    }
     
     return { address, eNumber, contract };
 };
@@ -307,24 +324,25 @@ const parseBuildSheet = (
     if (currentBlock.length > 0) {
         blocks.push({ startIndex: blockStartIndex, data: currentBlock });
     }
-
-    if (blocks.length === 0) {
-        failed.push({ date: null, projectAddress: 'Sheet', cellContent: '', reason: 'Could not find any content blocks separated by empty rows.', sheetName, cellRef: 'A1' });
-        return { shifts, failed };
-    }
     
     for (const block of blocks) {
-        let headerEndIndex = block.data.findIndex(row => 
-            (row || []).some(cell => typeof cell === 'string' && cell.includes('-') && cell.length > 5)
-        );
+        
+        let firstShiftRowIndex = block.data.findIndex(row => {
+            const potentialUserName = String(row?.[0] || '').trim();
+            return potentialUserName && findUser(potentialUserName, userMap) !== null;
+        });
 
-        if (headerEndIndex === -1) {
-            headerEndIndex = Math.min(5, block.data.length);
+        if (firstShiftRowIndex === -1) {
+            firstShiftRowIndex = block.data.findIndex(row => (row || []).some(cell => typeof cell === 'string' && cell.includes('-')));
+        }
+        
+        if (firstShiftRowIndex === -1) {
+            continue; 
         }
 
-        const headerData = block.data.slice(0, headerEndIndex);
-        const bodyData = block.data.slice(headerEndIndex);
-        const bodyStartIndexInBlock = headerEndIndex;
+        const headerData = block.data.slice(0, firstShiftRowIndex);
+        const bodyData = block.data.slice(firstShiftRowIndex);
+        const bodyStartIndexInBlock = firstShiftRowIndex;
 
         const { address, eNumber, contract } = findProjectDetailsInBlock(headerData);
 
@@ -335,6 +353,11 @@ const parseBuildSheet = (
         for (let r = 0; r < bodyData.length; r++) {
             const rowData = bodyData[r];
             if (!rowData) continue;
+            
+            const potentialUserName = String(rowData[0] || '').trim();
+            const userForRow = findUser(potentialUserName, userMap);
+
+            if (!userForRow) continue;
 
             for (let c = 0; c < globalDateRow.length; c++) {
                 const shiftDate = globalDateRow[c];
@@ -348,57 +371,32 @@ const parseBuildSheet = (
                 if (shiftDate < today) continue;
                 
                 const cellContent = cellContentRaw.trim();
-                if (!cellContent.includes('-')) continue; 
+                let task = cellContent;
                 
-                const lastDashIndex = cellContent.lastIndexOf('-');
-                if (lastDashIndex === -1 || lastDashIndex === cellContent.length - 1) continue;
-                
-                const task = cellContent.substring(0, lastDashIndex).trim();
-                const potentialUserNames = cellContent.substring(lastDashIndex + 1).trim();
-
-                if (!task || !potentialUserNames) continue;
-
-                const usersInCell = potentialUserNames.split(/[&,+/]/g).map((n) => n.trim()).filter(Boolean);
-
-                if (usersInCell.length === 0) continue;
-
-                for (const userName of usersInCell) {
-                    const user = findUser(userName, userMap);
-                    if (user) {
-                        let shiftType: 'am' | 'pm' | 'all-day' = 'all-day';
-                        let finalTask = task;
-                        if (/^\s*AM\b/i.test(finalTask)) {
-                            shiftType = 'am';
-                            finalTask = finalTask.replace(/^\s*AM\b/i, '').trim();
-                        } else if (/^\s*PM\b/i.test(finalTask)) {
-                            shiftType = 'pm';
-                            finalTask = finalTask.replace(/^\s*PM\b/i, '').trim();
-                        }
-
-                        shifts.push({
-                            date: shiftDate,
-                            address,
-                            eNumber,
-                            task: finalTask,
-                            userId: user.uid,
-                            userName: user.originalName,
-                            type: shiftType,
-                            manager,
-                            contract,
-                            department,
-                            notes: '',
-                        });
-                    } else {
-                        failed.push({
-                            date: shiftDate,
-                            projectAddress: address,
-                            cellContent: cellContentRaw,
-                            reason: `Could not find a user matching "${userName}".`,
-                            sheetName,
-                            cellRef,
-                        });
-                    }
+                let shiftType: 'am' | 'pm' | 'all-day' = 'all-day';
+                if (/^\s*AM\b/i.test(task)) {
+                    shiftType = 'am';
+                    task = task.replace(/^\s*AM\b/i, '').trim();
+                } else if (/^\s*PM\b/i.test(task)) {
+                    shiftType = 'pm';
+                    task = task.replace(/^\s*PM\b/i, '').trim();
                 }
+
+                if (!task) continue;
+
+                shifts.push({
+                    date: shiftDate,
+                    address,
+                    eNumber,
+                    task: task,
+                    userId: userForRow.uid,
+                    userName: userForRow.originalName,
+                    type: shiftType,
+                    manager,
+                    contract,
+                    department,
+                    notes: '',
+                });
             }
         }
     }
@@ -437,7 +435,6 @@ const findAddressInBlock = (jsonData: any[][], startRow: number, endRow: number)
   for (let r = startRow; r < endRow; r++) {
     const row = jsonData[r] || [];
 
-    // Scan left-side region where address block can appear (wider than before)
     for (let c = 0; c <= 12; c++) {
       const cell = row[c];
       if (typeof cell !== 'string') continue;
@@ -445,7 +442,6 @@ const findAddressInBlock = (jsonData: any[][], startRow: number, endRow: number)
       const text = cell.trim();
       if (!isProbablyAddressText(text)) continue;
 
-      // Merge downwards for multi-line addresses
       const lines: string[] = [text];
       for (let rr = r + 1; rr < endRow; rr++) {
         const next = (jsonData[rr]?.[c] ?? '').toString().trim();
@@ -461,7 +457,6 @@ const findAddressInBlock = (jsonData: any[][], startRow: number, endRow: number)
         )
           break;
 
-        // stop if clearly not address continuation
         if (!isProbablyAddressText(next) && next.length < 8) break;
 
         lines.push(next);
