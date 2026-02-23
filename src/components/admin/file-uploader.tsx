@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useCallback } from 'react';
@@ -86,30 +87,6 @@ interface FileUploaderProps {
 // Helper functions
 // ------------------------
 
-const levenshtein = (a: string, b: string): number => {
-  if (a.length === 0) return b.length;
-  if (b.length === 0) return a.length;
-
-  const matrix: number[][] = [];
-  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
-  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
-
-  for (let i = 1; i <= b.length; i++) {
-    for (let j = 1; j <= a.length; j++) {
-      if (b.charAt(i - 1) === a.charAt(j - 1)) {
-        matrix[i][j] = matrix[i - 1][j - 1];
-      } else {
-        matrix[i][j] = Math.min(
-          matrix[i - 1][j - 1] + 1,
-          matrix[i][j - 1] + 1,
-          matrix[i - 1][j] + 1
-        );
-      }
-    }
-  }
-  return matrix[b.length][a.length];
-};
-
 const normalizeText = (text: string) => (text || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 const findUser = (name: string, userMap: UserMapEntry[]): UserMapEntry | null => {
@@ -119,62 +96,24 @@ const findUser = (name: string, userMap: UserMapEntry[]): UserMapEntry | null =>
   // 1. Exact match on the full normalized name.
   const exactMatch = userMap.find(u => u.normalizedName === normalizedName);
   if (exactMatch) return exactMatch;
-
-  // 2. Levenshtein distance-based matching
-  let minDistance = 2; // Only allow very close matches (max 1 typo)
-  let bestMatches: UserMapEntry[] = [];
-
-  for (const user of userMap) {
-    const distance = levenshtein(normalizedName, user.normalizedName);
-
-    if (distance < minDistance) {
-      minDistance = distance;
-      bestMatches = [user]; // New best match found, clear previous
-    } else if (distance === minDistance) {
-      bestMatches.push(user); // Another match with the same best distance
-    }
-  }
-
-  // Only return a match if it's unique to avoid ambiguity
-  if (bestMatches.length === 1) {
-    return bestMatches[0];
-  }
   
-  // 3. Fallback to first name + last initial (e.g. "philc" for "Phil Craig")
-  if (bestMatches.length === 0) {
-    const firstLastInitialMatch = userMap.find(u => {
-        const parts = u.originalName.toLowerCase().split(' ');
-        if (parts.length > 1) {
-            const first = parts[0];
-            const lastInitial = parts[parts.length - 1].charAt(0);
-            if (normalizeText(`'${first + lastInitial}'`) === normalizedName) {
-                return true;
-            }
-        }
-        return false;
-    });
-    if (firstLastInitialMatch) return firstLastInitialMatch;
-  }
-  
-  // 4. Fallback to partial name match (e.g., "darryl" matches "Darryl Grice")
+  // 2. Partial match if unambiguous
   const userByNamePart = userMap.filter(u => u.normalizedName.includes(normalizedName));
   if (userByNamePart.length === 1) {
       return userByNamePart[0];
   }
 
-
-  return null; // Return null if no clear, unambiguous match is found
+  return null; 
 };
+
 
 const parseDate = (dateValue: any): Date | null => {
     if (!dateValue) return null;
 
-    // If it's already a valid Date object
     if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
         return new Date(Date.UTC(dateValue.getFullYear(), dateValue.getMonth(), dateValue.getDate()));
     }
 
-    // Handle Excel's numeric date format
     if (typeof dateValue === 'number' && dateValue > 1) {
         const excelEpoch = new Date(1899, 11, 30);
         const d = new Date(excelEpoch.getTime() + dateValue * 24 * 60 * 60 * 1000);
@@ -184,28 +123,22 @@ const parseDate = (dateValue: any): Date | null => {
     if (typeof dateValue === 'string') {
         const s = dateValue.trim();
         if (!s) return null;
-
-        // Try parsing common formats like 'DD/MM/YYYY', 'DD-MM-YYYY', 'DD.MM.YYYY'
+        
         const parts = s.match(/^(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?$/);
         if (parts) {
             const day = parseInt(parts[1], 10);
-            const month = parseInt(parts[2], 10) - 1; // JS months are 0-indexed
+            const month = parseInt(parts[2], 10) - 1;
             let year = parts[3] ? parseInt(parts[3], 10) : new Date().getFullYear();
-
-            if (year < 100) {
-                year += 2000; // Handle '24' as 2024
-            }
+            if (year < 100) year += 2000;
 
             if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
                 const d = new Date(Date.UTC(year, month, day));
-                // Check if the created date is valid (e.g., handles non-existent dates like 31st Feb)
                 if (d.getUTCFullYear() === year && d.getUTCMonth() === month && d.getUTCDate() === day) {
                     return d;
                 }
             }
         }
         
-        // Fallback for other string formats that JS can handle, like 'YYYY-MM-DD' or 'Feb 19, 2024'
         const parsed = new Date(s);
         if (!isNaN(parsed.getTime())) {
             return new Date(Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()));
@@ -215,30 +148,15 @@ const parseDate = (dateValue: any): Date | null => {
     return null;
 };
 
-
-const isProbablyAddressText = (text: string): boolean => {
-  const t = (text || '').toString().trim();
-  if (!t || t.length < 5) return false;
-  // Contains numbers
-  if (/\d/.test(t)) return true;
-  // Common street words
-  if (/\b(road|rd|street|st|avenue|ave|close|cl|drive|dr|lane|ln|grove|court|ct|way|crescent|cres|house|place|terrace|gardens|view)\b/i.test(t)) return true;
-  
-  return false;
-};
-
-
 const findDateHeaderRow = (jsonData: any[][]): { dateRowIndex: number, dateRow: (Date | null)[] | null } => {
     for (let r = 0; r < Math.min(20, jsonData.length); r++) {
       const row = jsonData[r] || [];
       let dateCount = 0;
-      let nonDateCount = 0;
       for (let c = 0; c < row.length; c++) {
         if (parseDate(row[c])) dateCount++;
-        else if (String(row[c] || '').trim()) nonDateCount++;
       }
-      // A date row should have multiple dates and very few non-date entries
-      if (dateCount >= 3 && nonDateCount <= 4) { // Increased nonDateCount tolerance
+      // A date row must have at least 3 dates
+      if (dateCount >= 3) {
         return { dateRowIndex: r, dateRow: row.map((cell) => parseDate(cell)) };
       }
     }
@@ -251,27 +169,6 @@ const isSeparatorRow = (row: any[]): boolean => {
 };
 
 
-const findFirstOperativeRow = (jsonData: any[][], start: number, end: number, userMap: UserMapEntry[]): number => {
-    for (let i = start; i < end; i++) {
-        const row = jsonData[i];
-        if (row && row.length > 0) {
-            // Find the first non-empty cell in the row
-            for (let c = 0; c < row.length; c++) {
-                if (row[c]) {
-                    const potentialName = String(row[c]).trim();
-                    if (findUser(potentialName, userMap)) {
-                        // We found a user, this is likely the first operative row
-                        return i;
-                    }
-                    // If we found text but it's NOT a user, assume it's still part of the header and continue to the next row.
-                    break; 
-                }
-            }
-        }
-    }
-    return -1; // Not found
-}
-
 const parseBuildSheet = (
     worksheet: XLSX.WorkSheet, 
     userMap: UserMapEntry[], 
@@ -279,122 +176,91 @@ const parseBuildSheet = (
     department: string
 ): { shifts: ParsedShift[], failed: FailedShift[] } => {
     const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, blankrows: true, defval: null });
-
     const shifts: ParsedShift[] = [];
     const failed: FailedShift[] = [];
     const manager = sheetName;
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
 
-    const { dateRowIndex, dateRow: globalDateRow } = findDateHeaderRow(jsonData);
-    if (dateRowIndex === -1) {
-        failed.push({ date: null, projectAddress: 'Entire Sheet', cellContent: '', reason: 'A valid Date Header Row could not be found at the top of the sheet.', sheetName, cellRef: 'A1' });
+    const { dateRowIndex, dateRow } = findDateHeaderRow(jsonData);
+    if (dateRowIndex === -1 || !dateRow) {
+        failed.push({ date: null, projectAddress: 'Entire Sheet', cellContent: '', reason: 'A valid Date Header Row could not be found at the top of the sheet.', sheetName, cellRef: 'A1-A20' });
         return { shifts, failed };
     }
 
-    const blockStartIndices: number[] = [];
-    for (let i = dateRowIndex + 1; i < jsonData.length; i++) {
-        // A block starts on a non-empty row that is preceded by an empty one.
-        if (isSeparatorRow(jsonData[i - 1]) && !isSeparatorRow(jsonData[i])) {
-            blockStartIndices.push(i);
-        }
-    }
+    type ParserState = 'IDLE' | 'FOUND_CONTRACT' | 'FOUND_ADDRESS' | 'PARSING_SHIFTS';
+    let state: ParserState = 'IDLE';
 
-    // Handle case where the first block starts right after the date row without a separator
-    if (!isSeparatorRow(jsonData[dateRowIndex + 1])) {
-        if (!blockStartIndices.includes(dateRowIndex + 1)) {
-            blockStartIndices.unshift(dateRowIndex + 1);
-        }
-    }
+    let currentContract = '';
+    let currentAddress = '';
+    let currentENumber = '';
 
+    for (let r = dateRowIndex + 1; r < jsonData.length; r++) {
+        const rowData = jsonData[r] || [];
 
-    for (let i = 0; i < blockStartIndices.length; i++) {
-        const blockStart = blockStartIndices[i];
-        const nextBlockStart = i + 1 < blockStartIndices.length ? blockStartIndices[i + 1] : jsonData.length;
-        
-        const firstOperativeRowIndex = findFirstOperativeRow(jsonData, blockStart, nextBlockStart, userMap);
-        
-        if (firstOperativeRowIndex === -1) {
-            continue; // No operatives found in this block, skip
+        if (isSeparatorRow(rowData)) {
+            state = 'IDLE';
+            currentContract = '';
+            currentAddress = '';
+            currentENumber = '';
+            continue;
         }
 
-        const headerRows = jsonData.slice(blockStart, firstOperativeRowIndex);
-        const shiftRows = jsonData.slice(firstOperativeRowIndex, nextBlockStart);
-        
-        let address = '';
-        let eNumber = '';
-        let contract = '';
-        const otherHeaderInfo: string[] = [];
+        const firstNonEmptyCell = rowData.find(c => String(c || '').trim());
+        const user = findUser(String(firstNonEmptyCell || ''), userMap);
 
-        headerRows.flat().forEach(cell => {
-            const text = String(cell || '').trim();
-            if (!text) return;
+        if (user) {
+            if (state === 'FOUND_ADDRESS' || state === 'PARSING_SHIFTS') {
+                state = 'PARSING_SHIFTS'; // Stay in this state
+                for (let c = 1; c < rowData.length; c++) {
+                    const task = String(rowData[c] || '').trim();
+                    const shiftDate = dateRow[c];
+                    if (!task || !shiftDate || shiftDate < today) continue;
 
-            const eNumMatch = text.match(/\b([EB][-\s]?\d+)\b/i);
-            if (eNumMatch) {
-                eNumber = eNumMatch[0].toUpperCase().replace(/[-\s]/g, '');
-                // If the eNumber is the only thing, don't add it to address
-                if (text.replace(eNumMatch[0], '').trim()) {
-                    address = text.replace(eNumMatch[0], '').trim();
+                    let shiftType: 'am' | 'pm' | 'all-day' = 'all-day';
+                    let cleanTask = task;
+                    if (/^\s*AM\b/i.test(task)) {
+                        shiftType = 'am';
+                        cleanTask = task.replace(/^\s*AM\b/i, '').trim();
+                    } else if (/^\s*PM\b/i.test(task)) {
+                        shiftType = 'pm';
+                        cleanTask = task.replace(/^\s*PM\b/i, '').trim();
+                    }
+
+                    shifts.push({
+                        date: shiftDate,
+                        address: currentAddress,
+                        eNumber: currentENumber,
+                        task: cleanTask,
+                        userId: user.uid,
+                        userName: user.originalName,
+                        type: shiftType,
+                        manager,
+                        contract: currentContract || 'Uncategorized',
+                        department,
+                        notes: '',
+                    });
                 }
-            } else if (isProbablyAddressText(text) && !address) {
-                address = text;
             } else {
-                otherHeaderInfo.push(text);
+                 failed.push({ date: null, projectAddress: 'Unknown', cellContent: String(firstNonEmptyCell), reason: 'Found operative data before finding a project header.', sheetName, cellRef: `Row ${r + 1}` });
             }
-        });
-        
-        contract = otherHeaderInfo.join(' ');
-        
-        if (!address && otherHeaderInfo.length > 0) {
-            address = otherHeaderInfo.shift()!; // Use the first other info as address if no other is found
-            contract = otherHeaderInfo.join(' ');
-        }
+        } else {
+            // This is a header row or garbage text
+            const fullRowText = rowData.filter(c => c).join(' ').trim();
+            if (!fullRowText) continue;
 
-        if (!address) continue; // Cannot create shifts without an address
-
-        for (const rowData of shiftRows) {
-            if (isSeparatorRow(rowData)) continue;
-
-            const userNameCell = rowData.find(cell => findUser(String(cell || ''), userMap));
-            const userName = String(userNameCell || '').trim();
-
-            if (!userName) continue;
-
-            const user = findUser(userName, userMap);
-            if (!user) {
-                failed.push({ date: null, projectAddress: address, cellContent: userName, reason: `Could not find operative "${userName}".`, sheetName, cellRef: 'A' + (jsonData.indexOf(rowData) + 1) });
-                continue;
-            }
-
-            for (let c = 1; c < rowData.length; c++) {
-                const task = String(rowData[c] || '').trim();
-                const shiftDate = globalDateRow[c];
-                if (!task || !shiftDate || shiftDate < today) continue;
-                
-                let shiftType: 'am' | 'pm' | 'all-day' = 'all-day';
-                let cleanTask = task;
-                if (/^\s*AM\b/i.test(task)) {
-                    shiftType = 'am';
-                    cleanTask = task.replace(/^\s*AM\b/i, '').trim();
-                } else if (/^\s*PM\b/i.test(task)) {
-                    shiftType = 'pm';
-                    cleanTask = task.replace(/^\s*PM\b/i, '').trim();
+            if (state === 'IDLE') {
+                currentContract = fullRowText;
+                state = 'FOUND_CONTRACT';
+            } else if (state === 'FOUND_CONTRACT') {
+                const eNumMatch = fullRowText.match(/\b([EB][-\s]?\d+)\b/i);
+                if (eNumMatch) {
+                    currentENumber = eNumMatch[0].toUpperCase().replace(/[-\s]/g, '');
+                    currentAddress = fullRowText.replace(eNumMatch[0], '').trim();
+                } else {
+                    currentAddress = fullRowText;
                 }
-
-                shifts.push({
-                    date: shiftDate,
-                    address,
-                    eNumber,
-                    task: cleanTask,
-                    userId: user.uid,
-                    userName: user.originalName,
-                    type: shiftType,
-                    manager,
-                    contract: contract || 'Uncategorized',
-                    department,
-                    notes: '',
-                });
+                state = 'FOUND_ADDRESS';
             }
         }
     }
@@ -603,14 +469,12 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           const toDelete: Shift[] = [];
           const protectedStatuses: ShiftStatus[] = ['completed', 'incomplete'];
 
-          // Create / Update
           for (const [key, excelShift] of excelShiftsMap.entries()) {
             const existingShift = existingShiftsMap.get(key);
 
             if (!existingShift) {
               toCreate.push(excelShift);
             } else if (!protectedStatuses.includes(existingShift.status)) {
-              // Only update if fields have actually changed
               const hasChanged =
                 (existingShift.task || '') !== (excelShift.task || '') ||
                 (existingShift.type || 'all-day') !== (excelShift.type || 'all-day') ||
@@ -626,8 +490,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             }
           }
 
-
-          // Deletions (only if key missing entirely)
           for (const [key, existingShift] of existingShiftsMap.entries()) {
             if (!excelShiftsMap.has(key) && !protectedStatuses.includes(existingShift.status)) {
               const shiftDate = getCorrectedLocalDate(existingShift.date as any);
@@ -641,7 +503,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             const batch = writeBatch(firestore);
             const projectsRef = collection(firestore, 'projects');
             
-            // --- Project Creation/Update Logic ---
             const allImportedShifts = [...toCreate, ...toUpdate.map(u => u.new)];
             const projectInfoFromImport = new Map<string, ParsedShift>();
             allImportedShifts.forEach(shift => {
@@ -652,7 +513,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
 
             if (projectInfoFromImport.size > 0) {
                 const projectAddresses = Array.from(projectInfoFromImport.keys());
-                // Firestore 'in' query is limited to 30 items
                 for (let i = 0; i < projectAddresses.length; i += 30) {
                     const chunk = projectAddresses.slice(i, i + 30);
                     const existingProjectsQuery = query(projectsRef, where('address', 'in', chunk));
@@ -691,7 +551,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
                 }
             }
 
-            // --- Shift Creation/Update/Deletion ---
             toCreate.forEach((shift) => {
               const newShiftData = {
                 ...shift,
@@ -932,3 +791,5 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
     </div>
   );
 }
+
+    
