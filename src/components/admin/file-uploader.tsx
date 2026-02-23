@@ -225,47 +225,40 @@ const findDateHeaderRow = (jsonData: any[][]) => {
     return null;
 };
 
-const findProjectDetailsInBlock = (blockData: any[][]): { address: string, eNumber: string, contract: string } => {
-    const headerRows = blockData.slice(0, 4);
-    const headerTexts = headerRows.flat().map(cell => String(cell || '').trim()).filter(Boolean);
-
-    let address = '';
+const findProjectDetailsInBlock = (headerData: any[][]): { address: string, eNumber: string, contract: string } => {
+    const texts: string[] = [];
+    headerData.forEach(row => {
+        (row || []).forEach(cell => {
+            const text = String(cell || '').trim();
+            if (text && text.length > 2 && !/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(text) && !parseDate(text)) {
+                texts.push(text.replace(/\s+/g, ' '));
+            }
+        });
+    });
+    
+    const uniqueTexts = [...new Set(texts)];
+    
+    const addressParts: string[] = [];
+    const contractParts: string[] = [];
     let eNumber = '';
-    let contract = '';
-
-    const firstAddressLike = headerTexts.find(text => isProbablyAddressText(text));
-    if (firstAddressLike) {
-        address = firstAddressLike;
-    }
     
-    const eNumberMatch = headerTexts.join(' ').match(/\b((E|B)\d+)\b/i);
-    if (eNumberMatch) {
-        eNumber = eNumberMatch[0].toUpperCase();
-    }
-
-    const contractKeywords = ['CONTRACT', 'COUNCIL', 'HOUSING'];
-    const contractText = headerTexts.find(text => 
-        !isProbablyAddressText(text) && 
-        !text.match(/\b((E|B)\d+)\b/i) &&
-        contractKeywords.some(kw => text.toUpperCase().includes(kw))
-    );
-    
-    if (contractText) {
-        contract = contractText;
-    } else {
-        // Fallback for colored boxes or other non-standard indicators
-        const potentialContracts = headerTexts.filter(text =>
-            !isProbablyAddressText(text) &&
-            !text.match(/\b((E|B)\d+)\b/i) &&
-            !parseDate(text) &&
-            text.length > 2 && text.length < 25 // Reasonable length for a contract name
-        );
-        if (potentialContracts.length === 1) {
-            contract = potentialContracts[0];
+    uniqueTexts.forEach(text => {
+        const eNumberMatch = text.match(/\b([EB]\d+)\b/i);
+        if (eNumberMatch) {
+            eNumber = eNumberMatch[0].toUpperCase();
         }
-    }
+        
+        if (isProbablyAddressText(text)) {
+            addressParts.push(text);
+        } else {
+            contractParts.push(text);
+        }
+    });
 
-    return { address: address.replace(/\s+/g, ' ').trim(), eNumber, contract };
+    const address = [...new Set(addressParts.map(part => part.replace(/\b([EB]\d+)\b/i, '').trim()).filter(Boolean))].join(', ');
+    const contract = [...new Set(contractParts)].join('; ');
+    
+    return { address, eNumber, contract };
 };
 
 
@@ -293,42 +286,61 @@ const parseBuildSheet = (
         return { shifts, failed };
     }
 
-    const projectStartRows: number[] = [];
+    const blocks: {startIndex: number; data: any[][]}[] = [];
+    let currentBlock: any[][] = [];
+    let blockStartIndex = 0;
+
     for (let i = 0; i < jsonData.length; i++) {
         const row = jsonData[i] || [];
-        if (isProbablyAddressText(String(row[0] || ''))) {
-            projectStartRows.push(i);
+        const isRowEmpty = row.every(cell => cell === null || String(cell).trim() === '');
+        
+        if (isRowEmpty) {
+            if (currentBlock.length > 0) {
+                blocks.push({ startIndex: blockStartIndex, data: currentBlock });
+            }
+            currentBlock = [];
+            blockStartIndex = i + 1;
+        } else {
+            currentBlock.push(row);
         }
     }
-
-    if (projectStartRows.length === 0) {
-        failed.push({ date: null, projectAddress: 'Sheet', cellContent: '', reason: 'Could not find any addresses in the first column to identify project blocks.', sheetName, cellRef: 'A1' });
-        return { shifts, failed };
+    if (currentBlock.length > 0) {
+        blocks.push({ startIndex: blockStartIndex, data: currentBlock });
     }
 
-    const blocks: {startIndex: number; data: any[][]}[] = [];
-    for (let i = 0; i < projectStartRows.length; i++) {
-        const start = projectStartRows[i];
-        const end = (i + 1 < projectStartRows.length) ? projectStartRows[i + 1] : jsonData.length;
-        blocks.push({ startIndex: start, data: jsonData.slice(start, end) });
+    if (blocks.length === 0) {
+        failed.push({ date: null, projectAddress: 'Sheet', cellContent: '', reason: 'Could not find any content blocks separated by empty rows.', sheetName, cellRef: 'A1' });
+        return { shifts, failed };
     }
     
     for (const block of blocks) {
-        const { address, eNumber, contract } = findProjectDetailsInBlock(block.data);
+        let headerEndIndex = block.data.findIndex(row => 
+            (row || []).some(cell => typeof cell === 'string' && cell.includes('-') && cell.length > 5)
+        );
+
+        if (headerEndIndex === -1) {
+            headerEndIndex = Math.min(5, block.data.length);
+        }
+
+        const headerData = block.data.slice(0, headerEndIndex);
+        const bodyData = block.data.slice(headerEndIndex);
+        const bodyStartIndexInBlock = headerEndIndex;
+
+        const { address, eNumber, contract } = findProjectDetailsInBlock(headerData);
 
         if (!address) {
             continue; 
         }
         
-        for (let r = 0; r < block.data.length; r++) {
-            const rowData = block.data[r];
+        for (let r = 0; r < bodyData.length; r++) {
+            const rowData = bodyData[r];
             if (!rowData) continue;
 
             for (let c = 0; c < globalDateRow.length; c++) {
                 const shiftDate = globalDateRow[c];
                 if (!shiftDate) continue;
 
-                const originalRowIndex = block.startIndex + r;
+                const originalRowIndex = block.startIndex + bodyStartIndexInBlock + r;
                 const cellRef = XLSX.utils.encode_cell({ r: originalRowIndex, c });
                 const cellContentRaw = rowData[c];
 
@@ -336,7 +348,7 @@ const parseBuildSheet = (
                 if (shiftDate < today) continue;
                 
                 const cellContent = cellContentRaw.trim();
-                if (!cellContent.includes('-')) continue; // Must be a task-user pair
+                if (!cellContent.includes('-')) continue; 
                 
                 const lastDashIndex = cellContent.lastIndexOf('-');
                 if (lastDashIndex === -1 || lastDashIndex === cellContent.length - 1) continue;
@@ -392,49 +404,6 @@ const parseBuildSheet = (
     }
 
     return { shifts, failed };
-};
-
-const findSiteContacts = (jsonData: any[][], startRow: number, endRow: number): SiteContact[] => {
-    const contacts: SiteContact[] = [];
-    const roles = ['SITE MANAGER', 'PROJECT MANAGER', 'JOB MANAGER', 'TLO'];
-    
-    for (let r = startRow; r < endRow; r++) {
-        const row = jsonData[r] || [];
-        for (let c = 0; c < row.length; c++) {
-            const cellText = (row[c] || '').toString().trim();
-            if (!cellText) continue;
-
-            const upperCellText = cellText.toUpperCase();
-
-            for (const role of roles) {
-                if (upperCellText.startsWith(role)) {
-                    let restOfText = cellText.substring(role.length).trim();
-                    
-                    let phoneMatch = restOfText.match(/(0\d[\d\s-]{8,})/);
-                    let name = phoneMatch ? restOfText.substring(0, phoneMatch.index).trim() : restOfText;
-                    let phone = phoneMatch ? phoneMatch[0].trim() : '';
-
-                    if (!name) continue;
-
-                    if (!phone && (r + 1 < endRow)) {
-                        const textBelow = (jsonData[r+1]?.[c] || '').toString().trim();
-                        if (/^(0\d[\d\s-]{8,})$/.test(textBelow)) {
-                            phone = textBelow;
-                        }
-                    }
-
-                    contacts.push({
-                        role,
-                        name: name.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' '),
-                        phone
-                    });
-                    
-                    break;
-                }
-            }
-        }
-    }
-    return contacts;
 };
 
 const findDateHeaderRowInBlock = (jsonData: any[][], startRow: number, endRow: number) => {
@@ -514,11 +483,6 @@ const findAddressInBlock = (jsonData: any[][], startRow: number, endRow: number)
   return { address: '', eNumber: '' };
 };
 
-interface SiteContact {
-  role: string;
-  name: string;
-  phone: string;
-}
 
 const LOCAL_STORAGE_KEY = 'shiftImport_selectedSheets_v2';
 
@@ -721,11 +685,9 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
                   continue;
                 }
 
-                const contacts = findSiteContacts(jsonData, blockStartRowIndex, blockEndRowIndex);
-                const managerContact = contacts.find(c => c.role.includes('MANAGER'));
-                const manager = managerContact ? managerContact.name : '';
-                const otherContacts = contacts.filter(c => c !== managerContact);
-                const notes = otherContacts.map(c => `'${c.role}: ${c.name} ${c.phone}'`).join('\n');
+                const manager = sheetName; // Use sheet name for manager in this format
+                const notes = ''; // No notes field in this format
+                const contract = sheetName; // Assume sheet name is contract
 
                 for (let r = dateRowIndex + 1; r < blockEndRowIndex; r++) {
                   const rowData = jsonData[r];
@@ -785,7 +747,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
                           eNumber,
                           manager,
                           notes,
-                          contract: sheetName,
+                          contract,
                           department: importDepartment === 'Other' ? '' : importDepartment,
                         });
                       } else {
