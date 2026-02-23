@@ -784,16 +784,17 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
           </Badge>
         </CardHeader>
 
-        <CardContent className="p-4 text-left grow flex flex-col justify-center space-y-1">
-          <p className="font-semibold text-sm">{shift.task}</p>
+        <CardContent className="p-4 text-left grow flex flex-col space-y-1">
+          <p className="font-semibold text-sm line-clamp-2" title={shift.task}>{shift.task}</p>
           <a
             href={`https://maps.google.com/?q=${encodeURIComponent(shift.address)}`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-xs text-muted-foreground hover:underline flex items-center gap-1.5"
+            title={shift.address}
           >
             <MapPin className="h-4 w-4 shrink-0" />
-            <span className="whitespace-pre-wrap">{shift.address}</span>
+            <span className="line-clamp-1">{shift.address}</span>
           </a>
           {shift.eNumber && <p className="text-xs text-muted-foreground">Number: {shift.eNumber}</p>}
           {shift.manager && <p className="text-xs text-muted-foreground">Manager: {shift.manager}</p>}
@@ -817,12 +818,11 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
               <p className="text-sm font-semibold text-muted-foreground">This shift is in the past.</p>
             </div>
           )}
+          {renderPurchaseLog()}
+          {renderTaskList()}
         </CardContent>
 
-        {renderPurchaseLog()}
-        {renderTaskList()}
-
-        <CardFooter className="p-2 bg-muted/30 grid grid-cols-1 gap-2">
+        <CardFooter className="p-2 bg-muted/30 grid grid-cols-1 gap-2 mt-auto">
           {!isExpired && shift.status === 'pending-confirmation' && (
             <Button
               onClick={() => handleUpdateStatus('confirmed')}
