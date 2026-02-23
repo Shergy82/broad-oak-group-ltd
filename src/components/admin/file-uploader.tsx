@@ -122,6 +122,7 @@ const extractUserAndTask = (text: string, userMap: UserMapEntry[]): { user: User
   if (!text || typeof text !== 'string') return null;
   const trimmedText = text.trim();
   if (!trimmedText) return null;
+  // Sort users by name length, descending, to match longer names first (e.g., "John Smith" before "John")
   const sortedUsers = [...userMap].sort((a, b) => b.originalName.length - a.originalName.length);
   for (const user of sortedUsers) {
     if (trimmedText.toLowerCase().endsWith(user.originalName.toLowerCase())) {
@@ -148,64 +149,59 @@ const processProjectBlock = (
 ): { shifts: ParsedShift[], failed: FailedShift[] } => {
     const shifts: ParsedShift[] = [];
     const failed: FailedShift[] = [];
-
-    // 1. Find the split between the header (project info) and the body (shift data)
+    
+    let address = '', eNumber = '', contract = '';
     let firstShiftRowIndex = -1;
+
+    // Find Address, Contract, and where shifts start
     for (let i = 0; i < block.length; i++) {
         const row = block[i];
-        // Scan cells starting from column B (index 1) to find the first user name
-        for (let c = 1; c < row.length; c++) {
-            if (extractUserAndTask(String(row[c] || ''), userMap)) {
-                firstShiftRowIndex = i;
-                break;
-            }
-        }
-        if (firstShiftRowIndex !== -1) break;
-    }
-
-    if (firstShiftRowIndex === -1) {
-        // This block has no recognizable shifts, so we skip it.
-        return { shifts, failed };
-    }
-
-    const headerRows = block.slice(0, firstShiftRowIndex);
-    const shiftRows = block.slice(firstShiftRowIndex);
-
-    // 2. Extract project information from the header rows
-    let address = '', eNumber = '', contract = '';
-    for (const hRow of headerRows) {
-        // Address and E-Number are always in the first column (A)
-        const cellA = String(hRow[0] || '').trim();
+        
+        // Find Address/eNumber in Column A
+        const cellA = String(row[0] || '').trim();
         if (cellA) {
-            const eNumMatch = cellA.match(/\b([BE]\d+\S*)$/i);
-            if (eNumMatch) {
+             const eNumMatch = cellA.match(/\b([BE]\d+\S*)$/i);
+             if (eNumMatch) {
                 eNumber = eNumMatch[0].toUpperCase();
                 address = cellA.replace(eNumMatch[0], '').trim().replace(/,$/, '').trim();
             } else {
                 address = cellA;
             }
         }
-        // The contract is in any *other* column in the header
-        for (let c = 1; c < hRow.length; c++) {
-            const potentialContract = String(hRow[c] || '').trim();
-            if (potentialContract) {
-                contract = potentialContract;
+        
+        // Find Contract in Column C
+        const cellC = String(row[2] || '').trim();
+        if(cellC) {
+            contract = cellC;
+        }
+
+        // Find the first row containing shift data
+        if (firstShiftRowIndex === -1) {
+            // Scan from column F (index 5) onwards
+            for (let c = 5; c < row.length; c++) {
+                if (extractUserAndTask(String(row[c] || ''), userMap)) {
+                    firstShiftRowIndex = i;
+                    break;
+                }
             }
         }
     }
-
+    
     if (!address) {
         // If we couldn't find an address for this block, we can't create shifts for it.
         return { shifts, failed };
     }
 
-    // 3. Process the shift rows to create shift objects
-    for (const sRow of shiftRows) {
-        // Ignore rows that only have content in the first column (likely header remnants)
-        const hasShiftContent = sRow.slice(1).some(cell => String(cell || '').trim());
-        if (!hasShiftContent) continue;
+    if (firstShiftRowIndex === -1) {
+        // No shifts found in this block
+        return { shifts, failed };
+    }
 
-        for (let c = 1; c < Math.min(sRow.length, dateRow.length); c++) {
+    // Process the shift rows to create shift objects
+    for (let r = firstShiftRowIndex; r < block.length; r++) {
+        const sRow = block[r];
+        // Scan from column F (index 5) onwards, as per user instruction
+        for (let c = 5; c < Math.min(sRow.length, dateRow.length); c++) {
             const date = dateRow[c];
             const cellText = String(sRow[c] || '').trim();
 
@@ -243,7 +239,7 @@ const parseBuildSheet = (
     const allShifts: ParsedShift[] = [];
     const allFailed: FailedShift[] = [];
     
-    // Rule 1: Date row is ALWAYS Row 1
+    // Rule: Date row is ALWAYS Row 1
     const dateRow = (jsonData[0] || []).map(cell => parseDate(cell));
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
@@ -282,6 +278,13 @@ const parseBuildSheet = (
 // END OF NEW PARSING LOGIC
 // =================================================================================================
 
+
+interface FileUploaderProps {
+  onImportComplete: (failedShifts: FailedShift[], onConfirm: () => Promise<void>, dryRunResult?: DryRunResult) => void;
+  onFileSelect: () => void;
+  userProfile: UserProfile;
+  importDepartment: string;
+}
 
 const LOCAL_STORAGE_KEY = 'shiftImport_selectedSheets_v2';
 
