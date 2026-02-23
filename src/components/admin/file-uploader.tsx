@@ -533,11 +533,11 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
       const workbook = XLSX.read(data, { type: 'array' });
       
       const visibleSheetNames = workbook.SheetNames.filter(name => {
-          const sheet = workbook.Sheets[name];
           if (name.startsWith('_')) {
               return false;
           }
           // @ts-ignore
+          const sheet = workbook.Sheets[name];
           if (sheet?.Hidden === 1 || sheet?.Hidden === '1' || sheet?.Hidden === true) {
               return false;
           }
@@ -795,13 +795,20 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
 
           const allDatesFound = allShiftsFromExcel.map((s) => s.date).filter((d): d is Date => d !== null);
 
-          if (allDatesFound.length === 0 && allFailedShifts.length > 0) {
-            onImportComplete(allFailedShifts, async () => {}, {
-              toCreate: [],
-              toUpdate: [],
-              toDelete: [],
-              failed: allFailedShifts,
-            });
+          if (allDatesFound.length === 0) {
+            if (allFailedShifts.length > 0) {
+              onImportComplete(allFailedShifts, async () => {}, {
+                toCreate: [],
+                toUpdate: [],
+                toDelete: [],
+                failed: allFailedShifts,
+              });
+            } else {
+               toast({
+                title: 'No Shifts Found',
+                description: 'No valid shifts with dates were found in the selected sheets.',
+              });
+            }
             setIsUploading(false);
             return;
           }
