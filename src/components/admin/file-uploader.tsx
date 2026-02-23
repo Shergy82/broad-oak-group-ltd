@@ -106,7 +106,6 @@ const findUser = (name: string, userMap: UserMapEntry[]): UserMapEntry | null =>
   return null; 
 };
 
-
 const parseDate = (dateValue: any): Date | null => {
     if (!dateValue) return null;
 
@@ -184,83 +183,142 @@ const parseBuildSheet = (
 
     const { dateRowIndex, dateRow } = findDateHeaderRow(jsonData);
     if (dateRowIndex === -1 || !dateRow) {
-        failed.push({ date: null, projectAddress: 'Entire Sheet', cellContent: '', reason: 'A valid Date Header Row could not be found at the top of the sheet.', sheetName, cellRef: 'A1-A20' });
+        failed.push({ date: null, projectAddress: 'Entire Sheet', cellContent: '', reason: 'A valid Date Header Row (yellow row) could not be found at the top of the sheet.', sheetName, cellRef: 'A1-A20' });
         return { shifts, failed };
     }
 
-    type ParserState = 'IDLE' | 'FOUND_CONTRACT' | 'FOUND_ADDRESS' | 'PARSING_SHIFTS';
-    let state: ParserState = 'IDLE';
+    const extractUserAndTask = (text: string): { user: UserMapEntry, task: string } | null => {
+        if (!text) return null;
+        const lowerText = text.toLowerCase();
+        
+        for (const user of userMap) {
+            const lowerName = user.originalName.toLowerCase();
+            const nameParts = lowerName.split(' ');
+            
+            // Try matching full name first
+            if (lowerText.includes(lowerName)) {
+                 const idx = lowerText.lastIndexOf(lowerName);
+                 if (idx + lowerName.length === lowerText.length) { // Must be at the end
+                    let task = text.substring(0, idx).trim();
+                    if (task.endsWith('-') || task.endsWith(':')) {
+                        task = task.slice(0, -1).trim();
+                    }
+                    return { user, task };
+                 }
+            }
+            
+            // Try matching first and last name if full name fails
+            if (nameParts.length > 1) {
+                const firstLast = `${nameParts[0]} ${nameParts[nameParts.length - 1]}`;
+                 if (lowerText.includes(firstLast)) {
+                    const idx = lowerText.lastIndexOf(firstLast);
+                    if (idx + firstLast.length === lowerText.length) {
+                        let task = text.substring(0, idx).trim();
+                         if (task.endsWith('-') || task.endsWith(':')) {
+                            task = task.slice(0, -1).trim();
+                        }
+                        return { user, task };
+                    }
+                 }
+            }
+        }
+        return null;
+    };
 
-    let currentContract = '';
-    let currentAddress = '';
-    let currentENumber = '';
-
+    const blocks: any[][][] = [];
+    let currentBlock: any[][] = [];
     for (let r = dateRowIndex + 1; r < jsonData.length; r++) {
-        const rowData = jsonData[r] || [];
+        const row = jsonData[r] || [];
+        if (isSeparatorRow(row)) {
+            if (currentBlock.length > 0) blocks.push(currentBlock);
+            currentBlock = [];
+        } else {
+            currentBlock.push(row);
+        }
+    }
+    if (currentBlock.length > 0) blocks.push(currentBlock);
 
-        if (isSeparatorRow(rowData)) {
-            state = 'IDLE';
-            currentContract = '';
-            currentAddress = '';
-            currentENumber = '';
-            continue;
+    for (const block of blocks) {
+        let address = '';
+        let eNumber = '';
+        let contract = '';
+        let headerRows: any[][] = [];
+        let shiftRows: any[][] = [];
+        let foundFirstShiftRow = false;
+
+        // Separate header from shifts. The first row with a parsable shift marks the start of shift data.
+        for (const row of block) {
+            let isShiftRow = false;
+            for (let c = 1; c < row.length; c++) {
+                if (extractUserAndTask(String(row[c] || ''))) {
+                    isShiftRow = true;
+                    break;
+                }
+            }
+            if (isShiftRow || foundFirstShiftRow) {
+                shiftRows.push(row);
+                foundFirstShiftRow = true;
+            } else {
+                headerRows.push(row);
+            }
         }
 
-        const firstNonEmptyCell = rowData.find(c => String(c || '').trim());
-        const user = findUser(String(firstNonEmptyCell || ''), userMap);
+        // Extract Address, E-Number, and Contract from header rows
+        for (const headerRow of headerRows) {
+            const firstCellText = String(headerRow[0] || '').trim();
+            if (firstCellText) {
+                // Heuristic: The row with the B-number at the end is the address row
+                const eNumMatch = firstCellText.match(/\b(B\d+)$/i);
+                if (eNumMatch) {
+                    address = firstCellText.replace(eNumMatch[0], '').trim();
+                    eNumber = eNumMatch[0];
+                }
+            }
+            // Check other cells for contract info
+            for (let c = 1; c < headerRow.length; c++) {
+                const cellText = String(headerRow[c] || '').trim();
+                if (cellText) {
+                    contract = cellText; // Assume any other text in the header is the contract
+                }
+            }
+        }
 
-        if (user) {
-            if (state === 'FOUND_ADDRESS' || state === 'PARSING_SHIFTS') {
-                state = 'PARSING_SHIFTS'; // Stay in this state
-                for (let c = 1; c < rowData.length; c++) {
-                    const task = String(rowData[c] || '').trim();
-                    const shiftDate = dateRow[c];
-                    if (!task || !shiftDate || shiftDate < today) continue;
+        // Fallback if the B-number logic failed but we have a header row
+        if (!address && headerRows.length > 0) {
+            for(const headerRow of headerRows) {
+                 const firstCellText = String(headerRow[0] || '').trim();
+                 if (firstCellText) {
+                     address = firstCellText; // Assign the first non-empty text as address if B-num not found
+                 }
+            }
+        }
 
-                    let shiftType: 'am' | 'pm' | 'all-day' = 'all-day';
-                    let cleanTask = task;
-                    if (/^\s*AM\b/i.test(task)) {
-                        shiftType = 'am';
-                        cleanTask = task.replace(/^\s*AM\b/i, '').trim();
-                    } else if (/^\s*PM\b/i.test(task)) {
-                        shiftType = 'pm';
-                        cleanTask = task.replace(/^\s*PM\b/i, '').trim();
-                    }
+        if (!address) continue; // Cannot process a block without an address.
 
-                    shifts.push({
-                        date: shiftDate,
-                        address: currentAddress,
-                        eNumber: currentENumber,
-                        task: cleanTask,
-                        userId: user.uid,
-                        userName: user.originalName,
-                        type: shiftType,
+        // Process shift rows
+        for (const shiftRow of shiftRows) {
+            for (let c = 1; c < shiftRow.length; c++) {
+                const date = dateRow[c];
+                const cellText = String(shiftRow[c] || '').trim();
+                
+                if (!cellText || !date || date < today) continue;
+                
+                const extraction = extractUserAndTask(cellText);
+                if (extraction) {
+                     shifts.push({
+                        date,
+                        address,
+                        eNumber,
+                        task: extraction.task,
+                        userId: extraction.user.uid,
+                        userName: extraction.user.originalName,
+                        type: 'all-day',
                         manager,
-                        contract: currentContract || 'Uncategorized',
+                        contract: contract || 'Uncategorized',
                         department,
                         notes: '',
                     });
                 }
-            } else {
-                 failed.push({ date: null, projectAddress: 'Unknown', cellContent: String(firstNonEmptyCell), reason: 'Found operative data before finding a project header.', sheetName, cellRef: `Row ${r + 1}` });
-            }
-        } else {
-            // This is a header row or garbage text
-            const fullRowText = rowData.filter(c => c).join(' ').trim();
-            if (!fullRowText) continue;
-
-            if (state === 'IDLE') {
-                currentContract = fullRowText;
-                state = 'FOUND_CONTRACT';
-            } else if (state === 'FOUND_CONTRACT') {
-                const eNumMatch = fullRowText.match(/\b([EB][-\s]?\d+)\b/i);
-                if (eNumMatch) {
-                    currentENumber = eNumMatch[0].toUpperCase().replace(/[-\s]/g, '');
-                    currentAddress = fullRowText.replace(eNumMatch[0], '').trim();
-                } else {
-                    currentAddress = fullRowText;
-                }
-                state = 'FOUND_ADDRESS';
             }
         }
     }
@@ -411,9 +469,10 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
 
           if (allShiftsFromExcel.length === 0 && allFailedShifts.length === 0) {
             toast({
+              variant: 'destructive',
               title: 'No Shifts Found',
               description:
-                'The file was processed, but no shifts were found to import from the selected sheets.',
+                'The file was processed, but no shifts were found to import from the selected sheets. Check for structural issues.',
             });
             setIsUploading(false);
             return;
@@ -431,6 +490,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
               });
             } else {
                toast({
+                variant: 'destructive',
                 title: 'No Shifts Found',
                 description: 'No valid shifts with dates were found in the selected sheets.',
               });
@@ -792,4 +852,5 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
   );
 }
 
+    
     
