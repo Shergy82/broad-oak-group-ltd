@@ -214,6 +214,7 @@ const parseBuildSheet = (
         
         for (let i = 0; i < block.length; i++) {
             const row = block[i];
+            // Start check from column B (index 1) to avoid matching names in the address column
             for (let c = 1; c < row.length; c++) {
                 if (extractUserAndTask(String(row[c] || ''), userMap)) {
                     firstShiftRowIndex = i;
@@ -232,22 +233,24 @@ const parseBuildSheet = (
         let eNumber = '';
         let contract = '';
         
-        for (const headerRow of headerRows) {
-            const firstCell = String(headerRow[0] || '').trim();
-            if (firstCell) {
-                 const eNumMatch = firstCell.match(/\b(B\d+)$/i);
-                 if(eNumMatch) {
-                    address = firstCell.replace(eNumMatch[0], '').trim().replace(/,$/, '');
-                    eNumber = eNumMatch[0];
-                 } else {
-                    address = firstCell;
-                 }
+        headerRows.forEach(row => {
+            const potentialAddress = String(row[0] || '').trim();
+            if (potentialAddress && !address) {
+                address = potentialAddress;
             }
-            for (let c = 1; c < headerRow.length; c++) {
-                const cellText = String(headerRow[c] || '').trim();
-                if (cellText) {
-                    contract = cellText;
+            for (let c = 1; c < row.length; c++) {
+                const potentialContract = String(row[c] || '').trim();
+                if(potentialContract && !contract) {
+                    contract = potentialContract;
                 }
+            }
+        });
+        
+        if (address) {
+            const eNumMatch = address.match(/\b([BE]\d+)$/i);
+            if(eNumMatch) {
+                eNumber = eNumMatch[0].toUpperCase();
+                address = address.replace(eNumMatch[0], '').trim().replace(/,$/, '').trim();
             }
         }
         
@@ -259,10 +262,10 @@ const parseBuildSheet = (
                 const cellText = String(shiftRow[c] || '').trim();
 
                 if (!cellText || !date || date < today) continue;
-                
+
                 const extraction = extractUserAndTask(cellText, userMap);
                 if (extraction) {
-                     shifts.push({
+                    shifts.push({
                         date,
                         address,
                         eNumber,
