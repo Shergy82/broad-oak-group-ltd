@@ -252,6 +252,72 @@ const processProjectBlock = (
     return { shifts, failed };
 };
 
+const parseBuildSheet = (
+  worksheet: XLSX.WorkSheet,
+  userMap: UserMapEntry[],
+  sheetName: string,
+  department: string
+): { shifts: ParsedShift[], failed: FailedShift[] } => {
+  const data: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: null });
+  if (data.length < 2) return { shifts: [], failed: [] };
+
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+
+  const dateRowRaw = data[0];
+  const dateRow: (Date | null)[] = dateRowRaw.map(parseDate);
+  const manager = sheetName;
+
+  const allShifts: ParsedShift[] = [];
+  const allFailed: FailedShift[] = [];
+
+  let currentBlock: any[][] = [];
+  let blockStartRowIndex = 0;
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const isSeparator = isRowEmpty(row);
+
+    if (isSeparator) {
+      if (currentBlock.length > 0) {
+        const { shifts, failed } = processProjectBlock(
+          currentBlock,
+          dateRow,
+          userMap,
+          manager,
+          department,
+          today,
+          sheetName,
+          blockStartRowIndex
+        );
+        allShifts.push(...shifts);
+        allFailed.push(...failed);
+      }
+      currentBlock = [];
+      blockStartRowIndex = i + 1;
+    } else {
+      currentBlock.push(row);
+    }
+  }
+
+  if (currentBlock.length > 0) {
+    const { shifts, failed } = processProjectBlock(
+      currentBlock,
+      dateRow,
+      userMap,
+      manager,
+      department,
+      today,
+      sheetName,
+      blockStartRowIndex
+    );
+    allShifts.push(...shifts);
+    allFailed.push(...failed);
+  }
+
+  return { shifts: allShifts, failed: allFailed };
+};
+
 
 interface FileUploaderProps {
   onImportComplete: (failedShifts: FailedShift[], onConfirm: () => Promise<void>, dryRunResult?: DryRunResult) => void;
