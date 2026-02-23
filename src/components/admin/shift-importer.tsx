@@ -72,7 +72,14 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
 
   const renderDryRunResults = (dryRun: DryRunResult) => {
     const hasChanges = dryRun.toCreate.length > 0 || dryRun.toUpdate.length > 0 || dryRun.toDelete.length > 0;
+    const hasFailures = dryRun.failed.length > 0;
     
+    // Determine default tab
+    let defaultTab = "overview";
+    if (!hasChanges && hasFailures) {
+        defaultTab = "failed";
+    }
+
     const renderChanges = (oldShift: Shift, newShift: ParsedShift) => {
         const changes: React.ReactNode[] = [];
         const fieldsToCompare: { key: keyof Shift | keyof ParsedShift, label: string }[] = [
@@ -113,12 +120,13 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
     };
     
     return (
-        <Tabs defaultValue="overview">
-            <TabsList className="grid w-full grid-cols-4">
+        <Tabs defaultValue={defaultTab}>
+            <TabsList className="grid w-full grid-cols-5">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="create">New ({dryRun.toCreate.length})</TabsTrigger>
                 <TabsTrigger value="update">Updates ({dryRun.toUpdate.length})</TabsTrigger>
                 <TabsTrigger value="delete">Deletions ({dryRun.toDelete.length})</TabsTrigger>
+                <TabsTrigger value="failed" className="data-[state=active]:text-destructive data-[state=active]:border-destructive">Failed ({dryRun.failed.length})</TabsTrigger>
             </TabsList>
              <TabsContent value="overview">
                 <Card>
@@ -155,8 +163,8 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                         ): (
                             <Alert>
                                 <CheckCircle className="h-4 w-4" />
-                                <AlertTitle>No Changes</AlertTitle>
-                                <AlertDescription>The schedule is already up-to-date with the selected file.</AlertDescription>
+                                <AlertTitle>No Changes Needed</AlertTitle>
+                                <AlertDescription>The schedule is already up-to-date with the selected file. {hasFailures && "However, there were some rows that could not be processed."}</AlertDescription>
                             </Alert>
                         )}
                     </CardFooter>
@@ -227,31 +235,30 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                     </CardContent>
                 </Card>
             </TabsContent>
+            <TabsContent value="failed">
+                 <Card>
+                    <CardHeader>
+                        <Alert variant="destructive">
+                            <FileWarning className="h-4 w-4" />
+                            <AlertTitle>{dryRun.failed.length} Row(s) Failed to Import</AlertTitle>
+                            <AlertDescription>These rows could not be processed. Please check the data in the indicated cells and try again.</AlertDescription>
+                        </Alert>
+                    </CardHeader>
+                    <CardContent>
+                         <ScrollArea className="h-72">
+                            <Table>
+                                <TableHeader><TableRow><TableHead>Sheet</TableHead><TableHead>Cell</TableHead><TableHead>Reason</TableHead></TableRow></TableHeader>
+                                <TableBody>
+                                    {dryRun.failed.map((f, i) => <TableRow key={i}><TableCell>{f.sheetName}</TableCell><TableCell>{f.cellRef}</TableCell><TableCell>{f.reason}</TableCell></TableRow>)}
+                                </TableBody>
+                            </Table>
+                         </ScrollArea>
+                    </CardContent>
+                </Card>
+            </TabsContent>
         </Tabs>
     )
   }
-  
-  const renderFailedShifts = (failures: FailedShift[]) => (
-     <Card>
-        <CardHeader>
-             <Alert variant="destructive">
-                <FileWarning className="h-4 w-4" />
-                <AlertTitle>{failures.length} Row(s) Failed to Import</AlertTitle>
-                <AlertDescription>These rows could not be processed. Please check the data in the indicated cells and try again.</AlertDescription>
-            </Alert>
-        </CardHeader>
-        <CardContent>
-             <ScrollArea className="h-72">
-                <Table>
-                    <TableHeader><TableRow><TableHead>Sheet</TableHead><TableHead>Cell</TableHead><TableHead>Reason</TableHead></TableRow></TableHeader>
-                    <TableBody>
-                        {failures.map((f, i) => <TableRow key={i}><TableCell>{f.sheetName}</TableCell><TableCell>{f.cellRef}</TableCell><TableCell>{f.reason}</TableCell></TableRow>)}
-                    </TableBody>
-                </Table>
-             </ScrollArea>
-        </CardContent>
-    </Card>
-  )
 
   return (
     <Card>
@@ -292,19 +299,13 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
       {importResults && (
         <CardFooter className="flex-col items-start gap-4 pt-6">
           {isConfirmed ? (
-             <>
-                <Alert>
-                    <CheckCircle className="h-4 w-4" />
-                    <AlertTitle>Import Successful!</AlertTitle>
-                    <AlertDescription>Your changes have been published.</AlertDescription>
-                </Alert>
-                {importResults.failedShifts.length > 0 && renderFailedShifts(importResults.failedShifts)}
-             </>
+            <Alert>
+              <CheckCircle className="h-4 w-4" />
+              <AlertTitle>Import Successful!</AlertTitle>
+              <AlertDescription>Your changes have been published.</AlertDescription>
+            </Alert>
           ) : (
-             <>
-                {importResults.dryRunResult && renderDryRunResults(importResults.dryRunResult)}
-                {importResults.failedShifts.length > 0 && renderFailedShifts(importResults.failedShifts)}
-             </>
+             importResults.dryRunResult && renderDryRunResults(importResults.dryRunResult)
           )}
         </CardFooter>
       )}
