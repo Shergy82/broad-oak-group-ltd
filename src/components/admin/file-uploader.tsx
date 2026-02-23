@@ -89,23 +89,6 @@ interface FileUploaderProps {
 
 const normalizeText = (text: string) => (text || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
-const findUser = (name: string, userMap: UserMapEntry[]): UserMapEntry | null => {
-  const normalizedName = normalizeText(name);
-  if (!normalizedName) return null;
-
-  // 1. Exact match on the full normalized name.
-  const exactMatch = userMap.find(u => u.normalizedName === normalizedName);
-  if (exactMatch) return exactMatch;
-  
-  // 2. Partial match if unambiguous
-  const userByNamePart = userMap.filter(u => u.normalizedName.includes(normalizedName));
-  if (userByNamePart.length === 1) {
-      return userByNamePart[0];
-  }
-
-  return null; 
-};
-
 const parseDate = (dateValue: any): Date | null => {
     if (!dateValue) return null;
 
@@ -154,7 +137,6 @@ const findDateHeaderRow = (jsonData: any[][]): { dateRowIndex: number, dateRow: 
       for (let c = 0; c < row.length; c++) {
         if (parseDate(row[c])) dateCount++;
       }
-      // A date row must have at least 3 dates
       if (dateCount >= 3) {
         return { dateRowIndex: r, dateRow: row.map((cell) => parseDate(cell)) };
       }
@@ -167,6 +149,33 @@ const isSeparatorRow = (row: any[]): boolean => {
     return row.every(cell => cell === null || cell === undefined || String(cell).trim() === '');
 };
 
+
+const extractUserAndTask = (text: string, userMap: UserMapEntry[]): { user: UserMapEntry, task: string } | null => {
+    if (!text || typeof text !== 'string') return null;
+    const trimmedText = text.trim();
+    if (!trimmedText) return null;
+
+    const sortedUsers = [...userMap].sort((a, b) => b.originalName.length - a.originalName.length);
+
+    for (const user of sortedUsers) {
+        if (trimmedText.toLowerCase().endsWith(user.originalName.toLowerCase())) {
+            const nameIndex = trimmedText.toLowerCase().lastIndexOf(user.originalName.toLowerCase());
+            let task = trimmedText.substring(0, nameIndex).trim();
+
+            if (!task) continue;
+
+            if (task.endsWith('-') || task.endsWith(':') || task.endsWith(',')) {
+                task = task.slice(0, -1).trim();
+            }
+            
+            if (task) {
+                 return { user, task };
+            }
+        }
+    }
+
+    return null;
+};
 
 const parseBuildSheet = (
     worksheet: XLSX.WorkSheet, 
@@ -183,47 +192,9 @@ const parseBuildSheet = (
 
     const { dateRowIndex, dateRow } = findDateHeaderRow(jsonData);
     if (dateRowIndex === -1 || !dateRow) {
-        failed.push({ date: null, projectAddress: 'Entire Sheet', cellContent: '', reason: 'A valid Date Header Row (yellow row) could not be found at the top of the sheet.', sheetName, cellRef: 'A1-A20' });
+        failed.push({ date: null, projectAddress: 'Entire Sheet', cellContent: '', reason: 'A valid Date Header Row could not be found at the top of the sheet.', sheetName, cellRef: 'A1-A20' });
         return { shifts, failed };
     }
-
-    const extractUserAndTask = (text: string): { user: UserMapEntry, task: string } | null => {
-        if (!text) return null;
-        const lowerText = text.toLowerCase();
-        
-        for (const user of userMap) {
-            const lowerName = user.originalName.toLowerCase();
-            const nameParts = lowerName.split(' ');
-            
-            // Try matching full name first
-            if (lowerText.includes(lowerName)) {
-                 const idx = lowerText.lastIndexOf(lowerName);
-                 if (idx + lowerName.length === lowerText.length) { // Must be at the end
-                    let task = text.substring(0, idx).trim();
-                    if (task.endsWith('-') || task.endsWith(':')) {
-                        task = task.slice(0, -1).trim();
-                    }
-                    return { user, task };
-                 }
-            }
-            
-            // Try matching first and last name if full name fails
-            if (nameParts.length > 1) {
-                const firstLast = `${nameParts[0]} ${nameParts[nameParts.length - 1]}`;
-                 if (lowerText.includes(firstLast)) {
-                    const idx = lowerText.lastIndexOf(firstLast);
-                    if (idx + firstLast.length === lowerText.length) {
-                        let task = text.substring(0, idx).trim();
-                         if (task.endsWith('-') || task.endsWith(':')) {
-                            task = task.slice(0, -1).trim();
-                        }
-                        return { user, task };
-                    }
-                 }
-            }
-        }
-        return null;
-    };
 
     const blocks: any[][][] = [];
     let currentBlock: any[][] = [];
@@ -239,71 +210,57 @@ const parseBuildSheet = (
     if (currentBlock.length > 0) blocks.push(currentBlock);
 
     for (const block of blocks) {
-        let address = '';
-        let eNumber = '';
-        let contract = '';
-        let headerRows: any[][] = [];
-        let shiftRows: any[][] = [];
-        let foundFirstShiftRow = false;
-
-        // Separate header from shifts. The first row with a parsable shift marks the start of shift data.
-        for (const row of block) {
-            let isShiftRow = false;
+        let firstShiftRowIndex = -1;
+        
+        for (let i = 0; i < block.length; i++) {
+            const row = block[i];
             for (let c = 1; c < row.length; c++) {
-                if (extractUserAndTask(String(row[c] || ''))) {
-                    isShiftRow = true;
+                if (extractUserAndTask(String(row[c] || ''), userMap)) {
+                    firstShiftRowIndex = i;
                     break;
                 }
             }
-            if (isShiftRow || foundFirstShiftRow) {
-                shiftRows.push(row);
-                foundFirstShiftRow = true;
-            } else {
-                headerRows.push(row);
-            }
+            if (firstShiftRowIndex !== -1) break;
         }
+        
+        if (firstShiftRowIndex === -1) continue;
 
-        // Extract Address, E-Number, and Contract from header rows
+        const headerRows = block.slice(0, firstShiftRowIndex);
+        const shiftRows = block.slice(firstShiftRowIndex);
+        
+        let address = '';
+        let eNumber = '';
+        let contract = '';
+        
         for (const headerRow of headerRows) {
-            const firstCellText = String(headerRow[0] || '').trim();
-            if (firstCellText) {
-                // Heuristic: The row with the B-number at the end is the address row
-                const eNumMatch = firstCellText.match(/\b(B\d+)$/i);
-                if (eNumMatch) {
-                    address = firstCellText.replace(eNumMatch[0], '').trim();
+            const firstCell = String(headerRow[0] || '').trim();
+            if (firstCell) {
+                 const eNumMatch = firstCell.match(/\b(B\d+)$/i);
+                 if(eNumMatch) {
+                    address = firstCell.replace(eNumMatch[0], '').trim().replace(/,$/, '');
                     eNumber = eNumMatch[0];
-                }
+                 } else {
+                    address = firstCell;
+                 }
             }
-            // Check other cells for contract info
             for (let c = 1; c < headerRow.length; c++) {
                 const cellText = String(headerRow[c] || '').trim();
                 if (cellText) {
-                    contract = cellText; // Assume any other text in the header is the contract
+                    contract = cellText;
                 }
             }
         }
+        
+        if (!address) continue;
 
-        // Fallback if the B-number logic failed but we have a header row
-        if (!address && headerRows.length > 0) {
-            for(const headerRow of headerRows) {
-                 const firstCellText = String(headerRow[0] || '').trim();
-                 if (firstCellText) {
-                     address = firstCellText; // Assign the first non-empty text as address if B-num not found
-                 }
-            }
-        }
-
-        if (!address) continue; // Cannot process a block without an address.
-
-        // Process shift rows
         for (const shiftRow of shiftRows) {
-            for (let c = 1; c < shiftRow.length; c++) {
+            for (let c = 1; c < dateRow.length; c++) {
                 const date = dateRow[c];
                 const cellText = String(shiftRow[c] || '').trim();
-                
+
                 if (!cellText || !date || date < today) continue;
                 
-                const extraction = extractUserAndTask(cellText);
+                const extraction = extractUserAndTask(cellText, userMap);
                 if (extraction) {
                      shifts.push({
                         date,
@@ -851,6 +808,3 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
     </div>
   );
 }
-
-    
-    
