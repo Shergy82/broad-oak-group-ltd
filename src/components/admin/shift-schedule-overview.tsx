@@ -656,10 +656,6 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     doc.save(`daily_report_${format(today, 'yyyy-MM-dd')}.pdf`);
   };
 
-  const handleDownloadWeeklyReport = () => {
-    handleDownloadPdf('this');
-  };
-
   const handleDeleteAllShifts = async () => {
     if (!functions) {
         toast({ variant: 'destructive', title: 'Error', description: 'Firebase Functions service is not available.' });
@@ -712,14 +708,6 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     if (shiftsToRender.length === 0) {
         return null;
     }
-
-    const truncate = (text: string, length = 10) => {
-        const words = text.split(' ');
-        if (words.length > length) {
-            return words.slice(0, length).join(' ') + '...';
-        }
-        return text;
-    };
     
     return (
         <>
@@ -745,14 +733,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                                         <TableCell className="font-medium">{format(getCorrectedLocalDate(shift.date), 'eeee, MMM d')}</TableCell>
                                         { (selectedUserId === 'all' || activeTab === 'archive') && <TableCell>{userNameMap.get(shift.userId) || 'Unknown'}</TableCell> }
                                         <TableCell>
-                                            <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                    <div className="truncate">{truncate(shift.task)}</div>
-                                                </TooltipTrigger>
-                                                <TooltipContent>
-                                                    <p className="max-w-xs">{shift.task}</p>
-                                                </TooltipContent>
-                                            </Tooltip>
+                                            <div className="font-medium">{shift.task}</div>
                                             <div className="text-xs text-muted-foreground">{shift.address}</div>
                                             {shift.eNumber && <div className="text-xs text-muted-foreground">{shift.eNumber}</div>}
                                         </TableCell>
@@ -1167,3 +1148,4 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     </>
   );
 }
+
