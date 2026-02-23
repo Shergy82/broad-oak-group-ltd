@@ -297,8 +297,10 @@ const parseBuildSheet = (
             blockStartIndices.push(i);
         }
     }
-    if (blockStartIndices.length === 0 && jsonData.length > dateRowIndex + 1) {
-        blockStartIndices.push(dateRowIndex + 1);
+    if (jsonData.length > dateRowIndex + 1 && !isSeparatorRow(jsonData[dateRowIndex + 1])) {
+        if (!blockStartIndices.includes(dateRowIndex + 1)) {
+            blockStartIndices.unshift(dateRowIndex + 1)
+        }
     }
 
     for (let i = 0; i < blockStartIndices.length; i++) {
