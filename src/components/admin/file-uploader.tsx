@@ -125,14 +125,23 @@ const extractUsersAndTask = (
   const raw = text.trim();
   if (!raw) return null;
 
-  // Split task and names (your format uses " - ")
-  const [taskPart, namesPart] = raw.split(/\s+-\s+/);
+  const lastHyphenIndex = raw.lastIndexOf('-');
+  if (lastHyphenIndex === -1) {
+    return {
+      users: [],
+      task: raw,
+      reason: 'No " - " separator found to distinguish task from names.',
+    };
+  }
+
+  const taskPart = raw.substring(0, lastHyphenIndex).trim();
+  const namesPart = raw.substring(lastHyphenIndex + 1).trim();
 
   if (!namesPart) {
     return {
       users: [],
       task: taskPart,
-      reason: 'No names found after task.',
+      reason: 'No names found after the " - " separator.',
     };
   }
 
@@ -147,8 +156,8 @@ const extractUsersAndTask = (
   for (const user of userMap) {
     const userName = normalizeText(user.originalName);
 
-    // Match if ANY chunk fully contains the user name
-    if (nameChunks.some(chunk => chunk.includes(userName))) {
+    // Match if ANY chunk from the cell is contained within the full database name
+    if (nameChunks.some(chunk => userName.includes(chunk))) {
       matchedUsers.push(user);
     }
   }
