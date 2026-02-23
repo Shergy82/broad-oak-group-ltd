@@ -247,9 +247,14 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                     <CardContent>
                          <ScrollArea className="h-72">
                             <Table>
-                                <TableHeader><TableRow><TableHead>Sheet</TableHead><TableHead>Cell</TableHead><TableHead>Reason</TableHead></TableRow></TableHeader>
+                                <TableHeader><TableRow><TableHead>Sheet</TableHead><TableHead>Cell</TableHead><TableHead>Content</TableHead><TableHead>Reason</TableHead></TableRow></TableHeader>
                                 <TableBody>
-                                    {dryRun.failed.map((f, i) => <TableRow key={i}><TableCell>{f.sheetName}</TableCell><TableCell>{f.cellRef}</TableCell><TableCell>{f.reason}</TableCell></TableRow>)}
+                                    {dryRun.failed.map((f, i) => <TableRow key={i}>
+                                        <TableCell>{f.sheetName}</TableCell>
+                                        <TableCell>{f.cellRef}</TableCell>
+                                        <TableCell><span className="text-xs font-mono bg-muted p-1 rounded">{f.cellContent}</span></TableCell>
+                                        <TableCell>{f.reason}</TableCell>
+                                      </TableRow>)}
                                 </TableBody>
                             </Table>
                          </ScrollArea>

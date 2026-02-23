@@ -143,68 +143,39 @@ const processProjectBlock = (
   department: string,
   today: Date,
   sheetName: string,
-  startRowIndexInSheet: number,
-  contractColIndex: number
+  startRowIndexInSheet: number
 ): { shifts: ParsedShift[], failed: FailedShift[] } => {
     const shifts: ParsedShift[] = [];
     const failed: FailedShift[] = [];
 
     const headerRow = block[0] || [];
-    const cellA = String(headerRow[0] || '').trim();
+    const addressAndENumber = String(headerRow[0] || '').trim();
+    const contract = String(headerRow[2] || '').trim();
+
+    if (!addressAndENumber) {
+      return { shifts, failed };
+    }
     
     let address = '', eNumber = '';
-    if (cellA) {
-        const eNumMatch = cellA.match(/\b([BE]\d+\S*)$/i);
-        if (eNumMatch) {
-            eNumber = eNumMatch[0].toUpperCase();
-            address = cellA.replace(eNumMatch[0], '').trim().replace(/,$/, '').trim();
-        } else {
-            address = cellA;
-        }
+    const eNumMatch = addressAndENumber.match(/\b([BE]\d+\S*)$/i);
+    if (eNumMatch) {
+        eNumber = eNumMatch[0].toUpperCase();
+        address = addressAndENumber.replace(eNumMatch[0], '').trim().replace(/,$/, '').trim();
+    } else {
+        address = addressAndENumber;
     }
 
-    if (!address) {
-        failed.push({
-            date: null,
-            projectAddress: 'Unknown Block',
-            cellContent: `Block starting at row ${startRowIndexInSheet + 1}`,
-            reason: 'Could not find a project address in Column A of the block header.',
-            sheetName,
-            cellRef: `A${startRowIndexInSheet + 1}`
-        });
-        return { shifts, failed };
-    }
-
-    const cellC = String(headerRow[contractColIndex] || '').trim();
-    const contract = cellC || 'Uncategorized';
-    
-    let shiftRowStartIndex = -1;
-    for (let i = 1; i < block.length; i++) {
-        const row = block[i] || [];
-        for (let j = 5; j < row.length; j++) {
-            const cellText = String(row[j] || '').trim();
-            if (cellText && userMap.some(u => cellText.toLowerCase().includes(u.originalName.toLowerCase()))) {
-                shiftRowStartIndex = i;
-                break;
-            }
-        }
-        if (shiftRowStartIndex !== -1) break;
-    }
-
-    if (shiftRowStartIndex === -1) shiftRowStartIndex = 1;
-
-    const shiftStartCol = 5;
-
-    for (let r = shiftRowStartIndex; r < block.length; r++) {
+    for (let r = 0; r < block.length; r++) {
         const sRow = block[r];
         if (isRowEmpty(sRow)) continue;
 
-        for (let c = shiftStartCol; c < Math.min(sRow.length, dateRow.length); c++) {
-            const date = dateRow[c];
+        for (let c = 5; c < sRow.length; c++) {
             const cellText = String(sRow[c] || '').trim();
             const cellRef = XLSX.utils.encode_cell({ c: c, r: startRowIndexInSheet + r });
 
             if (cellText && /[a-zA-Z]/.test(cellText)) {
+                const date = dateRow[c];
+
                 if (!date) {
                     failed.push({
                         date: null, projectAddress: address, cellContent: cellText,
@@ -250,7 +221,6 @@ const parseBuildSheet = (
     const allFailed: FailedShift[] = [];
     
     if (jsonData.length < 2) {
-        allFailed.push({ date: null, projectAddress: 'Entire Sheet', cellContent: '', reason: 'Sheet has less than 2 rows, cannot process.', sheetName, cellRef: 'Sheet' });
         return { shifts: allShifts, failed: allFailed };
     }
 
@@ -258,51 +228,32 @@ const parseBuildSheet = (
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
 
-    if (dateRow.length === 0 || dateRow.slice(5).every(d => d === null)) {
-        allFailed.push({ date: null, projectAddress: 'Entire Sheet', cellContent: '', reason: 'Could not find any valid dates in Row 1 from Column F onwards.', sheetName, cellRef: 'Row 1' });
-        return { shifts: allShifts, failed: allFailed };
-    }
-
     let currentBlock: any[][] = [];
     let blockStartRowIndex = -1;
     
-    // Determine the contract column index from the first block
-    let contractColIndex = 2; // Default to 'C'
-    let firstBlockFound = false;
-    for (let r = 1; r < jsonData.length && !firstBlockFound; r++) {
-        const row = jsonData[r] || [];
-        if (!isRowEmpty(row) && isRowEmpty(jsonData[r-1] || [])) {
-             for (let c = 1; c < 5; c++) {
-                if (String(row[c] || '').trim()) {
-                    contractColIndex = c;
-                    break;
-                }
-            }
-            firstBlockFound = true;
-        }
-    }
-
-
     for (let r = 1; r < jsonData.length; r++) {
         const row = jsonData[r] || [];
-        if (isRowEmpty(row)) {
-            if (currentBlock.length > 0) {
-                const { shifts, failed } = processProjectBlock(currentBlock, dateRow, userMap, sheetName, department, today, sheetName, blockStartRowIndex, contractColIndex);
-                allShifts.push(...shifts);
-                allFailed.push(...failed);
-            }
+        const isEmpty = isRowEmpty(row);
+
+        if (!isEmpty && blockStartRowIndex === -1) {
+            blockStartRowIndex = r;
+        }
+
+        if (isEmpty && blockStartRowIndex !== -1) {
+            const { shifts, failed } = processProjectBlock(currentBlock, dateRow, userMap, sheetName, department, today, sheetName, blockStartRowIndex);
+            allShifts.push(...shifts);
+            allFailed.push(...failed);
             currentBlock = [];
             blockStartRowIndex = -1;
-        } else {
-            if (blockStartRowIndex === -1) {
-                blockStartRowIndex = r;
-            }
+        }
+
+        if (!isEmpty && blockStartRowIndex !== -1) {
             currentBlock.push(row);
         }
     }
     
-    if (currentBlock.length > 0) {
-        const { shifts, failed } = processProjectBlock(currentBlock, dateRow, userMap, sheetName, department, today, sheetName, blockStartRowIndex, contractColIndex);
+    if (currentBlock.length > 0 && blockStartRowIndex !== -1) {
+        const { shifts, failed } = processProjectBlock(currentBlock, dateRow, userMap, sheetName, department, today, sheetName, blockStartRowIndex);
         allShifts.push(...shifts);
         allFailed.push(...failed);
     }
