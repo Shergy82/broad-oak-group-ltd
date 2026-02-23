@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -22,6 +23,7 @@ import { Search, Check, Ban, Trash, Edit, AlertTriangle } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
+import { useDepartmentFilter } from '@/hooks/use-department-filter';
 
 function EditUserDialog({ user, open, onOpenChange }: { user: UserProfile, open: boolean, onOpenChange: (open: boolean) => void }) {
     const { toast } = useToast();
@@ -113,6 +115,7 @@ export default function UserManagementPage() {
     const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
     const [isEditUserOpen, setIsEditUserOpen] = useState(false);
     const { toast } = useToast();
+    const { selectedDepartments } = useDepartmentFilter();
 
     useEffect(() => {
         const q = query(collection(db, 'users'));
@@ -127,13 +130,18 @@ export default function UserManagementPage() {
     }, []);
 
     const { pendingUsers, activeUsers, suspendedUsers } = useMemo(() => {
-        const filtered = users.filter(u => u.name?.toLowerCase().includes(searchTerm.toLowerCase()));
+        const isOwner = currentUserProfile?.role === 'owner';
+        const departmentFilteredUsers = isOwner && selectedDepartments.size > 0
+            ? users.filter(u => u.department && selectedDepartments.has(u.department))
+            : users;
+
+        const filtered = departmentFilteredUsers.filter(u => u.name?.toLowerCase().includes(searchTerm.toLowerCase()));
         return {
             pendingUsers: filtered.filter(u => u.status === 'pending-approval'),
             activeUsers: filtered.filter(u => u.status === 'active' || !u.status),
             suspendedUsers: filtered.filter(u => u.status === 'suspended'),
         };
-    }, [users, searchTerm]);
+    }, [users, searchTerm, currentUserProfile, selectedDepartments]);
     
     const handleSetUserStatus = async (user: UserProfile, newStatus: 'active' | 'suspended') => {
         if (!functions) {
@@ -157,7 +165,7 @@ export default function UserManagementPage() {
         try {
             const deleteUserFn = httpsCallable<{uid: string}, {success: boolean}>(functions, 'deleteUser');
             await deleteUserFn({ uid: user.uid });
-            toast({ title: "User Deleted", description: "The user and their auth account have been permanently removed." });
+            toast({ title: "User Deleted", description: "The user and their authentication account have been permanently removed." });
         } catch (error: any) {
             toast({ variant: 'destructive', title: "Error", description: error.message });
         }
@@ -326,10 +334,10 @@ export default function UserManagementPage() {
                         />
                     </div>
                     <Tabs defaultValue="pending">
-                        <TabsList className="grid w-full grid-cols-1 gap-1 sm:grid-cols-3">
-                            <TabsTrigger value="pending">Pending ({pendingUsers.length})</TabsTrigger>
-                            <TabsTrigger value="active">Active ({activeUsers.length})</TabsTrigger>
-                            <TabsTrigger value="suspended">Suspended ({suspendedUsers.length})</TabsTrigger>
+                        <TabsList className="grid h-auto w-full grid-cols-1 gap-1 sm:h-10 sm:grid-cols-3">
+                            <TabsTrigger value="pending">Pending Applications ({pendingUsers.length})</TabsTrigger>
+                            <TabsTrigger value="active">Active Users ({activeUsers.length})</TabsTrigger>
+                            <TabsTrigger value="suspended">Suspended Users ({suspendedUsers.length})</TabsTrigger>
                         </TabsList>
                         <TabsContent value="pending" className="mt-4">{renderUserList(pendingUsers, 'pending')}</TabsContent>
                         <TabsContent value="active" className="mt-4">{renderUserList(activeUsers, 'active')}</TabsContent>
