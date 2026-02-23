@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useCallback, useMemo } from 'react';
@@ -118,108 +119,110 @@ const isRowEmpty = (row: any[]): boolean => {
   return row.every(cell => cell === null || cell === undefined || String(cell).trim() === '');
 };
 
-const extractUserAndTask = (text: string, userMap: UserMapEntry[]): { user: UserMapEntry, task: string } | null => {
-  if (!text || typeof text !== 'string') return null;
-  const trimmedText = text.trim();
-  if (!trimmedText) return null;
-  // Sort users by name length, descending, to match longer names first (e.g., "John Smith" before "John")
-  const sortedUsers = [...userMap].sort((a, b) => b.originalName.length - a.originalName.length);
-  for (const user of sortedUsers) {
-    if (trimmedText.toLowerCase().endsWith(user.originalName.toLowerCase())) {
-      const task = trimmedText.substring(0, trimmedText.length - user.originalName.length).trim();
-      if (task) {
-        return { user, task };
-      }
+
+const extractUserAndTask = (text: string, userMap: UserMapEntry[]): { user: UserMapEntry, task: string } | { user: null, task: string, reason: string } | null => {
+    if (!text || typeof text !== 'string') return null;
+    const trimmedText = text.trim();
+    if (!trimmedText) return null;
+
+    const sortedUsers = [...userMap].sort((a, b) => b.originalName.length - a.originalName.length);
+
+    for (const user of sortedUsers) {
+        if (trimmedText.toLowerCase().endsWith(user.originalName.toLowerCase())) {
+            const task = trimmedText.substring(0, trimmedText.length - user.originalName.length).trim();
+            // It's a valid shift if there's a task part, or even if it's just the user's name
+            return { user, task: task || "No task description" };
+        }
     }
-  }
-  return null;
+
+    // If no user was found, but there was text, return a failure object.
+    return { user: null, task: trimmedText, reason: `User not found in cell text.` };
 };
 
-/**
- * Processes a single block of rows from the spreadsheet. A block is defined as a set of rows
- * between two empty "black line" rows.
- */
+
 const processProjectBlock = (
   block: any[][],
   dateRow: (Date | null)[],
   userMap: UserMapEntry[],
   manager: string,
   department: string,
-  today: Date
+  today: Date,
+  sheetName: string,
+  startRowIndexInSheet: number
 ): { shifts: ParsedShift[], failed: FailedShift[] } => {
     const shifts: ParsedShift[] = [];
     const failed: FailedShift[] = [];
+
+    // Rule: Address is in the first row of the block, column A.
+    const headerRow = block[0] || [];
+    const cellA = String(headerRow[0] || '').trim();
     
-    let address = '', eNumber = '', contract = '';
-    let firstShiftRowIndex = -1;
-
-    // Find Address, Contract, and where shifts start
-    for (let i = 0; i < block.length; i++) {
-        const row = block[i];
-        
-        // Find Address/eNumber in Column A
-        const cellA = String(row[0] || '').trim();
-        if (cellA) {
-             const eNumMatch = cellA.match(/\b([BE]\d+\S*)$/i);
-             if (eNumMatch) {
-                eNumber = eNumMatch[0].toUpperCase();
-                address = cellA.replace(eNumMatch[0], '').trim().replace(/,$/, '').trim();
-            } else {
-                address = cellA;
-            }
-        }
-        
-        // Find Contract in Column C
-        const cellC = String(row[2] || '').trim();
-        if(cellC) {
-            contract = cellC;
-        }
-
-        // Find the first row containing shift data
-        if (firstShiftRowIndex === -1) {
-            // Scan from column F (index 5) onwards
-            for (let c = 5; c < row.length; c++) {
-                if (extractUserAndTask(String(row[c] || ''), userMap)) {
-                    firstShiftRowIndex = i;
-                    break;
-                }
-            }
+    let address = '', eNumber = '';
+    if (cellA) {
+        const eNumMatch = cellA.match(/\b([BE]\d+\S*)$/i);
+        if (eNumMatch) {
+            eNumber = eNumMatch[0].toUpperCase();
+            address = cellA.replace(eNumMatch[0], '').trim().replace(/,$/, '').trim();
+        } else {
+            address = cellA;
         }
     }
-    
+
     if (!address) {
-        // If we couldn't find an address for this block, we can't create shifts for it.
+        failed.push({
+            date: null,
+            projectAddress: 'Unknown Block',
+            cellContent: `Block starting at row ${startRowIndexInSheet + 1}`,
+            reason: 'Could not find a project address in Column A of the block header.',
+            sheetName,
+            cellRef: `A${startRowIndexInSheet + 1}`
+        });
         return { shifts, failed };
     }
 
-    if (firstShiftRowIndex === -1) {
-        // No shifts found in this block
-        return { shifts, failed };
-    }
+    // Rule: Contract is in the first row of the block, column C. All other rows in this column are notes.
+    const cellC = String(headerRow[2] || '').trim();
+    const contract = cellC || 'Uncategorized';
 
-    // Process the shift rows to create shift objects
-    for (let r = firstShiftRowIndex; r < block.length; r++) {
+    // Rule: Shifts start from column F onwards.
+    const shiftStartCol = 5; // Column F (0-indexed)
+
+    // Process all rows within the block for shifts.
+    for (let r = 0; r < block.length; r++) {
         const sRow = block[r];
-        // Scan from column F (index 5) onwards, as per user instruction
-        for (let c = 5; c < Math.min(sRow.length, dateRow.length); c++) {
+        if (isRowEmpty(sRow)) continue;
+
+        for (let c = shiftStartCol; c < Math.min(sRow.length, dateRow.length); c++) {
             const date = dateRow[c];
             const cellText = String(sRow[c] || '').trim();
+            const cellRef = XLSX.utils.encode_cell({ c: c, r: startRowIndexInSheet + r });
 
-            if (date && cellText && date >= today) {
+            if (cellText) {
+                if (!date) {
+                    failed.push({
+                        date: null, projectAddress: address, cellContent: cellText,
+                        reason: 'Cell has content but no corresponding date in Row 1.',
+                        sheetName, cellRef
+                    });
+                    continue;
+                }
+
+                if (date < today) continue; // Ignore past shifts
+
                 const extraction = extractUserAndTask(cellText, userMap);
-                if (extraction) {
+                if (extraction && extraction.user) {
                     shifts.push({
-                        date,
-                        address,
-                        eNumber,
+                        date, address, eNumber,
                         task: extraction.task,
                         userId: extraction.user.uid,
                         userName: extraction.user.originalName,
-                        type: 'all-day',
-                        manager,
-                        contract: contract || 'Uncategorized',
-                        department,
-                        notes: '',
+                        type: 'all-day', manager, contract, department, notes: '',
+                    });
+                } else if (extraction) { // Handles the case where user is null (not found)
+                    failed.push({
+                        date, projectAddress: address, cellContent: cellText,
+                        reason: extraction.reason,
+                        sheetName, cellRef
                     });
                 }
             }
@@ -230,50 +233,54 @@ const processProjectBlock = (
 };
 
 const parseBuildSheet = (
-    worksheet: XLSX.WorkSheet, 
-    userMap: UserMapEntry[], 
+    worksheet: XLSX.WorkSheet,
+    userMap: UserMapEntry[],
     sheetName: string,
     department: string
 ): { shifts: ParsedShift[], failed: FailedShift[] } => {
     const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, blankrows: true, defval: null });
     const allShifts: ParsedShift[] = [];
     const allFailed: FailedShift[] = [];
-    
+
     // Rule: Date row is ALWAYS Row 1
     const dateRow = (jsonData[0] || []).map(cell => parseDate(cell));
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
 
-    if (dateRow.length === 0 || dateRow.slice(1).every(d => d === null)) {
-        allFailed.push({ date: null, projectAddress: 'Entire Sheet', cellContent: '', reason: 'Could not find a valid date row in Row 1.', sheetName, cellRef: 'Row 1' });
+    if (dateRow.length === 0 || dateRow.slice(5).every(d => d === null)) { // Check from column F onwards
+        allFailed.push({ date: null, projectAddress: 'Entire Sheet', cellContent: '', reason: 'Could not find any valid dates in Row 1 from Column F onwards.', sheetName, cellRef: 'Row 1' });
         return { shifts: allShifts, failed: allFailed };
     }
-    
-    // Find all blocks separated by empty rows
+
     let currentBlock: any[][] = [];
+    let blockStartRowIndex = -1;
+
     for (let r = 1; r < jsonData.length; r++) {
         const row = jsonData[r] || [];
         if (isRowEmpty(row)) {
             if (currentBlock.length > 0) {
-                const { shifts, failed } = processProjectBlock(currentBlock, dateRow, userMap, sheetName, department, today);
+                const { shifts, failed } = processProjectBlock(currentBlock, dateRow, userMap, sheetName, department, today, sheetName, blockStartRowIndex);
                 allShifts.push(...shifts);
                 allFailed.push(...failed);
             }
             currentBlock = [];
+            blockStartRowIndex = -1;
         } else {
+            if (blockStartRowIndex === -1) {
+                blockStartRowIndex = r;
+            }
             currentBlock.push(row);
         }
     }
-    // Process the last block if the file doesn't end with an empty row
+    
     if (currentBlock.length > 0) {
-        const { shifts, failed } = processProjectBlock(currentBlock, dateRow, userMap, sheetName, department, today);
+        const { shifts, failed } = processProjectBlock(currentBlock, dateRow, userMap, sheetName, department, today, sheetName, blockStartRowIndex);
         allShifts.push(...shifts);
         allFailed.push(...failed);
     }
-    
+
     return { shifts: allShifts, failed: allFailed };
 };
-
 // =================================================================================================
 // END OF NEW PARSING LOGIC
 // =================================================================================================
