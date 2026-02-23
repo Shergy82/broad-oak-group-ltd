@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -100,6 +101,8 @@ import { Spinner } from '@/components/shared/spinner';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
 import { useAllUsers } from '@/hooks/use-all-users';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const getStatusBadge = (shift: Shift) => {
   const baseProps = { className: 'capitalize' };
@@ -573,15 +576,37 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
         return;
     }
 
-    const { default: jsPDF } = await import('jspdf');
-    const { default: autoTable } = await import('jspdf-autotable');
     const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.width;
+    const pageMargin = 15;
     
-    doc.setFontSize(18);
-    doc.text(`Plan of Works: ${selectedSiteAddress}`, 14, 22);
-    doc.setFontSize(11);
-    doc.setTextColor(100);
-    doc.text(`Report generated on: ${format(new Date(), 'PPP p')}`, 14, 28);
+    // --- Header ---
+    doc.setFillColor(241, 245, 249); // slate-100, a light gray for the header bg
+    doc.rect(0, 0, pageWidth, 28, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.setTextColor(15, 23, 42); // slate-900
+    doc.text('BROAD OAK GROUP', pageMargin, 17);
+    
+    // --- Title ---
+    let currentY = 40;
+    doc.setFontSize(22);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42); 
+    doc.text('Plan of Works', pageMargin, currentY);
+    currentY += 10;
+
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(51, 65, 85); // slate-700
+    const addressLines = doc.splitTextToSize(selectedSiteAddress, pageWidth - (pageMargin * 2));
+    doc.text(addressLines, pageMargin, currentY);
+    currentY += (addressLines.length * 6) + 10;
+    
+    doc.setFontSize(9);
+    doc.setTextColor(148, 163, 184); // slate-400
+    doc.text(`Report generated on: ${format(new Date(), 'PPP')}`, pageMargin, currentY);
+    currentY += 10;
     
     const head = [['Date', 'Task', 'Operative']];
     const body = siteScheduleShifts.map(shift => [
@@ -591,140 +616,28 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     ]);
     
     autoTable(doc, {
-      startY: 35,
+      startY: currentY,
       head,
       body,
-      headStyles: { fillColor: [6, 95, 212] },
-    });
-    
-    doc.save(`site_schedule_${selectedSiteAddress.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
-  };
-
-  const handleDownloadDailyReport = async () => {
-    const { default: jsPDF } = await import('jspdf');
-    const { default: autoTable } = await import('jspdf-autotable');
-    
-    const today = new Date();
-    const todaysShifts = allShifts.filter(s => isToday(getCorrectedLocalDate(s.date)));
-    
-    if (todaysShifts.length === 0) {
-        toast({
-            title: 'No Shifts Today',
-            description: 'There are no shifts scheduled for today to generate a report.',
-        });
-        return;
-    }
-
-    const doc = new jsPDF();
-    
-    // Stats
-    const totalShifts = todaysShifts.length;
-    const completed = todaysShifts.filter(s => s.status === 'completed').length;
-    const pending = todaysShifts.filter(s => s.status === 'pending-confirmation').length;
-    const confirmed = todaysShifts.filter(s => s.status === 'confirmed').length;
-    const onSite = todaysShifts.filter(s => s.status === 'on-site').length;
-    const incomplete = todaysShifts.filter(s => s.status === 'incomplete').length;
-    const operatives = new Set(todaysShifts.map(s => s.userId)).size;
-
-    doc.setFontSize(18);
-    doc.text(`Daily Report for ${format(today, 'PPP')}`, 14, 22);
-
-    doc.setFontSize(12);
-    doc.text('Summary of Today\'s Activities:', 14, 32);
-    autoTable(doc, {
-      startY: 36,
-      body: [
-          ['Total Shifts', totalShifts],
-          ['Operatives on Site', operatives],
-          ['Completed Shifts', completed],
-          ['On Site / In Progress', onSite],
-          ['Confirmed', confirmed],
-          ['Pending Confirmation', pending],
-          ['Marked Incomplete', incomplete],
-      ],
       theme: 'grid',
-      styles: {
-          fontStyle: 'bold',
-      },
+      headStyles: { fillColor: [6, 95, 212] },
       columnStyles: {
-          0: { cellWidth: 50 },
-          1: { cellWidth: 'auto', halign: 'center' },
+        0: { cellWidth: 35 },
+        1: { cellWidth: 'auto' }, 
+        2: { cellWidth: 35 },
+      },
+      didDrawPage: (data: any) => {
+        // Add footer on each page
+        const pageCount = (doc.internal as any).getNumberOfPages();
+        if (pageCount > 1) {
+            doc.setFontSize(10);
+            doc.setTextColor(150);
+            doc.text(`Page ${data.pageNumber} of ${pageCount}`, data.settings.margin.left, doc.internal.pageSize.height - 10);
+        }
       }
     });
     
-    const lastY = (doc as any).lastAutoTable.finalY;
-
-    doc.text('All Shifts for Today:', 14, lastY + 15);
-
-    const truncateText = (text: string, maxLength: number) => {
-        return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
-    };
-    
-    const statusOrder: {[key: string]: number} = {
-        'on-site': 1,
-        'confirmed': 2,
-        'pending-confirmation': 3,
-        'completed': 4,
-        'incomplete': 5,
-        'rejected': 6,
-    };
-    const sortedShifts = [...todaysShifts].sort((a, b) => {
-        const aStatus = a.status || 'pending-confirmation';
-        const bStatus = b.status || 'pending-confirmation';
-        if (statusOrder[aStatus] !== statusOrder[bStatus]) {
-            return statusOrder[aStatus] - statusOrder[bStatus];
-        }
-        const nameA = userNameMap.get(a.userId) || '';
-        const nameB = userNameMap.get(b.userId) || '';
-        return nameA.localeCompare(nameB);
-    });
-
-    const statusColors: {[key: string]: {bg: [number, number, number], text: [number, number, number]}} = {
-      'on-site': { bg: [204, 255, 255], text: [0, 128, 128] },
-      completed: { bg: [211, 255, 211], text: [0, 100, 0] },
-      incomplete: { bg: [255, 239, 213], text: [139, 69, 19] },
-      confirmed: { bg: [224, 236, 255], text: [0, 0, 128] },
-      'pending-confirmation': { bg: [245, 245, 245], text: [105, 105, 105] },
-      rejected: { bg: [255, 228, 225], text: [178, 34, 34]},
-    };
-
-
-    autoTable(doc, {
-        startY: lastY + 19,
-        head: [['Operative', 'Task', 'Address', 'Type', 'Status']],
-        body: sortedShifts.map(shift => [
-            userNameMap.get(shift.userId) || 'Unknown',
-            truncateText(shift.task, 40),
-            truncateText(shift.address, 35),
-            shift.type === 'all-day' ? 'All Day' : shift.type.toUpperCase(),
-            shift.status.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
-        ]),
-        headStyles: { fillColor: [6, 95, 212] },
-        styles: {
-            cellPadding: 2,
-            fontSize: 8,
-            valign: 'middle',
-            overflow: 'linebreak'
-        },
-        rowPageBreak: 'avoid',
-        bodyStyles: { minCellHeight: 12 },
-        willDrawCell: (data) => {
-          if (data.section === 'body' && data.column.dataKey === 4) { // Status column
-            const shift = sortedShifts[data.row.index];
-            if (shift) {
-              const status = shift.status || 'pending-confirmation';
-              const colors = statusColors[status];
-              if (colors) {
-                doc.setFillColor(colors.bg[0], colors.bg[1], colors.bg[2]);
-                doc.setTextColor(colors.text[0], colors.text[1], colors.text[2]);
-                doc.rect(data.cell.x, data.cell.y, data.cell.width, data.cell.height, 'F');
-              }
-            }
-          }
-        },
-    });
-
-    doc.save(`daily_report_${format(today, 'yyyy-MM-dd')}.pdf`);
+    doc.save(`site_schedule_${selectedSiteAddress.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
   };
 
   const handleDeleteAllShifts = async () => {
