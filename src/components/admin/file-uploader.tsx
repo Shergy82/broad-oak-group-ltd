@@ -356,7 +356,23 @@ const parseBuildSheet = (
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
 
-    const blocks: { startIndex: number; data: any[][] }[] = [];
+    // Global Date Row Discovery: Find the single date header row at the top of the sheet.
+    const { dateRowIndex: globalDateRowIndex, dateRow: globalDateRow } = findDateHeaderRowInBlock(jsonData, 0, Math.min(20, jsonData.length));
+
+    if (globalDateRowIndex === -1) {
+        failed.push({
+            date: null,
+            projectAddress: 'Entire Sheet',
+            cellContent: '',
+            reason: 'A valid Date Header Row could not be found at the top of the sheet.',
+            sheetName,
+            cellRef: 'A1',
+        });
+        return { shifts, failed };
+    }
+
+    // Block Discovery: Find all project blocks separated by empty rows.
+    const blocks: {startIndex: number; data: any[][]}[] = [];
     let currentBlock: any[][] = [];
     let currentBlockStartIndex = -1;
 
@@ -386,7 +402,9 @@ const parseBuildSheet = (
         return { shifts, failed };
     }
     
+    // Process each block with the global date row
     for (const block of blocks) {
+        // Address Discovery within the block
         let address = '';
         let eNumber = '';
         let contract = '';
@@ -410,28 +428,36 @@ const parseBuildSheet = (
         }
         
         if (!address) {
-            continue; 
+            continue; // Skip blocks where no address can be found
+        }
+        
+        // Find where data rows start (i.e., after the internal header)
+        let dataStartRowInBlock = 0;
+        // This finds the local header row *within the block* just to know where to start reading data from.
+        const localHeaderRow = findDateHeaderRowInBlock(block.data, 0, block.data.length);
+        if (localHeaderRow.dateRowIndex !== -1) {
+            dataStartRowInBlock = localHeaderRow.dateRowIndex + 1;
+        } else {
+             // Fallback if the inner date row isn't found (maybe it's just names)
+             let found = false;
+             for (let i = 0; i < block.data.length; i++) {
+                const row = block.data[i];
+                if ((row || []).some(cell => typeof cell === 'string' && cell.includes('-'))) {
+                    dataStartRowInBlock = i;
+                    found = true;
+                    break;
+                }
+             }
+             if (!found) continue; // No data rows found in block
         }
 
-        const { dateRowIndex, dateRow } = findDateHeaderRowInBlock(block.data, 0, block.data.length);
-        if (dateRowIndex === -1) {
-            failed.push({
-                date: null,
-                projectAddress: address,
-                cellContent: '',
-                reason: 'Could not find a Date Header Row in this project block.',
-                sheetName,
-                cellRef: `A${block.startIndex + 1}`,
-            });
-            continue;
-        }
-
-        for (let r = dateRowIndex + 1; r < block.data.length; r++) {
+        // Battleship Logic: Iterate through data rows of the block and use GLOBAL date columns
+        for (let r = dataStartRowInBlock; r < block.data.length; r++) {
             const rowData = block.data[r];
             if (!rowData) continue;
 
-            for (let c = 0; c < dateRow.length; c++) {
-                const shiftDate = dateRow[c];
+            for (let c = 0; c < globalDateRow.length; c++) {
+                const shiftDate = globalDateRow[c];
                 const originalRowIndex = block.startIndex + r;
                 const cellRef = XLSX.utils.encode_cell({ r: originalRowIndex, c });
                 const cellContentRaw = rowData[c];
@@ -440,7 +466,8 @@ const parseBuildSheet = (
                 if (shiftDate < today) continue;
                 
                 const cellContent = cellContentRaw.trim();
-                if (cellContent.length < 5) continue;
+                if (cellContent.length < 5) continue; // Skip very short, unlikely entries
+                
                 const lastDashIndex = cellContent.lastIndexOf('-');
                 if (lastDashIndex === -1 || lastDashIndex === cellContent.length - 1) continue;
                 
