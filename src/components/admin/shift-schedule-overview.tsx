@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -325,7 +324,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
       usersForDropdown: usersForDropdownResult,
       todayShifts: shiftsToday,
       thisWeekShifts: shiftsThisWeek,
-      lastWeekShifts: shiftsLastWeek,
+      lastWeekShifts: shiftsThisWeek,
       nextWeekShifts: shiftsNextWeek,
       week3Shifts: shiftsWeek3,
       week4Shifts: shiftsWeek4,
@@ -733,8 +732,8 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                                         <TableCell className="font-medium">{format(getCorrectedLocalDate(shift.date), 'eeee, MMM d')}</TableCell>
                                         { (selectedUserId === 'all' || activeTab === 'archive') && <TableCell>{userNameMap.get(shift.userId) || 'Unknown'}</TableCell> }
                                         <TableCell>
-                                            <div className="font-medium">{shift.task}</div>
-                                            <div className="text-xs text-muted-foreground">{shift.address}</div>
+                                            <div className="font-medium whitespace-pre-wrap">{shift.task}</div>
+                                            <div className="text-xs text-muted-foreground whitespace-pre-wrap">{shift.address}</div>
                                             {shift.eNumber && <div className="text-xs text-muted-foreground">{shift.eNumber}</div>}
                                         </TableCell>
                                         <TableCell className="text-xs text-muted-foreground">
@@ -989,7 +988,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                         <BarChart2 className="mr-2 h-4 w-4" />
                         Daily Report
                     </Button>
-                     <Button variant="outline" size="sm" onClick={handleDownloadWeeklyReport}>
+                     <Button variant="outline" size="sm" onClick={() => handleDownloadPdf('this')}>
                         <Calendar className="mr-2 h-4 w-4" />
                         Weekly Report
                     </Button>
@@ -1149,3 +1148,5 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
   );
 }
 
+
+    
