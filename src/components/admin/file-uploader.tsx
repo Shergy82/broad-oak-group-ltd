@@ -229,37 +229,40 @@ const findProjectDetailsInBlock = (blockData: any[][]): { address: string, eNumb
     let eNumber = '';
     let contract = '';
 
-    // Extract all potential address/detail lines from the first column of the block
-    for (let r = 0; r < blockData.length; r++) {
-        const cellVal = String(blockData[r]?.[0] || '').trim();
-        
-        // Stop if we hit a cell that looks like a shift task, as address info is above it.
-        if (cellVal.includes('-')) break;
+    // Define the range of rows to scan for address and contract info
+    const headerRows = blockData.slice(0, 4); // Scan first 4 rows of the block for header info
 
+    // 1. Find Address and E-Number from the first column
+    for (const row of headerRows) {
+        const cellVal = String(row?.[0] || '').trim();
         if (cellVal) {
+          // Heuristic: if it contains a dash, it's probably a shift task, so stop.
+          if (cellVal.includes('-')) break;
           addressLines.push(cellVal);
         }
     }
     
     let fullAddress = addressLines.join(', ');
-
     const eNumberMatch = fullAddress.match(/\b((E|B)\d+)\b/i);
     if (eNumberMatch) {
         eNumber = eNumberMatch[0].toUpperCase();
         fullAddress = fullAddress.replace(eNumberMatch[0], '').replace(/,\s*$/, '').trim();
     }
     
-    // Find Contract ('... CC') anywhere in the block
-    for (const row of blockData) {
-        for (const cell of row) {
-            const cellVal = String(cell || '').trim();
-            if (cellVal.toUpperCase().endsWith(' CC')) {
+    // 2. Find Contract from other columns in the header rows
+    for (const row of headerRows) {
+        // Scan columns from B onwards (index 1)
+        for (let c = 1; c < row.length; c++) {
+            const cellVal = String(row[c] || '').trim();
+            // A contract name is likely short, doesn't contain a dash, is not a date, and not a shift task-like entry
+            if (cellVal && !cellVal.includes('-') && !parseDate(cellVal)) {
                 contract = cellVal;
-                break;
+                break; // Found it, stop scanning this row
             }
         }
-        if (contract) break;
+        if (contract) break; // Found it, stop scanning other rows
     }
+
 
     return { address: fullAddress.replace(/\s+/g, ' ').trim(), eNumber, contract };
 };
