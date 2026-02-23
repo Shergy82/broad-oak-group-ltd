@@ -238,7 +238,7 @@ const findDateHeaderRow = (jsonData: any[][]): { dateRowIndex: number, dateRow: 
         else if (String(row[c] || '').trim()) nonDateCount++;
       }
       // A date row should have multiple dates and very few non-date entries
-      if (dateCount >= 3 && nonDateCount <= 2) {
+      if (dateCount >= 3 && nonDateCount <= 4) { // Increased nonDateCount tolerance
         return { dateRowIndex: r, dateRow: row.map((cell) => parseDate(cell)) };
       }
     }
@@ -255,13 +255,16 @@ const findFirstOperativeRow = (jsonData: any[][], start: number, end: number, us
     for (let i = start; i < end; i++) {
         const row = jsonData[i];
         if (row && row.length > 0) {
-            // Check first few columns for a potential name
-            for (let c = 0; c < Math.min(3, row.length); c++) {
-                 if (row[c]) {
+            // Find the first non-empty cell in the row
+            for (let c = 0; c < row.length; c++) {
+                if (row[c]) {
                     const potentialName = String(row[c]).trim();
                     if (findUser(potentialName, userMap)) {
+                        // We found a user, this is likely the first operative row
                         return i;
                     }
+                    // If we found text but it's NOT a user, assume it's still part of the header and continue to the next row.
+                    break; 
                 }
             }
         }
@@ -290,52 +293,64 @@ const parseBuildSheet = (
     }
 
     const blockStartIndices: number[] = [];
-    if (jsonData.length > 0 && !isSeparatorRow(jsonData[0]) && findFirstOperativeRow(jsonData, 0, 1, userMap) === -1 && dateRowIndex !== 0) {
-        blockStartIndices.push(0);
-    }
-    for (let i = 1; i < jsonData.length; i++) {
-        if (isSeparatorRow(jsonData[i - 1]) && !isSeparatorRow(jsonData[i]) && i > dateRowIndex) {
+    for (let i = dateRowIndex + 1; i < jsonData.length; i++) {
+        // A block starts on a non-empty row that is preceded by an empty one.
+        if (isSeparatorRow(jsonData[i - 1]) && !isSeparatorRow(jsonData[i])) {
             blockStartIndices.push(i);
         }
     }
 
+    // Handle case where the first block starts right after the date row without a separator
+    if (!isSeparatorRow(jsonData[dateRowIndex + 1])) {
+        if (!blockStartIndices.includes(dateRowIndex + 1)) {
+            blockStartIndices.unshift(dateRowIndex + 1);
+        }
+    }
+
+
     for (let i = 0; i < blockStartIndices.length; i++) {
         const blockStart = blockStartIndices[i];
         const nextBlockStart = i + 1 < blockStartIndices.length ? blockStartIndices[i + 1] : jsonData.length;
-        const blockEnd = nextBlockStart;
-
-        const firstOperativeRowIndex = findFirstOperativeRow(jsonData, blockStart, blockEnd, userMap);
+        
+        const firstOperativeRowIndex = findFirstOperativeRow(jsonData, blockStart, nextBlockStart, userMap);
         
         if (firstOperativeRowIndex === -1) {
             continue; // No operatives found in this block, skip
         }
 
         const headerRows = jsonData.slice(blockStart, firstOperativeRowIndex);
-        const shiftRows = jsonData.slice(firstOperativeRowIndex, blockEnd);
+        const shiftRows = jsonData.slice(firstOperativeRowIndex, nextBlockStart);
         
-        let contract = '';
         let address = '';
         let eNumber = '';
-        
-        const headerText = headerRows.flat().map(c => String(c || '').trim()).filter(Boolean);
-        
-        const addressLine = headerText.find(text => isProbablyAddressText(text));
-        if (addressLine) {
-            address = addressLine;
-            const eNumMatch = address.match(/\b([EB][-\s]?\d+)\b/i);
+        let contract = '';
+        const otherHeaderInfo: string[] = [];
+
+        headerRows.flat().forEach(cell => {
+            const text = String(cell || '').trim();
+            if (!text) return;
+
+            const eNumMatch = text.match(/\b([EB][-\s]?\d+)\b/i);
             if (eNumMatch) {
                 eNumber = eNumMatch[0].toUpperCase().replace(/[-\s]/g, '');
-                address = address.replace(eNumMatch[0], '').trim();
+                // If the eNumber is the only thing, don't add it to address
+                if (text.replace(eNumMatch[0], '').trim()) {
+                    address = text.replace(eNumMatch[0], '').trim();
+                }
+            } else if (isProbablyAddressText(text) && !address) {
+                address = text;
+            } else {
+                otherHeaderInfo.push(text);
             }
-        }
+        });
         
-        const contractLine = headerText.find(text => text !== addressLine && !/\d/.test(text) && text.length > 2);
-        if (contractLine) {
-            contract = contractLine;
-        } else if (!address && headerText.length > 0) {
-            address = headerText[0];
-        }
+        contract = otherHeaderInfo.join(' ');
         
+        if (!address && otherHeaderInfo.length > 0) {
+            address = otherHeaderInfo.shift()!; // Use the first other info as address if no other is found
+            contract = otherHeaderInfo.join(' ');
+        }
+
         if (!address) continue; // Cannot create shifts without an address
 
         for (const rowData of shiftRows) {
