@@ -533,16 +533,18 @@ export function StaffShiftMap() {
                                 </div>
                             </AccordionTrigger>
                             <AccordionContent>
-                                <div className="flex flex-wrap gap-3 pt-2">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 pt-2">
                                     {statusShifts.map(shift => (
-                                        <div key={shift.id} className="flex items-start gap-2 p-2 border rounded-md bg-background" style={{ flexBasis: '220px' }}>
-                                            <Avatar className="h-8 w-8">
-                                                <AvatarFallback className="text-xs">{getInitials(shift.userName)}</AvatarFallback>
-                                            </Avatar>
-                                            <div className="overflow-hidden">
+                                        <div key={shift.id} className="flex flex-col gap-2 p-3 border rounded-md bg-background">
+                                            <div className="flex items-center gap-2">
+                                                <Avatar className="h-8 w-8 shrink-0">
+                                                    <AvatarFallback className="text-xs">{getInitials(shift.userName)}</AvatarFallback>
+                                                </Avatar>
                                                 <p className="font-semibold text-sm truncate" title={shift.userName}>{shift.userName}</p>
-                                                <p className="text-xs text-muted-foreground truncate" title={shift.task}>{shift.task}</p>
-                                                <p className="text-xs text-muted-foreground truncate" title={shift.address}>{shortenAddress(shift.address)}</p>
+                                            </div>
+                                            <div className="text-xs text-muted-foreground space-y-1">
+                                                <p className="line-clamp-2" title={shift.task}>{shift.task}</p>
+                                                <p className="line-clamp-1" title={shift.address}>{shortenAddress(shift.address)}</p>
                                             </div>
                                         </div>
                                     ))}
