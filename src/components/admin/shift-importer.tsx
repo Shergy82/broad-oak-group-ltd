@@ -8,7 +8,7 @@ import { FileUploader, type FailedShift, type DryRunResult, type ParsedShift } f
 import type { UserProfile, Shift } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { CheckCircle, FileWarning, Upload, List, ArrowRight, Edit, Plus, Trash2 } from 'lucide-react';
+import { CheckCircle, FileWarning, Upload, List, ArrowRight, Edit, Plus, Trash2, Download } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from '../ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
@@ -69,6 +69,47 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
       setIsConfirmed(true);
     }
   };
+  
+  const handleDownloadFailedReport = async (failedShifts: FailedShift[]) => {
+    if (failedShifts.length === 0) return;
+
+    const { default: jsPDF } = await import('jspdf');
+    const { default: autoTable } = await import('jspdf-autotable');
+
+    const doc = new jsPDF();
+    const generationDate = new Date();
+
+    doc.setFontSize(18);
+    doc.text('Failed Shift Import Report', 14, 22);
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+    doc.text(`Generated on: ${format(generationDate, 'PPP p')}`, 14, 28);
+
+    const head = [['Sheet', 'Cell', 'Content', 'Reason for Failure']];
+    const body = failedShifts.map(f => [
+        f.sheetName,
+        f.cellRef,
+        f.cellContent,
+        f.reason,
+    ]);
+
+    autoTable(doc, {
+        startY: 35,
+        head,
+        body,
+        headStyles: { fillColor: [220, 53, 69] },
+        columnStyles: {
+            2: { cellWidth: 50 },
+            3: { cellWidth: 'auto' },
+        },
+        styles: {
+            fontSize: 9,
+        }
+    });
+
+    doc.save(`failed_shift_import_${format(generationDate, 'yyyy-MM-dd')}.pdf`);
+  };
+
 
   const renderDryRunResults = (dryRun: DryRunResult) => {
     const hasChanges = dryRun.toCreate.length > 0 || dryRun.toUpdate.length > 0 || dryRun.toDelete.length > 0;
@@ -238,11 +279,19 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
             <TabsContent value="failed">
                  <Card>
                     <CardHeader>
-                        <Alert variant="destructive">
-                            <FileWarning className="h-4 w-4" />
-                            <AlertTitle>{dryRun.failed.length} Row(s) Failed to Import</AlertTitle>
-                            <AlertDescription>These rows could not be processed. Please check the data in the indicated cells and try again.</AlertDescription>
-                        </Alert>
+                       <div className="flex justify-between items-center gap-4">
+                            <Alert variant="destructive" className="flex-grow">
+                                <FileWarning className="h-4 w-4" />
+                                <AlertTitle>{dryRun.failed.length} Row(s) Failed to Import</AlertTitle>
+                                <AlertDescription>These rows could not be processed. Please check the data in the indicated cells and try again.</AlertDescription>
+                            </Alert>
+                            {dryRun.failed.length > 0 && (
+                                <Button onClick={() => handleDownloadFailedReport(dryRun.failed)} variant="outline" size="sm" className="ml-4 shrink-0">
+                                    <Download className="mr-2 h-4 w-4" />
+                                    PDF Report
+                                </Button>
+                            )}
+                        </div>
                     </CardHeader>
                     <CardContent>
                          <ScrollArea className="h-72">
