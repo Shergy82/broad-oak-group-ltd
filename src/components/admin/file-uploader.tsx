@@ -72,7 +72,7 @@ export interface DryRunResult {
   failed: FailedShift[];
 }
 
-const normalizeText = (text: string) => (text || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const normalizeText = (text: string) => (text || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
 
 const parseDate = (dateValue: any): Date | null => {
   if (!dateValue) return null;
@@ -115,50 +115,79 @@ const isRowEmpty = (row: any[]): boolean => {
   return row.every(cell => cell === null || cell === undefined || String(cell).trim() === '');
 };
 
-type ExtractionResult = {
-  users: UserMapEntry[];
-  task: string;
-  reason?: string;
-};
-
 const extractUsersAndTask = (
   text: string,
   userMap: UserMapEntry[]
-): ExtractionResult | null => {
+): { users: UserMapEntry[]; task: string; reason?: string } | null => {
   if (!text || typeof text !== 'string') return null;
 
-  const originalText = text.trim();
-  if (!originalText) return null;
+  const raw = text.trim();
+  if (!raw) return null;
 
-  const normalizedText = normalizeText(originalText);
+  // 1. Split task from names using the hyphen.
+  const parts = raw.split(/\s+-\s+/);
+  const taskPart = parts[0].trim();
+  const namesPartRaw = parts.slice(1).join(' ').trim();
 
-  const matchedUsers = userMap.filter(user =>
-    normalizedText.includes(user.normalizedName)
-  );
+  if (!namesPartRaw) {
+    return { users: [], task: taskPart, reason: 'No names found after task delimiter (-).' };
+  }
+
+  // 2. Split multiple names into "chunks"
+  const nameChunks = namesPartRaw
+    .split(/\s*(?:&|and|,|\/)\s*/i)
+    .map(n => n.trim())
+    .filter(Boolean);
+
+  const matchedUsers: UserMapEntry[] = [];
+  const usedUserIds = new Set<string>();
+
+  // 3. For each name chunk from the cell, find the best matching user
+  for (const chunk of nameChunks) {
+    const chunkTokens = new Set(chunk.toLowerCase().split(/\s+/).filter(Boolean));
+    if (chunkTokens.size === 0) continue;
+
+    let bestMatch: { user: UserMapEntry; score: number } | null = null;
+
+    for (const user of userMap) {
+      // Avoid matching the same user twice
+      if (usedUserIds.has(user.uid)) continue;
+
+      const userTokens = new Set(user.originalName.toLowerCase().split(/\s+/).filter(Boolean));
+      
+      // Calculate a match score
+      let score = 0;
+      for (const token of chunkTokens) {
+        if (userTokens.has(token)) {
+          score++;
+        }
+      }
+      
+      // To be a valid match, all tokens from the excel chunk must be in the user's name tokens
+      if (score > 0 && score === chunkTokens.size) {
+        if (!bestMatch || score > bestMatch.score) {
+          bestMatch = { user, score };
+        }
+      }
+    }
+    
+    if (bestMatch) {
+      matchedUsers.push(bestMatch.user);
+      usedUserIds.add(bestMatch.user.uid);
+    }
+  }
 
   if (matchedUsers.length === 0) {
     return {
       users: [],
-      task: originalText,
-      reason: 'No matching users found in cell text.',
+      task: taskPart,
+      reason: `No users in database match the names found in cell: "${namesPartRaw}"`,
     };
   }
 
-  // Remove all user names from task text
-  let task = originalText;
-  matchedUsers.forEach(user => {
-    const regex = new RegExp(user.originalName, 'gi');
-    task = task.replace(regex, '');
-  });
-
-  task = task
-    .replace(/[-–—&,+]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
   return {
     users: matchedUsers,
-    task: task || 'No task description',
+    task: taskPart || 'No task description',
   };
 };
 
@@ -850,3 +879,5 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
     </div>
   );
 }
+
+    
