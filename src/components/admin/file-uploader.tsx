@@ -158,15 +158,10 @@ const extractUserAndTask = (text: string, userMap: UserMapEntry[]): { user: User
     const sortedUsers = [...userMap].sort((a, b) => b.originalName.length - a.originalName.length);
 
     for (const user of sortedUsers) {
-        if (trimmedText.toLowerCase().endsWith(user.originalName.toLowerCase())) {
-            const nameIndex = trimmedText.toLowerCase().lastIndexOf(user.originalName.toLowerCase());
-            let task = trimmedText.substring(0, nameIndex).trim();
-
-            if (!task) continue;
-
-            if (task.endsWith('-') || task.endsWith(':') || task.endsWith(',')) {
-                task = task.slice(0, -1).trim();
-            }
+        const nameIndex = trimmedText.toLowerCase().indexOf(user.originalName.toLowerCase());
+        
+        if (nameIndex > -1) {
+            const task = trimmedText.substring(0, nameIndex).trim() + trimmedText.substring(nameIndex + user.originalName.length).trim();
             
             if (task) {
                  return { user, task };
@@ -214,7 +209,6 @@ const parseBuildSheet = (
         
         for (let i = 0; i < block.length; i++) {
             const row = block[i];
-            // Start check from column B (index 1) to avoid matching names in the address column
             for (let c = 1; c < row.length; c++) {
                 if (extractUserAndTask(String(row[c] || ''), userMap)) {
                     firstShiftRowIndex = i;
@@ -247,7 +241,7 @@ const parseBuildSheet = (
         });
         
         if (address) {
-            const eNumMatch = address.match(/\b([BE]\d+)$/i);
+            const eNumMatch = address.match(/\b([BE]\d+\S*)$/i);
             if(eNumMatch) {
                 eNumber = eNumMatch[0].toUpperCase();
                 address = address.replace(eNumMatch[0], '').trim().replace(/,$/, '').trim();
