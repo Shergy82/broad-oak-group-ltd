@@ -24,6 +24,7 @@ import {
   subWeeks,
   subDays,
   startOfToday,
+  isSameDay,
 } from 'date-fns';
 import {
   Card,
@@ -640,6 +641,80 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     doc.save(`site_schedule_${selectedSiteAddress.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
   };
 
+  const handleDownloadDailyReport = async () => {
+    const { default: jsPDF } = await import('jspdf');
+    const { default: autoTable } = await import('jspdf-autotable');
+
+    const today = startOfToday();
+    const todayShifts = allShifts.filter(s => isSameDay(getCorrectedLocalDate(s.date), today));
+
+    if (todayShifts.length === 0) {
+      toast({ title: 'No shifts scheduled for today.' });
+      return;
+    }
+
+    const doc = new jsPDF();
+    const generationDate = new Date();
+
+    doc.setFontSize(18);
+    doc.text(`Daily Shift Report - ${format(today, 'PPP')}`, 14, 22);
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+    doc.text(`Generated on: ${format(generationDate, 'PPP p')}`, 14, 28);
+
+    let finalY = 35;
+
+    const shiftsByUser = new Map<string, Shift[]>();
+    todayShifts.forEach(shift => {
+        if (!shiftsByUser.has(shift.userId)) {
+            shiftsByUser.set(shift.userId, []);
+        }
+        shiftsByUser.get(shift.userId)!.push(shift);
+    });
+
+    const usersWithShiftsToday = [...allUsers]
+        .filter(u => shiftsByUser.has(u.uid))
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+    for (const user of usersWithShiftsToday) {
+        const userShifts = shiftsByUser.get(user.uid) || [];
+        userShifts.sort((a, b) => {
+            const typeOrder = { 'am': 1, 'pm': 2, 'all-day': 3 };
+            return typeOrder[a.type] - typeOrder[b.type];
+        });
+
+        const head = [['Type', 'Task & Address', 'Status']];
+        const body = userShifts.map(shift => {
+            const statusText = shift.status.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            return [
+                shift.type === 'all-day' ? 'All Day' : shift.type.toUpperCase(),
+                `${shift.task}\n${shift.address}`,
+                statusText
+            ];
+        });
+
+        let tableStartY = finalY + 10;
+        
+        doc.setFontSize(14);
+        doc.setFont(doc.getFont().fontName, 'bold');
+        doc.text(user.name, 14, tableStartY - 5);
+        tableStartY += 2;
+
+        autoTable(doc, {
+            head,
+            body,
+            startY: tableStartY,
+            headStyles: { fillColor: [6, 95, 212] },
+            didDrawPage: (data: any) => {
+                finalY = data.cursor?.y || 0;
+            },
+        });
+        finalY = (doc as any).lastAutoTable.finalY;
+    }
+
+    doc.save(`daily_report_${format(today, 'yyyy-MM-dd')}.pdf`);
+  };
+
   const handleDeleteAllShifts = async () => {
     if (!functions) {
         toast({ variant: 'destructive', title: 'Error', description: 'Firebase Functions service is not available.' });
@@ -1203,3 +1278,4 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     
 
     
+
