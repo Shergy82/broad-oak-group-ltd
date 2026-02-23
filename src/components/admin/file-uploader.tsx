@@ -346,25 +346,16 @@ const parseBuildSheet = (
 ): { shifts: ParsedShift[], failed: FailedShift[] } => {
     const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, {
         header: 1,
-        blankrows: true, // Keep blank rows to identify separators
+        blankrows: true, 
         defval: null,
       });
 
     const shifts: ParsedShift[] = [];
     const failed: FailedShift[] = [];
     const manager = sheetName;
-
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
 
-    // 1. Find the global date header row first.
-    const { dateRowIndex, dateRow } = findDateHeaderRowInBlock(jsonData, 0, 10);
-    if (dateRowIndex === -1) {
-        failed.push({ date: null, projectAddress: 'Sheet', cellContent: '', reason: 'Could not find a valid Date Header Row in the first 10 rows.', sheetName, cellRef: 'A1' });
-        return { shifts, failed };
-    }
-
-    // 2. Split the sheet into project blocks based on empty rows.
     const blocks: { startIndex: number; data: any[][] }[] = [];
     let currentBlock: any[][] = [];
     let currentBlockStartIndex = -1;
@@ -378,15 +369,14 @@ const parseBuildSheet = (
               currentBlockStartIndex = i;
             }
             currentBlock.push(row);
-        } else { // Row is empty
-            if (currentBlock.length > 2) { // A valid block needs some content
+        } else {
+            if (currentBlock.length > 2) {
                 blocks.push({startIndex: currentBlockStartIndex, data: currentBlock});
             }
             currentBlock = [];
             currentBlockStartIndex = -1;
         }
     }
-    // Add the last block if the file doesn't end with an empty row
     if (currentBlock.length > 2) {
         blocks.push({startIndex: currentBlockStartIndex, data: currentBlock});
     }
@@ -396,13 +386,11 @@ const parseBuildSheet = (
         return { shifts, failed };
     }
     
-    // 3. Process each block
     for (const block of blocks) {
         let address = '';
         let eNumber = '';
         let contract = '';
         
-        // Scan the block for address, eNumber, and contract
         for (const row of block.data) {
             for (let c = 0; c < row.length; c++) {
                 const cellVal = String(row[c] || '').trim();
@@ -421,18 +409,27 @@ const parseBuildSheet = (
             }
         }
         
-        // If a block has no discernible address, skip it.
         if (!address) {
             continue; 
         }
 
-        // 4. Iterate through rows in the block to find shifts
-        for (let r = 0; r < block.data.length; r++) {
-            const rowData = block.data[r];
-            // Don't process the date row itself as a shift row
-            if (!rowData || (block.startIndex + r) === dateRowIndex) continue;
+        const { dateRowIndex, dateRow } = findDateHeaderRowInBlock(block.data, 0, block.data.length);
+        if (dateRowIndex === -1) {
+            failed.push({
+                date: null,
+                projectAddress: address,
+                cellContent: '',
+                reason: 'Could not find a Date Header Row in this project block.',
+                sheetName,
+                cellRef: `A${block.startIndex + 1}`,
+            });
+            continue;
+        }
 
-            // Iterate through the dates found earlier
+        for (let r = dateRowIndex + 1; r < block.data.length; r++) {
+            const rowData = block.data[r];
+            if (!rowData) continue;
+
             for (let c = 0; c < dateRow.length; c++) {
                 const shiftDate = dateRow[c];
                 const originalRowIndex = block.startIndex + r;
@@ -440,14 +437,10 @@ const parseBuildSheet = (
                 const cellContentRaw = rowData[c];
 
                 if (!shiftDate || !cellContentRaw || typeof cellContentRaw !== 'string' ) continue;
-                
-                // IMPORTANT: Filter for today and future dates
                 if (shiftDate < today) continue;
                 
                 const cellContent = cellContentRaw.trim();
-                if (cellContent.length < 5) continue; // Too short to be a valid shift entry
-
-                // Heuristic: shift content must contain a dash
+                if (cellContent.length < 5) continue;
                 const lastDashIndex = cellContent.lastIndexOf('-');
                 if (lastDashIndex === -1 || lastDashIndex === cellContent.length - 1) continue;
                 
@@ -456,14 +449,10 @@ const parseBuildSheet = (
 
                 if (!task || !potentialUserNames) continue;
 
-                const usersInCell = potentialUserNames
-                    .split(/[&,+/]/g) // Split by common delimiters
-                    .map((n) => n.trim())
-                    .filter(Boolean); // Remove any empty strings from split
+                const usersInCell = potentialUserNames.split(/[&,+/]/g).map((n) => n.trim()).filter(Boolean);
 
                 if (usersInCell.length === 0) continue;
 
-                // Process each user found in the cell
                 for (const userName of usersInCell) {
                     const user = findUser(userName, userMap);
                     if (user) {
@@ -479,16 +468,16 @@ const parseBuildSheet = (
 
                         shifts.push({
                             date: shiftDate,
-                            address, // Use the address found for this block
-                            eNumber, // Use the eNumber for this block
+                            address,
+                            eNumber,
                             task: finalTask,
                             userId: user.uid,
                             userName: user.originalName,
                             type: shiftType,
                             manager,
-                            contract, // Use the contract for this block
+                            contract,
                             department,
-                            notes: '', // No notes from this format
+                            notes: '',
                         });
                     } else {
                         failed.push({
@@ -545,11 +534,11 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
       
       const visibleSheetNames = workbook.SheetNames.filter(name => {
           const sheet = workbook.Sheets[name];
-          // @ts-ignore
-          if (sheet?.Hidden === 1 || sheet?.Hidden === '1' || sheet?.Hidden === true) {
+          if (name.startsWith('_')) {
               return false;
           }
-          if (name.startsWith('_')) {
+          // @ts-ignore
+          if (sheet?.Hidden === 1 || sheet?.Hidden === '1' || sheet?.Hidden === true) {
               return false;
           }
           return true;
