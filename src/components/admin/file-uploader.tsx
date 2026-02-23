@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
 import {
@@ -93,19 +93,26 @@ const parseDate = (dateValue: any): Date | null => {
     if (!dateValue) return null;
 
     if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
-        return new Date(Date.UTC(dateValue.getFullYear(), dateValue.getMonth(), dateValue.getDate()));
+        // This is a JS date from XLSX, which is already in UTC.
+        return dateValue;
     }
 
+    // Handle Excel serial numbers
     if (typeof dateValue === 'number' && dateValue > 1) {
         const excelEpoch = new Date(1899, 11, 30);
         const d = new Date(excelEpoch.getTime() + dateValue * 24 * 60 * 60 * 1000);
-        if (!isNaN(d.getTime())) return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+        if (!isNaN(d.getTime())) {
+             // Re-create as UTC date to strip timezone
+            return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+        }
     }
-
+    
+    // Handle string dates (less reliable, but as a fallback)
     if (typeof dateValue === 'string') {
         const s = dateValue.trim();
         if (!s) return null;
         
+        // Try to parse common formats like dd/mm/yyyy
         const parts = s.match(/^(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?$/);
         if (parts) {
             const day = parseInt(parts[1], 10);
@@ -121,30 +128,18 @@ const parseDate = (dateValue: any): Date | null => {
             }
         }
         
+        // Final fallback for ISO-like strings
         const parsed = new Date(s);
         if (!isNaN(parsed.getTime())) {
-            return new Date(Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()));
+             return new Date(Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()));
         }
     }
 
     return null;
 };
 
-const findDateHeaderRow = (jsonData: any[][]): { dateRowIndex: number, dateRow: (Date | null)[] | null } => {
-    for (let r = 0; r < Math.min(20, jsonData.length); r++) {
-      const row = jsonData[r] || [];
-      let dateCount = 0;
-      for (let c = 0; c < row.length; c++) {
-        if (parseDate(row[c])) dateCount++;
-      }
-      if (dateCount >= 3) {
-        return { dateRowIndex: r, dateRow: row.map((cell) => parseDate(cell)) };
-      }
-    }
-    return { dateRowIndex: -1, dateRow: null };
-};
 
-const isSeparatorRow = (row: any[]): boolean => {
+const isRowEmpty = (row: any[]): boolean => {
     if (!row || row.length === 0) return true;
     return row.every(cell => cell === null || cell === undefined || String(cell).trim() === '');
 };
@@ -155,11 +150,13 @@ const extractUserAndTask = (text: string, userMap: UserMapEntry[]): { user: User
     const trimmedText = text.trim();
     if (!trimmedText) return null;
 
+    // Sort users by name length, descending, to match longer names first (e.g., "Smith" before "John Smith")
     const sortedUsers = [...userMap].sort((a, b) => b.originalName.length - a.originalName.length);
 
     for (const user of sortedUsers) {
         if (trimmedText.toLowerCase().endsWith(user.originalName.toLowerCase())) {
             const task = trimmedText.substring(0, trimmedText.length - user.originalName.length).trim();
+            // A task must exist, it can't just be the user's name
             if (task) {
                 return { user, task };
             }
@@ -182,30 +179,39 @@ const parseBuildSheet = (
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
 
-    const { dateRowIndex, dateRow } = findDateHeaderRow(jsonData);
-    if (dateRowIndex === -1 || !dateRow) {
-        failed.push({ date: null, projectAddress: 'Entire Sheet', cellContent: '', reason: 'A valid Date Header Row could not be found at the top of the sheet.', sheetName, cellRef: 'A1-A20' });
+    // Rule 1: Date row is ALWAYS Row 1
+    const dateRow = (jsonData[0] || []).map(cell => parseDate(cell));
+    if (dateRow.length === 0 || dateRow.slice(1).every(d => d === null)) {
+        failed.push({ date: null, projectAddress: 'Entire Sheet', cellContent: '', reason: 'Could not find a valid date row in Row 1.', sheetName, cellRef: 'Row 1' });
         return { shifts, failed };
     }
 
+    // Find all blocks separated by empty rows
     const blocks: any[][][] = [];
     let currentBlock: any[][] = [];
-    for (let r = dateRowIndex + 1; r < jsonData.length; r++) {
+    // Start scanning from row 2 (index 1) since row 1 is dates
+    for (let r = 1; r < jsonData.length; r++) {
         const row = jsonData[r] || [];
-        if (isSeparatorRow(row)) {
-            if (currentBlock.length > 0) blocks.push(currentBlock);
+        if (isRowEmpty(row)) {
+            if (currentBlock.length > 0) {
+                blocks.push(currentBlock);
+            }
             currentBlock = [];
         } else {
             currentBlock.push(row);
         }
     }
-    if (currentBlock.length > 0) blocks.push(currentBlock);
-
+    if (currentBlock.length > 0) {
+        blocks.push(currentBlock);
+    }
+    
     for (const block of blocks) {
         let firstShiftRowIndex = -1;
+        // Find the split between header and shift rows by finding the first operative
         for (let i = 0; i < block.length; i++) {
             const row = block[i];
-            for (let c = 1; c < row.length; c++) {
+            // Start from column C (index 2) to avoid matching names in address/contract
+            for (let c = 2; c < row.length; c++) { 
                 if (extractUserAndTask(String(row[c] || ''), userMap)) {
                     firstShiftRowIndex = i;
                     break;
@@ -213,17 +219,19 @@ const parseBuildSheet = (
             }
             if (firstShiftRowIndex !== -1) break;
         }
-        
-        if (firstShiftRowIndex === -1) continue;
+
+        if (firstShiftRowIndex === -1) continue; // No shifts found in this block
 
         const headerRows = block.slice(0, firstShiftRowIndex);
         const shiftRows = block.slice(firstShiftRowIndex);
-
+        
         let address = '', eNumber = '', contract = '';
 
+        // Extract Address, E-Number, and Contract from header rows
         for (const hRow of headerRows) {
             const cellA = String(hRow[0] || '').trim();
             if (cellA) {
+                // E-Number is assumed to be the last "word" if it matches the pattern
                 const eNumMatch = cellA.match(/\b([BE]\d+\S*)$/i);
                 if (eNumMatch) {
                     eNumber = eNumMatch[0].toUpperCase();
@@ -232,6 +240,7 @@ const parseBuildSheet = (
                     address = cellA;
                 }
             }
+            // All other non-empty cells in header rows are potential contract names
             for (let c = 1; c < hRow.length; c++) {
                 const potentialContract = String(hRow[c] || '').trim();
                 if (potentialContract) {
@@ -240,10 +249,14 @@ const parseBuildSheet = (
             }
         }
         
-        if (!address) continue;
-        
+        if (!address) continue; // Skip block if no address could be found
+
         for (const row of shiftRows) {
-            for (let c = 1; c < dateRow.length; c++) {
+            // A row is valid if it has content in columns other than the first
+            const hasShiftContent = row.slice(1).some(cell => String(cell || '').trim());
+            if (!hasShiftContent) continue;
+            
+            for (let c = 1; c < Math.min(row.length, dateRow.length); c++) {
                 const date = dateRow[c];
                 const cellText = String(row[c] || '').trim();
                 
@@ -268,6 +281,7 @@ const parseBuildSheet = (
             }
         }
     }
+    
     return { shifts, failed };
 };
 
@@ -350,7 +364,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
     setSelectedSheets(next);
 
     try {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(next));
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(Array.from(next)));
     } catch (e) {
       console.warn('Could not save sheet selection to localStorage', e);
     }
@@ -797,3 +811,4 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
     </div>
   );
 }
+
