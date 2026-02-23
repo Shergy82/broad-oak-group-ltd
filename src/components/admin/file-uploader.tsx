@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useCallback, useMemo } from 'react';
@@ -116,24 +115,52 @@ const isRowEmpty = (row: any[]): boolean => {
   return row.every(cell => cell === null || cell === undefined || String(cell).trim() === '');
 };
 
-
-const extractUserAndTask = (text: string, userMap: UserMapEntry[]): { user: UserMapEntry, task: string } | { user: null, task: string, reason: string } | null => {
-    if (!text || typeof text !== 'string') return null;
-    const trimmedText = text.trim();
-    if (!trimmedText) return null;
-
-    const sortedUsers = [...userMap].sort((a, b) => b.originalName.length - a.originalName.length);
-
-    for (const user of sortedUsers) {
-        if (trimmedText.toLowerCase().endsWith(user.originalName.toLowerCase())) {
-            const task = trimmedText.substring(0, trimmedText.length - user.originalName.length).trim();
-            return { user, task: task || "No task description" };
-        }
-    }
-
-    return { user: null, task: trimmedText, reason: `User not found in cell text.` };
+type ExtractionResult = {
+  users: UserMapEntry[];
+  task: string;
+  reason?: string;
 };
 
+const extractUsersAndTask = (
+  text: string,
+  userMap: UserMapEntry[]
+): ExtractionResult | null => {
+  if (!text || typeof text !== 'string') return null;
+
+  const originalText = text.trim();
+  if (!originalText) return null;
+
+  const normalizedText = normalizeText(originalText);
+
+  const matchedUsers = userMap.filter(user =>
+    normalizedText.includes(user.normalizedName)
+  );
+
+  if (matchedUsers.length === 0) {
+    return {
+      users: [],
+      task: originalText,
+      reason: 'No matching users found in cell text.',
+    };
+  }
+
+  // Remove all user names from task text
+  let task = originalText;
+  matchedUsers.forEach(user => {
+    const regex = new RegExp(user.originalName, 'gi');
+    task = task.replace(regex, '');
+  });
+
+  task = task
+    .replace(/[-–—&,+]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return {
+    users: matchedUsers,
+    task: task || 'No task description',
+  };
+};
 
 const processProjectBlock = (
   block: any[][],
@@ -187,78 +214,42 @@ const processProjectBlock = (
 
                 if (date < today) continue;
 
-                const extraction = extractUserAndTask(cellText, userMap);
-                if (extraction && extraction.user) {
-                    shifts.push({
-                        date, address, eNumber,
-                        task: extraction.task,
-                        userId: extraction.user.uid,
-                        userName: extraction.user.originalName,
-                        type: 'all-day', manager, contract, department, notes: '',
-                    });
-                } else if (extraction) {
-                    failed.push({
-                        date, projectAddress: address, cellContent: cellText,
-                        reason: extraction.reason,
-                        sheetName, cellRef
-                    });
+                const extraction = extractUsersAndTask(cellText, userMap);
+
+                if (!extraction) continue;
+
+                if (extraction.users.length === 0) {
+                  failed.push({
+                    date,
+                    projectAddress: address,
+                    cellContent: cellText,
+                    reason: extraction.reason || 'No users found.',
+                    sheetName,
+                    cellRef,
+                  });
+                  continue;
+                }
+
+                for (const user of extraction.users) {
+                  shifts.push({
+                    date,
+                    address,
+                    eNumber,
+                    task: extraction.task,
+                    userId: user.uid,
+                    userName: user.originalName,
+                    type: 'all-day',
+                    manager,
+                    contract,
+                    department,
+                    notes: '',
+                  });
                 }
             }
         }
     }
 
     return { shifts, failed };
-};
-
-const parseBuildSheet = (
-    worksheet: XLSX.WorkSheet,
-    userMap: UserMapEntry[],
-    sheetName: string,
-    department: string
-): { shifts: ParsedShift[], failed: FailedShift[] } => {
-    const jsonData = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, blankrows: true, defval: null });
-    const allShifts: ParsedShift[] = [];
-    const allFailed: FailedShift[] = [];
-    
-    if (jsonData.length < 2) {
-        return { shifts: allShifts, failed: allFailed };
-    }
-
-    const dateRow = (jsonData[0] || []).map(cell => parseDate(cell));
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
-
-    let currentBlock: any[][] = [];
-    let blockStartRowIndex = -1;
-    
-    for (let r = 1; r < jsonData.length; r++) {
-        const row = jsonData[r] || [];
-        const isEmpty = isRowEmpty(row);
-
-        if (!isEmpty && blockStartRowIndex === -1) {
-            blockStartRowIndex = r;
-        }
-
-        if (isEmpty && blockStartRowIndex !== -1) {
-            const { shifts, failed } = processProjectBlock(currentBlock, dateRow, userMap, sheetName, department, today, sheetName, blockStartRowIndex);
-            allShifts.push(...shifts);
-            allFailed.push(...failed);
-            currentBlock = [];
-            blockStartRowIndex = -1;
-        }
-
-        if (!isEmpty && blockStartRowIndex !== -1) {
-            currentBlock.push(row);
-        }
-    }
-    
-    if (currentBlock.length > 0 && blockStartRowIndex !== -1) {
-        const { shifts, failed } = processProjectBlock(currentBlock, dateRow, userMap, sheetName, department, today, sheetName, blockStartRowIndex);
-        allShifts.push(...shifts);
-        allFailed.push(...failed);
-    }
-
-    return { shifts: allShifts, failed: allFailed };
 };
 
 
