@@ -22,6 +22,7 @@ import {
   endOfWeek,
   subWeeks,
   subDays,
+  startOfToday,
 } from 'date-fns';
 import {
   Card,
@@ -57,6 +58,7 @@ import {
   ThumbsDown,
   CircleEllipsis,
   Calendar,
+  Users,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -97,6 +99,7 @@ import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/shared/spinner';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
 import { useAllUsers } from '@/hooks/use-all-users';
+import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 
 const getStatusBadge = (shift: Shift) => {
   const baseProps = { className: 'capitalize' };
@@ -180,6 +183,10 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
   const { toast } = useToast();
   const router = useRouter();
   
+  const [viewMode, setViewMode] = useState<'user' | 'site'>('user');
+  const [selectedSiteAddress, setSelectedSiteAddress] = useState<string | null>(null);
+  const [siteTimeFrame, setSiteTimeFrame] = useState<'1w' | '2w' | 'all'>('all');
+
   const { selectedDepartments } = useDepartmentFilter();
   const isOwner = userProfile.role === 'owner';
 
@@ -351,6 +358,35 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     }
     return options;
   }, []);
+  
+  const uniqueSiteAddresses = useMemo(() => {
+    const addresses = new Set<string>();
+    allShifts.forEach(shift => {
+        if(shift.address) addresses.add(shift.address);
+    });
+    return Array.from(addresses).sort();
+  }, [allShifts]);
+
+  const siteScheduleShifts = useMemo(() => {
+    if (!selectedSiteAddress) return [];
+    
+    const siteShifts = allShifts.filter(s => s.address === selectedSiteAddress);
+    
+    let filteredByDate = siteShifts;
+
+    if (siteTimeFrame !== 'all') {
+      const today = startOfToday();
+      const weeks = siteTimeFrame === '1w' ? 1 : 2;
+      const endDate = addDays(today, weeks * 7);
+      filteredByDate = siteShifts.filter(s => {
+          const shiftDate = getCorrectedLocalDate(s.date);
+          return shiftDate >= today && shiftDate < endDate;
+      });
+    }
+    
+    return filteredByDate.sort((a,b) => getCorrectedLocalDate(a.date).getTime() - getCorrectedLocalDate(b.date).getTime());
+  }, [selectedSiteAddress, allShifts, siteTimeFrame]);
+
 
   const handleAddShift = () => {
     setSelectedShift(null);
@@ -526,6 +562,42 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     
     addPageNumbers();
     doc.save(`team_schedule_${format(generationDate, 'yyyy-MM-dd')}.pdf`);
+  };
+
+  const handleDownloadSiteReport = async () => {
+    if (!selectedSiteAddress || siteScheduleShifts.length === 0) {
+        toast({
+            title: 'No Data to Export',
+            description: 'No shifts found for the selected site and timeframe.',
+        });
+        return;
+    }
+
+    const { default: jsPDF } = await import('jspdf');
+    const { default: autoTable } = await import('jspdf-autotable');
+    const doc = new jsPDF();
+    
+    doc.setFontSize(18);
+    doc.text(`Plan of Works: ${selectedSiteAddress}`, 14, 22);
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+    doc.text(`Report generated on: ${format(new Date(), 'PPP p')}`, 14, 28);
+    
+    const head = [['Date', 'Task', 'Operative']];
+    const body = siteScheduleShifts.map(shift => [
+      format(getCorrectedLocalDate(shift.date), 'EEE, dd MMM yyyy'),
+      shift.task,
+      userNameMap.get(shift.userId) || 'Unknown'
+    ]);
+    
+    autoTable(doc, {
+      startY: 35,
+      head,
+      body,
+      headStyles: { fillColor: [6, 95, 212] },
+    });
+    
+    doc.save(`site_schedule_${selectedSiteAddress.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
   };
 
   const handleDownloadDailyReport = async () => {
@@ -959,6 +1031,60 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
 
     return renderShiftList(sortedShifts);
   }
+
+  const renderSiteView = () => (
+    <div className="mt-4 space-y-4">
+        <div className="flex flex-col sm:flex-row gap-4 items-start">
+            <Select onValueChange={setSelectedSiteAddress} value={selectedSiteAddress || ''}>
+                <SelectTrigger className="w-full sm:w-[300px]">
+                    <SelectValue placeholder="Select a site address..." />
+                </SelectTrigger>
+                <SelectContent>
+                    {uniqueSiteAddresses.map(address => (
+                        <SelectItem key={address} value={address}>{address}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+            {selectedSiteAddress && (
+                <div className="flex flex-col sm:flex-row gap-2 w-full">
+                    <RadioGroup value={siteTimeFrame} onValueChange={(v) => setSiteTimeFrame(v as any)} className="flex items-center space-x-2 border p-2 rounded-md">
+                        <div className="flex items-center space-x-1"><RadioGroupItem value="1w" id="1w"/><Label htmlFor="1w">1 Week</Label></div>
+                        <div className="flex items-center space-x-1"><RadioGroupItem value="2w" id="2w"/><Label htmlFor="2w">2 Weeks</Label></div>
+                        <div className="flex items-center space-x-1"><RadioGroupItem value="all" id="all"/><Label htmlFor="all">Full Works</Label></div>
+                    </RadioGroup>
+                    <Button onClick={handleDownloadSiteReport} variant="outline" className="w-full sm:w-auto">
+                        <Download className="mr-2 h-4 w-4" /> Download PDF
+                    </Button>
+                </div>
+            )}
+        </div>
+
+        {selectedSiteAddress && (
+            loading ? <Skeleton className="h-48 w-full" /> :
+            siteScheduleShifts.length === 0 ? <p className="text-muted-foreground text-center mt-4">No shifts found for this site and timeframe.</p> :
+            <div className="border rounded-lg mt-4">
+              <Table>
+                  <TableHeader>
+                      <TableRow>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Task</TableHead>
+                          <TableHead>Operative</TableHead>
+                      </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                      {siteScheduleShifts.map(shift => (
+                          <TableRow key={shift.id}>
+                              <TableCell>{format(getCorrectedLocalDate(shift.date), 'eeee, MMM d, yyyy')}</TableCell>
+                              <TableCell>{shift.task}</TableCell>
+                              <TableCell>{userNameMap.get(shift.userId) || 'Unknown'}</TableCell>
+                          </TableRow>
+                      ))}
+                  </TableBody>
+              </Table>
+            </div>
+        )}
+    </div>
+  );
   
   if (error) {
       return (
@@ -980,9 +1106,17 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                     <CardDescription>A list of all upcoming shifts for the team, which updates in real-time.</CardDescription>
                 </div>
                 <div className="flex items-center gap-2 shrink-0 flex-wrap justify-start sm:justify-end">
-                     <Button variant="outline" onClick={() => router.push('/site-schedule')}>
-                        <Building className="mr-2 h-4 w-4" />
-                        Site View
+                     <Button variant="outline" onClick={() => {
+                        setViewMode(viewMode === 'user' ? 'site' : 'user');
+                        if (viewMode === 'site') {
+                            setSelectedSiteAddress(null);
+                        }
+                     }}>
+                        {viewMode === 'user' ? (
+                            <><Building className="mr-2 h-4 w-4" /> Site View</>
+                        ) : (
+                            <><Users className="mr-2 h-4 w-4" /> User View</>
+                        )}
                     </Button>
                     <Button variant="outline" size="sm" onClick={handleDownloadDailyReport}>
                         <BarChart2 className="mr-2 h-4 w-4" />
@@ -1018,87 +1152,91 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                     )}
                 </div>
             </div>
-             <div className="pt-4 flex flex-col sm:flex-row gap-4 items-center">
-                <div className="flex-grow w-full sm:w-auto">
-                     <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-                        <SelectTrigger className="w-full sm:w-[250px]">
-                            <SelectValue placeholder="All Users" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">All Users</SelectItem>
-                            {usersForDropdown.map(user => (
-                                <SelectItem key={user.uid} value={user.uid}>{user.name}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
-                 {activeTab !== 'archive' && (
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button variant="outline" size="sm" disabled={loading} className="w-full sm:w-auto">
-                                <Download className="mr-2 h-4 w-4" />
-                                Download PDF
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent>
-                            <DropdownMenuItem onClick={() => handleDownloadPdf('this')}>This Week</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleDownloadPdf('next')}>Next Week</DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleDownloadPdf('both')}>Both Weeks</DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                 )}
-            </div>
+            {viewMode === 'user' && (
+              <div className="pt-4 flex flex-col sm:flex-row gap-4 items-center">
+                  <div className="flex-grow w-full sm:w-auto">
+                      <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+                          <SelectTrigger className="w-full sm:w-[250px]">
+                              <SelectValue placeholder="All Users" />
+                          </SelectTrigger>
+                          <SelectContent>
+                              <SelectItem value="all">All Users</SelectItem>
+                              {usersForDropdown.map(user => (
+                                  <SelectItem key={user.uid} value={user.uid}>{user.name}</SelectItem>
+                              ))}
+                          </SelectContent>
+                      </Select>
+                  </div>
+                  {activeTab !== 'archive' && (
+                      <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                              <Button variant="outline" size="sm" disabled={loading} className="w-full sm:w-auto">
+                                  <Download className="mr-2 h-4 w-4" />
+                                  Download PDF
+                              </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent>
+                              <DropdownMenuItem onClick={() => handleDownloadPdf('this')}>This Week</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleDownloadPdf('next')}>Next Week</DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleDownloadPdf('both')}>Both Weeks</DropdownMenuItem>
+                          </DropdownMenuContent>
+                      </DropdownMenu>
+                  )}
+              </div>
+            )}
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="today" onValueChange={setActiveTab}>
-            <div className="flex flex-col space-y-2">
-              <TabsList className="grid grid-cols-3">
-                <TabsTrigger value="last-week">Last Week</TabsTrigger>
-                <TabsTrigger value="today">Today</TabsTrigger>
-                <TabsTrigger value="this-week">This Week</TabsTrigger>
-              </TabsList>
-              <TabsList className="grid grid-cols-3">
-                <TabsTrigger value="next-week">Next Week</TabsTrigger>
-                <TabsTrigger value="week-3">Week 3</TabsTrigger>
-                <TabsTrigger value="week-4">Week 4</TabsTrigger>
-              </TabsList>
-            </div>
+          {viewMode === 'site' ? renderSiteView() : (
+            <Tabs defaultValue="today" onValueChange={setActiveTab}>
+              <div className="flex flex-col space-y-2">
+                <TabsList className="grid grid-cols-3">
+                  <TabsTrigger value="last-week">Last Week</TabsTrigger>
+                  <TabsTrigger value="today">Today</TabsTrigger>
+                  <TabsTrigger value="this-week">This Week</TabsTrigger>
+                </TabsList>
+                <TabsList className="grid grid-cols-3">
+                  <TabsTrigger value="next-week">Next Week</TabsTrigger>
+                  <TabsTrigger value="week-3">Week 3</TabsTrigger>
+                  <TabsTrigger value="week-4">Week 4</TabsTrigger>
+                </TabsList>
+              </div>
 
-            <TabsContent value="today" className="mt-4">
-              {renderWeekSchedule(todayShifts)}
-            </TabsContent>
-            <TabsContent value="last-week" className="mt-4">
-              {renderWeekSchedule(lastWeekShifts)}
-            </TabsContent>
-            <TabsContent value="this-week" className="mt-4">
-              {renderWeekSchedule(thisWeekShifts)}
-            </TabsContent>
-            <TabsContent value="next-week" className="mt-4">
-              {renderWeekSchedule(nextWeekShifts)}
-            </TabsContent>
-            <TabsContent value="week-3" className="mt-4">
-              {renderWeekSchedule(week3Shifts)}
-            </TabsContent>
-            <TabsContent value="week-4" className="mt-4">
-              {renderWeekSchedule(week4Shifts)}
-            </TabsContent>
-            <TabsContent value="archive" className="mt-4">
-                <div className="flex flex-col sm:flex-row gap-4 items-center bg-muted/50 p-4 rounded-lg">
-                    <p className="text-sm font-medium text-muted-foreground">View completed and incomplete shifts from the last 6 weeks.</p>
-                     <Select value={selectedArchiveWeek} onValueChange={setSelectedArchiveWeek}>
-                        <SelectTrigger className="w-full sm:w-[250px]">
-                            <SelectValue placeholder="Select a week" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {archiveWeekOptions.map(option => (
-                                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
-                {renderArchiveView()}
-            </TabsContent>
+              <TabsContent value="today" className="mt-4">
+                {renderWeekSchedule(todayShifts)}
+              </TabsContent>
+              <TabsContent value="last-week" className="mt-4">
+                {renderWeekSchedule(lastWeekShifts)}
+              </TabsContent>
+              <TabsContent value="this-week" className="mt-4">
+                {renderWeekSchedule(thisWeekShifts)}
+              </TabsContent>
+              <TabsContent value="next-week" className="mt-4">
+                {renderWeekSchedule(nextWeekShifts)}
+              </TabsContent>
+              <TabsContent value="week-3" className="mt-4">
+                {renderWeekSchedule(week3Shifts)}
+              </TabsContent>
+              <TabsContent value="week-4" className="mt-4">
+                {renderWeekSchedule(week4Shifts)}
+              </TabsContent>
+              <TabsContent value="archive" className="mt-4">
+                  <div className="flex flex-col sm:flex-row gap-4 items-center bg-muted/50 p-4 rounded-lg">
+                      <p className="text-sm font-medium text-muted-foreground">View completed and incomplete shifts from the last 6 weeks.</p>
+                      <Select value={selectedArchiveWeek} onValueChange={setSelectedArchiveWeek}>
+                          <SelectTrigger className="w-full sm:w-[250px]">
+                              <SelectValue placeholder="Select a week" />
+                          </SelectTrigger>
+                          <SelectContent>
+                              {archiveWeekOptions.map(option => (
+                                  <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                              ))}
+                          </SelectContent>
+                      </Select>
+                  </div>
+                  {renderArchiveView()}
+              </TabsContent>
             </Tabs>
+          )}
         </CardContent>
         </Card>
         
@@ -1148,5 +1286,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
   );
 }
 
+
+    
 
     
