@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useCallback } from 'react';
@@ -224,7 +222,7 @@ const isProbablyAddressText = (text: string): boolean => {
   // Contains numbers
   if (/\d/.test(t)) return true;
   // Common street words
-  if (/\b(road|rd|street|st|avenue|ave|close|cl|drive|dr|lane|ln|grove|court|ct|way|crescent|cres|house)\b/i.test(t)) return true;
+  if (/\b(road|rd|street|st|avenue|ave|close|cl|drive|dr|lane|ln|grove|court|ct|way|crescent|cres|house|place|terrace|gardens|view)\b/i.test(t)) return true;
   
   return false;
 };
@@ -234,10 +232,13 @@ const findDateHeaderRow = (jsonData: any[][]): { dateRowIndex: number, dateRow: 
     for (let r = 0; r < Math.min(20, jsonData.length); r++) {
       const row = jsonData[r] || [];
       let dateCount = 0;
+      let nonDateCount = 0;
       for (let c = 0; c < row.length; c++) {
         if (parseDate(row[c])) dateCount++;
+        else if (String(row[c] || '').trim()) nonDateCount++;
       }
-      if (dateCount >= 3) {
+      // A date row should have multiple dates and very few non-date entries
+      if (dateCount >= 3 && nonDateCount <= 2) {
         return { dateRowIndex: r, dateRow: row.map((cell) => parseDate(cell)) };
       }
     }
@@ -249,22 +250,19 @@ const isSeparatorRow = (row: any[]): boolean => {
     return row.every(cell => cell === null || cell === undefined || String(cell).trim() === '');
 };
 
-const findFirstNonEmptyRow = (jsonData: any[][], start: number, end: number): { index: number, row: any[] } | null => {
-    for (let i = start; i < end; i++) {
-        if (!isSeparatorRow(jsonData[i])) {
-            return { index: i, row: jsonData[i] };
-        }
-    }
-    return null;
-}
 
 const findFirstOperativeRow = (jsonData: any[][], start: number, end: number, userMap: UserMapEntry[]): number => {
     for (let i = start; i < end; i++) {
         const row = jsonData[i];
-        if (row && row[0]) {
-            const potentialName = String(row[0]).trim();
-            if (findUser(potentialName, userMap)) {
-                return i;
+        if (row && row.length > 0) {
+            // Check first few columns for a potential name
+            for (let c = 0; c < Math.min(3, row.length); c++) {
+                 if (row[c]) {
+                    const potentialName = String(row[c]).trim();
+                    if (findUser(potentialName, userMap)) {
+                        return i;
+                    }
+                }
             }
         }
     }
@@ -292,14 +290,12 @@ const parseBuildSheet = (
     }
 
     const blockStartIndices: number[] = [];
-    for (let i = dateRowIndex + 1; i < jsonData.length; i++) {
-        if (isSeparatorRow(jsonData[i - 1]) && !isSeparatorRow(jsonData[i])) {
-            blockStartIndices.push(i);
-        }
+    if (jsonData.length > 0 && !isSeparatorRow(jsonData[0]) && findFirstOperativeRow(jsonData, 0, 1, userMap) === -1 && dateRowIndex !== 0) {
+        blockStartIndices.push(0);
     }
-    if (jsonData.length > dateRowIndex + 1 && !isSeparatorRow(jsonData[dateRowIndex + 1])) {
-        if (!blockStartIndices.includes(dateRowIndex + 1)) {
-            blockStartIndices.unshift(dateRowIndex + 1)
+    for (let i = 1; i < jsonData.length; i++) {
+        if (isSeparatorRow(jsonData[i - 1]) && !isSeparatorRow(jsonData[i]) && i > dateRowIndex) {
+            blockStartIndices.push(i);
         }
     }
 
@@ -309,6 +305,7 @@ const parseBuildSheet = (
         const blockEnd = nextBlockStart;
 
         const firstOperativeRowIndex = findFirstOperativeRow(jsonData, blockStart, blockEnd, userMap);
+        
         if (firstOperativeRowIndex === -1) {
             continue; // No operatives found in this block, skip
         }
@@ -332,11 +329,11 @@ const parseBuildSheet = (
             }
         }
         
-        const contractLine = headerText.find(text => text !== addressLine && text.length > 2);
+        const contractLine = headerText.find(text => text !== addressLine && !/\d/.test(text) && text.length > 2);
         if (contractLine) {
             contract = contractLine;
         } else if (!address && headerText.length > 0) {
-            address = headerText[0]; // Fallback if no good address candidate found
+            address = headerText[0];
         }
         
         if (!address) continue; // Cannot create shifts without an address
@@ -344,12 +341,14 @@ const parseBuildSheet = (
         for (const rowData of shiftRows) {
             if (isSeparatorRow(rowData)) continue;
 
-            const userName = String(rowData[0] || '').trim();
+            const userNameCell = rowData.find(cell => findUser(String(cell || ''), userMap));
+            const userName = String(userNameCell || '').trim();
+
             if (!userName) continue;
 
             const user = findUser(userName, userMap);
             if (!user) {
-                failed.push({ date: null, projectAddress: address, cellContent: userName, reason: `Could not find operative "${userName}" in the first column.`, sheetName, cellRef: 'A' + (jsonData.indexOf(rowData) + 1) });
+                failed.push({ date: null, projectAddress: address, cellContent: userName, reason: `Could not find operative "${userName}".`, sheetName, cellRef: 'A' + (jsonData.indexOf(rowData) + 1) });
                 continue;
             }
 
