@@ -158,13 +158,10 @@ const extractUserAndTask = (text: string, userMap: UserMapEntry[]): { user: User
     const sortedUsers = [...userMap].sort((a, b) => b.originalName.length - a.originalName.length);
 
     for (const user of sortedUsers) {
-        const nameIndex = trimmedText.toLowerCase().indexOf(user.originalName.toLowerCase());
-        
-        if (nameIndex > -1) {
-            const task = (trimmedText.substring(0, nameIndex).trim() + ' ' + trimmedText.substring(nameIndex + user.originalName.length).trim()).trim();
-            
+        if (trimmedText.toLowerCase().endsWith(user.originalName.toLowerCase())) {
+            const task = trimmedText.substring(0, trimmedText.length - user.originalName.length).trim();
             if (task) {
-                 return { user, task };
+                return { user, task };
             }
         }
     }
@@ -205,71 +202,67 @@ const parseBuildSheet = (
     if (currentBlock.length > 0) blocks.push(currentBlock);
 
     for (const block of blocks) {
-        let address = '';
-        let eNumber = '';
-        let contract = '';
-        const shiftRows: any[][] = [];
-        let firstShiftRowFound = false;
-
-        for (const row of block) {
-            let isShiftRow = false;
-            // A row is a shift row if it contains a parsable task/user combo in any column *except* the first one.
+        let firstShiftRowIndex = -1;
+        for (let i = 0; i < block.length; i++) {
+            const row = block[i];
             for (let c = 1; c < row.length; c++) {
                 if (extractUserAndTask(String(row[c] || ''), userMap)) {
-                    isShiftRow = true;
-                    firstShiftRowFound = true;
+                    firstShiftRowIndex = i;
                     break;
                 }
             }
+            if (firstShiftRowIndex !== -1) break;
+        }
+        
+        if (firstShiftRowIndex === -1) continue;
 
-            if (isShiftRow || firstShiftRowFound) {
-                shiftRows.push(row);
-            } else {
-                // It's a header row
-                const cellA = String(row[0] || '').trim();
-                if (cellA) {
-                    const eNumMatch = cellA.match(/\b([BE]\d+\S*)$/i);
-                    if (eNumMatch) {
-                        eNumber = eNumMatch[0].toUpperCase();
-                        address = cellA.replace(eNumMatch[0], '').trim().replace(/,$/, '').trim();
-                    } else {
-                        address = cellA;
-                    }
+        const headerRows = block.slice(0, firstShiftRowIndex);
+        const shiftRows = block.slice(firstShiftRowIndex);
+
+        let address = '', eNumber = '', contract = '';
+
+        for (const hRow of headerRows) {
+            const cellA = String(hRow[0] || '').trim();
+            if (cellA) {
+                const eNumMatch = cellA.match(/\b([BE]\d+\S*)$/i);
+                if (eNumMatch) {
+                    eNumber = eNumMatch[0].toUpperCase();
+                    address = cellA.replace(eNumMatch[0], '').trim().replace(/,$/, '').trim();
                 } else {
-                    for (let c = 1; c < row.length; c++) {
-                        const potentialContract = String(row[c] || '').trim();
-                        if (potentialContract) {
-                            contract = potentialContract;
-                            break;
-                        }
-                    }
+                    address = cellA;
+                }
+            }
+            for (let c = 1; c < hRow.length; c++) {
+                const potentialContract = String(hRow[c] || '').trim();
+                if (potentialContract) {
+                    contract = potentialContract;
                 }
             }
         }
         
-        if (address && shiftRows.length > 0) {
-            for (const row of shiftRows) {
-                for (let c = 1; c < dateRow.length; c++) {
-                    const date = dateRow[c];
-                    const cellText = String(row[c] || '').trim();
-                    
-                    if (date && cellText && date >= today) {
-                        const extraction = extractUserAndTask(cellText, userMap);
-                        if (extraction) {
-                            shifts.push({
-                                date,
-                                address,
-                                eNumber,
-                                task: extraction.task,
-                                userId: extraction.user.uid,
-                                userName: extraction.user.originalName,
-                                type: 'all-day',
-                                manager,
-                                contract: contract || 'Uncategorized',
-                                department,
-                                notes: '',
-                            });
-                        }
+        if (!address) continue;
+        
+        for (const row of shiftRows) {
+            for (let c = 1; c < dateRow.length; c++) {
+                const date = dateRow[c];
+                const cellText = String(row[c] || '').trim();
+                
+                if (date && cellText && date >= today) {
+                    const extraction = extractUserAndTask(cellText, userMap);
+                    if (extraction) {
+                        shifts.push({
+                            date,
+                            address,
+                            eNumber,
+                            task: extraction.task,
+                            userId: extraction.user.uid,
+                            userName: extraction.user.originalName,
+                            type: 'all-day',
+                            manager,
+                            contract: contract || 'Uncategorized',
+                            department,
+                            notes: '',
+                        });
                     }
                 }
             }
