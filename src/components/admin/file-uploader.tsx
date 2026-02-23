@@ -338,127 +338,112 @@ const parseBuildSheet = (
 
     const { dateRowIndex, dateRow: globalDateRow } = findDateHeaderRow(jsonData);
 
-    if (!globalDateRow) {
+    if (dateRowIndex === -1) {
         failed.push({ date: null, projectAddress: 'Entire Sheet', cellContent: '', reason: 'A valid Date Header Row could not be found at the top of the sheet.', sheetName, cellRef: 'A1' });
         return { shifts, failed };
     }
 
-    const blocks: {startIndex: number; data: any[][]}[] = [];
-    let currentBlock: any[][] = [];
-    let blockStartIndex = dateRowIndex + 1;
-
-    for (let i = dateRowIndex + 1; i < jsonData.length; i++) {
-        const row = jsonData[i] || [];
-        const isRowEmpty = row.every(cell => cell === null || String(cell).trim() === '');
-        
-        if (isRowEmpty) {
-            if (currentBlock.length > 0) {
-                blocks.push({ startIndex: blockStartIndex, data: currentBlock });
-            }
-            currentBlock = [];
-        } else {
-            if (currentBlock.length === 0) {
-                blockStartIndex = i;
-            }
-            currentBlock.push(row);
+    const separatorIndices: number[] = jsonData
+      .map((row, index) => {
+        if (row && row.some(cell => String(cell || '').trim().toUpperCase() === 'ADDRESS SEPERATION LINE')) {
+            return index;
         }
-    }
-    if (currentBlock.length > 0) {
-        blocks.push({ startIndex: blockStartIndex, data: currentBlock });
+        return -1;
+      })
+      .filter(index => index !== -1);
+
+    if (separatorIndices.length === 0) {
+        failed.push({ date: null, projectAddress: 'Entire Sheet', cellContent: '', reason: 'No "ADDRESS SEPERATION LINE" found to define project blocks.', sheetName, cellRef: 'A1' });
+        return { shifts, failed };
     }
     
-    for (const block of blocks) {
-        const firstShiftRowIndex = block.data.findIndex(row => {
-            const potentialUserName = String(row?.[0] || '').trim();
-            return !!potentialUserName && !!findUser(potentialUserName, userMap);
-        });
+    separatorIndices.push(jsonData.length);
 
-        if (firstShiftRowIndex === -1) {
-            continue; 
-        }
-
-        const headerData = block.data.slice(0, firstShiftRowIndex);
-        const bodyData = block.data.slice(firstShiftRowIndex);
+    for (let i = 0; i < separatorIndices.length - 1; i++) {
+        const blockStart = separatorIndices[i];
+        const blockEnd = separatorIndices[i+1];
         
-        const headerTexts = headerData.flat().map(c => String(c || '').trim()).filter(Boolean);
+        const contractRow = jsonData[blockStart + 1] || [];
+        const addressRow = jsonData[blockStart + 2] || [];
         
-        let address = '';
-        let contract = '';
+        const contract = String(contractRow.find(c => String(c || '').trim()) || '').trim();
+        const rawAddressString = String(addressRow.find(c => String(c || '').trim()) || '').trim();
+        
+        let address = rawAddressString;
         let eNumber = '';
-        
-        if (headerTexts.length > 0) {
-            const allHeaderTextString = headerTexts.join(' ');
-            const eNumMatch = allHeaderTextString.match(/\b([EB]\d+)\b/i);
-            if (eNumMatch) {
-                eNumber = eNumMatch[0].toUpperCase();
-            }
-
-            let addressIndex = headerTexts.findIndex(t => /\d/.test(t) && t.length > 4);
-             if (addressIndex === -1) {
-                addressIndex = headerTexts.findIndex(t => /\b(road|street|house|lane|court|avenue|close)\b/i.test(t));
-            }
-            if (addressIndex === -1) {
-                addressIndex = headerTexts.findIndex(t => t.length > 10);
-            }
-            
-            if (addressIndex !== -1) {
-                address = headerTexts[addressIndex];
-                headerTexts.splice(addressIndex, 1);
-            }
-
-            contract = headerTexts.filter(t => !eNumber || !t.toUpperCase().includes(eNumber)).join(', ');
+        const eNumMatch = rawAddressString.match(/\b([EB][-\s]?\d+)\b/i);
+        if (eNumMatch) {
+            eNumber = eNumMatch[0].toUpperCase().replace(/[-\s]/g, '');
+            address = rawAddressString.replace(eNumMatch[0], '').trim();
         }
         
         if (!address) {
             continue; 
         }
         
-        for (let r = 0; r < bodyData.length; r++) {
-            const rowData = bodyData[r];
+        for (let r = blockStart + 1; r < blockEnd; r++) {
+            const rowData = jsonData[r];
             if (!rowData) continue;
             
-            const potentialUserName = String(rowData[0] || '').trim();
-            const userForRow = findUser(potentialUserName, userMap);
-
-            if (!userForRow) continue;
-
             for (let c = 0; c < globalDateRow.length; c++) {
                 const shiftDate = globalDateRow[c];
-                if (!shiftDate) continue;
+                const cellRef = XLSX.utils.encode_cell({ r, c });
 
-                if (shiftDate < today) continue;
+                if (!shiftDate || shiftDate < today) continue;
 
                 const cellContentRaw = rowData[c];
-                if (!cellContentRaw || typeof cellContentRaw !== 'string' ) continue;
+                if (!cellContentRaw || typeof cellContentRaw !== 'string') continue;
                 
                 const cellContent = cellContentRaw.trim();
                 if (!cellContent) continue;
                 
-                let task = cellContent;
-                let shiftType: 'am' | 'pm' | 'all-day' = 'all-day';
-                if (/^\s*AM\b/i.test(task)) {
-                    shiftType = 'am';
-                    task = task.replace(/^\s*AM\b/i, '').trim();
-                } else if (/^\s*PM\b/i.test(task)) {
-                    shiftType = 'pm';
-                    task = task.replace(/^\s*PM\b/i, '').trim();
+                const lastDashIndex = cellContent.lastIndexOf('-');
+                if (lastDashIndex === -1) continue;
+
+                let task = cellContent.substring(0, lastDashIndex).trim();
+                const userNamesStr = cellContent.substring(lastDashIndex + 1).trim();
+
+                if (!task || !userNamesStr) continue;
+                
+                const usersInCell = userNamesStr.split(/[&,+/]/g).map(n => n.trim()).filter(Boolean);
+                if (usersInCell.length === 0) continue;
+                
+                for (const userName of usersInCell) {
+                    const user = findUser(userName, userMap);
+                    if (user) {
+                        let shiftType: 'am' | 'pm' | 'all-day' = 'all-day';
+                        if (/^\s*AM\b/i.test(task)) {
+                            shiftType = 'am';
+                            task = task.replace(/^\s*AM\b/i, '').trim();
+                        } else if (/^\s*PM\b/i.test(task)) {
+                            shiftType = 'pm';
+                            task = task.replace(/^\s*PM\b/i, '').trim();
+                        }
+
+                        shifts.push({
+                            date: shiftDate,
+                            address,
+                            eNumber,
+                            task: task,
+                            userId: user.uid,
+                            userName: user.originalName,
+                            type: shiftType,
+                            manager,
+                            contract: contract || 'Uncategorized',
+                            department,
+                            notes: '',
+                        });
+                    } else {
+                         failed.push({
+                            date: shiftDate,
+                            projectAddress: address,
+                            cellContent: cellContentRaw,
+                            reason: `Could not find a user matching "${userName}".`,
+                            sheetName,
+                            cellRef,
+                        });
+                    }
                 }
-
-                if (!task) continue;
-
-                shifts.push({
-                    date: shiftDate,
-                    address,
-                    eNumber,
-                    task: task,
-                    userId: userForRow.uid,
-                    userName: userForRow.originalName,
-                    type: shiftType,
-                    manager,
-                    contract,
-                    department,
-                    notes: '',
-                });
             }
         }
     }
