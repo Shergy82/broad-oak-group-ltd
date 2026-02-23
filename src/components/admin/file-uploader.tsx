@@ -866,8 +866,19 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             if (!existingShift) {
               toCreate.push(excelShift);
             } else if (!protectedStatuses.includes(existingShift.status)) {
-              // Only update if not completed/incomplete
-              toUpdate.push({ old: existingShift, new: excelShift });
+              // Only update if fields have actually changed
+              const hasChanged =
+                (existingShift.task || '') !== (excelShift.task || '') ||
+                (existingShift.type || 'all-day') !== (excelShift.type || 'all-day') ||
+                (existingShift.eNumber || '') !== (excelShift.eNumber || '') ||
+                (existingShift.manager || '') !== (excelShift.manager || '') ||
+                (existingShift.notes || '') !== (excelShift.notes || '') ||
+                (existingShift.contract || '') !== (excelShift.contract || '') ||
+                (existingShift.department || '') !== (excelShift.department || '');
+
+              if (hasChanged) {
+                toUpdate.push({ old: existingShift, new: excelShift });
+              }
             }
           }
 
