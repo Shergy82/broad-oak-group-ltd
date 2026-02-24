@@ -145,7 +145,6 @@ const extractUsersAndTask = (
     };
   }
 
-  // Split multiple names
   const nameChunks = namesPart
     .split(/\s*(?:&|and|,|\/)\s*/i)
     .map(n => normalizeText(n))
@@ -156,7 +155,6 @@ const extractUsersAndTask = (
   for (const user of userMap) {
     const userName = normalizeText(user.originalName);
 
-    // Match if ANY chunk from the cell is contained within the full database name
     if (nameChunks.some(chunk => userName.includes(chunk))) {
       matchedUsers.push(user);
     }
@@ -174,96 +172,6 @@ const extractUsersAndTask = (
     users: matchedUsers,
     task: taskPart || 'No task description',
   };
-};
-
-const processProjectBlock = (
-  block: any[][],
-  dateRow: (Date | null)[],
-  userMap: UserMapEntry[],
-  manager: string,
-  department: string,
-  today: Date,
-  sheetName: string,
-  startRowIndexInSheet: number
-): { shifts: ParsedShift[], failed: FailedShift[] } => {
-    const shifts: ParsedShift[] = [];
-    const failed: FailedShift[] = [];
-
-    const headerRow = block[0] || [];
-    const addressAndENumber = String(headerRow[0] || '').trim();
-    const contract = String(headerRow[2] || '').trim();
-
-    if (!addressAndENumber) {
-      return { shifts, failed };
-    }
-    
-    let address = '', eNumber = '';
-    const eNumMatch = addressAndENumber.match(/\b([BE]\d+\S*)$/i);
-    if (eNumMatch) {
-        eNumber = eNumMatch[0].toUpperCase();
-        address = addressAndENumber.replace(eNumMatch[0], '').trim().replace(/,$/, '').trim();
-    } else {
-        address = addressAndENumber;
-    }
-
-    for (let r = 0; r < block.length; r++) {
-        const sRow = block[r];
-        if (isRowEmpty(sRow)) continue;
-
-        for (let c = 5; c < sRow.length; c++) {
-            const cellText = String(sRow[c] || '').trim();
-            const cellRef = XLSX.utils.encode_cell({ c: c, r: startRowIndexInSheet + r });
-
-            if (cellText && /[a-zA-Z]/.test(cellText)) {
-                const date = dateRow[c];
-
-                if (!date) {
-                    failed.push({
-                        date: null, projectAddress: address, cellContent: cellText,
-                        reason: 'Cell has content but no corresponding date in Row 1.',
-                        sheetName, cellRef
-                    });
-                    continue;
-                }
-
-                if (date < today) continue;
-
-                const extraction = extractUsersAndTask(cellText, userMap);
-
-                if (!extraction) continue;
-
-                if (extraction.users.length === 0) {
-                  failed.push({
-                    date,
-                    projectAddress: address,
-                    cellContent: cellText,
-                    reason: extraction.reason || 'No users found.',
-                    sheetName,
-                    cellRef,
-                  });
-                  continue;
-                }
-
-                for (const user of extraction.users) {
-                  shifts.push({
-                    date,
-                    address,
-                    eNumber,
-                    task: extraction.task,
-                    userId: user.uid,
-                    userName: user.originalName,
-                    type: 'all-day',
-                    manager,
-                    contract,
-                    department,
-                    notes: '',
-                  });
-                }
-            }
-        }
-    }
-
-    return { shifts, failed };
 };
 
 const parseBuildSheet = (
@@ -285,48 +193,67 @@ const parseBuildSheet = (
   const allShifts: ParsedShift[] = [];
   const allFailed: FailedShift[] = [];
 
-  let currentBlock: any[][] = [];
-  let blockStartRowIndex = 0;
+  let currentAddress = '';
+  let currentENumber = '';
+  let currentContract = '';
 
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
-    const isSeparator = isRowEmpty(row);
+    if (isRowEmpty(row)) continue;
 
-    if (isSeparator) {
-      if (currentBlock.length > 0) {
-        const { shifts, failed } = processProjectBlock(
-          currentBlock,
-          dateRow,
-          userMap,
-          manager,
-          department,
-          today,
-          sheetName,
-          blockStartRowIndex
-        );
-        allShifts.push(...shifts);
-        allFailed.push(...failed);
+    const newAddressAndENumber = String(row[0] || '').trim();
+    if (newAddressAndENumber) {
+      const eNumMatch = newAddressAndENumber.match(/\b([BE]\d+\S*)$/i);
+      if (eNumMatch) {
+        currentENumber = eNumMatch[0].toUpperCase();
+        currentAddress = newAddressAndENumber.replace(eNumMatch[0], '').trim().replace(/,$/, '').trim();
+      } else {
+        currentAddress = newAddressAndENumber;
+        currentENumber = '';
       }
-      currentBlock = [];
-      blockStartRowIndex = i + 1;
-    } else {
-      currentBlock.push(row);
+      currentContract = String(row[2] || '').trim() || currentContract;
     }
-  }
 
-  if (currentBlock.length > 0) {
-    const { shifts, failed } = processProjectBlock(
-      currentBlock,
-      dateRow,
-      userMap,
-      manager,
-      department,
-      today,
-      sheetName,
-      blockStartRowIndex
-    );
-    allShifts.push(...shifts);
-    allFailed.push(...failed);
+    if (!currentAddress) continue;
+
+    for (let c = 5; c < row.length; c++) {
+      const cellText = String(row[c] || '').trim();
+      const cellRef = XLSX.utils.encode_cell({ c: c, r: i });
+
+      if (cellText && /[a-zA-Z]/.test(cellText)) {
+        const date = dateRow[c];
+
+        if (!date) {
+          allFailed.push({ date: null, projectAddress: currentAddress, cellContent: cellText, reason: 'No date found for this column.', sheetName, cellRef });
+          continue;
+        }
+
+        if (date < today) continue;
+
+        const extraction = extractUsersAndTask(cellText, userMap);
+        
+        if (!extraction || extraction.users.length === 0) {
+            allFailed.push({ date, projectAddress: currentAddress, cellContent: cellText, reason: extraction?.reason || 'No users found.', sheetName, cellRef });
+            continue;
+        }
+
+        for (const user of extraction.users) {
+          allShifts.push({
+            date,
+            address: currentAddress,
+            eNumber: currentENumber,
+            task: extraction.task,
+            userId: user.uid,
+            userName: user.originalName,
+            type: 'all-day',
+            manager,
+            contract: currentContract,
+            department,
+            notes: '',
+          });
+        }
+      }
+    }
   }
 
   return { shifts: allShifts, failed: allFailed };
