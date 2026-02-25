@@ -129,42 +129,40 @@ export default function UserManagementPage() {
         return () => unsubscribe();
     }, []);
 
-    const { pendingUsers, activeUsers, suspendedUsers } = useMemo(() => {
+    const { pendingUsers, unassignedUsers, activeUsers, suspendedUsers } = useMemo(() => {
         const isOwner = currentUserProfile?.role === 'owner';
-        const isPrivileged = ['owner', 'admin', 'manager'].includes(currentUserProfile?.role || '');
+        const isAdmin = currentUserProfile?.role === 'admin';
 
         const searchedUsers = users.filter(u => u.name?.toLowerCase().includes(searchTerm.toLowerCase()));
+        
+        // PENDING: always visible to owner/admin
+        const pending = searchedUsers.filter(u => u.status === 'pending-approval');
 
-        // --- PENDING USERS ---
-        // Owners/Admins see all pending users. Managers see unassigned or their own department.
-        const allPending = searchedUsers.filter(u => u.status === 'pending-approval');
-        let visiblePending = allPending;
-        if (currentUserProfile?.role === 'manager') {
-            visiblePending = allPending.filter(u => !u.department || u.department === currentUserProfile.department);
-        }
+        // UNASSIGNED: active/suspended but NO department. Also always visible to owner/admin.
+        const unassigned = searchedUsers.filter(u => u.status !== 'pending-approval' && (!u.department || u.department === ''));
 
-        // --- ACTIVE & SUSPENDED USERS ---
-        const activeAndSuspended = searchedUsers.filter(u => u.status !== 'pending-approval');
-        let visibleActiveAndSuspended = activeAndSuspended;
-
+        // ASSIGNED: active/suspended WITH a department. These are subject to filtering.
+        const assignedWithDept = searchedUsers.filter(u => u.status !== 'pending-approval' && u.department && u.department !== '');
+        
+        let visibleAssigned = assignedWithDept;
         if (isOwner) {
-            // Owners filter by the selected departments in the header.
-            // Also, only show users that HAVE a department.
-            visibleActiveAndSuspended = activeAndSuspended.filter(u =>
-                u.department && (selectedDepartments.size === 0 || selectedDepartments.has(u.department))
-            );
-        } else if (isPrivileged) {
-             // Managers/Admins filter by their own department.
-            visibleActiveAndSuspended = activeAndSuspended.filter(u => u.department === currentUserProfile?.department);
+            // If owner has department filters, apply them. If no filters, show all assigned.
+            if (selectedDepartments.size > 0) {
+                 visibleAssigned = assignedWithDept.filter(u => u.department && selectedDepartments.has(u.department));
+            }
+        } else if (isAdmin) {
+             // Admin sees only their own department.
+             visibleAssigned = assignedWithDept.filter(u => u.department === currentUserProfile?.department);
         } else {
-            // Other roles see nothing in these lists
-            visibleActiveAndSuspended = [];
+             // Should not happen as page is protected, but safe fallback.
+            visibleAssigned = [];
         }
 
         return {
-            pendingUsers: visiblePending,
-            activeUsers: visibleActiveAndSuspended.filter(u => u.status === 'active' || !u.status),
-            suspendedUsers: visibleActiveAndSuspended.filter(u => u.status === 'suspended'),
+            pendingUsers: pending,
+            unassignedUsers: unassigned, // The new bucket
+            activeUsers: visibleAssigned.filter(u => u.status === 'active' || !u.status),
+            suspendedUsers: visibleAssigned.filter(u => u.status === 'suspended'),
         };
     }, [users, searchTerm, currentUserProfile, selectedDepartments]);
     
@@ -217,7 +215,7 @@ export default function UserManagementPage() {
         setIsEditUserOpen(true);
     };
 
-    const renderUserList = (usersToRender: UserProfile[], type: 'pending' | 'active' | 'suspended') => {
+    const renderUserList = (usersToRender: UserProfile[], type: 'pending' | 'active' | 'suspended' | 'unassigned') => {
         if (usersToRender.length === 0) {
             return <p className="text-center text-sm text-muted-foreground p-4">No users in this category.</p>
         }
@@ -230,7 +228,7 @@ export default function UserManagementPage() {
                     <TableHeader>
                         <TableRow>
                             <TableHead>Name</TableHead>
-                            <TableHead>Phone Number</TableHead>
+                            <TableHead>Department</TableHead>
                             <TableHead>Trade</TableHead>
                             <TableHead>Role</TableHead>
                             <TableHead>Status</TableHead>
@@ -246,7 +244,7 @@ export default function UserManagementPage() {
                                         {user.name}
                                         {user.operativeId && <div className="text-xs text-muted-foreground">{user.operativeId}</div>}
                                     </TableCell>
-                                    <TableCell>{user.phoneNumber || 'N/A'}</TableCell>
+                                    <TableCell>{user.department || 'N/A'}</TableCell>
                                     <TableCell>{user.trade || 'N/A'}</TableCell>
                                     <TableCell><Badge variant="outline" className="capitalize">{user.role}</Badge></TableCell>
                                     <TableCell>
@@ -265,7 +263,7 @@ export default function UserManagementPage() {
                                         </Badge>
                                     </TableCell>
                                     <TableCell className="text-right space-x-1">
-                                        {type === 'pending' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')}><Check className="mr-2 h-4 w-4" />Activate</Button>}
+                                        {(type === 'pending' || type === 'unassigned') && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')}><Check className="mr-2 h-4 w-4" />Activate</Button>}
                                         {type === 'active' && <Button size="sm" variant="destructive" onClick={() => handleSetUserStatus(user, 'suspended')}><Ban className="mr-2 h-4 w-4" />Suspend</Button>}
                                         {type === 'suspended' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')}><Check className="mr-2 h-4 w-4" />Re-activate</Button>}
                                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEditUser(user)}><Edit className="h-4 w-4" /></Button>
@@ -295,7 +293,7 @@ export default function UserManagementPage() {
                               {user.operativeId && <CardDescription>ID: {user.operativeId}</CardDescription>}
                           </CardHeader>
                           <CardContent className="text-sm space-y-3">
-                              <div><strong>Phone:</strong> {user.phoneNumber || 'N/A'}</div>
+                              <div><strong>Department:</strong> {user.department || 'N/A'}</div>
                               <div><strong>Trade:</strong> {user.trade || 'N/A'}</div>
                               <div className="flex items-center gap-2"><strong>Role:</strong> <Badge variant="outline" className="capitalize">{user.role}</Badge></div>
                               <div className="flex items-center gap-2"><strong>Status:</strong>
@@ -308,7 +306,7 @@ export default function UserManagementPage() {
                               </div>
                           </CardContent>
                           <CardFooter className="flex flex-col gap-2">
-                                {type === 'pending' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')} className="w-full"><Check className="mr-2 h-4 w-4" />Activate</Button>}
+                                {(type === 'pending' || type === 'unassigned') && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')} className="w-full"><Check className="mr-2 h-4 w-4" />Activate</Button>}
                                 {type === 'active' && <Button size="sm" variant="destructive" onClick={() => handleSetUserStatus(user, 'suspended')} className="w-full"><Ban className="mr-2 h-4 w-4" />Suspend</Button>}
                                 {type === 'suspended' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')} className="w-full"><Check className="mr-2 h-4 w-4" />Re-activate</Button>}
                                 
@@ -345,13 +343,13 @@ export default function UserManagementPage() {
         );
     }
     
-    if (!['owner', 'admin', 'manager'].includes(currentUserProfile?.role || '')) {
+    if (!['owner', 'admin'].includes(currentUserProfile?.role || '')) {
         return (
             <Alert variant="destructive">
                 <AlertTriangle className="h-4 w-4" />
                 <AlertTitle>Access Denied</AlertTitle>
                 <AlertDescription>
-                You do not have permission to view this page. User management is restricted to owners, admins, and managers.
+                You do not have permission to view this page. User management is restricted to owners and admins.
                 </AlertDescription>
             </Alert>
         );
@@ -375,12 +373,14 @@ export default function UserManagementPage() {
                         />
                     </div>
                     <Tabs defaultValue="pending">
-                        <TabsList className="grid h-auto w-full grid-cols-1 gap-1 sm:h-10 sm:grid-cols-3">
-                            <TabsTrigger value="pending">Pending Applications ({pendingUsers.length})</TabsTrigger>
-                            <TabsTrigger value="active">Active Users ({activeUsers.length})</TabsTrigger>
-                            <TabsTrigger value="suspended">Suspended Users ({suspendedUsers.length})</TabsTrigger>
+                        <TabsList className="grid h-auto w-full grid-cols-1 sm:h-10 sm:grid-cols-4">
+                            <TabsTrigger value="pending">Pending ({pendingUsers.length})</TabsTrigger>
+                            <TabsTrigger value="unassigned">Unassigned ({unassignedUsers.length})</TabsTrigger>
+                            <TabsTrigger value="active">Active ({activeUsers.length})</TabsTrigger>
+                            <TabsTrigger value="suspended">Suspended ({suspendedUsers.length})</TabsTrigger>
                         </TabsList>
                         <TabsContent value="pending" className="mt-4">{renderUserList(pendingUsers, 'pending')}</TabsContent>
+                        <TabsContent value="unassigned" className="mt-4">{renderUserList(unassignedUsers, 'unassigned')}</TabsContent>
                         <TabsContent value="active" className="mt-4">{renderUserList(activeUsers, 'active')}</TabsContent>
                         <TabsContent value="suspended" className="mt-4">{renderUserList(suspendedUsers, 'suspended')}</TabsContent>
                     </Tabs>
