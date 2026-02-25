@@ -25,7 +25,7 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
 
-function EditUserDialog({ user, open, onOpenChange, context }: { user: UserProfile, open: boolean, onOpenChange: (open: boolean) => void, context: 'unassigned' | 'default' }) {
+function EditUserDialog({ user, open, onOpenChange, context, availableDepartments }: { user: UserProfile, open: boolean, onOpenChange: (open: boolean) => void, context: 'unassigned' | 'default', availableDepartments: string[] }) {
     const { toast } = useToast();
     const [isLoading, setIsLoading] = useState(false);
     const [role, setRole] = useState(user.role);
@@ -73,8 +73,17 @@ function EditUserDialog({ user, open, onOpenChange, context }: { user: UserProfi
                 </DialogHeader>
                 <div className="space-y-4 py-4">
                      <div className="space-y-2">
-                        <Label htmlFor="department-input">Department</Label>
-                        <Input id="department-input" value={department} onChange={(e) => setDepartment(e.target.value)} placeholder="e.g., Build, ECO" />
+                        <Label htmlFor="department-select">Department</Label>
+                         <Select onValueChange={(value) => setDepartment(value)} value={department}>
+                            <SelectTrigger id="department-select">
+                                <SelectValue placeholder="Select a department..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {availableDepartments.map(dept => (
+                                    <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
                     </div>
                     {context !== 'unassigned' && (
                         <>
@@ -135,6 +144,14 @@ export default function UserManagementPage() {
         });
         return () => unsubscribe();
     }, []);
+    
+    const availableDepartments = useMemo(() => {
+        const depts = new Set<string>();
+        users.forEach(u => {
+            if (u.department) depts.add(u.department);
+        });
+        return Array.from(depts).sort();
+    }, [users]);
 
     const { pendingUsers, unassignedUsers, activeUsers, suspendedUsers } = useMemo(() => {
         const isOwner = currentUserProfile?.role === 'owner';
@@ -437,7 +454,7 @@ export default function UserManagementPage() {
                     </Tabs>
                 </CardContent>
             </Card>
-            {selectedUser && <EditUserDialog user={selectedUser} open={isEditUserOpen} onOpenChange={setIsEditUserOpen} context={editContext} />}
+            {selectedUser && <EditUserDialog user={selectedUser} open={isEditUserOpen} onOpenChange={setIsEditUserOpen} context={editContext} availableDepartments={availableDepartments} />}
         </>
     )
 }
