@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
@@ -25,7 +25,7 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
 
-function EditUserDialog({ user, open, onOpenChange }: { user: UserProfile, open: boolean, onOpenChange: (open: boolean) => void }) {
+function EditUserDialog({ user, open, onOpenChange, context, availableDepartments }: { user: UserProfile, open: boolean, onOpenChange: (open: boolean) => void, context: 'unassigned' | 'default', availableDepartments: string[] }) {
     const { toast } = useToast();
     const [isLoading, setIsLoading] = useState(false);
     const [role, setRole] = useState(user.role);
@@ -45,12 +45,19 @@ function EditUserDialog({ user, open, onOpenChange }: { user: UserProfile, open:
     const handleSaveChanges = async () => {
         setIsLoading(true);
         try {
+            if (context === 'unassigned' && !department) {
+                toast({ variant: 'destructive', title: "Department Required", description: "Please select a department to assign this user." });
+                setIsLoading(false);
+                return;
+            }
+
             const userRef = doc(db, 'users', user.uid);
             await updateDoc(userRef, {
                 role,
                 department,
                 trade,
                 operativeId,
+                ...(context === 'unassigned' && department && user.status !== 'active' && { status: 'active' }),
             });
             toast({ title: "User Updated", description: `${user.name}'s details have been updated.` });
             onOpenChange(false);
@@ -66,40 +73,55 @@ function EditUserDialog({ user, open, onOpenChange }: { user: UserProfile, open:
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>Edit User: {user.name}</DialogTitle>
-                    <DialogDescription>Modify the user's role and other details.</DialogDescription>
+                    <DialogTitle>{context === 'unassigned' ? `Assign Department for ${user.name}` : `Edit User: ${user.name}`}</DialogTitle>
+                    <DialogDescription>
+                        {context === 'unassigned' ? "Select a department to move this user to the active list." : "Modify the user's role and other details."}
+                    </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
-                    <div className="space-y-2">
-                        <Label htmlFor="role-select">Role</Label>
-                        <Select value={role} onValueChange={(value) => setRole(value as UserProfile['role'])}>
-                            <SelectTrigger id="role-select"><SelectValue /></SelectTrigger>
+                     <div className="space-y-2">
+                        <Label htmlFor="department-select">Department</Label>
+                         <Select onValueChange={(value) => setDepartment(value)} value={department}>
+                            <SelectTrigger id="department-select">
+                                <SelectValue placeholder="Select a department..." />
+                            </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="user">User</SelectItem>
-                                <SelectItem value="TLO">TLO</SelectItem>
-                                <SelectItem value="manager">Manager</SelectItem>
-                                <SelectItem value="admin">Admin</SelectItem>
-                                <SelectItem value="owner">Owner</SelectItem>
+                                {availableDepartments.map(dept => (
+                                    <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                                ))}
                             </SelectContent>
                         </Select>
                     </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="department-input">Department</Label>
-                        <Input id="department-input" value={department} onChange={(e) => setDepartment(e.target.value)} placeholder="e.g., Build, ECO" />
-                    </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="trade-input">Trade</Label>
-                        <Input id="trade-input" value={trade} onChange={(e) => setTrade(e.target.value)} placeholder="e.g., Plumber" />
-                    </div>
-                     <div className="space-y-2">
-                        <Label htmlFor="opid-input">Operative ID</Label>
-                        <Input id="opid-input" value={operativeId} onChange={(e) => setOperativeId(e.target.value)} placeholder="e.g., BOG-001" />
-                    </div>
+                    {context !== 'unassigned' && (
+                        <>
+                            <div className="space-y-2">
+                                <Label htmlFor="role-select">Role</Label>
+                                <Select value={role} onValueChange={(value) => setRole(value as UserProfile['role'])}>
+                                    <SelectTrigger id="role-select"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="user">User</SelectItem>
+                                        <SelectItem value="TLO">TLO</SelectItem>
+                                        <SelectItem value="manager">Manager</SelectItem>
+                                        <SelectItem value="admin">Admin</SelectItem>
+                                        <SelectItem value="owner">Owner</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="trade-input">Trade</Label>
+                                <Input id="trade-input" value={trade} onChange={(e) => setTrade(e.target.value)} placeholder="e.g., Plumber" />
+                            </div>
+                             <div className="space-y-2">
+                                <Label htmlFor="opid-input">Operative ID</Label>
+                                <Input id="opid-input" value={operativeId} onChange={(e) => setOperativeId(e.target.value)} placeholder="e.g., BOG-001" />
+                            </div>
+                        </>
+                    )}
                 </div>
                 <DialogFooter>
-                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                    <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isLoading}>Cancel</Button>
                     <Button onClick={handleSaveChanges} disabled={isLoading}>
-                        {isLoading ? <Spinner /> : "Save Changes"}
+                        {isLoading ? <Spinner /> : context === 'unassigned' ? "Assign Department" : "Save Changes"}
                     </Button>
                 </DialogFooter>
             </DialogContent>
@@ -114,6 +136,7 @@ export default function UserManagementPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
     const [isEditUserOpen, setIsEditUserOpen] = useState(false);
+    const [editContext, setEditContext] = useState<'unassigned' | 'default'>('default');
     const { toast } = useToast();
     const { selectedDepartments } = useDepartmentFilter();
 
@@ -128,39 +151,42 @@ export default function UserManagementPage() {
         });
         return () => unsubscribe();
     }, []);
+    
+    const availableDepartments = useMemo(() => {
+        const depts = new Set<string>();
+        users.forEach(u => {
+            if (u.department) depts.add(u.department);
+        });
+        return Array.from(depts).sort();
+    }, [users]);
 
     const { pendingUsers, unassignedUsers, activeUsers, suspendedUsers } = useMemo(() => {
         const isOwner = currentUserProfile?.role === 'owner';
         const isAdmin = currentUserProfile?.role === 'admin';
 
-        const searchedUsers = users.filter(u => u.name?.toLowerCase().includes(searchTerm.toLowerCase()));
+        const searchedUsers = users.filter(u => 
+            (u.name?.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            (u.email?.toLowerCase().includes(searchTerm.toLowerCase()))
+        );
         
-        // PENDING: always visible to owner/admin
         const pending = searchedUsers.filter(u => u.status === 'pending-approval');
-
-        // UNASSIGNED: active/suspended but NO department. Also always visible to owner/admin.
         const unassigned = searchedUsers.filter(u => u.status !== 'pending-approval' && (!u.department || u.department === ''));
-
-        // ASSIGNED: active/suspended WITH a department. These are subject to filtering.
         const assignedWithDept = searchedUsers.filter(u => u.status !== 'pending-approval' && u.department && u.department !== '');
         
         let visibleAssigned = assignedWithDept;
         if (isOwner) {
-            // If owner has department filters, apply them. If no filters, show all assigned.
             if (selectedDepartments.size > 0) {
                  visibleAssigned = assignedWithDept.filter(u => u.department && selectedDepartments.has(u.department));
             }
         } else if (isAdmin) {
-             // Admin sees only their own department.
              visibleAssigned = assignedWithDept.filter(u => u.department === currentUserProfile?.department);
         } else {
-             // Should not happen as page is protected, but safe fallback.
             visibleAssigned = [];
         }
 
         return {
             pendingUsers: pending,
-            unassignedUsers: unassigned, // The new bucket
+            unassignedUsers: unassigned,
             activeUsers: visibleAssigned.filter(u => u.status === 'active' || !u.status),
             suspendedUsers: visibleAssigned.filter(u => u.status === 'suspended'),
         };
@@ -178,12 +204,14 @@ export default function UserManagementPage() {
             newStatus 
         };
 
-        // If activating a user with no department, assign them to the current admin's department.
-        // Use baseDepartment as a fallback, which is crucial for owners.
-        if (newStatus === 'active' && (!user.department || user.department === '')) {
+        if (newStatus === 'active' && !user.department) {
             const adminDepartment = currentUserProfile?.department || currentUserProfile?.baseDepartment;
             if (adminDepartment) {
                 payload.department = adminDepartment;
+            } else {
+                 // If an owner with no set department activates a user, let them fall into unassigned
+                 // instead of showing the edit dialog here.
+                 // The 'unassigned' logic will handle them.
             }
         }
         
@@ -210,14 +238,61 @@ export default function UserManagementPage() {
         }
     };
 
-    const handleEditUser = (user: UserProfile) => {
+    const handleEditUser = (user: UserProfile, context: 'unassigned' | 'default' = 'default') => {
         setSelectedUser(user);
+        setEditContext(context);
         setIsEditUserOpen(true);
     };
 
     const renderUserList = (usersToRender: UserProfile[], type: 'pending' | 'active' | 'suspended' | 'unassigned') => {
         if (usersToRender.length === 0) {
             return <p className="text-center text-sm text-muted-foreground p-4">No users in this category.</p>
+        }
+
+        if (type === 'unassigned') {
+            return (
+                <>
+                    {/* Desktop Table View */}
+                    <div className="border rounded-lg hidden md:block">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Name</TableHead>
+                                    <TableHead className="text-right">Action</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {usersToRender.map(user => (
+                                    <TableRow key={user.uid}>
+                                        <TableCell className="font-medium">{user.name}</TableCell>
+                                        <TableCell className="text-right">
+                                            <Button size="sm" onClick={() => handleEditUser(user, 'unassigned')}>
+                                                <Edit className="mr-2 h-4 w-4" />
+                                                Assign Department
+                                            </Button>
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </div>
+                    
+                    {/* Mobile Card View */}
+                    <div className="grid gap-4 md:hidden">
+                      {usersToRender.map(user => (
+                          <Card key={user.uid}>
+                              <CardHeader className="flex-row items-center justify-between">
+                                  <CardTitle className="text-base">{user.name}</CardTitle>
+                                  <Button size="sm" onClick={() => handleEditUser(user, 'unassigned')}>
+                                     <Edit className="mr-2 h-4 w-4" />
+                                     Assign
+                                  </Button>
+                              </CardHeader>
+                          </Card>
+                      ))}
+                    </div>
+                </>
+            );
         }
         
         return (
@@ -263,7 +338,7 @@ export default function UserManagementPage() {
                                         </Badge>
                                     </TableCell>
                                     <TableCell className="text-right space-x-1">
-                                        {(type === 'pending' || type === 'unassigned') && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')}><Check className="mr-2 h-4 w-4" />Activate</Button>}
+                                        {type === 'pending' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')}><Check className="mr-2 h-4 w-4" />Activate</Button>}
                                         {type === 'active' && <Button size="sm" variant="destructive" onClick={() => handleSetUserStatus(user, 'suspended')}><Ban className="mr-2 h-4 w-4" />Suspend</Button>}
                                         {type === 'suspended' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')}><Check className="mr-2 h-4 w-4" />Re-activate</Button>}
                                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEditUser(user)}><Edit className="h-4 w-4" /></Button>
@@ -306,7 +381,7 @@ export default function UserManagementPage() {
                               </div>
                           </CardContent>
                           <CardFooter className="flex flex-col gap-2">
-                                {(type === 'pending' || type === 'unassigned') && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')} className="w-full"><Check className="mr-2 h-4 w-4" />Activate</Button>}
+                                {type === 'pending' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')} className="w-full"><Check className="mr-2 h-4 w-4" />Activate</Button>}
                                 {type === 'active' && <Button size="sm" variant="destructive" onClick={() => handleSetUserStatus(user, 'suspended')} className="w-full"><Ban className="mr-2 h-4 w-4" />Suspend</Button>}
                                 {type === 'suspended' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')} className="w-full"><Check className="mr-2 h-4 w-4" />Re-activate</Button>}
                                 
@@ -366,7 +441,7 @@ export default function UserManagementPage() {
                     <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
-                            placeholder="Search by name..."
+                            placeholder="Search by name or email..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             className="w-full max-w-sm pl-10"
@@ -386,7 +461,8 @@ export default function UserManagementPage() {
                     </Tabs>
                 </CardContent>
             </Card>
-            {selectedUser && <EditUserDialog user={selectedUser} open={isEditUserOpen} onOpenChange={setIsEditUserOpen} />}
+            {selectedUser && <EditUserDialog user={selectedUser} open={isEditUserOpen} onOpenChange={setIsEditUserOpen} context={editContext} availableDepartments={availableDepartments} />}
         </>
     )
 }
+    
