@@ -28,6 +28,7 @@ import {
   PoundSterling,
   UserCog,
   Share2,
+  ChevronRight,
 } from 'lucide-react';
 import { NotificationButton } from '../shared/notification-button';
 import {
@@ -47,10 +48,12 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { GlobalShiftImporter } from '@/components/admin/global-shift-importer';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
 import { ShareAppLink } from './ShareAppLink';
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useAllUsers } from '@/hooks/use-all-users';
 import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { cn } from '@/lib/utils';
+
 
 export function Header() {
   const { user } = useAuth();
@@ -59,6 +62,27 @@ export function Header() {
   const { toast } = useToast();
   const { availableDepartments, selectedDepartments, toggleDepartment, loading: deptsLoading } = useDepartmentFilter();
   const { users: allUsers } = useAllUsers();
+  
+  const [isClient, setIsClient] = useState(false);
+  const LS_USER_MENU_COLLAPSED_KEY = 'user_menu_collapsed_v1';
+  const [isUserMenuCollapsed, setIsUserMenuCollapsed] = useState(true);
+
+  useEffect(() => {
+    setIsClient(true);
+    const storedState = localStorage.getItem(LS_USER_MENU_COLLAPSED_KEY);
+    if (storedState !== null) {
+      setIsUserMenuCollapsed(JSON.parse(storedState));
+    }
+  }, []);
+
+  const handleToggleUserMenu = (event: React.SyntheticEvent) => {
+    event.preventDefault();
+    const newState = !isUserMenuCollapsed;
+    setIsUserMenuCollapsed(newState);
+    if (isClient) {
+        localStorage.setItem(LS_USER_MENU_COLLAPSED_KEY, JSON.stringify(newState));
+    }
+  };
   
   const pendingUserCount = useMemo(() => {
     if (!userProfile || !['admin', 'owner'].includes(userProfile.role)) {
@@ -172,45 +196,99 @@ export function Header() {
                     <DropdownMenuSeparator />
                   </>
                 )}
-
-                <DropdownMenuItem onClick={() => router.push('/dashboard')} className="cursor-pointer">
-                  <Calendar className="mr-2" />
-                  <span>Dashboard</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => router.push('/ai')} className="cursor-pointer">
-                  <Map className="mr-2" />
-                  <span>AI Assistant</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => router.push('/site-schedule')} className="cursor-pointer">
-                  <Building2 className="mr-2" />
-                  <span>Site Schedule</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={() =>
-                    window.open('https://studio--studio-6303842196-5daf6.us-central1.hosted.app', '_blank')
-                  }
-                  className="cursor-pointer"
-                >
-                  <Fingerprint className="mr-2" />
-                  <span>Digital Sign In/Out</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => router.push('/announcements')} className="cursor-pointer">
-                  <Megaphone className="mr-2" />
-                  <span>Announcements</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => router.push('/stats')} className="cursor-pointer">
-                  <TrendingUp className="mr-2" />
-                  <span>Stats</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => router.push('/projects')} className="cursor-pointer">
-                  <Briefcase className="mr-2" />
-                  <span>Projects</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => router.push('/health-and-safety')} className="cursor-pointer">
-                  <HardHat className="mr-2" />
-                  <span>Health & Safety</span>
-                </DropdownMenuItem>
                 
+                {isPrivilegedUser ? (
+                  <>
+                    <DropdownMenuItem onSelect={handleToggleUserMenu} className="cursor-pointer">
+                      <div className="flex w-full items-center justify-between">
+                        <div className="flex items-center">
+                          <User className="mr-2 h-4 w-4" />
+                          <span>User Menu</span>
+                        </div>
+                        <ChevronRight className={cn("h-4 w-4 transition-transform", !isUserMenuCollapsed && "rotate-90")} />
+                      </div>
+                    </DropdownMenuItem>
+                    {!isUserMenuCollapsed && (
+                      <div className="pl-4">
+                        <DropdownMenuItem onClick={() => router.push('/dashboard')} className="cursor-pointer">
+                          <Calendar className="mr-2" />
+                          <span>Dashboard</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => router.push('/ai')} className="cursor-pointer">
+                          <Map className="mr-2" />
+                          <span>AI Assistant</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => router.push('/site-schedule')} className="cursor-pointer">
+                          <Building2 className="mr-2" />
+                          <span>Site Schedule</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onSelect={() => window.open('https://studio--studio-6303842196-5daf6.us-central1.hosted.app', '_blank')}
+                          className="cursor-pointer"
+                        >
+                          <Fingerprint className="mr-2" />
+                          <span>Digital Sign In/Out</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => router.push('/announcements')} className="cursor-pointer">
+                          <Megaphone className="mr-2" />
+                          <span>Announcements</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => router.push('/stats')} className="cursor-pointer">
+                          <TrendingUp className="mr-2" />
+                          <span>Stats</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => router.push('/projects')} className="cursor-pointer">
+                          <Briefcase className="mr-2" />
+                          <span>Projects</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => router.push('/health-and-safety')} className="cursor-pointer">
+                          <HardHat className="mr-2" />
+                          <span>Health & Safety</span>
+                        </DropdownMenuItem>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <DropdownMenuItem onClick={() => router.push('/dashboard')} className="cursor-pointer">
+                      <Calendar className="mr-2" />
+                      <span>Dashboard</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => router.push('/ai')} className="cursor-pointer">
+                      <Map className="mr-2" />
+                      <span>AI Assistant</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => router.push('/site-schedule')} className="cursor-pointer">
+                      <Building2 className="mr-2" />
+                      <span>Site Schedule</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => window.open('https://studio--studio-6303842196-5daf6.us-central1.hosted.app', '_blank')}
+                      className="cursor-pointer"
+                    >
+                      <Fingerprint className="mr-2" />
+                      <span>Digital Sign In/Out</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => router.push('/announcements')} className="cursor-pointer">
+                      <Megaphone className="mr-2" />
+                      <span>Announcements</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => router.push('/stats')} className="cursor-pointer">
+                      <TrendingUp className="mr-2" />
+                      <span>Stats</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => router.push('/projects')} className="cursor-pointer">
+                      <Briefcase className="mr-2" />
+                      <span>Projects</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => router.push('/health-and-safety')} className="cursor-pointer">
+                      <HardHat className="mr-2" />
+                      <span>Health & Safety</span>
+                    </DropdownMenuItem>
+                  </>
+                )}
+
+
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => router.push('/help')} className="cursor-pointer">
                   <HelpCircle className="mr-2" />
@@ -221,7 +299,7 @@ export function Header() {
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuLabel>Admin Area</DropdownMenuLabel>
-                    <ScrollArea>
+                    <ScrollArea className="max-h-[200px]">
                         <DropdownMenuItem onClick={() => router.push('/admin/control-panel')} className="cursor-pointer">
                         <Shield className="mr-2" />
                         <span>Control Panel</span>
@@ -269,11 +347,11 @@ export function Header() {
                         <FileArchive className="mr-2" />
                         <span>Evidence</span>
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={handleShare} className="cursor-pointer">
-                        <Share2 className="mr-2 h-4 w-4" />
-                        <span>Share Signup Link</span>
-                        </DropdownMenuItem>
                     </ScrollArea>
+                    <DropdownMenuItem onClick={handleShare} className="cursor-pointer">
+                      <Share2 className="mr-2 h-4 w-4" />
+                      <span>Share Signup Link</span>
+                    </DropdownMenuItem>
                   </>
                 )}
                 <DropdownMenuSeparator />
