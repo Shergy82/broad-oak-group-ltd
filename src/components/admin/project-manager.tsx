@@ -661,11 +661,17 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                             <TableCell>{project.nextReviewDate ? format(project.nextReviewDate.toDate(), 'dd/MM/yyyy') : 'N/A'}</TableCell>
                             <TableCell className="text-right space-x-2">
                                 {isScheduledForDeletion ? (
-                                    <div className="flex flex-col items-end gap-1">
-                                        <span className="text-xs font-semibold text-destructive">{countdownText}</span>
-                                        <Button variant="ghost" size="sm" onClick={() => handleCancelDeletion(project.id)}>
-                                            <Undo2 className="mr-2 h-4 w-4" /> Cancel
+                                    <div className="flex items-center justify-end gap-2">
+                                        <Button variant="outline" size="sm" onClick={() => handleManageFiles(project)}>
+                                            <FolderOpen className="mr-2 h-4 w-4" />
+                                            Files
                                         </Button>
+                                        <div className="flex flex-col items-end">
+                                            <span className="text-xs font-semibold text-destructive">{countdownText}</span>
+                                            <Button variant="ghost" size="sm" className="h-auto px-2 py-1 text-xs" onClick={() => handleCancelDeletion(project.id)}>
+                                                <Undo2 className="mr-1 h-3 w-3" /> Cancel
+                                            </Button>
+                                        </div>
                                     </div>
                                 ) : (
                                 <>
@@ -734,13 +740,21 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                             </CardContent>
                             <CardFooter className="grid grid-cols-1 gap-2">
                                 {isScheduledForDeletion ? (
-                                    <div className="text-center w-full space-y-2">
-                                        <p className="text-sm font-semibold text-destructive">Scheduled for deletion</p>
-                                        <p className="text-xs text-destructive">{countdownText}</p>
-                                        <Button variant="outline" size="sm" onClick={() => handleCancelDeletion(project.id)} className="w-full">
-                                            <Undo2 className="mr-2 h-4 w-4" />
-                                            Cancel Deletion
-                                        </Button>
+                                    <div className="space-y-2">
+                                        <div className="text-center w-full space-y-1">
+                                            <p className="text-sm font-semibold text-destructive">Scheduled for deletion</p>
+                                            <p className="text-xs text-destructive">{countdownText}</p>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <Button variant="outline" className="w-full" onClick={() => handleManageFiles(project)}>
+                                                <FolderOpen className="mr-2 h-4 w-4" />
+                                                Manage Files
+                                            </Button>
+                                            <Button variant="outline" size="sm" onClick={() => handleCancelDeletion(project.id)} className="w-full">
+                                                <Undo2 className="mr-2 h-4 w-4" />
+                                                Cancel Deletion
+                                            </Button>
+                                        </div>
                                     </div>
                                 ) : (
                                     <div className="grid grid-cols-2 gap-2 w-full">
