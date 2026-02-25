@@ -221,7 +221,7 @@ export function Header() {
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuLabel>Admin Area</DropdownMenuLabel>
-                    <ScrollArea className="max-h-64">
+                    <ScrollArea>
                         <DropdownMenuItem onClick={() => router.push('/admin/control-panel')} className="cursor-pointer">
                         <Shield className="mr-2" />
                         <span>Control Panel</span>
