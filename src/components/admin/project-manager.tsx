@@ -66,6 +66,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import jsPDF from 'jspdf';
 import Image from 'next/image';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
+import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '@/components/ui/carousel';
 
 
 const projectSchema = z.object({
@@ -260,6 +261,9 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
     const [isLoading, setIsLoading] = useState(true);
     const { toast } = useToast();
     const [viewingFile, setViewingFile] = useState<ProjectFile | null>(null);
+    const [isGalleryOpen, setIsGalleryOpen] = useState(false);
+
+    const imageFiles = useMemo(() => files.filter(f => f.type?.startsWith('image/')), [files]);
 
     useEffect(() => {
         if (!project) return;
@@ -337,6 +341,15 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                     <div className="space-y-4">
                         <div className="flex items-center justify-between">
                             <h4 className="font-semibold">Existing Files</h4>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setIsGalleryOpen(true)}
+                                disabled={imageFiles.length === 0}
+                            >
+                                <ImageIcon className="mr-2 h-4 w-4" />
+                                View Photos
+                            </Button>
                         </div>
                         {isLoading ? <Skeleton className="h-48 w-full" /> : files.length === 0 ? (
                             <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-muted-foreground/30 rounded-lg text-center h-full">
@@ -421,6 +434,42 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                     </DialogContent>
                 </Dialog>
             )}
+
+            <Dialog open={isGalleryOpen} onOpenChange={setIsGalleryOpen}>
+                <DialogContent className="max-w-6xl">
+                    <DialogHeader>
+                        <DialogTitle>Photos for: {project.address}</DialogTitle>
+                        <DialogDescription>{imageFiles.length} photo(s) found for this project.</DialogDescription>
+                    </DialogHeader>
+                    <Carousel className="w-full">
+                        <CarouselContent>
+                            {imageFiles.map((photo) => (
+                                <CarouselItem key={photo.id}>
+                                    <div className="p-1">
+                                        <Card>
+                                            <CardContent className="flex aspect-video items-center justify-center p-0 relative overflow-hidden rounded-lg">
+                                                <Image
+                                                    src={`/api/file?path=${encodeURIComponent(photo.fullPath)}`}
+                                                    alt={photo.name}
+                                                    fill
+                                                    className="object-contain"
+                                                />
+                                            </CardContent>
+                                             <CardFooter className="flex-col items-start text-sm text-muted-foreground p-3">
+                                                <p><strong>File:</strong> {photo.name}</p>
+                                                <p><strong>Uploaded by:</strong> {photo.uploaderName}</p>
+                                                <p><strong>Date:</strong> {photo.uploadedAt ? format(photo.uploadedAt.toDate(), 'PPP p') : 'N/A'}</p>
+                                            </CardFooter>
+                                        </Card>
+                                    </div>
+                                </CarouselItem>
+                            ))}
+                        </CarouselContent>
+                        <CarouselPrevious />
+                        <CarouselNext />
+                    </Carousel>
+                </DialogContent>
+            </Dialog>
         </>
     );
 }
@@ -773,4 +822,5 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
     
 
     
+
 
