@@ -525,7 +525,7 @@ export default function AvailabilityPage() {
     const end = dateRange.to ? startOfDay(dateRange.to) : start;
     const intervalDays = eachDayOfInterval({ start, end });
   
-    const usersToConsider = departmentFilteredUsers.filter(user => selectedUserIds.has(user.uid));
+    const usersToConsider = departmentFilteredUsers.filter(user => (user.role === 'user' || user.role === 'TLO') && selectedUserIds.has(user.uid));
     const relevantUnavailability = departmentFilteredUnavailability.filter(u => usersToConsider.some(user => user.uid === u.userId));
   
     return usersToConsider
@@ -606,7 +606,7 @@ export default function AvailabilityPage() {
     const gridEnd = addDays(gridStart, 34); // 5 weeks
     const allGridDays = eachDayOfInterval({ start: gridStart, end: gridEnd });
 
-    const usersToConsider = departmentFilteredUsers.filter(user => selectedUserIds.has(user.uid));
+    const usersToConsider = departmentFilteredUsers.filter(user => (user.role === 'user' || user.role === 'TLO') && selectedUserIds.has(user.uid));
 
     return allGridDays.map(day => {
         const availableUsers: DayData['availableUsers'] = [];
