@@ -50,6 +50,7 @@ import { ShareAppLink } from './ShareAppLink';
 import { useMemo } from 'react';
 import { useAllUsers } from '@/hooks/use-all-users';
 import { useToast } from '@/hooks/use-toast';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 export function Header() {
   const { user } = useAuth();
@@ -133,7 +134,7 @@ export function Header() {
                   <span className="sr-only">Toggle user menu</span>
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
+              <DropdownMenuContent align="end" className="max-h-[85vh]">
                 {userProfile?.name && <DropdownMenuLabel>{userProfile.name}</DropdownMenuLabel>}
                 {userProfile?.email && (
                   <DropdownMenuLabel className="font-normal text-muted-foreground -mt-2 pb-2">
@@ -220,57 +221,59 @@ export function Header() {
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuLabel>Admin Area</DropdownMenuLabel>
-                    <DropdownMenuItem onClick={() => router.push('/admin/control-panel')} className="cursor-pointer">
-                      <Shield className="mr-2" />
-                      <span>Control Panel</span>
-                    </DropdownMenuItem>
-                    {(isOwner || isAdmin) && (
-                        <DropdownMenuItem onClick={() => router.push('/admin/user-management')} className="cursor-pointer">
-                            <UserCog className="mr-2" />
-                            <span>User Management</span>
-                            {pendingUserCount > 0 && (
-                                <span className="ml-auto flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-xs font-medium text-destructive-foreground">{pendingUserCount}</span>
-                            )}
+                    <ScrollArea className="max-h-64">
+                        <DropdownMenuItem onClick={() => router.push('/admin/control-panel')} className="cursor-pointer">
+                        <Shield className="mr-2" />
+                        <span>Control Panel</span>
                         </DropdownMenuItem>
-                    )}
-                    <DropdownMenuItem onClick={() => router.push('/schedule')} className="cursor-pointer">
-                      <Users className="mr-2" />
-                      <span>Team Schedule</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => router.push('/admin/availability')} className="cursor-pointer">
-                      <Calendar className="mr-2" />
-                      <span>Availability</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => router.push('/admin/staff-ai')} className="cursor-pointer">
-                      <Map className="mr-2" />
-                      <span>Mapping</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => router.push('/admin/contracts')} className="cursor-pointer">
-                      <Briefcase className="mr-2" />
-                      <span>Contracts</span>
-                    </DropdownMenuItem>
-                     {userProfile?.department === 'Build' && (
-                        <DropdownMenuItem onClick={() => router.push('/admin/finance')} className="cursor-pointer">
-                            <PoundSterling className="mr-2 h-4 w-4" />
-                            <span>Finance</span>
+                        {(isOwner || isAdmin) && (
+                            <DropdownMenuItem onClick={() => router.push('/admin/user-management')} className="cursor-pointer">
+                                <UserCog className="mr-2" />
+                                <span>User Management</span>
+                                {pendingUserCount > 0 && (
+                                    <span className="ml-auto flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-xs font-medium text-destructive-foreground">{pendingUserCount}</span>
+                                )}
+                            </DropdownMenuItem>
+                        )}
+                        <DropdownMenuItem onClick={() => router.push('/schedule')} className="cursor-pointer">
+                        <Users className="mr-2" />
+                        <span>Team Schedule</span>
                         </DropdownMenuItem>
-                    )}
-                    <DropdownMenuItem onClick={() => router.push('/admin/performance')} className="cursor-pointer">
-                      <TrendingUp className="mr-2" />
-                      <span>Performance</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => router.push('/admin/tasks')} className="cursor-pointer">
-                      <ListChecks className="mr-2" />
-                      <span>Tasks</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => router.push('/admin/evidence')} className="cursor-pointer">
-                      <FileArchive className="mr-2" />
-                      <span>Evidence</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={handleShare} className="cursor-pointer">
-                      <Share2 className="mr-2 h-4 w-4" />
-                      <span>Share Signup Link</span>
-                    </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => router.push('/admin/availability')} className="cursor-pointer">
+                        <Calendar className="mr-2" />
+                        <span>Availability</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => router.push('/admin/staff-ai')} className="cursor-pointer">
+                        <Map className="mr-2" />
+                        <span>Mapping</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => router.push('/admin/contracts')} className="cursor-pointer">
+                        <Briefcase className="mr-2" />
+                        <span>Contracts</span>
+                        </DropdownMenuItem>
+                        {userProfile?.department === 'Build' && (
+                            <DropdownMenuItem onClick={() => router.push('/admin/finance')} className="cursor-pointer">
+                                <PoundSterling className="mr-2 h-4 w-4" />
+                                <span>Finance</span>
+                            </DropdownMenuItem>
+                        )}
+                        <DropdownMenuItem onClick={() => router.push('/admin/performance')} className="cursor-pointer">
+                        <TrendingUp className="mr-2" />
+                        <span>Performance</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => router.push('/admin/tasks')} className="cursor-pointer">
+                        <ListChecks className="mr-2" />
+                        <span>Tasks</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => router.push('/admin/evidence')} className="cursor-pointer">
+                        <FileArchive className="mr-2" />
+                        <span>Evidence</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={handleShare} className="cursor-pointer">
+                        <Share2 className="mr-2 h-4 w-4" />
+                        <span>Share Signup Link</span>
+                        </DropdownMenuItem>
+                    </ScrollArea>
                   </>
                 )}
                 <DropdownMenuSeparator />
