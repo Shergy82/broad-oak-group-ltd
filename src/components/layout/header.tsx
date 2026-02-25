@@ -27,6 +27,7 @@ import {
   SlidersHorizontal,
   PoundSterling,
   UserCog,
+  Share2,
 } from 'lucide-react';
 import { NotificationButton } from '../shared/notification-button';
 import {
@@ -48,11 +49,13 @@ import { useDepartmentFilter } from '@/hooks/use-department-filter';
 import { ShareAppLink } from './ShareAppLink';
 import { useMemo } from 'react';
 import { useAllUsers } from '@/hooks/use-all-users';
+import { useToast } from '@/hooks/use-toast';
 
 export function Header() {
   const { user } = useAuth();
   const { userProfile } = useUserProfile();
   const router = useRouter();
+  const { toast } = useToast();
   const { availableDepartments, selectedDepartments, toggleDepartment, loading: deptsLoading } = useDepartmentFilter();
   const { users: allUsers } = useAllUsers();
   
@@ -68,6 +71,25 @@ export function Header() {
       await signOut(auth);
       router.push('/dashboard');
     }
+  };
+  
+  const handleShare = () => {
+    if (!userProfile?.department) {
+      toast({
+        title: 'Cannot Share Link',
+        description: 'Your user profile does not have a department assigned.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    const appUrl = 'https://broad-oak-group-ltd--the-final-project-5e248.europe-west4.hosted.app';
+    const department = encodeURIComponent(userProfile.department!);
+    const shareUrl = `${appUrl}/signup?department=${department}`;
+    navigator.clipboard.writeText(shareUrl);
+    toast({
+      title: 'Link Copied!',
+      description: `A signup link for the ${userProfile.department} department has been copied to your clipboard.`,
+    });
   };
 
   const isPrivilegedUser = userProfile && ['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role);
@@ -187,6 +209,14 @@ export function Header() {
                   <HardHat className="mr-2" />
                   <span>Health & Safety</span>
                 </DropdownMenuItem>
+                
+                {isPrivilegedUser && (
+                  <DropdownMenuItem onClick={handleShare} className="cursor-pointer">
+                    <Share2 className="mr-2 h-4 w-4" />
+                    <span>Share Signup Link</span>
+                  </DropdownMenuItem>
+                )}
+                
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => router.push('/help')} className="cursor-pointer">
                   <HelpCircle className="mr-2" />
