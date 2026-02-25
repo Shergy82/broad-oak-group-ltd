@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -258,7 +259,6 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
     const [files, setFiles] = useState<ProjectFile[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const { toast } = useToast();
-    const [isZipping, setIsZipping] = useState(false);
     const [viewingFile, setViewingFile] = useState<ProjectFile | null>(null);
 
     useEffect(() => {
@@ -274,31 +274,6 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
         });
         return () => unsubscribe();
     }, [project]);
-
-    const handleZipAndDownload = async () => {
-        if (!project || !functions || files.length === 0) {
-            toast({ variant: 'destructive', title: 'Error', description: 'Required services not available or no files to zip.'});
-            return;
-        }
-        setIsZipping(true);
-        toast({ title: 'Zipping files...', description: 'Please wait, this may take a moment for large projects.' });
-
-        try {
-            const zipProjectFilesFn = httpsCallable<{ projectId: string }, { downloadUrl: string }>(functions, 'zipProjectFiles');
-            const result = await zipProjectFilesFn({ projectId: project.id });
-            const { downloadUrl } = result.data;
-            
-            toast({ title: 'Zip created!', description: 'Your download will begin shortly.' });
-            // Trigger the download by navigating to the signed URL
-            window.location.href = downloadUrl;
-        } catch (error: any) {
-            console.error("Error zipping files:", error);
-            toast({ variant: 'destructive', title: 'Zipping Failed', description: error.message || 'Could not create zip file. Check the function logs.' });
-        } finally {
-            setIsZipping(false);
-        }
-    };
-
 
     const handleDeleteFile = async (file: ProjectFile) => {
         if (!project || !functions) {
@@ -362,15 +337,6 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                     <div className="space-y-4">
                         <div className="flex items-center justify-between">
                             <h4 className="font-semibold">Existing Files</h4>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={handleZipAndDownload}
-                                disabled={isLoading || isZipping || files.length === 0}
-                            >
-                                {isZipping ? <Spinner /> : <FileArchive className="mr-2" />}
-                                Zip & Download All
-                            </Button>
                         </div>
                         {isLoading ? <Skeleton className="h-48 w-full" /> : files.length === 0 ? (
                             <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-muted-foreground/30 rounded-lg text-center h-full">
@@ -807,3 +773,4 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
     
 
     
+
