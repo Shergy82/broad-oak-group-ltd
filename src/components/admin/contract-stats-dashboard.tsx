@@ -5,7 +5,6 @@ import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Shift, UserProfile } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { BarChart, Briefcase, User, HardHat, CheckCircle, Building } from 'lucide-react';
@@ -13,7 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Button } from '@/components/ui/button';
 import { X } from 'lucide-react';
 import { useUserProfile } from '@/hooks/use-user-profile';
-
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface ContractStats {
   name: string;
@@ -102,7 +102,7 @@ export function ContractStatsDashboard() {
 
       const contract = statsByContract[contractName];
       contract.operatives.add(shift.userId);
-      contract.jobs.add(shift.address);
+      if(shift.address) contract.jobs.add(shift.address);
       contract.totalShifts += 1;
       if (shift.status === 'completed') {
         contract.completedShifts += 1;
@@ -166,74 +166,55 @@ export function ContractStatsDashboard() {
                 </p>
             </div>
         ) : (
-          <>
-            {/* Desktop View */}
-            <div className="border rounded-lg hidden md:block">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Contract</TableHead>
-                    <TableHead className="text-center">Jobs (Addresses)</TableHead>
-                    <TableHead className="text-center">Operatives</TableHead>
-                    <TableHead className="text-center">Total Shifts</TableHead>
-                    <TableHead className="text-right">Completed Shifts</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredContracts.map((data) => (
-                      <TableRow key={data.name}>
-                        <TableCell className="font-medium">{data.name}</TableCell>
-                        <TableCell className="text-center">{data.jobs.size}</TableCell>
-                        <TableCell className="text-center">{data.operatives.size}</TableCell>
-                        <TableCell className="text-center">{data.totalShifts}</TableCell>
-                        <TableCell className="text-right">{data.completedShifts}</TableCell>
-                      </TableRow>
-                    ))}
-                </TableBody>
-              </Table>
+           <Accordion type="multiple" className="w-full space-y-2">
+            <div className="hidden md:grid grid-cols-5 gap-4 px-4 py-2 font-semibold text-muted-foreground border-b">
+                <div className="col-span-2">Contract</div>
+                <div className="text-center">Jobs (Addresses)</div>
+                <div className="text-center">Operatives</div>
+                <div className="text-center">Total Shifts</div>
+                <div className="text-right">Completed Shifts</div>
             </div>
-
-            {/* Mobile View */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:hidden">
-              {filteredContracts.map((data) => (
-                <Card key={data.name}>
-                  <CardHeader>
-                    <CardTitle className="text-base">{data.name}</CardTitle>
-                  </CardHeader>
-                  <CardContent className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                     <div className="flex items-center gap-2">
-                        <Building className="h-4 w-4 text-muted-foreground" />
-                        <div>
-                            <p className="font-medium">{data.jobs.size}</p>
-                            <p className="text-muted-foreground text-xs">Jobs</p>
+            {filteredContracts.map((data) => (
+              <AccordionItem key={data.name} value={data.name} className="border-b-0">
+                <Card>
+                    <AccordionTrigger className="p-0 hover:no-underline w-full text-sm">
+                        <div className="p-4 w-full">
+                            {/* Desktop View */}
+                            <div className="hidden md:grid grid-cols-5 items-center w-full gap-4">
+                                <div className="col-span-2 font-medium">{data.name}</div>
+                                <div className="text-center">{data.jobs.size}</div>
+                                <div className="text-center">{data.operatives.size}</div>
+                                <div className="text-center">{data.totalShifts}</div>
+                                <div className="text-right">{data.completedShifts}</div>
+                            </div>
+                            {/* Mobile View */}
+                            <div className="md:hidden flex flex-col items-start text-left w-full">
+                                <p className="font-medium text-base">{data.name}</p>
+                                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm text-muted-foreground mt-2">
+                                    <div className="flex items-center gap-2"><Building className="h-4 w-4" /><span>{data.jobs.size} Jobs</span></div>
+                                    <div className="flex items-center gap-2"><HardHat className="h-4 w-4" /><span>{data.operatives.size} Operatives</span></div>
+                                    <div className="flex items-center gap-2"><Briefcase className="h-4 w-4" /><span>{data.totalShifts} Shifts</span></div>
+                                    <div className="flex items-center gap-2"><CheckCircle className="h-4 w-4" /><span>{data.completedShifts} Completed</span></div>
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                     <div className="flex items-center gap-2">
-                        <HardHat className="h-4 w-4 text-muted-foreground" />
-                        <div>
-                            <p className="font-medium">{data.operatives.size}</p>
-                            <p className="text-muted-foreground text-xs">Operatives</p>
+                    </AccordionTrigger>
+                    <AccordionContent className="px-4 pb-4">
+                        <div className="border-t pt-4">
+                            <h4 className="font-semibold mb-2">Job Addresses</h4>
+                            <ScrollArea className="h-40 border rounded-md p-2">
+                                <div className="space-y-1 text-sm text-muted-foreground">
+                                    {Array.from(data.jobs).sort().map(job => (
+                                    <p key={job} className="p-1">{job}</p>
+                                    ))}
+                                </div>
+                            </ScrollArea>
                         </div>
-                    </div>
-                     <div className="flex items-center gap-2">
-                        <Briefcase className="h-4 w-4 text-muted-foreground" />
-                        <div>
-                            <p className="font-medium">{data.totalShifts}</p>
-                            <p className="text-muted-foreground text-xs">Total Shifts</p>
-                        </div>
-                    </div>
-                     <div className="flex items-center gap-2">
-                        <CheckCircle className="h-4 w-4 text-muted-foreground" />
-                        <div>
-                            <p className="font-medium">{data.completedShifts}</p>
-                            <p className="text-muted-foreground text-xs">Completed</p>
-                        </div>
-                    </div>
-                  </CardContent>
+                    </AccordionContent>
                 </Card>
-              ))}
-            </div>
-          </>
+              </AccordionItem>
+            ))}
+          </Accordion>
         )}
       </CardContent>
     </Card>
