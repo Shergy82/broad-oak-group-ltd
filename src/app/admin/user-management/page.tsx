@@ -178,9 +178,12 @@ export default function UserManagementPage() {
         };
 
         // If activating a user with no department, assign them to the current admin's department.
-        // Explicitly check for an empty string as well as undefined/null.
-        if (newStatus === 'active' && (!user.department || user.department === '') && currentUserProfile?.department) {
-            payload.department = currentUserProfile.department;
+        // Use baseDepartment as a fallback, which is crucial for owners.
+        if (newStatus === 'active' && (!user.department || user.department === '')) {
+            const adminDepartment = currentUserProfile?.department || currentUserProfile?.baseDepartment;
+            if (adminDepartment) {
+                payload.department = adminDepartment;
+            }
         }
         
         try {

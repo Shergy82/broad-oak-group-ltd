@@ -176,9 +176,13 @@ export default function UserManagementPage() {
             newStatus 
         };
 
-        // If activating a user with no department, assign them to the current admin's department
-        if (newStatus === 'active' && !user.department && currentUserProfile?.department) {
-            payload.department = currentUserProfile.department;
+        // If activating a user with no department, assign them to the current admin's department.
+        // Use baseDepartment as a fallback, which is crucial for owners.
+        if (newStatus === 'active' && (!user.department || user.department === '')) {
+            const adminDepartment = currentUserProfile?.department || currentUserProfile?.baseDepartment;
+            if (adminDepartment) {
+                payload.department = adminDepartment;
+            }
         }
         
         try {
@@ -337,13 +341,13 @@ export default function UserManagementPage() {
         );
     }
     
-    if (!['owner', 'admin', 'manager'].includes(currentUserProfile?.role || '')) {
+    if (!['owner', 'admin'].includes(currentUserProfile?.role || '')) {
         return (
             <Alert variant="destructive">
                 <AlertTriangle className="h-4 w-4" />
                 <AlertTitle>Access Denied</AlertTitle>
                 <AlertDescription>
-                You do not have permission to view this page. User management is restricted to owners, admins, and managers.
+                You do not have permission to view this page. User management is restricted to owners and admins.
                 </AlertDescription>
             </Alert>
         );
