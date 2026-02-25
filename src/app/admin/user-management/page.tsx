@@ -136,14 +136,15 @@ export default function UserManagementPage() {
         // --- PENDING USERS LOGIC ---
         const allPending = searchedUsers.filter(u => u.status === 'pending-approval');
         const visiblePending = allPending.filter(u => {
-            // Unassigned users are visible to all privileged users for assignment.
-            if (!u.department) {
+            // An unassigned user should be visible to any privileged user for assignment.
+            if (!u.department || u.department === '') {
                 return true; 
             }
+            // An owner can see pending users based on their department filter.
             if (isOwner) {
                 return selectedDepartments.size === 0 || selectedDepartments.has(u.department);
             }
-            // Managers/admins only see pending users in their own department.
+            // A manager/admin sees only pending users in their own department.
             return u.department === currentUserProfile?.department;
         });
 
@@ -176,8 +177,9 @@ export default function UserManagementPage() {
             newStatus 
         };
 
-        // If activating a user with no department, assign them to the current admin's department
-        if (newStatus === 'active' && !user.department && currentUserProfile?.department) {
+        // If activating a user with no department, assign them to the current admin's department.
+        // Explicitly check for an empty string as well as undefined/null.
+        if (newStatus === 'active' && (!user.department || user.department === '') && currentUserProfile?.department) {
             payload.department = currentUserProfile.department;
         }
         
