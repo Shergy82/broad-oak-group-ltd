@@ -146,7 +146,7 @@ export default function UserManagementPage() {
         
         let visibleAssigned = assignedWithDept;
         if (isOwner) {
-             // If owner has department filters, apply them. Otherwise, show all.
+             // If owner has department filters, apply them. If no filters, show all assigned.
             if (selectedDepartments.size > 0) {
                  visibleAssigned = assignedWithDept.filter(u => u.department && selectedDepartments.has(u.department));
             }
