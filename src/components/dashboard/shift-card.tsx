@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -797,6 +798,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
             <span className="line-clamp-1">{shift.address}</span>
           </a>
           {shift.eNumber && <p className="text-xs text-muted-foreground">Number: {shift.eNumber}</p>}
+          {shift.contract && <p className="text-xs text-muted-foreground">Contract: {shift.contract}</p>}
           {shift.manager && <p className="text-xs text-muted-foreground">Manager: {shift.manager}</p>}
           
           {shift.notes && (shift.status !== 'incomplete' && shift.status !== 'rejected') && (

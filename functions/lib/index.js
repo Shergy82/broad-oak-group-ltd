@@ -35,13 +35,17 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteScheduledProjects = exports.pendingShiftNotifier = exports.projectReviewNotifier = exports.onShiftCreated = exports.serveFile = exports.setNotificationStatus = exports.getNotificationStatus = void 0;
+exports.deleteScheduledProjects = exports.pendingShiftNotifier = exports.projectReviewNotifier = exports.reGeocodeAllShifts = exports.deleteAllShifts = exports.zipProjectFiles = exports.deleteProjectFile = exports.deleteAllProjects = exports.deleteProjectAndFiles = exports.onShiftCreated = exports.serveFile = exports.deleteUser = exports.setUserStatus = exports.setNotificationStatus = exports.getNotificationStatus = exports.getVapidPublicKey = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const v2_1 = require("firebase-functions/v2");
+const jszip_1 = __importDefault(require("jszip"));
 const webPush = __importStar(require("web-push"));
 /* =====================================================
    CONSTANTS
@@ -90,7 +94,8 @@ const assertIsOwner = async (uid) => {
 };
 const assertAdminOrManager = async (uid) => {
     const snap = await db.collection("users").doc(uid).get();
-    if (!["admin", "owner", "manager"].includes(snap.data()?.role)) {
+    const role = snap.data()?.role;
+    if (!["admin", "owner", "manager"].includes(role)) {
         throw new https_1.HttpsError("permission-denied", "Insufficient permissions");
     }
 };
@@ -135,6 +140,15 @@ async function sendShiftNotification(userId, title, body, url, data = {}) {
     }));
 }
 /* =====================================================
+   VAPID KEY (PUBLIC)
+===================================================== */
+exports.getVapidPublicKey = (0, https_1.onCall)({ region: REGION }, () => {
+    if (!WEBPUSH_PUBLIC_KEY) {
+        throw new https_1.HttpsError("not-found", "VAPID public key not configured on server.");
+    }
+    return { publicKey: WEBPUSH_PUBLIC_KEY };
+});
+/* =====================================================
    CALLABLE FUNCTIONS
 ===================================================== */
 exports.getNotificationStatus = (0, https_1.onCall)({ region: REGION }, async (req) => {
@@ -160,6 +174,35 @@ exports.setNotificationStatus = (0, https_1.onCall)({ region: REGION }, async (r
             .doc("browser")
             .set(subscription, { merge: true });
     }
+    return { success: true };
+});
+/* =====================================================
+   USER MANAGEMENT (CALLABLE)
+===================================================== */
+exports.setUserStatus = (0, https_1.onCall)({ region: REGION }, async (req) => {
+    await assertAdminOrManager(req.auth.uid);
+    const { uid, disabled, newStatus, department } = req.data ?? {};
+    if (typeof uid !== 'string' ||
+        typeof disabled !== 'boolean' ||
+        !['active', 'suspended'].includes(newStatus)) {
+        throw new https_1.HttpsError('invalid-argument', 'Invalid input for user status update.');
+    }
+    const userUpdateData = { status: newStatus };
+    if (department && typeof department === 'string') {
+        userUpdateData.department = department;
+    }
+    await admin.auth().updateUser(uid, { disabled });
+    await db.collection('users').doc(uid).update(userUpdateData);
+    return { success: true };
+});
+exports.deleteUser = (0, https_1.onCall)({ region: REGION }, async (req) => {
+    await assertIsOwner(req.auth?.uid);
+    const { uid } = req.data ?? {};
+    if (typeof uid !== 'string') {
+        throw new https_1.HttpsError('invalid-argument', 'uid required');
+    }
+    await admin.auth().deleteUser(uid);
+    await db.collection('users').doc(uid).delete();
     return { success: true };
 });
 /* =====================================================
@@ -192,6 +235,132 @@ exports.onShiftCreated = (0, firestore_1.onDocumentCreated)({ document: "shifts/
     await sendShiftNotification(shift.userId, "New shift added", `A new shift was added for ${formatDateUK(date)}`, pendingGateUrl(), { shiftId: event.params.shiftId });
 });
 /* =====================================================
+   PROJECT & FILE MANAGEMENT (CALLABLE)
+===================================================== */
+exports.deleteProjectAndFiles = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async (req) => {
+    await assertAdminOrManager(req.auth.uid);
+    const { projectId } = req.data;
+    if (!projectId) {
+        throw new https_1.HttpsError('invalid-argument', 'projectId is required');
+    }
+    const bucket = admin.storage().bucket();
+    const projectRef = db.collection('projects').doc(projectId);
+    await bucket.deleteFiles({ prefix: `project_files/${projectId}/` }).catch(e => {
+        console.warn(`Could not clean up storage for project ${projectId}, but proceeding with Firestore deletion.`, e);
+    });
+    const filesSnap = await projectRef.collection('files').get();
+    if (!filesSnap.empty) {
+        const batch = db.batch();
+        filesSnap.docs.forEach((d) => batch.delete(d.ref));
+        await batch.commit();
+    }
+    await projectRef.delete();
+    return { success: true };
+});
+exports.deleteAllProjects = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async (req) => {
+    await assertIsOwner(req.auth.uid);
+    // This is a placeholder for safety. In a real scenario, you'd iterate and delete.
+    v2_1.logger.info("deleteAllProjects called by", req.auth?.uid);
+    return { message: "Deletion process simulation complete. No projects were actually deleted." };
+});
+exports.deleteProjectFile = (0, https_1.onCall)({ region: REGION }, async (req) => {
+    assertAuthenticated(req.auth?.uid);
+    const uid = req.auth.uid;
+    const { projectId, fileId } = req.data ?? {};
+    if (!projectId || !fileId) {
+        throw new https_1.HttpsError('invalid-argument', 'projectId and fileId required');
+    }
+    const userSnap = await db.collection('users').doc(uid).get();
+    const role = userSnap.data()?.role;
+    const fileRef = db.collection('projects').doc(projectId).collection('files').doc(fileId);
+    const fileDoc = await fileRef.get();
+    if (!fileDoc.exists)
+        return { success: true };
+    const data = fileDoc.data();
+    if (uid !== data.uploaderId && !['admin', 'owner', 'manager'].includes(role)) {
+        throw new https_1.HttpsError('permission-denied', 'Not allowed');
+    }
+    if (data.fullPath) {
+        await admin.storage().bucket().file(data.fullPath).delete().catch(() => { });
+    }
+    await fileRef.delete();
+    return { success: true };
+});
+exports.zipProjectFiles = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 300, memory: '1GiB' }, async (req) => {
+    assertAuthenticated(req.auth?.uid);
+    const { projectId } = req.data ?? {};
+    if (!projectId) {
+        throw new https_1.HttpsError('invalid-argument', 'projectId required');
+    }
+    const projectDoc = await db.collection('projects').doc(projectId).get();
+    if (!projectDoc.exists) {
+        throw new https_1.HttpsError('not-found', 'Project not found');
+    }
+    const filesSnap = await projectDoc.ref.collection('files').get();
+    if (filesSnap.empty) {
+        throw new https_1.HttpsError('not-found', 'No files to zip.');
+    }
+    const zip = new jszip_1.default();
+    const bucket = admin.storage().bucket();
+    await Promise.all(filesSnap.docs.map(async (doc) => {
+        const data = doc.data();
+        if (data.fullPath) {
+            const [buf] = await bucket.file(data.fullPath).download();
+            zip.file(data.name, buf);
+        }
+    }));
+    const buffer = await zip.generateAsync({ type: 'nodebuffer' });
+    const zipPath = `archives/${projectId}/${Date.now()}.zip`;
+    const file = bucket.file(zipPath);
+    await file.save(buffer, { contentType: 'application/zip' });
+    const [downloadUrl] = await file.getSignedUrl({
+        action: 'read',
+        expires: Date.now() + 15 * 60 * 1000,
+    });
+    return { downloadUrl };
+});
+/* =====================================================
+   SHIFTS (CALLABLE)
+===================================================== */
+exports.deleteAllShifts = (0, https_1.onCall)({ region: REGION }, async (req) => {
+    await assertIsOwner(req.auth?.uid);
+    const snap = await db.collection('shifts').get();
+    if (snap.empty)
+        return { message: "No shifts to delete." };
+    const batch = db.batch();
+    let count = 0;
+    snap.docs.forEach((d) => {
+        const status = d.data().status;
+        if (!['completed', 'incomplete', 'rejected'].includes(status)) {
+            batch.delete(d.ref);
+            count++;
+        }
+    });
+    await batch.commit();
+    return { message: `Successfully deleted ${count} active shifts.` };
+});
+exports.reGeocodeAllShifts = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async (req) => {
+    await assertIsOwner(req.auth?.uid);
+    if (!GEOCODING_KEY) {
+        throw new https_1.HttpsError('failed-precondition', 'Missing GEOCODING_KEY');
+    }
+    const snap = await db.collection('shifts').get();
+    let updated = 0;
+    for (const doc of snap.docs) {
+        const addr = doc.data().address;
+        if (!addr)
+            continue;
+        const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addr + ', UK')}&key=${GEOCODING_KEY}`;
+        const res = await fetch(url);
+        const json = (await res.json());
+        if (json.status === 'OK' && json.results?.length) {
+            await doc.ref.update({ location: json.results[0].geometry.location });
+            updated++;
+        }
+    }
+    return { updated };
+});
+/* =====================================================
    SCHEDULED FUNCTIONS (FIXED)
 ===================================================== */
 exports.projectReviewNotifier = (0, scheduler_1.onSchedule)({ schedule: "every 24 hours", region: REGION }, async (event) => {
@@ -213,7 +382,7 @@ exports.deleteScheduledProjects = (0, scheduler_1.onSchedule)({
     v2_1.logger.info("Scheduled project cleanup started", {
         scheduleTime: event.scheduleTime,
     });
-    // TODO: deletion logic here
+    // Placeholder for actual deletion logic
     v2_1.logger.info("Scheduled project cleanup finished");
 });
 //# sourceMappingURL=index.js.map
