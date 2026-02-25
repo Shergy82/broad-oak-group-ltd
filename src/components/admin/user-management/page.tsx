@@ -45,12 +45,20 @@ function EditUserDialog({ user, open, onOpenChange, context, availableDepartment
     const handleSaveChanges = async () => {
         setIsLoading(true);
         try {
+            if (context === 'unassigned' && !department) {
+                toast({ variant: 'destructive', title: "Department Required", description: "Please select a department to assign this user." });
+                setIsLoading(false);
+                return;
+            }
+
             const userRef = doc(db, 'users', user.uid);
             await updateDoc(userRef, {
                 role,
                 department,
                 trade,
                 operativeId,
+                // If they were pending and are now being assigned, set them to active.
+                ...(user.status === 'pending-approval' && department && { status: 'active' }),
             });
             toast({ title: "User Updated", description: `${user.name}'s details have been updated.` });
             onOpenChange(false);
@@ -163,9 +171,7 @@ export default function UserManagementPage() {
         );
         
         const pending = searchedUsers.filter(u => u.status === 'pending-approval');
-
         const unassigned = searchedUsers.filter(u => u.status !== 'pending-approval' && !u.department);
-        
         const assignedWithDept = searchedUsers.filter(u => u.status !== 'pending-approval' && !!u.department);
         
         let visibleAssigned = assignedWithDept;
