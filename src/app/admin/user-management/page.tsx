@@ -131,15 +131,36 @@ export default function UserManagementPage() {
 
     const { pendingUsers, activeUsers, suspendedUsers } = useMemo(() => {
         const isOwner = currentUserProfile?.role === 'owner';
-        const departmentFilteredUsers = isOwner && selectedDepartments.size > 0
-            ? users.filter(u => u.department && selectedDepartments.has(u.department))
-            : users;
+        const searchedUsers = users.filter(u => u.name?.toLowerCase().includes(searchTerm.toLowerCase()));
 
-        const filtered = departmentFilteredUsers.filter(u => u.name?.toLowerCase().includes(searchTerm.toLowerCase()));
+        // --- PENDING USERS LOGIC ---
+        const allPending = searchedUsers.filter(u => u.status === 'pending-approval');
+        const visiblePending = allPending.filter(u => {
+            // Unassigned users are visible to all privileged users for assignment.
+            if (!u.department) {
+                return true; 
+            }
+            if (isOwner) {
+                return selectedDepartments.size === 0 || selectedDepartments.has(u.department);
+            }
+            // Managers/admins only see pending users in their own department.
+            return u.department === currentUserProfile?.department;
+        });
+
+        // --- ACTIVE/SUSPENDED USERS LOGIC ---
+        const activeAndSuspended = searchedUsers.filter(u => u.status !== 'pending-approval');
+        const visibleActiveAndSuspended = activeAndSuspended.filter(u => {
+            if (!u.department) return false;
+            if (isOwner) {
+                return selectedDepartments.size === 0 || selectedDepartments.has(u.department);
+            }
+            return u.department === currentUserProfile?.department;
+        });
+
         return {
-            pendingUsers: filtered.filter(u => u.status === 'pending-approval'),
-            activeUsers: filtered.filter(u => u.status === 'active' || !u.status),
-            suspendedUsers: filtered.filter(u => u.status === 'suspended'),
+            pendingUsers: visiblePending,
+            activeUsers: visibleActiveAndSuspended.filter(u => u.status === 'active' || !u.status),
+            suspendedUsers: visibleActiveAndSuspended.filter(u => u.status === 'suspended'),
         };
     }, [users, searchTerm, currentUserProfile, selectedDepartments]);
     
@@ -148,9 +169,21 @@ export default function UserManagementPage() {
             toast({ variant: 'destructive', title: "Functions not available."});
             return;
         }
+
+        const payload: { uid: string, disabled: boolean, newStatus: string, department?: string } = { 
+            uid: user.uid, 
+            disabled: newStatus === 'suspended', 
+            newStatus 
+        };
+
+        // If activating a user with no department, assign them to the current admin's department
+        if (newStatus === 'active' && !user.department && currentUserProfile?.department) {
+            payload.department = currentUserProfile.department;
+        }
+        
         try {
-            const setUserStatusFn = httpsCallable<{uid: string, disabled: boolean, newStatus: string}, {success: boolean}>(functions, 'setUserStatus');
-            await setUserStatusFn({ uid: user.uid, disabled: newStatus === 'suspended', newStatus });
+            const setUserStatusFn = httpsCallable<typeof payload, {success: boolean}>(functions, 'setUserStatus');
+            await setUserStatusFn(payload);
             toast({ title: "User status updated." });
         } catch (error: any) {
             toast({ variant: 'destructive', title: "Error", description: error.message });
@@ -304,13 +337,13 @@ export default function UserManagementPage() {
         );
     }
     
-    if (!['owner', 'admin'].includes(currentUserProfile?.role || '')) {
+    if (!['owner', 'admin', 'manager'].includes(currentUserProfile?.role || '')) {
         return (
             <Alert variant="destructive">
                 <AlertTriangle className="h-4 w-4" />
                 <AlertTitle>Access Denied</AlertTitle>
                 <AlertDescription>
-                You do not have permission to view this page. User management is restricted to owners and admins.
+                You do not have permission to view this page. User management is restricted to owners, admins, and managers.
                 </AlertDescription>
             </Alert>
         );

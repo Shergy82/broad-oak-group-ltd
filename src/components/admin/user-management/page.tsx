@@ -131,27 +131,26 @@ export default function UserManagementPage() {
 
     const { pendingUsers, activeUsers, suspendedUsers } = useMemo(() => {
         const isOwner = currentUserProfile?.role === 'owner';
-
-        // Get all users matching the search term first
         const searchedUsers = users.filter(u => u.name?.toLowerCase().includes(searchTerm.toLowerCase()));
 
-        // Separate pending users from the rest
+        // --- PENDING USERS LOGIC ---
         const allPending = searchedUsers.filter(u => u.status === 'pending-approval');
-        const otherUsers = searchedUsers.filter(u => u.status !== 'pending-approval');
-
-        // Rule for Pending Users: Always show if they have no department. Otherwise, filter by department.
         const visiblePending = allPending.filter(u => {
-            if (!u.department) return true; // Always show unassigned pending users to all managers/admins
-
+            // Unassigned users are visible to all privileged users for assignment.
+            if (!u.department) {
+                return true; 
+            }
             if (isOwner) {
                 return selectedDepartments.size === 0 || selectedDepartments.has(u.department);
             }
+            // Managers/admins only see pending users in their own department.
             return u.department === currentUserProfile?.department;
         });
 
-        // Rule for Active/Suspended Users: Must have a department and must match the filter.
-        const visibleActiveAndSuspended = otherUsers.filter(u => {
-            if (!u.department) return false; // Hide active/suspended users without a department
+        // --- ACTIVE/SUSPENDED USERS LOGIC ---
+        const activeAndSuspended = searchedUsers.filter(u => u.status !== 'pending-approval');
+        const visibleActiveAndSuspended = activeAndSuspended.filter(u => {
+            if (!u.department) return false;
             if (isOwner) {
                 return selectedDepartments.size === 0 || selectedDepartments.has(u.department);
             }
@@ -368,7 +367,7 @@ export default function UserManagementPage() {
                         />
                     </div>
                     <Tabs defaultValue="pending">
-                        <TabsList className="grid w-full grid-cols-1 gap-1 sm:grid-cols-3">
+                        <TabsList className="grid h-auto w-full grid-cols-1 gap-1 sm:h-10 sm:grid-cols-3">
                             <TabsTrigger value="pending">Pending Applications ({pendingUsers.length})</TabsTrigger>
                             <TabsTrigger value="active">Active Users ({activeUsers.length})</TabsTrigger>
                             <TabsTrigger value="suspended">Suspended Users ({suspendedUsers.length})</TabsTrigger>

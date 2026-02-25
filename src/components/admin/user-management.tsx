@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -21,6 +22,7 @@ import { Search, Check, Ban, Trash, Edit, AlertTriangle } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
+import { useDepartmentFilter } from '@/hooks/use-department-filter';
 
 function EditUserDialog({ user, open, onOpenChange }: { user: UserProfile, open: boolean, onOpenChange: (open: boolean) => void }) {
     const { toast } = useToast();
@@ -112,6 +114,7 @@ export default function UserManagementPage() {
     const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
     const [isEditUserOpen, setIsEditUserOpen] = useState(false);
     const { toast } = useToast();
+    const { selectedDepartments } = useDepartmentFilter();
 
     useEffect(() => {
         const q = query(collection(db, 'users'));
@@ -126,22 +129,60 @@ export default function UserManagementPage() {
     }, []);
 
     const { pendingUsers, activeUsers, suspendedUsers } = useMemo(() => {
-        const filtered = users.filter(u => u.name?.toLowerCase().includes(searchTerm.toLowerCase()));
+        const isOwner = currentUserProfile?.role === 'owner';
+        const searchedUsers = users.filter(u => u.name?.toLowerCase().includes(searchTerm.toLowerCase()));
+
+        // --- PENDING USERS LOGIC ---
+        const allPending = searchedUsers.filter(u => u.status === 'pending-approval');
+        const visiblePending = allPending.filter(u => {
+            // Unassigned users are visible to all privileged users for assignment.
+            if (!u.department) {
+                return true; 
+            }
+            if (isOwner) {
+                return selectedDepartments.size === 0 || selectedDepartments.has(u.department);
+            }
+            // Managers/admins only see pending users in their own department.
+            return u.department === currentUserProfile?.department;
+        });
+
+        // --- ACTIVE/SUSPENDED USERS LOGIC ---
+        const activeAndSuspended = searchedUsers.filter(u => u.status !== 'pending-approval');
+        const visibleActiveAndSuspended = activeAndSuspended.filter(u => {
+            if (!u.department) return false;
+            if (isOwner) {
+                return selectedDepartments.size === 0 || selectedDepartments.has(u.department);
+            }
+            return u.department === currentUserProfile?.department;
+        });
+
         return {
-            pendingUsers: filtered.filter(u => u.status === 'pending-approval'),
-            activeUsers: filtered.filter(u => u.status === 'active' || !u.status),
-            suspendedUsers: filtered.filter(u => u.status === 'suspended'),
+            pendingUsers: visiblePending,
+            activeUsers: visibleActiveAndSuspended.filter(u => u.status === 'active' || !u.status),
+            suspendedUsers: visibleActiveAndSuspended.filter(u => u.status === 'suspended'),
         };
-    }, [users, searchTerm]);
+    }, [users, searchTerm, currentUserProfile, selectedDepartments]);
     
     const handleSetUserStatus = async (user: UserProfile, newStatus: 'active' | 'suspended') => {
         if (!functions) {
             toast({ variant: 'destructive', title: "Functions not available."});
             return;
         }
+
+        const payload: { uid: string, disabled: boolean, newStatus: string, department?: string } = { 
+            uid: user.uid, 
+            disabled: newStatus === 'suspended', 
+            newStatus 
+        };
+
+        // If activating a user with no department, assign them to the current admin's department
+        if (newStatus === 'active' && !user.department && currentUserProfile?.department) {
+            payload.department = currentUserProfile.department;
+        }
+        
         try {
-            const setUserStatusFn = httpsCallable<{uid: string, disabled: boolean, newStatus: string}, {success: boolean}>(functions, 'setUserStatus');
-            await setUserStatusFn({ uid: user.uid, disabled: newStatus === 'suspended', newStatus });
+            const setUserStatusFn = httpsCallable<typeof payload, {success: boolean}>(functions, 'setUserStatus');
+            await setUserStatusFn(payload);
             toast({ title: "User status updated." });
         } catch (error: any) {
             toast({ variant: 'destructive', title: "Error", description: error.message });
