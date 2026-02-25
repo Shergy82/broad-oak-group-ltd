@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useRouter } from 'next/navigation';
@@ -158,7 +157,7 @@ export function Header() {
                   <span className="sr-only">Toggle user menu</span>
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="max-h-[85vh]">
+              <DropdownMenuContent align="end" className="w-64 max-h-[85vh]">
                 {userProfile?.name && <DropdownMenuLabel>{userProfile.name}</DropdownMenuLabel>}
                 {userProfile?.email && (
                   <DropdownMenuLabel className="font-normal text-muted-foreground -mt-2 pb-2">
@@ -299,7 +298,7 @@ export function Header() {
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuLabel>Admin Area</DropdownMenuLabel>
-                    <ScrollArea className="max-h-[200px]">
+                    <ScrollArea className="max-h-72">
                         <DropdownMenuItem onClick={() => router.push('/admin/control-panel')} className="cursor-pointer">
                         <Shield className="mr-2" />
                         <span>Control Panel</span>
@@ -329,7 +328,7 @@ export function Header() {
                         <Briefcase className="mr-2" />
                         <span>Contracts</span>
                         </DropdownMenuItem>
-                        {userProfile?.department === 'Build' && (
+                        {(isOwner || userProfile?.department === 'Build') && (
                             <DropdownMenuItem onClick={() => router.push('/admin/finance')} className="cursor-pointer">
                                 <PoundSterling className="mr-2 h-4 w-4" />
                                 <span>Finance</span>
@@ -347,11 +346,11 @@ export function Header() {
                         <FileArchive className="mr-2" />
                         <span>Evidence</span>
                         </DropdownMenuItem>
+                         <DropdownMenuItem onClick={handleShare} className="cursor-pointer">
+                          <Share2 className="mr-2 h-4 w-4" />
+                          <span>Share Signup Link</span>
+                        </DropdownMenuItem>
                     </ScrollArea>
-                    <DropdownMenuItem onClick={handleShare} className="cursor-pointer">
-                      <Share2 className="mr-2 h-4 w-4" />
-                      <span>Share Signup Link</span>
-                    </DropdownMenuItem>
                   </>
                 )}
                 <DropdownMenuSeparator />
