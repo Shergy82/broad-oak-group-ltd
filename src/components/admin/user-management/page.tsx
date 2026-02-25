@@ -57,8 +57,7 @@ function EditUserDialog({ user, open, onOpenChange, context, availableDepartment
                 department,
                 trade,
                 operativeId,
-                // If they were pending or unassigned and are now being assigned a department, set them to active.
-                ...(context === 'unassigned' && department && { status: 'active' }),
+                ...(context === 'unassigned' && department && user.status !== 'active' && { status: 'active' }),
             });
             toast({ title: "User Updated", description: `${user.name}'s details have been updated.` });
             onOpenChange(false);
@@ -474,3 +473,4 @@ export default function UserManagementPage() {
         </>
     )
 }
+    
