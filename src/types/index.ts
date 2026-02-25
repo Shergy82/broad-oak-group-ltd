@@ -58,6 +58,7 @@ export interface UserProfile {
   trade?: string;
   department?: string;
   baseDepartment?: string;
+  accountType?: 'individual' | 'company';
 }
 
 /* =========================

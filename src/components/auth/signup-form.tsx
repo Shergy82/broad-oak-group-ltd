@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -22,16 +22,43 @@ import { Spinner } from '@/components/shared/spinner';
 import { UnconfiguredForm } from '@/components/auth/unconfigured-form';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Terminal } from "lucide-react"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const formSchema = z.object({
-  firstName: z.string().min(1, { message: 'First name is required.' })
-    .transform(name => name.trim().charAt(0).toUpperCase() + name.trim().slice(1)),
-  surname: z.string().min(1, { message: 'Surname is required.' })
-    .transform(name => name.trim().charAt(0).toUpperCase() + name.trim().slice(1)),
+  signupType: z.enum(['individual', 'company']),
+  firstName: z.string().optional(),
+  surname: z.string().optional(),
+  companyName: z.string().optional(),
   email: z.string().email({ message: 'Please enter a valid email address.' }),
   password: z.string().min(8, { message: 'Password must be at least 8 characters.' }),
   phoneNumber: z.string().min(1, { message: 'Phone number is required.' }),
+}).superRefine((data, ctx) => {
+    if (data.signupType === 'individual') {
+        if (!data.firstName || data.firstName.trim().length < 1) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'First name is required.',
+                path: ['firstName'],
+            });
+        }
+        if (!data.surname || data.surname.trim().length < 1) {
+             ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'Surname is required.',
+                path: ['surname'],
+            });
+        }
+    } else if (data.signupType === 'company') {
+        if (!data.companyName || data.companyName.trim().length < 1) {
+             ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'Company name is required.',
+                path: ['companyName'],
+            });
+        }
+    }
 });
+
 
 interface SignUpFormProps {
     onSignupSuccess: () => void;
@@ -42,17 +69,26 @@ export function SignUpForm({ onSignupSuccess, department }: SignUpFormProps) {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [signupType, setSignupType] = useState<'individual' | 'company'>('individual');
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
+      signupType: 'individual',
       firstName: '',
       surname: '',
+      companyName: '',
       email: '',
       password: '',
       phoneNumber: '',
     },
   });
+
+  useEffect(() => {
+    form.setValue('signupType', signupType);
+    // Reset validation when switching types
+    form.clearErrors(['firstName', 'surname', 'companyName']);
+  }, [signupType, form]);
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     if (!auth || !db) return;
@@ -65,7 +101,9 @@ export function SignUpForm({ onSignupSuccess, department }: SignUpFormProps) {
       const userCredential = await createUserWithEmailAndPassword(auth, values.email, values.password);
       const user = userCredential.user;
       
-      const fullName = `${values.firstName} ${values.surname}`;
+      const fullName = values.signupType === 'individual'
+        ? `${values.firstName!.trim().charAt(0).toUpperCase() + values.firstName!.trim().slice(1)} ${values.surname!.trim().charAt(0).toUpperCase() + values.surname!.trim().slice(1)}`
+        : values.companyName;
 
       // Step 2: Update their Auth profile with their full name. 
       await updateProfile(user, { 
@@ -87,6 +125,7 @@ export function SignUpForm({ onSignupSuccess, department }: SignUpFormProps) {
           operativeId: '', // Add empty operativeId field
           department: department || '',
           baseDepartment: department || '',
+          accountType: values.signupType,
       });
 
       onSignupSuccess();
@@ -128,6 +167,13 @@ export function SignUpForm({ onSignupSuccess, department }: SignUpFormProps) {
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <Tabs value={signupType} onValueChange={(value) => setSignupType(value as 'individual' | 'company')} className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="individual">Individual</TabsTrigger>
+                <TabsTrigger value="company">Company</TabsTrigger>
+            </TabsList>
+        </Tabs>
+        
         {error && (
             <Alert variant="destructive">
               <Terminal className="h-4 w-4" />
@@ -135,34 +181,53 @@ export function SignUpForm({ onSignupSuccess, department }: SignUpFormProps) {
               <AlertDescription>{error}</AlertDescription>
             </Alert>
         )}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+        {signupType === 'individual' ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <FormField
+                control={form.control}
+                name="firstName"
+                render={({ field }) => (
+                    <FormItem>
+                    <FormLabel>First Name</FormLabel>
+                    <FormControl>
+                        <Input placeholder="John" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                    </FormItem>
+                )}
+                />
+                <FormField
+                control={form.control}
+                name="surname"
+                render={({ field }) => (
+                    <FormItem>
+                    <FormLabel>Surname</FormLabel>
+                    <FormControl>
+                        <Input placeholder="Doe" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                    </FormItem>
+                )}
+                />
+            </div>
+        ) : (
             <FormField
-              control={form.control}
-              name="firstName"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>First Name</FormLabel>
-                  <FormControl>
-                    <Input placeholder="John" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+                control={form.control}
+                name="companyName"
+                render={({ field }) => (
+                    <FormItem>
+                        <FormLabel>Company Name</FormLabel>
+                        <FormControl>
+                            <Input placeholder="Your Company Ltd" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                    </FormItem>
+                )}
             />
-            <FormField
-              control={form.control}
-              name="surname"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Surname</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Doe" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-        </div>
+        )}
+
+
         <FormField
           control={form.control}
           name="email"

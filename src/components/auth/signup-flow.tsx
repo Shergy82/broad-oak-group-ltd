@@ -63,7 +63,7 @@ export function SignUpFlow() {
                 <CardDescription>
                     {department 
                         ? `You are joining the ${department} department.`
-                        : "Enter your details below to get started."
+                        : "Select an account type and enter your details to get started."
                     }
                 </CardDescription>
               </CardHeader>
