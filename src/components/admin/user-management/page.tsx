@@ -185,11 +185,13 @@ export default function UserManagementPage() {
             visibleAssigned = [];
         }
 
+        const sortByName = (a: UserProfile, b: UserProfile) => (a.name || '').localeCompare(b.name || '');
+
         return {
-            pendingUsers: pending,
-            unassignedUsers: unassigned,
-            activeUsers: visibleAssigned.filter(u => u.status === 'active' || !u.status),
-            suspendedUsers: visibleAssigned.filter(u => u.status === 'suspended'),
+            pendingUsers: pending.sort(sortByName),
+            unassignedUsers: unassigned.sort(sortByName),
+            activeUsers: visibleAssigned.filter(u => u.status === 'active' || !u.status).sort(sortByName),
+            suspendedUsers: visibleAssigned.filter(u => u.status === 'suspended').sort(sortByName),
         };
     }, [users, searchTerm, currentUserProfile, selectedDepartments]);
     
@@ -258,6 +260,7 @@ export default function UserManagementPage() {
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>Name</TableHead>
+                                    <TableHead>Email</TableHead>
                                     <TableHead className="text-right">Action</TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -265,6 +268,7 @@ export default function UserManagementPage() {
                                 {usersToRender.map(user => (
                                     <TableRow key={user.uid}>
                                         <TableCell className="font-medium">{user.name}</TableCell>
+                                        <TableCell className="text-muted-foreground">{user.email}</TableCell>
                                         <TableCell className="text-right">
                                             <Button size="sm" onClick={() => handleEditUser(user, 'unassigned')}>
                                                 <Edit className="mr-2 h-4 w-4" />
@@ -281,13 +285,16 @@ export default function UserManagementPage() {
                     <div className="grid gap-4 md:hidden">
                       {usersToRender.map(user => (
                           <Card key={user.uid}>
-                              <CardHeader className="flex-row items-center justify-between">
+                              <CardHeader>
                                   <CardTitle className="text-base">{user.name}</CardTitle>
-                                  <Button size="sm" onClick={() => handleEditUser(user, 'unassigned')}>
-                                     <Edit className="mr-2 h-4 w-4" />
-                                     Assign
-                                  </Button>
+                                  <CardDescription>{user.email}</CardDescription>
                               </CardHeader>
+                              <CardFooter>
+                                  <Button size="sm" className="w-full" onClick={() => handleEditUser(user, 'unassigned')}>
+                                     <Edit className="mr-2 h-4 w-4" />
+                                     Assign Department
+                                  </Button>
+                              </CardFooter>
                           </Card>
                       ))}
                     </div>
@@ -338,7 +345,9 @@ export default function UserManagementPage() {
                                         </Badge>
                                     </TableCell>
                                     <TableCell className="text-right space-x-1">
-                                        {type === 'pending' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')}><Check className="mr-2 h-4 w-4" />Activate</Button>}
+                                        {type === 'pending' && (
+                                            <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')}><Check className="mr-2 h-4 w-4" />Activate</Button>
+                                        )}
                                         {type === 'active' && <Button size="sm" variant="destructive" onClick={() => handleSetUserStatus(user, 'suspended')}><Ban className="mr-2 h-4 w-4" />Suspend</Button>}
                                         {type === 'suspended' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')}><Check className="mr-2 h-4 w-4" />Re-activate</Button>}
                                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEditUser(user)}><Edit className="h-4 w-4" /></Button>
@@ -465,4 +474,3 @@ export default function UserManagementPage() {
         </>
     )
 }
-    
