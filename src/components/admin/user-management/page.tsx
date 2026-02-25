@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
@@ -57,8 +57,8 @@ function EditUserDialog({ user, open, onOpenChange, context, availableDepartment
                 department,
                 trade,
                 operativeId,
-                // If they were pending and are now being assigned, set them to active.
-                ...(user.status === 'pending-approval' && department && { status: 'active' }),
+                // If they were pending or unassigned and are now being assigned a department, set them to active.
+                ...(context === 'unassigned' && department && { status: 'active' }),
             });
             toast({ title: "User Updated", description: `${user.name}'s details have been updated.` });
             onOpenChange(false);
@@ -171,8 +171,8 @@ export default function UserManagementPage() {
         );
         
         const pending = searchedUsers.filter(u => u.status === 'pending-approval');
-        const unassigned = searchedUsers.filter(u => u.status !== 'pending-approval' && !u.department);
-        const assignedWithDept = searchedUsers.filter(u => u.status !== 'pending-approval' && !!u.department);
+        const unassigned = searchedUsers.filter(u => u.status !== 'pending-approval' && (!u.department || u.department === ''));
+        const assignedWithDept = searchedUsers.filter(u => u.status !== 'pending-approval' && u.department && u.department !== '');
         
         let visibleAssigned = assignedWithDept;
         if (isOwner) {
@@ -209,6 +209,9 @@ export default function UserManagementPage() {
             const adminDepartment = currentUserProfile?.department || currentUserProfile?.baseDepartment;
             if (adminDepartment) {
                 payload.department = adminDepartment;
+            } else {
+                 handleEditUser(user, 'unassigned');
+                 return;
             }
         }
         
@@ -278,15 +281,13 @@ export default function UserManagementPage() {
                     <div className="grid gap-4 md:hidden">
                       {usersToRender.map(user => (
                           <Card key={user.uid}>
-                              <CardHeader>
-                                  <CardTitle>{user.name}</CardTitle>
+                              <CardHeader className="flex-row items-center justify-between">
+                                  <CardTitle className="text-base">{user.name}</CardTitle>
+                                  <Button size="sm" onClick={() => handleEditUser(user, 'unassigned')}>
+                                     <Edit className="mr-2 h-4 w-4" />
+                                     Assign
+                                  </Button>
                               </CardHeader>
-                              <CardFooter>
-                                <Button className="w-full" onClick={() => handleEditUser(user, 'unassigned')}>
-                                    <Edit className="mr-2 h-4 w-4" />
-                                    Assign Department
-                                </Button>
-                              </CardFooter>
                           </Card>
                       ))}
                     </div>
@@ -464,3 +465,4 @@ export default function UserManagementPage() {
         </>
     )
 }
+
