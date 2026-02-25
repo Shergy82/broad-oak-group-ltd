@@ -232,7 +232,6 @@ export default function UserManagementPage() {
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>Name</TableHead>
-                                    <TableHead>Email</TableHead>
                                     <TableHead className="text-right">Action</TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -240,7 +239,6 @@ export default function UserManagementPage() {
                                 {usersToRender.map(user => (
                                     <TableRow key={user.uid}>
                                         <TableCell className="font-medium">{user.name}</TableCell>
-                                        <TableCell className="text-muted-foreground">{user.email}</TableCell>
                                         <TableCell className="text-right">
                                             <Button size="sm" onClick={() => handleEditUser(user, 'unassigned')}>
                                                 <Edit className="mr-2 h-4 w-4" />
@@ -259,7 +257,6 @@ export default function UserManagementPage() {
                           <Card key={user.uid}>
                               <CardHeader>
                                   <CardTitle>{user.name}</CardTitle>
-                                  <CardDescription>{user.email}</CardDescription>
                               </CardHeader>
                               <CardFooter>
                                 <Button className="w-full" onClick={() => handleEditUser(user, 'unassigned')}>
