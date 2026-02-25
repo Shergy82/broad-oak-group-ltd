@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -21,8 +22,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Search, Check, Ban, Trash, Edit, AlertTriangle } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
-import { useDepartmentFilter } from '@/hooks/use-department-filter';
 import { cn } from '@/lib/utils';
+import { useDepartmentFilter } from '@/hooks/use-department-filter';
 
 function EditUserDialog({ user, open, onOpenChange }: { user: UserProfile, open: boolean, onOpenChange: (open: boolean) => void }) {
     const { toast } = useToast();
@@ -130,15 +131,35 @@ export default function UserManagementPage() {
 
     const { pendingUsers, activeUsers, suspendedUsers } = useMemo(() => {
         const isOwner = currentUserProfile?.role === 'owner';
-        const departmentFilteredUsers = isOwner && selectedDepartments.size > 0
-            ? users.filter(u => u.department && selectedDepartments.has(u.department))
-            : users;
 
-        const filtered = departmentFilteredUsers.filter(u => u.name?.toLowerCase().includes(searchTerm.toLowerCase()));
+        const searchedUsers = users.filter(u => u.name?.toLowerCase().includes(searchTerm.toLowerCase()));
+
+        const visiblePending = searchedUsers.filter(u => {
+            if (u.status !== 'pending-approval') return false;
+            // Show if user is unassigned
+            if (!u.department) return true;
+            // Show if owner and no filter, or filter matches
+            if (isOwner) {
+                return selectedDepartments.size === 0 || selectedDepartments.has(u.department);
+            }
+            // Show if admin/manager and department matches
+            return u.department === currentUserProfile?.department;
+        });
+
+        const visibleActiveAndSuspended = searchedUsers.filter(u => {
+             if (u.status === 'pending-approval') return false;
+             if (!u.department) return false; // Hide unassigned from active/suspended
+             if (isOwner) {
+                return selectedDepartments.size === 0 || selectedDepartments.has(u.department);
+             }
+             return u.department === currentUserProfile?.department;
+        });
+
+
         return {
-            pendingUsers: filtered.filter(u => u.status === 'pending-approval'),
-            activeUsers: filtered.filter(u => u.status === 'active' || !u.status),
-            suspendedUsers: filtered.filter(u => u.status === 'suspended'),
+            pendingUsers: visiblePending,
+            activeUsers: visibleActiveAndSuspended.filter(u => u.status === 'active' || !u.status),
+            suspendedUsers: visibleActiveAndSuspended.filter(u => u.status === 'suspended'),
         };
     }, [users, searchTerm, currentUserProfile, selectedDepartments]);
     
@@ -147,9 +168,20 @@ export default function UserManagementPage() {
             toast({ variant: 'destructive', title: "Functions not available."});
             return;
         }
+
+        const payload: { uid: string, disabled: boolean, newStatus: string, department?: string } = { 
+            uid: user.uid, 
+            disabled: newStatus === 'suspended', 
+            newStatus 
+        };
+
+        if (newStatus === 'active' && !user.department && currentUserProfile?.department) {
+            payload.department = currentUserProfile.department;
+        }
+        
         try {
-            const setUserStatusFn = httpsCallable<{uid: string, disabled: boolean, newStatus: string}, {success: boolean}>(functions, 'setUserStatus');
-            await setUserStatusFn({ uid: user.uid, disabled: newStatus === 'suspended', newStatus });
+            const setUserStatusFn = httpsCallable<typeof payload, {success: boolean}>(functions, 'setUserStatus');
+            await setUserStatusFn(payload);
             toast({ title: "User status updated." });
         } catch (error: any) {
             toast({ variant: 'destructive', title: "Error", description: error.message });
@@ -303,13 +335,13 @@ export default function UserManagementPage() {
         );
     }
     
-    if (!['owner', 'admin'].includes(currentUserProfile?.role || '')) {
+    if (!['owner', 'admin', 'manager'].includes(currentUserProfile?.role || '')) {
         return (
             <Alert variant="destructive">
                 <AlertTriangle className="h-4 w-4" />
                 <AlertTitle>Access Denied</AlertTitle>
                 <AlertDescription>
-                You do not have permission to view this page. User management is restricted to owners and admins.
+                You do not have permission to view this page. User management is restricted to owners, admins, and managers.
                 </AlertDescription>
             </Alert>
         );
@@ -334,9 +366,9 @@ export default function UserManagementPage() {
                     </div>
                     <Tabs defaultValue="pending">
                         <TabsList className="grid w-full grid-cols-1 gap-1 sm:grid-cols-3">
-                            <TabsTrigger value="pending">Pending ({pendingUsers.length})</TabsTrigger>
-                            <TabsTrigger value="active">Active ({activeUsers.length})</TabsTrigger>
-                            <TabsTrigger value="suspended">Suspended ({suspendedUsers.length})</TabsTrigger>
+                            <TabsTrigger value="pending">Pending Applications ({pendingUsers.length})</TabsTrigger>
+                            <TabsTrigger value="active">Active Users ({activeUsers.length})</TabsTrigger>
+                            <TabsTrigger value="suspended">Suspended Users ({suspendedUsers.length})</TabsTrigger>
                         </TabsList>
                         <TabsContent value="pending" className="mt-4">{renderUserList(pendingUsers, 'pending')}</TabsContent>
                         <TabsContent value="active" className="mt-4">{renderUserList(activeUsers, 'active')}</TabsContent>

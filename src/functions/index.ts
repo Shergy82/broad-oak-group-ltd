@@ -1,3 +1,4 @@
+
 import * as admin from 'firebase-admin';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import JSZip from 'jszip';
@@ -94,19 +95,25 @@ export const setNotificationStatus = onCall(
 export const setUserStatus = onCall(
   { region: 'europe-west2' },
   async (req) => {
-    await assertIsOwner(req.auth?.uid);
+    await assertAdminOrManager(req.auth!.uid);
 
-    const { uid, disabled, newStatus } = req.data ?? {};
+    const { uid, disabled, newStatus, department } = req.data ?? {};
     if (
       typeof uid !== 'string' ||
       typeof disabled !== 'boolean' ||
       !['active', 'suspended'].includes(newStatus)
     ) {
-      throw new HttpsError('invalid-argument', 'Invalid input');
+      throw new HttpsError('invalid-argument', 'Invalid input for user status update.');
+    }
+
+    const userUpdateData: { status: string; department?: string } = { status: newStatus };
+
+    if (department && typeof department === 'string') {
+      userUpdateData.department = department;
     }
 
     await admin.auth().updateUser(uid, { disabled });
-    await db.collection('users').doc(uid).update({ status: newStatus });
+    await db.collection('users').doc(uid).update(userUpdateData);
 
     return { success: true };
   }
