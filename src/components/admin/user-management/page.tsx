@@ -25,7 +25,7 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
 
-function EditUserDialog({ user, open, onOpenChange }: { user: UserProfile, open: boolean, onOpenChange: (open: boolean) => void }) {
+function EditUserDialog({ user, open, onOpenChange, context }: { user: UserProfile, open: boolean, onOpenChange: (open: boolean) => void, context: 'unassigned' | 'default' }) {
     const { toast } = useToast();
     const [isLoading, setIsLoading] = useState(false);
     const [role, setRole] = useState(user.role);
@@ -66,40 +66,46 @@ function EditUserDialog({ user, open, onOpenChange }: { user: UserProfile, open:
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>Edit User: {user.name}</DialogTitle>
-                    <DialogDescription>Modify the user's role and other details.</DialogDescription>
+                    <DialogTitle>{context === 'unassigned' ? `Assign Department for ${user.name}` : `Edit User: ${user.name}`}</DialogTitle>
+                    <DialogDescription>
+                        {context === 'unassigned' ? "Select a department to move this user to the active list." : "Modify the user's role and other details."}
+                    </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
-                    <div className="space-y-2">
-                        <Label htmlFor="role-select">Role</Label>
-                        <Select value={role} onValueChange={(value) => setRole(value as UserProfile['role'])}>
-                            <SelectTrigger id="role-select"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="user">User</SelectItem>
-                                <SelectItem value="TLO">TLO</SelectItem>
-                                <SelectItem value="manager">Manager</SelectItem>
-                                <SelectItem value="admin">Admin</SelectItem>
-                                <SelectItem value="owner">Owner</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
-                    <div className="space-y-2">
+                     <div className="space-y-2">
                         <Label htmlFor="department-input">Department</Label>
                         <Input id="department-input" value={department} onChange={(e) => setDepartment(e.target.value)} placeholder="e.g., Build, ECO" />
                     </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="trade-input">Trade</Label>
-                        <Input id="trade-input" value={trade} onChange={(e) => setTrade(e.target.value)} placeholder="e.g., Plumber" />
-                    </div>
-                     <div className="space-y-2">
-                        <Label htmlFor="opid-input">Operative ID</Label>
-                        <Input id="opid-input" value={operativeId} onChange={(e) => setOperativeId(e.target.value)} placeholder="e.g., BOG-001" />
-                    </div>
+                    {context !== 'unassigned' && (
+                        <>
+                            <div className="space-y-2">
+                                <Label htmlFor="role-select">Role</Label>
+                                <Select value={role} onValueChange={(value) => setRole(value as UserProfile['role'])}>
+                                    <SelectTrigger id="role-select"><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="user">User</SelectItem>
+                                        <SelectItem value="TLO">TLO</SelectItem>
+                                        <SelectItem value="manager">Manager</SelectItem>
+                                        <SelectItem value="admin">Admin</SelectItem>
+                                        <SelectItem value="owner">Owner</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="trade-input">Trade</Label>
+                                <Input id="trade-input" value={trade} onChange={(e) => setTrade(e.target.value)} placeholder="e.g., Plumber" />
+                            </div>
+                             <div className="space-y-2">
+                                <Label htmlFor="opid-input">Operative ID</Label>
+                                <Input id="opid-input" value={operativeId} onChange={(e) => setOperativeId(e.target.value)} placeholder="e.g., BOG-001" />
+                            </div>
+                        </>
+                    )}
                 </div>
                 <DialogFooter>
-                    <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+                    <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isLoading}>Cancel</Button>
                     <Button onClick={handleSaveChanges} disabled={isLoading}>
-                        {isLoading ? <Spinner /> : "Save Changes"}
+                        {isLoading ? <Spinner /> : context === 'unassigned' ? "Assign & Activate" : "Save Changes"}
                     </Button>
                 </DialogFooter>
             </DialogContent>
@@ -114,6 +120,7 @@ export default function UserManagementPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
     const [isEditUserOpen, setIsEditUserOpen] = useState(false);
+    const [editContext, setEditContext] = useState<'unassigned' | 'default'>('default');
     const { toast } = useToast();
     const { selectedDepartments } = useDepartmentFilter();
 
@@ -129,32 +136,29 @@ export default function UserManagementPage() {
         return () => unsubscribe();
     }, []);
 
-    const { pendingUsers, activeUsers, suspendedUsers, unassignedUsers } = useMemo(() => {
+    const { pendingUsers, unassignedUsers, activeUsers, suspendedUsers } = useMemo(() => {
         const isOwner = currentUserProfile?.role === 'owner';
         const isAdmin = currentUserProfile?.role === 'admin';
 
-        const searchedUsers = users.filter(u => u.name?.toLowerCase().includes(searchTerm.toLowerCase()));
+        const searchedUsers = users.filter(u => 
+            (u.name?.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            (u.email?.toLowerCase().includes(searchTerm.toLowerCase()))
+        );
         
-        // PENDING: All pending users are visible to owners/admins on this page.
         const pending = searchedUsers.filter(u => u.status === 'pending-approval');
 
-        // UNASSIGNED: Active/suspended users with no department. Visible to owners/admins.
         const unassigned = searchedUsers.filter(u => u.status !== 'pending-approval' && !u.department);
-
-        // ASSIGNED: Active/suspended users WITH a department.
+        
         const assignedWithDept = searchedUsers.filter(u => u.status !== 'pending-approval' && !!u.department);
         
         let visibleAssigned = assignedWithDept;
         if (isOwner) {
-             // If owner has department filters, apply them. If no filters, show all assigned.
             if (selectedDepartments.size > 0) {
                  visibleAssigned = assignedWithDept.filter(u => u.department && selectedDepartments.has(u.department));
             }
         } else if (isAdmin) {
-             // Admin sees only their own department.
              visibleAssigned = assignedWithDept.filter(u => u.department === currentUserProfile?.department);
         } else {
-             // Should not happen as page is protected, but safe fallback.
             visibleAssigned = [];
         }
 
@@ -178,9 +182,7 @@ export default function UserManagementPage() {
             newStatus 
         };
 
-        // If activating a user with no department, assign them to the current admin's department.
-        // Use baseDepartment as a fallback, which is crucial for owners.
-        if (newStatus === 'active' && (!user.department || user.department === '')) {
+        if (newStatus === 'active' && !user.department) {
             const adminDepartment = currentUserProfile?.department || currentUserProfile?.baseDepartment;
             if (adminDepartment) {
                 payload.department = adminDepartment;
@@ -210,14 +212,66 @@ export default function UserManagementPage() {
         }
     };
 
-    const handleEditUser = (user: UserProfile) => {
+    const handleEditUser = (user: UserProfile, context: 'unassigned' | 'default' = 'default') => {
         setSelectedUser(user);
+        setEditContext(context);
         setIsEditUserOpen(true);
     };
 
     const renderUserList = (usersToRender: UserProfile[], type: 'pending' | 'active' | 'suspended' | 'unassigned') => {
         if (usersToRender.length === 0) {
             return <p className="text-center text-sm text-muted-foreground p-4">No users in this category.</p>
+        }
+
+        if (type === 'unassigned') {
+            return (
+                <>
+                    {/* Desktop Table View */}
+                    <div className="border rounded-lg hidden md:block">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Name</TableHead>
+                                    <TableHead>Email</TableHead>
+                                    <TableHead className="text-right">Action</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {usersToRender.map(user => (
+                                    <TableRow key={user.uid}>
+                                        <TableCell className="font-medium">{user.name}</TableCell>
+                                        <TableCell className="text-muted-foreground">{user.email}</TableCell>
+                                        <TableCell className="text-right">
+                                            <Button size="sm" onClick={() => handleEditUser(user, 'unassigned')}>
+                                                <Edit className="mr-2 h-4 w-4" />
+                                                Assign Department
+                                            </Button>
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </div>
+                    
+                    {/* Mobile Card View */}
+                    <div className="grid gap-4 md:hidden">
+                      {usersToRender.map(user => (
+                          <Card key={user.uid}>
+                              <CardHeader>
+                                  <CardTitle>{user.name}</CardTitle>
+                                  <CardDescription>{user.email}</CardDescription>
+                              </CardHeader>
+                              <CardFooter>
+                                <Button className="w-full" onClick={() => handleEditUser(user, 'unassigned')}>
+                                    <Edit className="mr-2 h-4 w-4" />
+                                    Assign Department
+                                </Button>
+                              </CardFooter>
+                          </Card>
+                      ))}
+                    </div>
+                </>
+            );
         }
         
         return (
@@ -263,7 +317,7 @@ export default function UserManagementPage() {
                                         </Badge>
                                     </TableCell>
                                     <TableCell className="text-right space-x-1">
-                                        {(type === 'pending' || type === 'unassigned') && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')}><Check className="mr-2 h-4 w-4" />Activate</Button>}
+                                        {type === 'pending' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')}><Check className="mr-2 h-4 w-4" />Activate</Button>}
                                         {type === 'active' && <Button size="sm" variant="destructive" onClick={() => handleSetUserStatus(user, 'suspended')}><Ban className="mr-2 h-4 w-4" />Suspend</Button>}
                                         {type === 'suspended' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')}><Check className="mr-2 h-4 w-4" />Re-activate</Button>}
                                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEditUser(user)}><Edit className="h-4 w-4" /></Button>
@@ -306,7 +360,7 @@ export default function UserManagementPage() {
                               </div>
                           </CardContent>
                           <CardFooter className="flex flex-col gap-2">
-                                {(type === 'pending' || type === 'unassigned') && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')} className="w-full"><Check className="mr-2 h-4 w-4" />Activate</Button>}
+                                {type === 'pending' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')} className="w-full"><Check className="mr-2 h-4 w-4" />Activate</Button>}
                                 {type === 'active' && <Button size="sm" variant="destructive" onClick={() => handleSetUserStatus(user, 'suspended')} className="w-full"><Ban className="mr-2 h-4 w-4" />Suspend</Button>}
                                 {type === 'suspended' && <Button size="sm" onClick={() => handleSetUserStatus(user, 'active')} className="w-full"><Check className="mr-2 h-4 w-4" />Re-activate</Button>}
                                 
@@ -366,7 +420,7 @@ export default function UserManagementPage() {
                     <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
-                            placeholder="Search by name..."
+                            placeholder="Search by name or email..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             className="w-full max-w-sm pl-10"
@@ -386,7 +440,7 @@ export default function UserManagementPage() {
                     </Tabs>
                 </CardContent>
             </Card>
-            {selectedUser && <EditUserDialog user={selectedUser} open={isEditUserOpen} onOpenChange={setIsEditUserOpen} />}
+            {selectedUser && <EditUserDialog user={selectedUser} open={isEditUserOpen} onOpenChange={setIsEditUserOpen} context={editContext} />}
         </>
     )
 }
