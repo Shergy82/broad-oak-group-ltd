@@ -132,29 +132,31 @@ export default function UserManagementPage() {
     const { pendingUsers, activeUsers, suspendedUsers } = useMemo(() => {
         const isOwner = currentUserProfile?.role === 'owner';
 
+        // Get all users matching the search term first
         const searchedUsers = users.filter(u => u.name?.toLowerCase().includes(searchTerm.toLowerCase()));
 
-        const visiblePending = searchedUsers.filter(u => {
-            if (u.status !== 'pending-approval') return false;
-            // Show if user is unassigned
-            if (!u.department) return true;
-            // Show if owner and no filter, or filter matches
+        // Separate pending users from the rest
+        const allPending = searchedUsers.filter(u => u.status === 'pending-approval');
+        const otherUsers = searchedUsers.filter(u => u.status !== 'pending-approval');
+
+        // Rule for Pending Users: Always show if they have no department. Otherwise, filter by department.
+        const visiblePending = allPending.filter(u => {
+            if (!u.department) return true; // Always show unassigned pending users to all managers/admins
+
             if (isOwner) {
                 return selectedDepartments.size === 0 || selectedDepartments.has(u.department);
             }
-            // Show if admin/manager and department matches
             return u.department === currentUserProfile?.department;
         });
 
-        const visibleActiveAndSuspended = searchedUsers.filter(u => {
-             if (u.status === 'pending-approval') return false;
-             if (!u.department) return false; // Hide unassigned from active/suspended
-             if (isOwner) {
+        // Rule for Active/Suspended Users: Must have a department and must match the filter.
+        const visibleActiveAndSuspended = otherUsers.filter(u => {
+            if (!u.department) return false; // Hide active/suspended users without a department
+            if (isOwner) {
                 return selectedDepartments.size === 0 || selectedDepartments.has(u.department);
-             }
-             return u.department === currentUserProfile?.department;
+            }
+            return u.department === currentUserProfile?.department;
         });
-
 
         return {
             pendingUsers: visiblePending,
@@ -175,6 +177,7 @@ export default function UserManagementPage() {
             newStatus 
         };
 
+        // If activating a user with no department, assign them to the current admin's department
         if (newStatus === 'active' && !user.department && currentUserProfile?.department) {
             payload.department = currentUserProfile.department;
         }
