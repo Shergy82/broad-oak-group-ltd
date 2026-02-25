@@ -210,13 +210,6 @@ export function Header() {
                   <span>Health & Safety</span>
                 </DropdownMenuItem>
                 
-                {isPrivilegedUser && (
-                  <DropdownMenuItem onClick={handleShare} className="cursor-pointer">
-                    <Share2 className="mr-2 h-4 w-4" />
-                    <span>Share Signup Link</span>
-                  </DropdownMenuItem>
-                )}
-                
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => router.push('/help')} className="cursor-pointer">
                   <HelpCircle className="mr-2" />
@@ -273,6 +266,10 @@ export function Header() {
                     <DropdownMenuItem onClick={() => router.push('/admin/evidence')} className="cursor-pointer">
                       <FileArchive className="mr-2" />
                       <span>Evidence</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleShare} className="cursor-pointer">
+                      <Share2 className="mr-2 h-4 w-4" />
+                      <span>Share Signup Link</span>
                     </DropdownMenuItem>
                   </>
                 )}
