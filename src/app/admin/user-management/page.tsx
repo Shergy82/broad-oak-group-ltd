@@ -131,32 +131,35 @@ export default function UserManagementPage() {
 
     const { pendingUsers, activeUsers, suspendedUsers } = useMemo(() => {
         const isOwner = currentUserProfile?.role === 'owner';
+        const isPrivileged = ['owner', 'admin', 'manager'].includes(currentUserProfile?.role || '');
+
         const searchedUsers = users.filter(u => u.name?.toLowerCase().includes(searchTerm.toLowerCase()));
 
-        // --- PENDING USERS LOGIC ---
+        // --- PENDING USERS ---
+        // Owners/Admins see all pending users. Managers see unassigned or their own department.
         const allPending = searchedUsers.filter(u => u.status === 'pending-approval');
-        const visiblePending = allPending.filter(u => {
-            // An unassigned user should be visible to any privileged user for assignment.
-            if (!u.department || u.department === '') {
-                return true; 
-            }
-            // An owner can see pending users based on their department filter.
-            if (isOwner) {
-                return selectedDepartments.size === 0 || selectedDepartments.has(u.department);
-            }
-            // A manager/admin sees only pending users in their own department.
-            return u.department === currentUserProfile?.department;
-        });
+        let visiblePending = allPending;
+        if (currentUserProfile?.role === 'manager') {
+            visiblePending = allPending.filter(u => !u.department || u.department === currentUserProfile.department);
+        }
 
-        // --- ACTIVE/SUSPENDED USERS LOGIC ---
+        // --- ACTIVE & SUSPENDED USERS ---
         const activeAndSuspended = searchedUsers.filter(u => u.status !== 'pending-approval');
-        const visibleActiveAndSuspended = activeAndSuspended.filter(u => {
-            if (!u.department) return false;
-            if (isOwner) {
-                return selectedDepartments.size === 0 || selectedDepartments.has(u.department);
-            }
-            return u.department === currentUserProfile?.department;
-        });
+        let visibleActiveAndSuspended = activeAndSuspended;
+
+        if (isOwner) {
+            // Owners filter by the selected departments in the header.
+            // Also, only show users that HAVE a department.
+            visibleActiveAndSuspended = activeAndSuspended.filter(u =>
+                u.department && (selectedDepartments.size === 0 || selectedDepartments.has(u.department))
+            );
+        } else if (isPrivileged) {
+             // Managers/Admins filter by their own department.
+            visibleActiveAndSuspended = activeAndSuspended.filter(u => u.department === currentUserProfile?.department);
+        } else {
+            // Other roles see nothing in these lists
+            visibleActiveAndSuspended = [];
+        }
 
         return {
             pendingUsers: visiblePending,
