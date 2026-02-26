@@ -118,6 +118,7 @@ export interface Announcement {
   content: string;
   authorName: string;
   authorId: string;
+  department?: string;
   createdAt: Timestamp;
   updatedAt?: Timestamp;
 }
@@ -136,6 +137,7 @@ export interface Trade {
   id: string;
   name: string;
   tasks: TradeTask[];
+  department?: string;
 }
 
 export interface TradeTask {

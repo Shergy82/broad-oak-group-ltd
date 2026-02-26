@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,8 +12,9 @@ import { Label } from '../ui/label';
 import { db } from '@/lib/firebase';
 import { collection, onSnapshot, addDoc, deleteDoc, doc, updateDoc, arrayUnion, arrayRemove, query, orderBy } from 'firebase/firestore';
 import { Spinner } from '../shared/spinner';
-import type { Trade, TradeTask } from '@/types';
+import type { Trade, TradeTask, UserProfile } from '@/types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useUserProfile } from '@/hooks/use-user-profile';
 
 export function TaskManager() {
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -24,6 +25,7 @@ export function TaskManager() {
   const [newSubTaskEvidenceTag, setNewSubTaskEvidenceTag] = useState<{ [key: string]: string }>({});
   const [newSubTaskPhotoCount, setNewSubTaskPhotoCount] = useState<{ [key: string]: number }>({});
   const { toast } = useToast();
+  const { userProfile } = useUserProfile();
 
   useEffect(() => {
     if (!db) {
@@ -47,19 +49,31 @@ export function TaskManager() {
 
     return () => unsubscribe();
   }, [toast]);
+  
+  const filteredTrades = useMemo(() => {
+    if (!userProfile) return [];
+    if (userProfile.role === 'owner') return trades;
+    return trades.filter(trade => !trade.department || trade.department === userProfile.department);
+  }, [trades, userProfile]);
 
   const handleAddTrade = async () => {
     if (!newTradeName.trim()) {
       toast({ variant: 'destructive', title: 'Category name cannot be empty.' });
       return;
     }
-    if (!db) return;
+    if (!db || !userProfile) return;
 
     try {
-      await addDoc(collection(db, 'trade_tasks'), {
+      const isOwner = userProfile.role === 'owner';
+      const payload: { name: string; tasks: any[]; department?: string } = {
         name: newTradeName.trim(),
         tasks: [],
-      });
+      };
+      if (!isOwner) {
+        payload.department = userProfile.department;
+      }
+      
+      await addDoc(collection(db, 'trade_tasks'), payload);
       setNewTradeName('');
       toast({ title: 'Success', description: `Category "${newTradeName.trim()}" added.` });
     } catch (error) {
@@ -169,13 +183,16 @@ export function TaskManager() {
           </Button>
         </div>
 
-        {trades.length > 0 ? (
+        {filteredTrades.length > 0 ? (
           <Accordion type="multiple" className="w-full">
-            {trades.map((trade) => (
+            {filteredTrades.map((trade) => (
               <AccordionItem key={trade.id} value={trade.id}>
                 <AccordionTrigger className="hover:no-underline">
                   <div className="flex w-full items-center justify-between">
-                    <span className="font-semibold text-lg">{trade.name}</span>
+                    <div className="flex items-center gap-2">
+                        <span className="font-semibold text-lg">{trade.name}</span>
+                        {trade.department && <span className="text-sm font-normal text-muted-foreground">({trade.department})</span>}
+                    </div>
                     <Button
                       variant="ghost"
                       size="icon"

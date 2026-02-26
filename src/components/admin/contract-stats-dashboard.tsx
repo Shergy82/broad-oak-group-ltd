@@ -14,6 +14,7 @@ import { X } from 'lucide-react';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useDepartmentFilter } from '@/hooks/use-department-filter';
 
 interface ContractStats {
   name: string;
@@ -30,6 +31,8 @@ export function ContractStatsDashboard() {
   const [selectedContract, setSelectedContract] = useState('all');
   const [selectedManager, setSelectedManager] = useState('all');
   const { userProfile, loading: profileLoading } = useUserProfile();
+  const { selectedDepartments } = useDepartmentFilter();
+  const isOwner = userProfile?.role === 'owner';
 
   useEffect(() => {
     if (profileLoading) return;
@@ -60,10 +63,17 @@ export function ContractStatsDashboard() {
     return () => unsubShifts();
   }, [userProfile, profileLoading]);
   
+  const departmentFilteredShifts = useMemo(() => {
+    if (!isOwner) return shifts;
+    if (selectedDepartments.size === 0) return shifts;
+    return shifts.filter(s => s.department && selectedDepartments.has(s.department));
+  }, [shifts, isOwner, selectedDepartments]);
+
+
   const { availableContracts, availableManagers } = useMemo(() => {
       const contractSet = new Set<string>();
       const managerSet = new Set<string>();
-      shifts.forEach(shift => {
+      departmentFilteredShifts.forEach(shift => {
           if (shift.contract) contractSet.add(shift.contract);
           if (shift.manager) managerSet.add(shift.manager);
       });
@@ -71,12 +81,12 @@ export function ContractStatsDashboard() {
           availableContracts: Array.from(contractSet).sort(),
           availableManagers: Array.from(managerSet).sort(),
       };
-  }, [shifts]);
+  }, [departmentFilteredShifts]);
 
   const filteredContracts = useMemo((): ContractStats[] => {
     if (loading || error) return [];
 
-    let filteredShifts = shifts;
+    let filteredShifts = departmentFilteredShifts;
 
     if (selectedManager !== 'all') {
         filteredShifts = filteredShifts.filter(shift => shift.manager === selectedManager);
@@ -111,7 +121,7 @@ export function ContractStatsDashboard() {
 
     return Object.values(statsByContract).sort((a, b) => b.totalShifts - a.totalShifts);
 
-  }, [shifts, loading, error, selectedManager, selectedContract]);
+  }, [departmentFilteredShifts, loading, error, selectedManager, selectedContract]);
 
 
   return (

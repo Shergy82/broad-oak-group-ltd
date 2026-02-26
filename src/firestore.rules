@@ -75,7 +75,7 @@ service cloud.firestore {
     
     // ---- ANNOUNCEMENTS ----
     match /announcements/{id} {
-      allow read: if signedIn();
+      allow read: if isOwner(request.auth.uid) || (signedIn() && (resource.data.department == null || resource.data.department == userDepartment(request.auth.uid)));
       allow create, update, delete: if isPrivilegedUser(request.auth.uid);
     }
 
@@ -93,7 +93,7 @@ service cloud.firestore {
 
     // ---- TRADE TASKS ----
     match /trade_tasks/{id} {
-      allow read: if signedIn();
+      allow read: if isOwner(request.auth.uid) || (signedIn() && (resource.data.department == null || resource.data.department == userDepartment(request.auth.uid)));
       allow write: if isPrivilegedUser(request.auth.uid);
     }
 

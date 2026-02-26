@@ -13,6 +13,8 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { db } from '@/lib/firebase';
 import type { Shift, UserProfile, ShiftStatus } from '@/types';
 import { Spinner } from '@/components/shared/spinner';
+import { useUserProfile } from '@/hooks/use-user-profile';
+import { useDepartmentFilter } from '@/hooks/use-department-filter';
 
 interface Coords {
     lat: number;
@@ -90,7 +92,7 @@ const shortenAddress = (address?: string) => {
 
 
 export function StaffShiftMap() {
-  const [shifts, setShifts] = useState<Shift[]>([]);
+  const [allShifts, setAllShifts] = useState<Shift[]>([]);
   const [loading, setLoading] = useState(true);
   const [geocodedLocations, setGeocodedLocations] = useState<Map<string, Coords>>(new Map());
   const [hoveredPin, setHoveredPin] = useState<LocationPin | null>(null);
@@ -99,6 +101,9 @@ export function StaffShiftMap() {
   const [userLocation, setUserLocation] = useState<Coords | null>(null);
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const infoWindowCloseTimer = useRef<NodeJS.Timeout | null>(null);
+  const { userProfile } = useUserProfile();
+  const { selectedDepartments } = useDepartmentFilter();
+  const isOwner = userProfile?.role === 'owner';
 
 
   const { isLoaded, loadError } = useJsApiLoader({
@@ -153,7 +158,7 @@ export function StaffShiftMap() {
 
 
   useEffect(() => {
-    if (!db) {
+    if (!db || !userProfile) {
       setLoading(false);
       return;
     }
@@ -164,15 +169,25 @@ export function StaffShiftMap() {
     const todayEnd = new Date();
     todayEnd.setHours(23, 59, 59, 999);
 
-    const shiftsQuery = query(
-      collection(db, 'shifts'),
-      where('date', '>=', Timestamp.fromDate(todayStart)),
-      where('date', '<=', Timestamp.fromDate(todayEnd))
-    );
+    let shiftsQuery;
+    if (isOwner) {
+        shiftsQuery = query(collection(db, 'shifts'), 
+            where('date', '>=', Timestamp.fromDate(todayStart)),
+            where('date', '<=', Timestamp.fromDate(todayEnd))
+        );
+    } else {
+        shiftsQuery = query(
+          collection(db, 'shifts'),
+          where('date', '>=', Timestamp.fromDate(todayStart)),
+          where('date', '<=', Timestamp.fromDate(todayEnd)),
+          where('department', '==', userProfile.department)
+        );
+    }
+
 
     const unsubscribe = onSnapshot(shiftsQuery, (snapshot) => {
       const shiftsData = snapshot.docs.map(doc => ({id: doc.id, ...doc.data()} as Shift));
-      setShifts(shiftsData);
+      setAllShifts(shiftsData);
       setLoading(false);
     }, (error) => {
       console.error("Failed to load shifts:", error);
@@ -180,7 +195,14 @@ export function StaffShiftMap() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [userProfile, isOwner]);
+
+  const shifts = useMemo(() => {
+    if (!isOwner) return allShifts;
+    if (selectedDepartments.size === 0) return allShifts;
+    return allShifts.filter(s => s.department && selectedDepartments.has(s.department));
+  }, [allShifts, isOwner, selectedDepartments]);
+
 
   const geocodeAddress = useCallback((geocoder: google.maps.Geocoder, address: string) => {
     return new Promise<Coords | null>((resolve) => {

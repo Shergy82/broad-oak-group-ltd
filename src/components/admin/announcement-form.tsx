@@ -6,7 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { db } from '@/lib/firebase';
-import { collection, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, doc, serverTimestamp, deleteField } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,10 +15,13 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Spinner } from '@/components/shared/spinner';
 import type { Announcement, UserProfile } from '@/types';
+import { useAllUsers } from '@/hooks/use-all-users';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const formSchema = z.object({
   title: z.string().min(1, 'Title is required.'),
   content: z.string().min(1, 'Content is required.'),
+  department: z.string().optional(),
 });
 
 interface AnnouncementFormProps {
@@ -32,12 +35,16 @@ export function AnnouncementForm({ currentUser, announcement, open, onOpenChange
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const isEditing = !!announcement;
+  const { users: allUsers } = useAllUsers();
+
+  const availableDepartments = Array.from(new Set(allUsers.map(u => u.department).filter(Boolean))).sort() as string[];
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       title: '',
       content: '',
+      department: 'all',
     },
   });
 
@@ -47,11 +54,13 @@ export function AnnouncementForm({ currentUser, announcement, open, onOpenChange
         form.reset({
           title: announcement.title,
           content: announcement.content,
+          department: announcement.department || 'all',
         });
       } else {
         form.reset({
           title: '',
           content: '',
+          department: 'all',
         });
       }
     }
@@ -70,16 +79,22 @@ export function AnnouncementForm({ currentUser, announcement, open, onOpenChange
     
     setIsLoading(true);
     try {
+      const dataToSave: any = {
+        title: values.title,
+        content: values.content,
+        department: values.department === 'all' ? deleteField() : values.department,
+      };
+
       if (isEditing && announcement) {
         const announcementRef = doc(db, 'announcements', announcement.id);
         await updateDoc(announcementRef, {
-          ...values,
+          ...dataToSave,
           updatedAt: serverTimestamp(),
         });
         toast({ title: 'Success', description: 'Announcement updated.' });
       } else {
         await addDoc(collection(db, 'announcements'), {
-          ...values,
+          ...dataToSave,
           authorName: currentUser.name,
           authorId: currentUser.uid,
           createdAt: serverTimestamp(),
@@ -128,6 +143,29 @@ export function AnnouncementForm({ currentUser, announcement, open, onOpenChange
                   <FormControl>
                     <Textarea placeholder="Details about the announcement..." rows={6} {...field} />
                   </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="department"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Department</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                        <SelectTrigger>
+                            <SelectValue placeholder="Select a department..." />
+                        </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                        <SelectItem value="all">All Departments (Global)</SelectItem>
+                        {availableDepartments.map(dept => (
+                            <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
                   <FormMessage />
                 </FormItem>
               )}

@@ -45,6 +45,7 @@ export default function AnnouncementsPage() {
 
   const role = (userProfile?.role || '').toLowerCase();
   const isPrivileged = role === 'owner' || role === 'admin' || role === 'manager' || role === 'tlo';
+  const isOwner = role === 'owner';
 
   useEffect(() => {
     if (!isAuthLoading && !user) router.replace('/dashboard');
@@ -117,11 +118,16 @@ export default function AnnouncementsPage() {
 
 
   const visibleAnnouncements = useMemo(() => {
-    if (!isPrivileged) return announcements.filter((a) => !ack[a.id]);
+    const departmentFiltered = isOwner 
+        ? announcements 
+        : announcements.filter(a => !a.department || a.department === userProfile?.department);
 
-    if (!hideAcknowledged) return announcements;
-    return announcements.filter((a) => !ack[a.id]);
-  }, [announcements, ack, hideAcknowledged, isPrivileged]);
+    if (!isPrivileged) return departmentFiltered.filter((a) => !ack[a.id]);
+
+    if (!hideAcknowledged) return departmentFiltered;
+    
+    return departmentFiltered.filter((a) => !ack[a.id]);
+  }, [announcements, ack, hideAcknowledged, isPrivileged, isOwner, userProfile?.department]);
 
   const hasAnnouncements = useMemo(() => visibleAnnouncements.length > 0, [visibleAnnouncements]);
 
@@ -165,6 +171,7 @@ export default function AnnouncementsPage() {
                     <p className="text-xs text-muted-foreground">
                       Posted by {a.authorName || '—'}{' '}
                       {a.createdAt?.toDate ? `on ${format(a.createdAt.toDate(), 'PPP')}` : ''}
+                      {a.department && <span className="font-semibold"> ({a.department})</span>}
                     </p>
                   </div>
                   <div className="flex items-center gap-0">
