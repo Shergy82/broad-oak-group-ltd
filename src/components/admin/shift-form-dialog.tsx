@@ -24,6 +24,7 @@ import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import type { Shift, UserProfile, Project } from '@/types';
 import { Checkbox } from '../ui/checkbox';
+import { Label } from '@/components/ui/label';
 
 const formSchema = z.object({
   userId: z.string().min(1, 'An operative must be selected.'),
@@ -470,4 +471,3 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
     </Dialog>
   );
 }
-
