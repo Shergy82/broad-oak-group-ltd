@@ -98,21 +98,39 @@ export function Header() {
   };
   
   const handleShare = () => {
-    if (!userProfile?.department) {
+    let departmentToShare: string | undefined;
+
+    if (userProfile?.role === 'owner') {
+        if (selectedDepartments.size === 1) {
+            departmentToShare = Array.from(selectedDepartments)[0];
+        } else {
+            toast({
+                title: 'Select One Department',
+                description: 'Please use the department filter to select a single department before sharing.',
+                variant: 'destructive'
+            });
+            return;
+        }
+    } else {
+        departmentToShare = userProfile?.department;
+    }
+
+    if (!departmentToShare) {
       toast({
         title: 'Cannot Share Link',
-        description: 'Your user profile does not have a department assigned.',
+        description: 'No department is associated with your account or selection.',
         variant: 'destructive',
       });
       return;
     }
+
     const appUrl = 'https://broad-oak-group-ltd--the-final-project-5e248.europe-west4.hosted.app';
-    const department = encodeURIComponent(userProfile.department!);
-    const shareUrl = `${appUrl}/signup?department=${department}`;
+    const departmentParam = encodeURIComponent(departmentToShare);
+    const shareUrl = `${appUrl}/signup?department=${departmentParam}`;
     navigator.clipboard.writeText(shareUrl);
     toast({
       title: 'Link Copied!',
-      description: `A signup link for the ${userProfile.department} department has been copied to your clipboard.`,
+      description: `A signup link for the ${departmentToShare} department has been copied to your clipboard.`,
     });
   };
 
@@ -301,7 +319,7 @@ export function Header() {
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuLabel>Admin Area</DropdownMenuLabel>
-                    <ScrollArea className="max-h-96">
+                    <ScrollArea className="max-h-[250px]">
                         <DropdownMenuItem onClick={() => router.push('/admin/control-panel')} className="cursor-pointer">
                         <Shield className="mr-2" />
                         <span>Control Panel</span>

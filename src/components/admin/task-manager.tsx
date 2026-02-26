@@ -16,6 +16,7 @@ import { Spinner } from '../shared/spinner';
 import type { Trade, TradeTask, UserProfile } from '@/types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useUserProfile } from '@/hooks/use-user-profile';
+import { useDepartmentFilter } from '@/hooks/use-department-filter';
 
 export function TaskManager() {
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -27,6 +28,7 @@ export function TaskManager() {
   const [newSubTaskPhotoCount, setNewSubTaskPhotoCount] = useState<{ [key: string]: number }>({});
   const { toast } = useToast();
   const { userProfile } = useUserProfile();
+  const { selectedDepartments } = useDepartmentFilter();
 
   useEffect(() => {
     if (!db) {
@@ -53,10 +55,16 @@ export function TaskManager() {
   
   const filteredTrades = useMemo(() => {
     if (!userProfile) return [];
-    if (userProfile.role === 'owner') return trades;
-    // Admins/Managers see tasks for their own department, plus any global tasks (no department assigned)
+    
+    if (userProfile.role === 'owner') {
+        // An owner can see global tasks OR tasks in their selected departments
+        return trades.filter(trade => !trade.department || selectedDepartments.has(trade.department!));
+    }
+
+    // For other privileged users (admin/manager)
     return trades.filter(trade => !trade.department || trade.department === userProfile.department);
-  }, [trades, userProfile]);
+  }, [trades, userProfile, selectedDepartments]);
+
 
   const handleAddTrade = async () => {
     if (!newTradeName.trim()) {
@@ -71,7 +79,15 @@ export function TaskManager() {
         name: newTradeName.trim(),
         tasks: [],
       };
-      if (!isOwner && userProfile.department) {
+      
+      if (isOwner) {
+        // If owner has ONE department selected, assign to that department.
+        // Otherwise, it's a global task.
+        if (selectedDepartments.size === 1) {
+            payload.department = Array.from(selectedDepartments)[0];
+        }
+      } else if (userProfile.department) {
+        // Admins/Managers create tasks for their own department.
         payload.department = userProfile.department;
       }
       
@@ -193,7 +209,7 @@ export function TaskManager() {
                   <div className="flex w-full items-center justify-between">
                     <div className="flex items-center gap-2">
                         <span className="font-semibold text-lg">{trade.name}</span>
-                        {trade.department && <span className="text-sm font-normal text-muted-foreground">({trade.department})</span>}
+                        {userProfile?.role === 'owner' && trade.department && <span className="text-sm font-normal text-muted-foreground">({trade.department})</span>}
                     </div>
                     <Button
                       variant="ghost"
