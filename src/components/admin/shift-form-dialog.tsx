@@ -123,7 +123,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
     // Correct for timezone offset by creating a UTC date from the local date parts
     const correctedDate = new Date(Date.UTC(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate()));
 
-    const dataToSave = {
+    const dataToSave: Partial<Shift> & { date: Timestamp } = {
       ...values,
       userName: selectedUser.name, // Add userName to the shift data
       date: Timestamp.fromDate(correctedDate),
@@ -141,6 +141,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
           ...dataToSave,
           status: 'pending-confirmation',
           createdAt: serverTimestamp(),
+          source: 'manual',
         });
         toast({ title: 'Success', description: 'Shift created.' });
       }

@@ -145,11 +145,8 @@ const extractUsersAndTask = (
     };
   }
 
-  // Stricter regex using word boundaries (\b) for 'and'.
-  const nameChunks = namesPart
-    .split(/,|\/|&|\band\b/i)
-    .map(s => s.trim())
-    .filter(Boolean);
+  // Regex to split by common delimiters, treating " and " as a whole word delimiter.
+  const nameChunks = namesPart.split(/,|\/|&|\b\s*and\s*\b/i).map(s => s.trim()).filter(Boolean);
 
   if (nameChunks.length === 0) {
       return {
@@ -161,35 +158,41 @@ const extractUsersAndTask = (
 
   const allMatchedUsers: UserMapEntry[] = [];
   let failureReason: string | null = null;
+  
+  const findUser = (chunk: string): UserMapEntry | { error: string } => {
+      const normalizedChunk = normalizeText(chunk);
+      if (!normalizedChunk) return { error: `Empty name chunk found.` };
+
+      // 1. Exact match
+      const exactMatches = userMap.filter(u => u.normalizedName === normalizedChunk);
+      if (exactMatches.length === 1) return exactMatches[0];
+      if (exactMatches.length > 1) return { error: `Ambiguous name "${chunk}" matches multiple users exactly.` };
+
+      // 2. Full name contains chunk (e.g. "Phil" matches "Phil Shergold")
+      const 포함Matches = userMap.filter(u => u.normalizedName.includes(normalizedChunk));
+      if (포함Matches.length === 1) return 포함Matches[0];
+      if (포함Matches.length > 1) {
+        // Disambiguate: if one of the matches is an exact match on a word boundary, use it.
+        const wordBoundaryMatches = 포함Matches.filter(u => 
+            u.normalizedName.split(' ').includes(normalizedChunk)
+        );
+        if (wordBoundaryMatches.length === 1) return wordBoundaryMatches[0];
+
+        return { error: `Ambiguous name "${chunk}" partially matches: ${포함Matches.slice(0,3).map(m => m.originalName).join(', ')}.` };
+      }
+
+      return { error: `No user found for name: "${chunk}".` };
+  };
 
   for (const chunk of nameChunks) {
-    const normalizedChunk = normalizeText(chunk);
-    if (!normalizedChunk) continue;
-
-    const potentialMatches = userMap.filter(u => 
-        u.normalizedName === normalizedChunk
-    );
-    
-    if (potentialMatches.length === 1) {
-        const matchedUser = potentialMatches[0];
-        if (!allMatchedUsers.some(u => u.uid === matchedUser.uid)) {
-            allMatchedUsers.push(matchedUser);
-        }
-    } else if (potentialMatches.length > 1) {
-        failureReason = `Ambiguous name "${chunk}". Matched: ${potentialMatches.slice(0, 3).map(m => m.originalName).join(', ')}.`;
-        break;
-    } else {
-        const partialMatches = userMap.filter(u => u.normalizedName.includes(normalizedChunk));
-        if (partialMatches.length === 1) {
-            const matchedUser = partialMatches[0];
-            if (!allMatchedUsers.some(u => u.uid === matchedUser.uid)) {
-                allMatchedUsers.push(matchedUser);
-            }
-        } else {
-            failureReason = `No unique user found for name: "${chunk}".`;
-            break;
-        }
-    }
+      const result = findUser(chunk);
+      if ('error' in result) {
+          failureReason = result.error;
+          break;
+      }
+      if (!allMatchedUsers.some(u => u.uid === result.uid)) {
+          allMatchedUsers.push(result);
+      }
   }
 
   if (failureReason) {
@@ -532,7 +535,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           }
 
           for (const [key, existingShift] of existingShiftsMap.entries()) {
-            if (!excelShiftsMap.has(key) && !protectedStatuses.includes(existingShift.status)) {
+            if (!excelShiftsMap.has(key) && !protectedStatuses.includes(existingShift.status) && existingShift.source !== 'manual') {
               const shiftDate = getCorrectedLocalDate(existingShift.date as any);
               if (shiftDate >= today) {
                 toDelete.push(existingShift);
@@ -598,6 +601,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
                 date: Timestamp.fromDate(shift.date),
                 status: 'pending-confirmation' as ShiftStatus,
                 createdAt: serverTimestamp(),
+                source: 'import',
               };
               batch.set(doc(collection(firestore, 'shifts')), newShiftData);
             });

@@ -28,6 +28,7 @@ export interface Shift {
   notes?: string;
   createdAt: Timestamp;
   confirmedAt?: Timestamp;
+  source?: 'manual' | 'import';
 }
 
 export interface MaterialPurchase {
