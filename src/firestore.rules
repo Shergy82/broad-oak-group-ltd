@@ -1,3 +1,4 @@
+
 rules_version = '2';
 
 service cloud.firestore {
@@ -94,7 +95,11 @@ service cloud.firestore {
     // ---- TRADE TASKS ----
     match /trade_tasks/{id} {
       allow read: if isOwner(request.auth.uid) || (signedIn() && (resource.data.department == null || resource.data.department == userDepartment(request.auth.uid)));
-      allow write: if isPrivilegedUser(request.auth.uid);
+      allow write: if isOwner(request.auth.uid) || (
+          isPrivilegedUser(request.auth.uid) &&
+          (resource == null || resource.data.department == userDepartment(request.auth.uid) || resource.data.department == null) &&
+          (request.resource == null || request.resource.data.department == userDepartment(request.auth.uid) || request.resource.data.department == null)
+      );
     }
 
     // ---- UNAVAILABILITY ----

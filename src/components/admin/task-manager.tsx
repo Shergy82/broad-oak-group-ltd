@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -53,6 +54,7 @@ export function TaskManager() {
   const filteredTrades = useMemo(() => {
     if (!userProfile) return [];
     if (userProfile.role === 'owner') return trades;
+    // Admins/Managers see tasks for their own department, plus any global tasks (no department assigned)
     return trades.filter(trade => !trade.department || trade.department === userProfile.department);
   }, [trades, userProfile]);
 
@@ -69,7 +71,7 @@ export function TaskManager() {
         name: newTradeName.trim(),
         tasks: [],
       };
-      if (!isOwner) {
+      if (!isOwner && userProfile.department) {
         payload.department = userProfile.department;
       }
       

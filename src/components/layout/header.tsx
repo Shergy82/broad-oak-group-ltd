@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useRouter } from 'next/navigation';
@@ -46,7 +47,6 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { GlobalShiftImporter } from '@/components/admin/global-shift-importer';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
-import { ShareAppLink } from './ShareAppLink';
 import { useMemo, useState, useEffect } from 'react';
 import { useAllUsers } from '@/hooks/use-all-users';
 import { useToast } from '@/hooks/use-toast';
@@ -136,7 +136,10 @@ export function Header() {
         {isPrivilegedUser && userProfile && (
           <div className="pl-9 pt-1 hidden sm:flex items-center gap-2">
             <GlobalShiftImporter userProfile={userProfile} />
-            <ShareAppLink />
+             <Button variant="outline" size="sm" onClick={handleShare}>
+              <Share2 className="mr-2 h-4 w-4" />
+              Share App
+            </Button>
           </div>
         )}
       </div>
