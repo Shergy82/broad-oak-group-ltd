@@ -147,7 +147,7 @@ const extractUsersAndTask = (
 
   const nameChunks = namesPart
     .split(/\s*(?:&|and|,|\/)\s*/i)
-    .map(n => normalizeText(n))
+    .map(s => s.trim())
     .filter(Boolean);
 
   if (nameChunks.length === 0) {
@@ -158,41 +158,83 @@ const extractUsersAndTask = (
       };
   }
 
-  const matchedUsers: UserMapEntry[] = [];
-  
-  // For each name chunk from the spreadsheet cell (e.g., "john s", "phil")
+  const allMatchedUsers: UserMapEntry[] = [];
+  let failureReason: string | null = null;
+
   for (const chunk of nameChunks) {
-    // Find all users who could potentially match this chunk
+    const normalizedChunk = normalizeText(chunk);
+    if (!normalizedChunk) continue;
+
+    // Find all potential matches for this chunk
     const potentialMatches = userMap.filter(user => {
-      const userNameParts = normalizeText(user.originalName).split(' ');
-      const chunkParts = chunk.split(' ');
-      
-      // A user is a potential match if all parts of the chunk from the spreadsheet
-      // are a prefix of *some* part of the user's name.
-      // e.g., chunk "p turn" will match user "Phil Turner"
-      return chunkParts.every(cp => 
-        userNameParts.some(unp => unp.startsWith(cp))
-      );
+        const userFullName = user.normalizedName;
+        const userInitials = user.originalName.split(' ').map(n => n[0]).join('').toLowerCase();
+        
+        // 1. Exact match on full name
+        if (userFullName === normalizedChunk) {
+            return true;
+        }
+
+        // 2. Initials match (e.g. "SWR" for "Steve W Rogers")
+        if (chunk.length > 1 && chunk === chunk.toUpperCase() && userInitials === normalizedChunk) {
+            return true;
+        }
+        
+        // 3. Match if chunk is a prefix of the full name, or if it matches the first name.
+        const userFirstName = userFullName.split(' ')[0];
+        if (userFullName.startsWith(normalizedChunk) || userFirstName === normalizedChunk) {
+            return true;
+        }
+
+        // 4. Match where chunk is "firstname lastnameinitial" e.g. "andrew s" for "Andrew Smith"
+        const chunkParts = normalizedChunk.split(' ');
+        if (chunkParts.length === 2 && chunkParts[1].length === 1) {
+           const userFullNameParts = userFullName.split(' ');
+           if (userFullNameParts[0] === chunkParts[0] && userFullNameParts.length > 1 && userFullNameParts[1].startsWith(chunkParts[1])) {
+               return true;
+           }
+        }
+        
+        return false;
     });
 
-    // Add all potential matches for this chunk to the final list, avoiding duplicates.
-    potentialMatches.forEach(match => {
-        if (!matchedUsers.some(u => u.uid === match.uid)) {
-            matchedUsers.push(match);
+    if (potentialMatches.length === 1) {
+      // Perfect, unambiguous match for this chunk
+      const matchedUser = potentialMatches[0];
+      if (!allMatchedUsers.some(u => u.uid === matchedUser.uid)) {
+        allMatchedUsers.push(matchedUser);
+      }
+    } else if (potentialMatches.length > 1) {
+        // Ambiguous match. Try to narrow it down.
+        // If one of the matches is an exact full name match, prefer that.
+        const exactMatch = potentialMatches.find(u => u.normalizedName === normalizedChunk);
+        if (exactMatch) {
+            if (!allMatchedUsers.some(u => u.uid === exactMatch.uid)) {
+                allMatchedUsers.push(exactMatch);
+            }
+        } else {
+            // Still ambiguous, fail this chunk.
+            failureReason = `Ambiguous name "${chunk}". Matched ${potentialMatches.length} users: ${potentialMatches.map(u => u.originalName).slice(0, 3).join(', ')}...`;
+            break; 
         }
-    });
+    } else {
+      // No matches found for this chunk.
+      failureReason = `No user found for name: "${chunk}".`;
+      break;
+    }
   }
 
-  if (matchedUsers.length === 0) {
+  // If any chunk failed to produce a clear result, we fail the entire cell.
+  if (failureReason) {
     return {
       users: [],
       task: taskPart,
-      reason: `No users in database match the names found in cell: "${namesPart}"`,
+      reason: failureReason,
     };
   }
-
+  
   return {
-    users: matchedUsers,
+    users: allMatchedUsers,
     task: taskPart || 'No task description',
   };
 };
