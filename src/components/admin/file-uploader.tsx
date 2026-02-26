@@ -145,6 +145,7 @@ const extractUsersAndTask = (
     };
   }
 
+  // Corrected regex: splits by common separators, but NOT by spaces within names.
   const nameChunks = namesPart
     .split(/\s*(?:&|and|,|\/)\s*/i)
     .map(s => s.trim())
@@ -165,35 +166,38 @@ const extractUsersAndTask = (
     const normalizedChunk = normalizeText(chunk);
     if (!normalizedChunk) continue;
 
-    // Strict matching logic.
-    // 1. Find users where their full normalized name starts with the chunk.
-    //    This handles full names ("john smith"), first names ("john"), and partials ("john s").
-    const potentialMatches = userMap.filter(u => u.normalizedName.startsWith(normalizedChunk));
+    // Strict matching: find users whose full normalized name is an exact match or starts with the chunk.
+    const potentialMatches = userMap.filter(u => 
+        u.normalizedName === normalizedChunk || u.normalizedName.startsWith(normalizedChunk + ' ')
+    );
+    
+    // De-duplicate potential matches by UID
+    const uniqueMatches = Array.from(new Map(potentialMatches.map(u => [u.uid, u])).values());
 
-    // 2. If we get exactly one match, it's a success.
-    if (potentialMatches.length === 1) {
-        const matchedUser = potentialMatches[0];
-        // Avoid adding duplicates if a user is mentioned multiple times.
+    if (uniqueMatches.length === 1) {
+        const matchedUser = uniqueMatches[0];
+        // Avoid adding the same user twice if they appear multiple times
         if (!allMatchedUsers.some(u => u.uid === matchedUser.uid)) {
             allMatchedUsers.push(matchedUser);
         }
-    } else if (potentialMatches.length > 1) {
-        // 3. If we get multiple matches, it's ambiguous. Check for an exact match among them.
-        const exactMatches = potentialMatches.filter(u => u.normalizedName === normalizedChunk);
+    } else if (uniqueMatches.length > 1) {
+        // If multiple users match (e.g., "Steve" matches "Steve Rogers" and "Steve Smith"),
+        // check if one of them is an EXACT match.
+        const exactMatches = uniqueMatches.filter(u => u.normalizedName === normalizedChunk);
         if (exactMatches.length === 1) {
             const matchedUser = exactMatches[0];
             if (!allMatchedUsers.some(u => u.uid === matchedUser.uid)) {
                 allMatchedUsers.push(matchedUser);
             }
         } else {
-            // Still ambiguous, so fail.
-            failureReason = `Ambiguous name "${chunk}". Matched: ${potentialMatches.slice(0, 3).map(m => m.originalName).join(', ')}.`;
-            break;
+            // It's still ambiguous (e.g., chunk is "S" and multiple users have names starting with S). Fail safely.
+            failureReason = `Ambiguous name "${chunk}". Matched: ${uniqueMatches.slice(0, 3).map(m => m.originalName).join(', ')}.`;
+            break; // Stop processing this cell
         }
     } else {
-        // 4. No matches found.
+        // No matches found for this chunk.
         failureReason = `No user found for name: "${chunk}".`;
-        break;
+        break; // Stop processing this cell
     }
   }
 
@@ -205,6 +209,7 @@ const extractUsersAndTask = (
     };
   }
   
+  // This case can happen if namesPart had content but all chunks were filtered out or failed to match.
   if (allMatchedUsers.length === 0) {
       return {
           users: [],
@@ -215,7 +220,7 @@ const extractUsersAndTask = (
   
   return {
     users: allMatchedUsers,
-    task: taskPart || 'No task description',
+    task: taskPart,
   };
 };
 
