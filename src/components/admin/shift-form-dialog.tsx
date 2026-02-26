@@ -42,9 +42,10 @@ interface ShiftFormDialogProps {
     shift: Shift | null;
     userProfile: UserProfile;
     projects: Project[];
+    availableDepartments: string[];
 }
 
-export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile, projects }: ShiftFormDialogProps) {
+export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile, projects, availableDepartments }: ShiftFormDialogProps) {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [isDatePickerOpen, setDatePickerOpen] = useState(false);
@@ -60,20 +61,18 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
       task: '',
       address: '',
       eNumber: '',
-      department: '',
+      department: isOwner ? '' : userProfile.department || '',
       notes: '',
     },
   });
-
-  const availableDepartments = useMemo(() => {
-    if (!users) return [];
-    const depts = new Set<string>();
-    users.forEach(u => {
-        if (u.department) depts.add(u.department);
-    });
-    return Array.from(depts).sort();
-  }, [users]);
   
+  const watchedDepartment = form.watch('department');
+
+  const departmentFilteredUsers = useMemo(() => {
+    if (!watchedDepartment) return [];
+    return users.filter(user => user.department === watchedDepartment);
+  }, [users, watchedDepartment]);
+
   const getCorrectedLocalDate = (date: { toDate: () => Date }) => {
     const d = date.toDate();
     // Use UTC date parts to create a local date object to avoid timezone issues when comparing.
@@ -101,12 +100,12 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
           task: '',
           address: '',
           eNumber: '',
-          department: '',
+          department: isOwner ? '' : userProfile.department || '',
           notes: '',
         });
       }
     }
-  }, [shift, open, form]);
+  }, [shift, open, form, isOwner, userProfile.department]);
 
   const handleSubmit = async (values: z.infer<typeof formSchema>) => {
     if (!db) return;
@@ -129,6 +128,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
       date: Timestamp.fromDate(correctedDate),
       eNumber: values.eNumber || '',
       notes: values.notes || '',
+      source: 'manual',
     };
     
     try {
@@ -220,20 +220,48 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4 py-4">
+             {isOwner && (
+              <FormField
+                control={form.control}
+                name="department"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Department</FormLabel>
+                    <Select onValueChange={(value) => {
+                      field.onChange(value);
+                      form.setValue('userId', '');
+                    }} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a department" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {availableDepartments.map(dept => (
+                          <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+            
             <FormField
               control={form.control}
               name="userId"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Operative</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
+                  <Select onValueChange={field.onChange} value={field.value} disabled={!watchedDepartment}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select an operative" />
+                        <SelectValue placeholder={watchedDepartment ? "Select an operative" : "Select a department first"} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {users.map(user => (
+                      {departmentFilteredUsers.map(user => (
                         <SelectItem key={user.uid} value={user.uid}>{user.name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -313,28 +341,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
                   )}
                 />
             </div>
-            <FormField
-              control={form.control}
-              name="department"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Department</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a department" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {availableDepartments.map(dept => (
-                        <SelectItem key={dept} value={dept}>{dept}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            
             <FormField
               control={form.control}
               name="address"

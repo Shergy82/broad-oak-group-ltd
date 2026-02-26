@@ -1084,6 +1084,10 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
       )
   }
 
+  const availableDepartments = useMemo(() => {
+    return Array.from(new Set(allUsers.map(u => u.department).filter(Boolean))).sort();
+  }, [allUsers]);
+
   return (
     <>
         <Card>
@@ -1236,6 +1240,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                 shift={selectedShift} 
                 userProfile={userProfile}
                 projects={projects}
+                availableDepartments={availableDepartments}
             />
         )}
 
