@@ -150,14 +150,37 @@ const extractUsersAndTask = (
     .map(n => normalizeText(n))
     .filter(Boolean);
 
+  if (nameChunks.length === 0) {
+      return {
+          users: [],
+          task: taskPart,
+          reason: `No valid names found in cell part: "${namesPart}"`
+      };
+  }
+
   const matchedUsers: UserMapEntry[] = [];
+  
+  // For each name chunk from the spreadsheet cell (e.g., "john s", "phil")
+  for (const chunk of nameChunks) {
+    // Find all users who could potentially match this chunk
+    const potentialMatches = userMap.filter(user => {
+      const userNameParts = normalizeText(user.originalName).split(' ');
+      const chunkParts = chunk.split(' ');
+      
+      // A user is a potential match if all parts of the chunk from the spreadsheet
+      // are a prefix of *some* part of the user's name.
+      // e.g., chunk "p turn" will match user "Phil Turner"
+      return chunkParts.every(cp => 
+        userNameParts.some(unp => unp.startsWith(cp))
+      );
+    });
 
-  for (const user of userMap) {
-    const userName = normalizeText(user.originalName);
-
-    if (nameChunks.some(chunk => userName.includes(chunk))) {
-      matchedUsers.push(user);
-    }
+    // Add all potential matches for this chunk to the final list, avoiding duplicates.
+    potentialMatches.forEach(match => {
+        if (!matchedUsers.some(u => u.uid === match.uid)) {
+            matchedUsers.push(match);
+        }
+    });
   }
 
   if (matchedUsers.length === 0) {
