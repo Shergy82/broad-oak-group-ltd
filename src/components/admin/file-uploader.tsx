@@ -165,82 +165,35 @@ const extractUsersAndTask = (
     const normalizedChunk = normalizeText(chunk);
     if (!normalizedChunk) continue;
 
-    let matchedUser: UserMapEntry | null = null;
-    
-    // --- Start of Stricter Matching Logic ---
+    // Strict matching logic.
+    // 1. Find users where their full normalized name starts with the chunk.
+    //    This handles full names ("john smith"), first names ("john"), and partials ("john s").
+    const potentialMatches = userMap.filter(u => u.normalizedName.startsWith(normalizedChunk));
 
-    // 1. Exact full name match (most reliable)
-    let potentialMatches = userMap.filter(u => u.normalizedName === normalizedChunk);
+    // 2. If we get exactly one match, it's a success.
     if (potentialMatches.length === 1) {
-        matchedUser = potentialMatches[0];
-    } else if (potentialMatches.length > 1) {
-        // This case is rare (duplicate users) but we handle it.
-        failureReason = `Found multiple users with the exact name "${chunk}".`;
-        break;
-    }
-
-    // 2. First name + Last initial match (e.g., "andrew s")
-    if (!matchedUser) {
-        const chunkParts = normalizedChunk.split(' ');
-        if (chunkParts.length === 2 && chunkParts[1].length === 1) {
-            const firstName = chunkParts[0];
-            const lastInitial = chunkParts[1];
-            
-            const matches = userMap.filter(u => {
-                const userParts = u.normalizedName.split(' ');
-                return userParts.length > 1 && userParts[0] === firstName && userParts[1].startsWith(lastInitial);
-            });
-            
-            if (matches.length === 1) {
-                matchedUser = matches[0];
-            } else if (matches.length > 1) {
-                failureReason = `Ambiguous name "${chunk}". Matched multiple users (e.g., ${matches.map(m => m.originalName).slice(0,2).join(', ')}).`;
-                break;
-            }
-        }
-    }
-
-    // 3. First name only match (only if it's unambiguous)
-     if (!matchedUser) {
-        const chunkParts = normalizedChunk.split(' ');
-        if (chunkParts.length === 1) {
-             const firstNameMatches = userMap.filter(u => u.normalizedName.split(' ')[0] === normalizedChunk);
-             if (firstNameMatches.length === 1) {
-                 matchedUser = firstNameMatches[0];
-             } else if (firstNameMatches.length > 1) {
-                failureReason = `Ambiguous first name "${chunk}". Please use a full name or at least a last initial.`;
-                break;
-             }
-        }
-    }
-    
-    // 4. Initials Match (as a fallback, requires all caps)
-    if (!matchedUser && chunk.length > 1 && chunk === chunk.toUpperCase()) {
-        const initialMatches = userMap.filter(u => {
-            const initials = u.originalName.split(' ').map(n => n[0]).join('').toLowerCase();
-            return initials === normalizedChunk;
-        });
-        
-        if (initialMatches.length === 1) {
-            matchedUser = initialMatches[0];
-        } else if (initialMatches.length > 1) {
-            failureReason = `Ambiguous initials "${chunk}". Matched multiple users.`;
-            break;
-        }
-    }
-    
-    // --- End of Stricter Matching Logic ---
-
-    if (matchedUser) {
+        const matchedUser = potentialMatches[0];
+        // Avoid adding duplicates if a user is mentioned multiple times.
         if (!allMatchedUsers.some(u => u.uid === matchedUser.uid)) {
             allMatchedUsers.push(matchedUser);
         }
-    } else if (!failureReason) {
+    } else if (potentialMatches.length > 1) {
+        // 3. If we get multiple matches, it's ambiguous. Check for an exact match among them.
+        const exactMatches = potentialMatches.filter(u => u.normalizedName === normalizedChunk);
+        if (exactMatches.length === 1) {
+            const matchedUser = exactMatches[0];
+            if (!allMatchedUsers.some(u => u.uid === matchedUser.uid)) {
+                allMatchedUsers.push(matchedUser);
+            }
+        } else {
+            // Still ambiguous, so fail.
+            failureReason = `Ambiguous name "${chunk}". Matched: ${potentialMatches.slice(0, 3).map(m => m.originalName).join(', ')}.`;
+            break;
+        }
+    } else {
+        // 4. No matches found.
         failureReason = `No user found for name: "${chunk}".`;
-    }
-
-    if (failureReason) {
-      break;
+        break;
     }
   }
 
@@ -884,4 +837,3 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
     </div>
   );
 }
-
