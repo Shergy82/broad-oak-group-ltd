@@ -221,12 +221,11 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     });
 
     let unsubProjects = () => {};
-    if (isOwner) {
-        const projectsQuery = query(collection(db, 'projects'));
-        unsubProjects = onSnapshot(projectsQuery, (snapshot) => {
-            setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project)));
-        });
-    }
+    // Fetch all projects for the dropdown, will be filtered by department client-side if needed
+    const projectsQuery = query(collection(db, 'projects'));
+    unsubProjects = onSnapshot(projectsQuery, (snapshot) => {
+        setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project)));
+    });
 
     return () => {
       unsubShifts();
@@ -1088,6 +1087,12 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     return Array.from(new Set(allUsers.map(u => u.department).filter(Boolean))).sort();
   }, [allUsers]);
 
+  const departmentFilteredProjects = useMemo(() => {
+    const relevantDepartments = isOwner ? selectedDepartments : new Set([userProfile.department]);
+    if (relevantDepartments.size === 0 && isOwner) return projects; // Owner with no filter sees all
+    return projects.filter(p => p.department && relevantDepartments.has(p.department));
+  }, [projects, isOwner, selectedDepartments, userProfile.department]);
+
   return (
     <>
         <Card>
@@ -1239,7 +1244,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                 users={allUsers} 
                 shift={selectedShift} 
                 userProfile={userProfile}
-                projects={projects}
+                projects={departmentFilteredProjects}
                 availableDepartments={availableDepartments}
             />
         )}
@@ -1283,4 +1288,5 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     
 
     
+
 

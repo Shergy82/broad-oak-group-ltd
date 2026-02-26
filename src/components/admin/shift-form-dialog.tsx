@@ -23,6 +23,7 @@ import { CalendarIcon, Bug } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import type { Shift, UserProfile, Project } from '@/types';
+import { Checkbox } from '../ui/checkbox';
 
 const formSchema = z.object({
   userId: z.string().min(1, 'An operative must be selected.'),
@@ -49,6 +50,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [isDatePickerOpen, setDatePickerOpen] = useState(false);
+  const [manualAddress, setManualAddress] = useState(false);
   const isEditing = !!shift;
   const isOwner = userProfile.role === 'owner';
 
@@ -70,8 +72,15 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
 
   const departmentFilteredUsers = useMemo(() => {
     if (!watchedDepartment) return [];
-    return users.filter(user => user.department === watchedDepartment);
+    return users
+      .filter(user => user.department === watchedDepartment)
+      .sort((a, b) => a.name.localeCompare(b.name));
   }, [users, watchedDepartment]);
+
+  const sortedProjects = useMemo(() => {
+    return [...projects].sort((a, b) => a.address.localeCompare(b.address));
+  }, [projects]);
+
 
   const getCorrectedLocalDate = (date: { toDate: () => Date }) => {
     const d = date.toDate();
@@ -82,6 +91,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
   useEffect(() => {
     if (open) {
       if (shift) {
+        setManualAddress(true); // Default to manual for editing to show existing text
         form.reset({
           userId: shift.userId,
           date: getCorrectedLocalDate(shift.date),
@@ -93,6 +103,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
           notes: shift.notes || '',
         });
       } else {
+        setManualAddress(false); // Default to dropdown for new shifts
         form.reset({
           userId: '',
           date: new Date(),
@@ -342,15 +353,54 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
                 />
             </div>
             
+            <div className="flex items-center space-x-2">
+                <Checkbox
+                    id="manual-address-toggle"
+                    checked={manualAddress}
+                    onCheckedChange={(checked) => {
+                        setManualAddress(!!checked);
+                        if (!checked) { // when switching back to dropdown
+                            form.setValue('address', '');
+                            form.setValue('eNumber', '');
+                        }
+                    }}
+                />
+                <Label htmlFor="manual-address-toggle" className="text-sm font-normal">Enter address manually</Label>
+            </div>
+
             <FormField
               control={form.control}
               name="address"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Address</FormLabel>
-                  <FormControl>
-                    <Input placeholder="123 Main Street..." {...field} />
-                  </FormControl>
+                  {manualAddress ? (
+                     <FormControl>
+                        <Input placeholder="123 Main Street..." {...field} />
+                    </FormControl>
+                  ) : (
+                    <Select 
+                        onValueChange={(projectId) => {
+                            const selectedProject = sortedProjects.find(p => p.id === projectId);
+                            if (selectedProject) {
+                                form.setValue('address', selectedProject.address);
+                                form.setValue('eNumber', selectedProject.eNumber || '');
+                                field.onChange(selectedProject.address);
+                            }
+                        }}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a project address" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {sortedProjects.map(p => (
+                          <SelectItem key={p.id} value={p.id}>{p.address}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                   <FormMessage />
                 </FormItem>
               )}
@@ -390,7 +440,11 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
                 <FormItem>
                   <FormLabel>Number (Optional)</FormLabel>
                   <FormControl>
-                    <Input placeholder="E... or B..." {...field} />
+                    <Input 
+                        placeholder="E... or B..." 
+                        {...field}
+                        disabled={!manualAddress && !!form.getValues('address')}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -416,3 +470,4 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
     </Dialog>
   );
 }
+
