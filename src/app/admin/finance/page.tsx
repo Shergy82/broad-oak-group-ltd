@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
+import { useDepartmentFilter } from '@/hooks/use-department-filter';
 
 export default function FinancePage() {
   const { userProfile, loading: profileLoading } = useUserProfile();
@@ -28,6 +29,8 @@ export default function FinancePage() {
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
+  const { selectedDepartments } = useDepartmentFilter();
+  const isOwner = userProfile?.role === 'owner';
 
   // Filters
   const [timeFilter, setTimeFilter] = useState('week');
@@ -44,7 +47,7 @@ export default function FinancePage() {
 
   useEffect(() => {
     if (profileLoading) return;
-    if (!userProfile || (userProfile.department !== 'Build' && userProfile.role !== 'owner')) {
+    if (!userProfile) {
         setLoading(false);
         return;
     }
@@ -60,7 +63,21 @@ export default function FinancePage() {
     }
 
     setLoading(true);
-    const purchasesQuery = query(collectionGroup(db, 'materialPurchases'), orderBy('purchasedAt', 'desc'));
+
+    let purchasesQuery;
+    let shiftsQuery;
+    let usersQuery;
+
+    if (isOwner) {
+        purchasesQuery = query(collectionGroup(db, 'materialPurchases'), orderBy('purchasedAt', 'desc'));
+        shiftsQuery = query(collection(db, 'shifts'));
+        usersQuery = query(collection(db, 'users'));
+    } else { // Department user
+        purchasesQuery = query(collectionGroup(db, 'materialPurchases'), where('department', '==', userProfile.department), orderBy('purchasedAt', 'desc'));
+        shiftsQuery = query(collection(db, 'shifts'), where('department', '==', userProfile.department));
+        usersQuery = query(collection(db, 'users'), where('department', '==', userProfile.department));
+    }
+    
     const unsubPurchases = onSnapshot(purchasesQuery, (snapshot) => {
         setPurchases(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as MaterialPurchase)));
         purchasesLoaded = true;
@@ -69,17 +86,6 @@ export default function FinancePage() {
         purchasesLoaded = true;
         checkAllLoaded();
     });
-    
-    let shiftsQuery;
-    let usersQuery;
-    
-    if (userProfile.role === 'owner') {
-        shiftsQuery = query(collection(db, 'shifts'));
-        usersQuery = query(collection(db, 'users'));
-    } else { // Build department user
-        shiftsQuery = query(collection(db, 'shifts'), where('department', '==', 'Build'));
-        usersQuery = query(collection(db, 'users'), where('department', '==', 'Build'));
-    }
     
     const unsubShifts = onSnapshot(shiftsQuery, (snapshot) => {
         setShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
@@ -104,7 +110,7 @@ export default function FinancePage() {
         unsubShifts();
         unsubUsers();
     }
-  }, [userProfile, profileLoading]);
+  }, [userProfile, profileLoading, isOwner]);
 
   const userOperativeIdMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -118,7 +124,11 @@ export default function FinancePage() {
 
 
   const filteredPurchases = useMemo(() => {
-    let filtered = purchases;
+    let departmentFiltered = isOwner 
+        ? purchases.filter(p => p.department && selectedDepartments.has(p.department))
+        : purchases;
+        
+    let filtered = departmentFiltered;
 
     // Date picker takes precedence
     if (selectedDate) {
@@ -145,7 +155,7 @@ export default function FinancePage() {
     if (selectedSite !== 'all') {
         const shiftIdsForSite = shifts.filter(s => s.address === selectedSite).map(s => s.id);
         const shiftIdsSet = new Set(shiftIdsForSite);
-        filtered = filtered.filter(p => shiftIdsSet.has(p.shiftId));
+        filtered = filtered.filter(p => p.shiftId && shiftIdsSet.has(p.shiftId));
     }
 
     // Search term filter
@@ -162,7 +172,7 @@ export default function FinancePage() {
     }
 
     return filtered;
-  }, [purchases, shifts, timeFilter, selectedDate, selectedUser, selectedSite, searchTerm, userOperativeIdMap]);
+  }, [purchases, shifts, timeFilter, selectedDate, selectedUser, selectedSite, searchTerm, userOperativeIdMap, isOwner, selectedDepartments]);
 
   const totalSpend = useMemo(() => {
     return filteredPurchases.reduce((acc, p) => acc + p.amount, 0);
@@ -248,12 +258,12 @@ export default function FinancePage() {
   if (profileLoading) {
     return <div className="flex justify-center p-6"><Spinner size="lg" /></div>;
   }
-  if (!userProfile || (userProfile.department !== 'Build' && userProfile.role !== 'owner')) {
+  if (!userProfile) {
     return (
       <Alert variant="destructive">
         <AlertTriangle className="h-4 w-4" />
         <AlertTitle>Access Denied</AlertTitle>
-        <AlertDescription>You do not have permission to view this page. It is restricted to the Build department.</AlertDescription>
+        <AlertDescription>You do not have permission to view this page.</AlertDescription>
       </Alert>
     );
   }

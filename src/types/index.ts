@@ -32,12 +32,13 @@ export interface Shift {
 
 export interface MaterialPurchase {
   id: string;
-  shiftId: string;
+  shiftId?: string;
   userId: string;
   userName: string;
   supplier: string;
   amount: number;
   purchasedAt: Timestamp;
+  department?: string;
 }
 
 

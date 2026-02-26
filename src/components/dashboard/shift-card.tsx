@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -79,11 +77,11 @@ interface PurchaseLogDialogProps {
     onOpenChange: (open: boolean) => void;
     onConfirm: () => void;
     mode: 'query' | 'add';
-    shiftId: string;
+    shift: Shift;
     userProfile: UserProfile | null;
 }
 
-function PurchaseLogDialog({ open, onOpenChange, onConfirm, mode, shiftId, userProfile }: PurchaseLogDialogProps) {
+function PurchaseLogDialog({ open, onOpenChange, onConfirm, mode, shift, userProfile }: PurchaseLogDialogProps) {
   const [didBuy, setDidBuy] = useState<'no' | 'yes'>(mode === 'add' ? 'yes' : 'no');
   const [purchases, setPurchases] = useState<MaterialPurchase[]>([]);
   const [supplier, setSupplier] = useState('');
@@ -100,10 +98,10 @@ function PurchaseLogDialog({ open, onOpenChange, onConfirm, mode, shiftId, userP
   }, [open, mode]);
 
   useEffect(() => {
-    if (!open || !shiftId) return;
+    if (!open || !shift.id) return;
 
     setLoading(true);
-    const purchasesQuery = query(collection(db, `shifts/${shiftId}/materialPurchases`));
+    const purchasesQuery = query(collection(db, `shifts/${shift.id}/materialPurchases`));
     const unsubscribe = onSnapshot(purchasesQuery, (snapshot) => {
         const fetchedPurchases = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as MaterialPurchase));
         setPurchases(fetchedPurchases);
@@ -114,7 +112,7 @@ function PurchaseLogDialog({ open, onOpenChange, onConfirm, mode, shiftId, userP
     });
 
     return () => unsubscribe();
-  }, [open, shiftId, mode]);
+  }, [open, shift.id, mode]);
 
 
   const handleAddPurchase = async (): Promise<boolean> => {
@@ -123,13 +121,14 @@ function PurchaseLogDialog({ open, onOpenChange, onConfirm, mode, shiftId, userP
         return false;
     }
     try {
-        await addDoc(collection(db, `shifts/${shiftId}/materialPurchases`), {
-            shiftId,
+        await addDoc(collection(db, `shifts/${shift.id}/materialPurchases`), {
+            shiftId: shift.id,
             userId: userProfile.uid,
             userName: userProfile.name,
             supplier: supplier.trim(),
             amount: parseFloat(amount),
             purchasedAt: serverTimestamp(),
+            department: shift.department || '',
         });
         toast({ title: 'Purchase Added' });
         setSupplier('');
@@ -144,7 +143,7 @@ function PurchaseLogDialog({ open, onOpenChange, onConfirm, mode, shiftId, userP
 
   const handleDeletePurchase = async (id: string) => {
     try {
-        await deleteDoc(doc(db, `shifts/${shiftId}/materialPurchases`, id));
+        await deleteDoc(doc(db, `shifts/${shift.id}/materialPurchases`, id));
         toast({ title: 'Purchase Removed' });
     } catch(e) {
         console.error("Error deleting purchase:", e);
@@ -910,7 +909,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
         onOpenChange={setIsPurchaseLogOpen}
         onConfirm={handleConfirmPurchasesAndGoOnSite}
         mode={purchaseLogMode}
-        shiftId={shift.id}
+        shift={shift}
         userProfile={userProfile}
       />
 
