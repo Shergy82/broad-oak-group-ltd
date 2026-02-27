@@ -125,16 +125,15 @@ const extractUsersAndTask = (
   let raw = text.trim();
   if (!raw) return null;
 
-  // New logic to extract shift type
   let shiftType: 'am' | 'pm' | 'all-day' = 'all-day';
-  const upperRaw = raw.toUpperCase();
 
-  if (upperRaw.startsWith('AM ')) {
+  // Use a regex with a word boundary to correctly identify "AM" or "PM" as whole words at the start.
+  if (/^AM\b/i.test(raw)) {
     shiftType = 'am';
-    raw = raw.substring(3).trim();
-  } else if (upperRaw.startsWith('PM ')) {
+    raw = raw.substring(2).trim();
+  } else if (/^PM\b/i.test(raw)) {
     shiftType = 'pm';
-    raw = raw.substring(3).trim();
+    raw = raw.substring(2).trim();
   }
 
   const lastHyphenIndex = raw.lastIndexOf('-');
@@ -178,22 +177,25 @@ const extractUsersAndTask = (
       const normalizedChunk = normalizeText(chunk);
       if (!normalizedChunk) return { error: `Empty name chunk found.` };
 
-      // 1. Exact match
+      // 1. Exact match on full normalized name
       const exactMatches = userMap.filter(u => u.normalizedName === normalizedChunk);
       if (exactMatches.length === 1) return exactMatches[0];
       if (exactMatches.length > 1) return { error: `Ambiguous name "${chunk}" matches multiple users exactly.` };
 
-      // 2. Full name contains chunk (e.g. "Phil" matches "Phil Shergold")
-      const 포함Matches = userMap.filter(u => u.normalizedName.includes(normalizedChunk));
-      if (포함Matches.length === 1) return 포함Matches[0];
-      if (포함Matches.length > 1) {
-        // Disambiguate: if one of the matches is an exact match on a word boundary, use it.
-        const wordBoundaryMatches = 포함Matches.filter(u => 
-            u.normalizedName.split(' ').includes(normalizedChunk)
-        );
-        if (wordBoundaryMatches.length === 1) return wordBoundaryMatches[0];
-
-        return { error: `Ambiguous name "${chunk}" partially matches: ${포함Matches.slice(0,3).map(m => m.originalName).join(', ')}.` };
+      // 2. Partial match where chunk is one of the words in the full name
+      const partialMatches = userMap.filter(u => u.normalizedName.split(' ').includes(normalizedChunk));
+      if (partialMatches.length === 1) return partialMatches[0];
+      if (partialMatches.length > 1) {
+         return { error: `Ambiguous name "${chunk}" matches: ${partialMatches.slice(0,3).map(m => m.originalName).join(', ')}.` };
+      }
+      
+      // 3. Fallback for single-word names if no space is present (e.g. "John" vs "John Doe")
+      if (!normalizedChunk.includes(' ')) {
+          const singleNameMatches = userMap.filter(u => u.normalizedName.startsWith(normalizedChunk + ' ') || u.normalizedName.endsWith(' ' + normalizedChunk));
+           if (singleNameMatches.length === 1) return singleNameMatches[0];
+           if (singleNameMatches.length > 1) {
+                return { error: `Ambiguous name "${chunk}" matches start/end of: ${singleNameMatches.slice(0,3).map(m => m.originalName).join(', ')}.` };
+           }
       }
 
       return { error: `No user found for name: "${chunk}".` };
