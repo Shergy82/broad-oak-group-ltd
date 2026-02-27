@@ -786,16 +786,16 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
         </CardHeader>
 
         <CardContent className="p-4 text-left grow flex flex-col space-y-1">
-          <p className="font-semibold text-sm line-clamp-2" title={shift.task}>{shift.task}</p>
+          <p className="font-semibold text-sm whitespace-pre-wrap">{shift.task}</p>
           <a
             href={`https://maps.google.com/?q=${encodeURIComponent(shift.address)}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs text-muted-foreground hover:underline flex items-center gap-1.5"
+            className="text-xs text-muted-foreground hover:underline flex items-start gap-1.5"
             title={shift.address}
           >
-            <MapPin className="h-4 w-4 shrink-0" />
-            <span className="line-clamp-1">{shift.address}</span>
+            <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
+            <span>{shift.address}</span>
           </a>
           {shift.eNumber && <p className="text-xs text-muted-foreground">Number: {shift.eNumber}</p>}
           {shift.contract && <p className="text-xs text-muted-foreground">Contract: {shift.contract}</p>}
