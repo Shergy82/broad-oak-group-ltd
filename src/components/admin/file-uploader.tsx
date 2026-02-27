@@ -119,17 +119,30 @@ const isRowEmpty = (row: any[]): boolean => {
 const extractUsersAndTask = (
   text: string,
   userMap: UserMapEntry[]
-): { users: UserMapEntry[]; task: string; reason?: string } | null => {
+): { users: UserMapEntry[]; task: string; type: 'am' | 'pm' | 'all-day', reason?: string } | null => {
   if (!text || typeof text !== 'string') return null;
 
-  const raw = text.trim();
+  let raw = text.trim();
   if (!raw) return null;
+
+  // New logic to extract shift type
+  let shiftType: 'am' | 'pm' | 'all-day' = 'all-day';
+  const upperRaw = raw.toUpperCase();
+
+  if (upperRaw.startsWith('AM ')) {
+    shiftType = 'am';
+    raw = raw.substring(3).trim();
+  } else if (upperRaw.startsWith('PM ')) {
+    shiftType = 'pm';
+    raw = raw.substring(3).trim();
+  }
 
   const lastHyphenIndex = raw.lastIndexOf('-');
   if (lastHyphenIndex === -1) {
     return {
       users: [],
       task: raw,
+      type: shiftType,
       reason: 'No " - " separator found to distinguish task from names.',
     };
   }
@@ -141,6 +154,7 @@ const extractUsersAndTask = (
     return {
       users: [],
       task: taskPart,
+      type: shiftType,
       reason: 'No names found after the " - " separator.',
     };
   }
@@ -152,6 +166,7 @@ const extractUsersAndTask = (
       return {
           users: [],
           task: taskPart,
+          type: shiftType,
           reason: `No valid names found in cell part: "${namesPart}"`
       };
   }
@@ -199,6 +214,7 @@ const extractUsersAndTask = (
     return {
       users: [],
       task: taskPart,
+      type: shiftType,
       reason: failureReason,
     };
   }
@@ -207,6 +223,7 @@ const extractUsersAndTask = (
       return {
           users: [],
           task: taskPart,
+          type: shiftType,
           reason: `Could not identify any valid users from "${namesPart}".`
       }
   }
@@ -214,6 +231,7 @@ const extractUsersAndTask = (
   return {
     users: allMatchedUsers,
     task: taskPart,
+    type: shiftType,
   };
 };
 
@@ -289,7 +307,7 @@ const parseBuildSheet = (
             task: extraction.task,
             userId: user.uid,
             userName: user.originalName,
-            type: 'all-day',
+            type: extraction.type,
             manager,
             contract: currentContract,
             department,
