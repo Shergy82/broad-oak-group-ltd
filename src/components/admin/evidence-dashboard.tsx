@@ -520,16 +520,16 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                                 {imageFiles.map((photo) => (
                                     <CarouselItem key={photo.id}>
                                         <div className="p-1">
-                                            <Card className="cursor-pointer" onClick={() => setViewingFile(photo)}>
-                                                <CardContent className="h-96 p-0 relative rounded-lg overflow-hidden">
+                                            <Card className="cursor-pointer overflow-hidden" onClick={() => setViewingFile(photo)}>
+                                                <div className="h-96 relative">
                                                     <Image
                                                         src={`/api/file?path=${encodeURIComponent(photo.fullPath)}`}
                                                         alt={photo.name}
                                                         fill
                                                         className="object-contain"
                                                     />
-                                                </CardContent>
-                                                 <CardFooter className="flex-col items-start text-sm text-muted-foreground p-3">
+                                                </div>
+                                                 <CardFooter className="flex-col items-start text-sm text-muted-foreground p-3 border-t">
                                                     <p><strong>File:</strong> {photo.name}</p>
                                                     <p><strong>Uploaded by:</strong> {photo.uploaderName}</p>
                                                     <p><strong>Date:</strong> {photo.uploadedAt ? format(photo.uploadedAt.toDate(), 'PPP p') : 'N/A'}</p>
