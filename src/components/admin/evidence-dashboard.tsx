@@ -252,17 +252,16 @@ function EvidenceReportGenerator({ project, files, onGenerated, userProfile }: E
 }
 
 interface ProjectEvidenceCardProps {
-  project: Project;
+  project: Project & { evidenceState: 'incomplete' | 'ready' | 'completed' };
   checklist: EvidenceChecklist | undefined;
   files: ProjectFile[];
   loadingFiles: boolean;
-  generatedPdfProjects: string[];
-  onMarkAsComplete: (projectId: string) => void;
-  onResetStatus: (projectId: string) => void;
+  onMarkAsComplete: (projectId: string) => Promise<void>;
+  onResetStatus: (projectId: string) => Promise<void>;
   onScheduleForDeletion: (projectId: string) => void;
 }
 
-function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generatedPdfProjects, onMarkAsComplete, onResetStatus, onScheduleForDeletion }: ProjectEvidenceCardProps) {
+function ProjectEvidenceCard({ project, checklist, files, loadingFiles, onMarkAsComplete, onResetStatus, onScheduleForDeletion }: ProjectEvidenceCardProps) {
     const { userProfile } = useUserProfile();
     const { toast } = useToast();
     const [isGalleryOpen, setIsGalleryOpen] = useState(false);
@@ -273,34 +272,12 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
     const [isChecklistEditorOpen, setChecklistEditorOpen] = useState(false);
 
     const imageFiles = useMemo(() => files.filter(f => f.type?.startsWith('image/')), [files]);
+    
+    const { evidenceState } = project;
 
     const activeChecklistItems = useMemo(() => {
         return project.checklist ?? checklist?.items ?? [];
     }, [project.checklist, checklist]);
-
-    const evidenceState = useMemo<'incomplete' | 'ready' | 'generated'>(() => {
-        if (loadingFiles) return 'incomplete';
-
-        const isPdfGenerated = generatedPdfProjects.includes(project.id);
-        if (isPdfGenerated) return 'generated'; // Check this first!
-
-        const isChecklistMet = (() => {
-            if (activeChecklistItems.length === 0) {
-                return true;
-            }
-            return activeChecklistItems.every(item => {
-                const requiredCount = item.photoCount || 1;
-                const matchingFiles = files.filter(file => isMatch(item.text, file.evidenceTag));
-                return matchingFiles.length >= requiredCount;
-            });
-        })();
-        
-        if (isChecklistMet) {
-            return 'ready';
-        }
-
-        return 'incomplete';
-    }, [files, activeChecklistItems, loadingFiles, generatedPdfProjects, project.id]);
 
     const openDuration = useMemo(() => {
         if (!project.createdAt) return null;
@@ -401,7 +378,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
     const cardColorClass = {
         incomplete: 'bg-red-800 border-red-950',
         ready: 'bg-orange-600 border-orange-800',
-        generated: 'bg-green-700 border-green-900',
+        completed: 'bg-green-700 border-green-900',
     }[evidenceState];
 
     const textColorClass = 'text-white';
@@ -494,7 +471,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                                     <AlertDialogHeader>
                                         <AlertDialogTitle>Manually Complete Evidence?</AlertDialogTitle>
                                         <AlertDialogDescription>
-                                            This will mark the evidence as complete, even if some checklist items are missing photos. You can re-open this project later if more evidence is needed.
+                                            This will mark the evidence as complete. This action can be undone later if more evidence is needed.
                                         </AlertDialogDescription>
                                     </AlertDialogHeader>
                                     <AlertDialogFooter>
@@ -517,7 +494,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                             </div>
                         )}
                         
-                        {evidenceState === 'generated' && (
+                        {evidenceState === 'completed' && (
                             <div className="col-span-2 grid grid-cols-2 gap-2">
                                 <Button variant="secondary" size="sm" className="text-xs px-1 py-1 h-14 w-full flex-col justify-center" onClick={() => onResetStatus(project.id)}>
                                     <RotateCw className="h-4 w-4" />
@@ -600,7 +577,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
             />
 
             <Dialog open={!!viewingFile} onOpenChange={() => setViewingFile(null)}>
-                <DialogContent className="max-w-[90vw] max-h-[90vh] h-auto w-auto flex items-center justify-center p-2 bg-transparent border-none shadow-none">
+                <DialogContent className="max-w-[90vw] max-h-[90vh] flex items-center justify-center p-2 bg-transparent border-none shadow-none">
                     {viewingFile && (
                         <img
                             src={`/api/file?path=${encodeURIComponent(viewingFile.fullPath)}`}
@@ -632,24 +609,11 @@ export function EvidenceDashboard() {
   const isOwner = userProfile?.role === 'owner';
 
   const [filesByProject, setFilesByProject] = useState<Map<string, ProjectFile[]>>(new Map());
-  const LOCAL_STORAGE_KEY_GENERATED = 'evidence_pdf_generated_v5';
-  const [generatedPdfProjects, setGeneratedPdfProjects] = useState<string[]>([]);
-  const LOCAL_STORAGE_KEY_REMOVED = 'evidence_removed_projects_v1';
-  const [removedProjectIds, setRemovedProjectIds] = useState<string[]>([]);
-
-  const [hiddenContracts, setHiddenContracts] = useState<Set<string>>(new Set());
   const LS_HIDDEN_CONTRACTS_KEY = 'evidence_dashboard_hidden_contracts_v1';
+  const [hiddenContracts, setHiddenContracts] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     try {
-        const storedGenerated = localStorage.getItem(LOCAL_STORAGE_KEY_GENERATED);
-        if (storedGenerated) {
-            setGeneratedPdfProjects(JSON.parse(storedGenerated));
-        }
-        const storedRemoved = localStorage.getItem(LOCAL_STORAGE_KEY_REMOVED);
-        if (storedRemoved) {
-            setRemovedProjectIds(JSON.parse(storedRemoved));
-        }
         const storedHidden = localStorage.getItem(LS_HIDDEN_CONTRACTS_KEY);
         if (storedHidden) {
             setHiddenContracts(new Set(JSON.parse(storedHidden)));
@@ -659,28 +623,28 @@ export function EvidenceDashboard() {
     }
   }, []);
   
-  const handleMarkAsComplete = (projectId: string) => {
-    setGeneratedPdfProjects(prev => {
-        const newGenerated = [...new Set([...prev, projectId])];
-        try {
-            localStorage.setItem(LOCAL_STORAGE_KEY_GENERATED, JSON.stringify(newGenerated));
-        } catch (e) {
-            console.error("Failed to write to local storage", e);
-        }
-        return newGenerated;
-    });
-  }
+  const handleMarkAsComplete = async (projectId: string) => {
+    try {
+        const projectRef = doc(db, 'projects', projectId);
+        await updateDoc(projectRef, {
+            evidenceStatus: 'completed'
+        });
+        toast({ title: 'Success', description: 'Project evidence has been marked as complete.' });
+    } catch (error: any) {
+        toast({ variant: 'destructive', title: 'Update Failed', description: error.message || 'Could not update project status.' });
+    }
+  };
   
-   const onResetStatus = (projectId: string) => {
-    setGeneratedPdfProjects(prev => {
-        const newGenerated = prev.filter(id => id !== projectId);
-        try {
-            localStorage.setItem(LOCAL_STORAGE_KEY_GENERATED, JSON.stringify(newGenerated));
-        } catch (e) {
-            console.error("Failed to write to local storage", e);
-        }
-        return newGenerated;
-    });
+   const onResetStatus = async (projectId: string) => {
+    try {
+        const projectRef = doc(db, 'projects', projectId);
+        await updateDoc(projectRef, {
+            evidenceStatus: deleteField()
+        });
+        toast({ title: 'Project Re-opened', description: 'Project evidence status has been reset.' });
+    } catch (error: any) {
+        toast({ variant: 'destructive', title: 'Update Failed', description: error.message || 'Could not update project status.' });
+    }
   };
 
   const handleScheduleForDeletion = async (projectId: string) => {
@@ -767,25 +731,11 @@ export function EvidenceDashboard() {
         return onSnapshot(q, (snapshot) => {
             const files = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ProjectFile));
             setFilesByProject(prev => new Map(prev).set(project.id, files));
-            
-            const isGenerated = generatedPdfProjects.includes(project.id);
-            if (isGenerated) {
-                 const activeChecklistItems = project.checklist ?? evidenceChecklists.get(project.contract || '')?.items ?? [];
-                 const isChecklistMet = activeChecklistItems.length === 0 ||
-                    activeChecklistItems.every(item => {
-                        const requiredCount = item.photoCount || 1;
-                        const matchingFiles = files.filter(file => isMatch(item.text, file.evidenceTag));
-                        return matchingFiles.length >= requiredCount;
-                    });
-                if (!isChecklistMet) {
-                    onResetStatus(project.id);
-                }
-            }
         });
     });
 
     return () => unsubscribers.forEach(unsub => unsub());
-  }, [projects, evidenceChecklists, generatedPdfProjects]);
+  }, [projects]);
 
   useEffect(() => {
     if (projects.length > 0 && filesByProject.size < projects.length) {
@@ -823,20 +773,20 @@ export function EvidenceDashboard() {
         const activeChecklistItems = project.checklist ?? contractChecklist?.items ?? [];
         const projectFiles = filesByProject.get(project.id) || [];
         
-        const isChecklistMet = activeChecklistItems.length === 0 || 
-            activeChecklistItems.every(item => {
-                const requiredCount = item.photoCount || 1;
-                const matchingFiles = projectFiles.filter(file => isMatch(item.text, file.evidenceTag));
-                return matchingFiles.length >= requiredCount;
-            });
-
-        let evidenceState: 'incomplete' | 'ready' | 'generated' = 'incomplete';
-        const isPdfGenerated = generatedPdfProjects.includes(project.id);
-
-        if (isPdfGenerated) {
-            evidenceState = 'generated';
-        } else if (isChecklistMet) {
-            evidenceState = 'ready';
+        let evidenceState: 'incomplete' | 'ready' | 'completed' = 'incomplete';
+        if (project.evidenceStatus === 'completed') {
+            evidenceState = 'completed';
+        } else {
+            const isChecklistMet = activeChecklistItems.length === 0 || 
+                activeChecklistItems.every(item => {
+                    const requiredCount = item.photoCount || 1;
+                    const matchingFiles = projectFiles.filter(file => isMatch(item.text, file.evidenceTag));
+                    return matchingFiles.length >= requiredCount;
+                });
+            
+            if (isChecklistMet) {
+                evidenceState = 'ready';
+            }
         }
 
         return {
@@ -846,7 +796,7 @@ export function EvidenceDashboard() {
         };
     });
 
-    const priorityOrder = { 'ready': 1, 'incomplete': 2, 'generated': 3 };
+    const priorityOrder = { 'ready': 1, 'incomplete': 2, 'completed': 3 };
     enrichedProjects.sort((a, b) => {
         const statePriorityA = priorityOrder[a.evidenceState];
         const statePriorityB = priorityOrder[b.evidenceState];
@@ -868,7 +818,9 @@ export function EvidenceDashboard() {
     });
     
     return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
-  }, [filteredProjects, filesByProject, evidenceChecklists, loading, generatedPdfProjects]);
+  }, [filteredProjects, filesByProject, evidenceChecklists, loading]);
+  
+  const visibleGroups = useMemo(() => groupedProjects.filter(([name]) => !hiddenContracts.has(name)), [groupedProjects, hiddenContracts]);
 
 
   return (
@@ -893,7 +845,7 @@ export function EvidenceDashboard() {
                 <Skeleton key={i} className="h-40 w-full" />
               ))}
             </div>
-          ) : groupedProjects.length === 0 ? (
+          ) : visibleGroups.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-12 text-center h-96">
               <Building2 className="mx-auto h-12 w-12 text-muted-foreground" />
               <h3 className="mt-4 text-lg font-semibold">No Projects Found</h3>
@@ -902,7 +854,7 @@ export function EvidenceDashboard() {
               </p>
             </div>
           ) : (
-            groupedProjects.map(([contractName, projectGroup]) => (
+            visibleGroups.map(([contractName, projectGroup]) => (
               <div key={contractName}>
                 <div className="flex items-center gap-0.5 mb-4">
                     <h2 className="text-xl font-semibold capitalize">{contractName}</h2>
@@ -910,26 +862,23 @@ export function EvidenceDashboard() {
                         <Pencil className="h-4 w-4 text-muted-foreground" />
                     </Button>
                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toggleContractVisibility(contractName)}>
-                        {hiddenContracts.has(contractName) ? <EyeOff className="h-4 w-4 text-muted-foreground" /> : <Eye className="h-4 w-4 text-muted-foreground" />}
+                        <EyeOff className="h-4 w-4 text-muted-foreground" />
                     </Button>
                 </div>
-                {!hiddenContracts.has(contractName) && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                    {projectGroup.map(project => (
-                      <ProjectEvidenceCard 
-                          key={project.id}
-                          project={project}
-                          checklist={evidenceChecklists.get(project.contract || '')}
-                          files={filesByProject.get(project.id) || []}
-                          loadingFiles={loading}
-                          generatedPdfProjects={generatedPdfProjects}
-                          onMarkAsComplete={handleMarkAsComplete}
-                          onResetStatus={onResetStatus}
-                          onScheduleForDeletion={handleScheduleForDeletion}
-                      />
-                    ))}
-                  </div>
-                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                  {projectGroup.map(project => (
+                    <ProjectEvidenceCard 
+                        key={project.id}
+                        project={project}
+                        checklist={evidenceChecklists.get(project.contract || '')}
+                        files={filesByProject.get(project.id) || []}
+                        loadingFiles={loading}
+                        onMarkAsComplete={handleMarkAsComplete}
+                        onResetStatus={onResetStatus}
+                        onScheduleForDeletion={handleScheduleForDeletion}
+                    />
+                  ))}
+                </div>
               </div>
             ))
           )}
@@ -959,4 +908,3 @@ export function EvidenceDashboard() {
     </>
   );
 }
-

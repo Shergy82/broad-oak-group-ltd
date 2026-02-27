@@ -81,6 +81,7 @@ export interface Project {
   contract?: string;
   deletionScheduledAt?: Timestamp;
   checklist?: EvidenceChecklistItem[];
+  evidenceStatus?: 'completed';
 }
 
 export interface ProjectFile {
