@@ -21,7 +21,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { format, differenceInDays, differenceInHours, differenceInMinutes } from 'date-fns';
 import { Dialog, DialogDescription, DialogHeader, DialogTitle, DialogContent, DialogClose } from '@/components/ui/dialog';
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '@/components/ui/carousel';
-import NextImage from 'next/image';
+import Image from 'next/image';
 import { MultiPhotoCamera } from '@/components/shared/multi-photo-camera';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
 
@@ -526,9 +526,12 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                                             <Card>
                                                 <CardContent 
                                                     className="flex aspect-video items-center justify-center p-0 relative overflow-hidden rounded-lg cursor-pointer group"
-                                                    onClick={() => setEnlargedPhoto(photo)}
+                                                    onClick={() => {
+                                                        setViewerOpen(false);
+                                                        setEnlargedPhoto(photo);
+                                                    }}
                                                 >
-                                                    <NextImage
+                                                    <Image
                                                         src={`/api/file?path=${encodeURIComponent(photo.fullPath)}`}
                                                         alt={photo.name}
                                                         fill
@@ -559,7 +562,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                         className="w-screen h-screen max-w-full max-h-full p-0 bg-black/80 border-none shadow-none flex items-center justify-center"
                     >
                          <div className="relative w-full h-full">
-                            <NextImage
+                            <Image
                                 src={`/api/file?path=${encodeURIComponent(enlargedPhoto.fullPath)}`}
                                 alt={enlargedPhoto.name}
                                 fill
