@@ -281,6 +281,9 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
     const evidenceState = useMemo<'incomplete' | 'ready' | 'generated'>(() => {
         if (loadingFiles) return 'incomplete';
 
+        const isPdfGenerated = generatedPdfProjects.includes(project.id);
+        if (isPdfGenerated) return 'generated'; // Check this first!
+
         const isChecklistMet = (() => {
             if (activeChecklistItems.length === 0) {
                 return true;
@@ -291,12 +294,12 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                 return matchingFiles.length >= requiredCount;
             });
         })();
+        
+        if (isChecklistMet) {
+            return 'ready';
+        }
 
-        const isPdfGenerated = generatedPdfProjects.includes(project.id);
-
-        if (!isChecklistMet) return 'incomplete';
-        if (isPdfGenerated) return 'generated';
-        return 'ready';
+        return 'incomplete';
     }, [files, activeChecklistItems, loadingFiles, generatedPdfProjects, project.id]);
 
     const openDuration = useMemo(() => {
@@ -491,7 +494,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                                     <AlertDialogHeader>
                                         <AlertDialogTitle>Manually Complete Evidence?</AlertDialogTitle>
                                         <AlertDialogDescription>
-                                            This will mark the evidence as complete, even if some checklist items are missing photos. This action cannot be undone.
+                                            This will mark the evidence as complete, even if some checklist items are missing photos. You can re-open this project later if more evidence is needed.
                                         </AlertDialogDescription>
                                     </AlertDialogHeader>
                                     <AlertDialogFooter>
@@ -828,12 +831,12 @@ export function EvidenceDashboard() {
             });
 
         let evidenceState: 'incomplete' | 'ready' | 'generated' = 'incomplete';
-        if (isChecklistMet) {
-            if (generatedPdfProjects.includes(project.id)) {
-                evidenceState = 'generated';
-            } else {
-                evidenceState = 'ready';
-            }
+        const isPdfGenerated = generatedPdfProjects.includes(project.id);
+
+        if (isPdfGenerated) {
+            evidenceState = 'generated';
+        } else if (isChecklistMet) {
+            evidenceState = 'ready';
         }
 
         return {
@@ -883,19 +886,6 @@ export function EvidenceDashboard() {
           </div>
       </div>
       
-       {hiddenContractsList.length > 0 && (
-          <div className="mt-4 p-4 border rounded-lg bg-muted/30">
-              <h3 className="font-semibold text-sm mb-2">Hidden Contracts</h3>
-              <div className="flex flex-wrap gap-2">
-                  {hiddenContractsList.map(name => (
-                      <Button key={name} size="sm" variant="secondary" onClick={() => toggleContractVisibility(name)}>
-                          {name} <Eye className="ml-2 h-4 w-4" />
-                      </Button>
-                  ))}
-              </div>
-          </div>
-      )}
-
       <div className="space-y-8 mt-4">
           {loading ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
@@ -944,6 +934,20 @@ export function EvidenceDashboard() {
             ))
           )}
       </div>
+
+       {hiddenContractsList.length > 0 && (
+          <div className="mt-8 pt-6 border-t">
+              <h3 className="font-semibold text-lg mb-4">Hidden Contracts</h3>
+              <div className="flex flex-wrap gap-2">
+                  {hiddenContractsList.map(name => (
+                      <Button key={name} size="sm" variant="secondary" onClick={() => toggleContractVisibility(name)}>
+                          {name} <Eye className="ml-2 h-4 w-4" />
+                      </Button>
+                  ))}
+              </div>
+          </div>
+      )}
+
       {editingChecklist && (
         <EvidenceChecklistManager
             contractName={editingChecklist}
@@ -955,3 +959,4 @@ export function EvidenceDashboard() {
     </>
   );
 }
+
