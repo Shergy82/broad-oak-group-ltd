@@ -24,6 +24,9 @@ import { MultiPhotoCamera } from '@/components/shared/multi-photo-camera';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
 import Image from 'next/image';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { Badge } from '@/components/ui/badge';
+
 
 const isMatch = (checklistText: string, fileTag: string | undefined): boolean => {
     if (!fileTag || !checklistText) return false;
@@ -254,12 +257,12 @@ interface ProjectEvidenceCardProps {
   files: ProjectFile[];
   loadingFiles: boolean;
   generatedPdfProjects: string[];
-  onPdfGenerated: (projectId: string) => void;
+  onMarkAsComplete: (projectId: string) => void;
   onResetStatus: (projectId: string) => void;
   onScheduleForDeletion: (projectId: string) => void;
 }
 
-function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generatedPdfProjects, onPdfGenerated, onResetStatus, onScheduleForDeletion }: ProjectEvidenceCardProps) {
+function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generatedPdfProjects, onMarkAsComplete, onResetStatus, onScheduleForDeletion }: ProjectEvidenceCardProps) {
     const { userProfile } = useUserProfile();
     const { toast } = useToast();
     const [isGalleryOpen, setIsGalleryOpen] = useState(false);
@@ -335,6 +338,9 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
         });
     }, [files, activeChecklistItems]);
 
+    const completedCount = useMemo(() => evidenceStatus.filter(item => item.isComplete).length, [evidenceStatus]);
+    const totalCount = evidenceStatus.length;
+
     const handleTakePhoto = (itemText: string, requiredCount: number) => {
         setSelectedCameraItem({ text: itemText, count: requiredCount });
         setIsCameraOpen(true);
@@ -409,63 +415,107 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                     </div>
                     {project.eNumber && <p className={cn("text-lg font-bold pt-1", textColorClass)}>{project.eNumber}</p>}
                 </CardHeader>
-                <CardContent className="p-4 pt-2 flex-grow flex flex-col justify-between">
-                    {loadingFiles ? (
-                        <div className="flex justify-center items-center h-16">
-                            <Spinner size="sm" />
-                        </div>
-                    ) : (
-                        <div>
-                            {evidenceStatus.length > 0 ? (
-                                <div className="space-y-1">
-                                    {evidenceStatus.map(item => (
-                                        <div key={item.text} className={cn("flex items-center justify-between gap-2 text-xs", item.isComplete ? cn(textColorClass, "opacity-70") : cn("font-semibold", textColorClass))}>
-                                            <div className="flex items-center gap-2">
-                                                {item.isComplete ? (
-                                                    <CheckCircle className="h-3 w-3 opacity-90 shrink-0" />
-                                                ) : (
-                                                    <XCircle className="h-3 w-3 shrink-0" />
-                                                )}
-                                                <span className="truncate">{item.text} ({item.displayCount}/{item.photoCount})</span>
-                                            </div>
-                                            {!item.isComplete && item.photoCount > 0 && (
-                                                <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0 text-white" onClick={() => handleTakePhoto(item.text, item.photoCount)}>
-                                                    <Camera className="h-4 w-4" />
-                                                </Button>
-                                            )}
-                                        </div>
-                                    ))}
+                
+                 <CardContent className="p-0 flex-grow">
+                    <Accordion type="single" collapsible className="w-full">
+                        <AccordionItem value="item-1" className="border-none">
+                            <AccordionTrigger className="px-4 py-2 hover:no-underline [&[data-state=open]>svg]:text-white">
+                                <div className="flex justify-between items-center w-full">
+                                    <span className={cn("text-sm font-semibold", textColorClass)}>
+                                        Checklist Progress
+                                    </span>
+                                    <Badge variant={completedCount === totalCount && totalCount > 0 ? "default" : "secondary"} className={cn(completedCount === totalCount && totalCount > 0 ? "bg-green-500/80 border-green-400" : "")}>
+                                        {completedCount} / {totalCount}
+                                    </Badge>
                                 </div>
-                            ) : <p className={cn("text-xs italic", textColorClass)}>No evidence checklist for this contract.</p>}
-                        </div>
-                    )}
-                    {openDuration && (
-                        <div className="text-right text-xs mt-2 opacity-80 text-white">
-                            <span className="font-bold">{openDuration.value}</span> {openDuration.unit}{openDuration.value === 1 ? '' : 's'} open
-                        </div>
-                    )}
+                            </AccordionTrigger>
+                            <AccordionContent className="px-4 pt-0 pb-4">
+                                {loadingFiles ? (
+                                    <div className="flex justify-center items-center h-16">
+                                        <Spinner size="sm" />
+                                    </div>
+                                ) : (
+                                    <div>
+                                        {evidenceStatus.length > 0 ? (
+                                            <div className="space-y-1">
+                                                {evidenceStatus.map(item => (
+                                                    <div key={item.text} className={cn("flex items-center justify-between gap-2 text-xs", item.isComplete ? cn(textColorClass, "opacity-70") : cn("font-semibold", textColorClass))}>
+                                                        <div className="flex items-center gap-2">
+                                                            {item.isComplete ? (
+                                                                <CheckCircle className="h-3 w-3 opacity-90 shrink-0" />
+                                                            ) : (
+                                                                <XCircle className="h-3 w-3 shrink-0" />
+                                                            )}
+                                                            <span className="truncate">{item.text} ({item.displayCount}/{item.photoCount})</span>
+                                                        </div>
+                                                        {!item.isComplete && item.photoCount > 0 && (
+                                                            <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0 text-white" onClick={() => handleTakePhoto(item.text, item.photoCount)}>
+                                                                <Camera className="h-4 w-4" />
+                                                            </Button>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : <p className={cn("text-xs italic text-center py-2", textColorClass)}>No evidence checklist for this contract.</p>}
+                                    </div>
+                                )}
+                            </AccordionContent>
+                        </AccordionItem>
+                    </Accordion>
                 </CardContent>
+
+                <div className="px-4 pb-2 text-right text-xs mt-auto opacity-80 text-white">
+                    {openDuration && (
+                        <span>
+                            <span className="font-bold">{openDuration.value}</span> {openDuration.unit}{openDuration.value === 1 ? '' : 's'} open
+                        </span>
+                    )}
+                </div>
+
                 <CardFooter className="p-2 border-t mt-auto">
-                    <div className="grid grid-cols-3 gap-2 w-full">
+                     <div className="grid grid-cols-3 gap-2 w-full">
                         <Button variant="secondary" size="sm" className="text-xs px-1 py-1 h-14 w-full flex-col justify-center" onClick={() => setIsGalleryOpen(true)} disabled={imageFiles.length === 0}>
                             <ImageIcon className="h-4 w-4"/>
                             <span>View Photos</span>
                         </Button>
                         
-                        {evidenceState === 'incomplete' && <div className="col-span-2" />}
+                        {evidenceState === 'incomplete' && (
+                           <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                    <Button variant="secondary" size="sm" className="col-span-2 text-xs px-1 py-1 h-14 w-full flex-col justify-center">
+                                        <CheckCircle className="h-4 w-4 text-green-600"/>
+                                        <span>Force Complete</span>
+                                    </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                        <AlertDialogTitle>Manually Complete Evidence?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                            This will mark the evidence as complete, even if some checklist items are missing photos. This action cannot be undone.
+                                        </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                        <AlertDialogAction onClick={() => onMarkAsComplete(project.id)}>
+                                            Confirm
+                                        </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
+                        )}
 
                         {evidenceState === 'ready' && (
-                            <>
-                                <EvidenceReportGenerator project={project} files={files} onGenerated={() => onPdfGenerated(project.id)} userProfile={userProfile} />
-                                <Button variant="secondary" size="sm" className="text-xs px-1 py-1 h-14 w-full flex-col justify-center" onClick={() => onPdfGenerated(project.id)}>
+                            <div className="col-span-2 grid grid-cols-2 gap-2">
+                                <EvidenceReportGenerator project={project} files={files} onGenerated={() => onMarkAsComplete(project.id)} userProfile={userProfile} />
+                                <Button variant="secondary" size="sm" className="text-xs px-1 py-1 h-14 w-full flex-col justify-center" onClick={() => onMarkAsComplete(project.id)}>
                                     <CheckCircle className="h-4 w-4" />
                                     <span>Mark Complete</span>
                                 </Button>
-                            </>
+                            </div>
                         )}
                         
                         {evidenceState === 'generated' && (
-                            <>
+                            <div className="col-span-2 grid grid-cols-2 gap-2">
                                 <Button variant="secondary" size="sm" className="text-xs px-1 py-1 h-14 w-full flex-col justify-center" onClick={() => onResetStatus(project.id)}>
                                     <RotateCw className="h-4 w-4" />
                                     <span>More Evidence</span>
@@ -492,7 +542,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                                         </AlertDialogFooter>
                                     </AlertDialogContent>
                                 </AlertDialog>
-                            </>
+                            </div>
                         )}
                     </div>
                 </CardFooter>
@@ -578,7 +628,7 @@ export function EvidenceDashboard() {
   const isOwner = userProfile?.role === 'owner';
 
   const [filesByProject, setFilesByProject] = useState<Map<string, ProjectFile[]>>(new Map());
-  const LOCAL_STORAGE_KEY_GENERATED = 'evidence_pdf_generated_projects_v5';
+  const LOCAL_STORAGE_KEY_GENERATED = 'evidence_pdf_generated_v5';
   const [generatedPdfProjects, setGeneratedPdfProjects] = useState<string[]>([]);
   const LOCAL_STORAGE_KEY_REMOVED = 'evidence_removed_projects_v1';
   const [removedProjectIds, setRemovedProjectIds] = useState<string[]>([]);
@@ -598,7 +648,7 @@ export function EvidenceDashboard() {
     }
   }, []);
   
-  const onPdfGenerated = (projectId: string) => {
+  const handleMarkAsComplete = (projectId: string) => {
     setGeneratedPdfProjects(prev => {
         const newGenerated = [...new Set([...prev, projectId])];
         try {
@@ -837,7 +887,7 @@ export function EvidenceDashboard() {
                         files={filesByProject.get(project.id) || []}
                         loadingFiles={loading}
                         generatedPdfProjects={generatedPdfProjects}
-                        onPdfGenerated={onPdfGenerated}
+                        onMarkAsComplete={handleMarkAsComplete}
                         onResetStatus={onResetStatus}
                         onScheduleForDeletion={handleScheduleForDeletion}
                     />
