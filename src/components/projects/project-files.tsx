@@ -57,7 +57,6 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [evidenceTag, setEvidenceTag] = useState('');
-  const [viewingFile, setViewingFile] = useState<ProjectFile | null>(null);
 
   useEffect(() => {
     if (!db || !project) return;
@@ -174,7 +173,7 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
 
   const handleFileClick = (file: ProjectFile) => {
     if (file.type?.startsWith('image/')) {
-        setViewingFile(file);
+        window.open(file.url, '_blank', 'noopener,noreferrer');
     } else {
         previewFile(file.fullPath);
     }
@@ -281,28 +280,6 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
           </Button>
         </div>
       </div>
-      {viewingFile && (
-        <Dialog open={!!viewingFile} onOpenChange={() => setViewingFile(null)}>
-            <DialogContent 
-                showCloseButton={false}
-                className="w-screen h-screen max-w-full max-h-full p-0 bg-black/80 border-none shadow-none flex items-center justify-center"
-            >
-                    <div className="relative w-full h-full">
-                    <Image
-                        src={`/api/file?path=${encodeURIComponent(viewingFile.fullPath)}`}
-                        alt={viewingFile.name}
-                        fill
-                        className="object-contain"
-                    />
-                    </div>
-                    <DialogClose asChild>
-                    <Button variant="ghost" size="icon" className="absolute top-4 right-4 h-12 w-12 rounded-full bg-black/50 text-white hover:bg-black/75 hover:text-white">
-                        <X className="h-8 w-8" />
-                    </Button>
-                    </DialogClose>
-            </DialogContent>
-        </Dialog>
-      )}
     </>
   );
 }

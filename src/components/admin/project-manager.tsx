@@ -260,7 +260,6 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
     const [files, setFiles] = useState<ProjectFile[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const { toast } = useToast();
-    const [viewingFile, setViewingFile] = useState<ProjectFile | null>(null);
     const [isGalleryOpen, setIsGalleryOpen] = useState(false);
 
     const imageFiles = useMemo(() => files.filter(f => f.type?.startsWith('image/')), [files]);
@@ -303,21 +302,15 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     };
     
-    const getFileViewUrl = (file: ProjectFile): string => {
-        const officeExtensions = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
-        const fileExtension = file.name.split('.').pop()?.toLowerCase();
-
-        if (fileExtension && officeExtensions.includes(fileExtension)) {
-            return `https://docs.google.com/gview?url=${encodeURIComponent(file.url)}&embedded=true`;
-        }
-        return file.url;
-    };
-    
     const handleFileClick = (file: ProjectFile) => {
         if (file.type?.startsWith('image/')) {
-            setViewingFile(file);
+            window.open(file.url, '_blank', 'noopener,noreferrer');
         } else {
-            const url = getFileViewUrl(file);
+            const officeExtensions = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
+            const fileExtension = file.name.split('.').pop()?.toLowerCase();
+            const url = (fileExtension && officeExtensions.includes(fileExtension)) 
+                ? `https://docs.google.com/gview?url=${encodeURIComponent(file.url)}&embedded=true` 
+                : file.url;
             window.open(url, '_blank', 'noopener,noreferrer');
         }
     };
@@ -412,64 +405,42 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                 </div>
             </DialogContent>
         </Dialog>
-        {viewingFile && (
-                <Dialog open={!!viewingFile} onOpenChange={() => setViewingFile(null)}>
-                    <DialogContent 
-                        showCloseButton={false}
-                        className="w-screen h-screen max-w-full max-h-full p-0 bg-black/80 border-none shadow-none flex items-center justify-center"
-                    >
-                         <div className="relative w-full h-full">
-                            <Image
-                                src={`/api/file?path=${encodeURIComponent(viewingFile.fullPath)}`}
-                                alt={viewingFile.name}
-                                fill
-                                className="object-contain"
-                            />
-                         </div>
-                         <DialogClose asChild>
-                            <Button variant="ghost" size="icon" className="absolute top-4 right-4 h-12 w-12 rounded-full bg-black/50 text-white hover:bg-black/75 hover:text-white">
-                                <X className="h-8 w-8" />
-                            </Button>
-                         </DialogClose>
-                    </DialogContent>
-                </Dialog>
-            )}
-
-            <Dialog open={isGalleryOpen} onOpenChange={setIsGalleryOpen}>
-                <DialogContent className="max-w-6xl">
-                    <DialogHeader>
-                        <DialogTitle>Photos for: {project.address}</DialogTitle>
-                        <DialogDescription>{imageFiles.length} photo(s) found for this project.</DialogDescription>
-                    </DialogHeader>
-                    <Carousel className="w-full">
-                        <CarouselContent>
-                            {imageFiles.map((photo) => (
-                                <CarouselItem key={photo.id}>
-                                    <div className="p-1">
-                                        <Card>
-                                            <CardContent className="flex aspect-video items-center justify-center p-0 relative overflow-hidden rounded-lg">
-                                                <Image
-                                                    src={`/api/file?path=${encodeURIComponent(photo.fullPath)}`}
-                                                    alt={photo.name}
-                                                    fill
-                                                    className="object-contain"
-                                                />
-                                            </CardContent>
-                                             <CardFooter className="flex-col items-start text-sm text-muted-foreground p-3">
-                                                <p><strong>File:</strong> {photo.name}</p>
-                                                <p><strong>Uploaded by:</strong> {photo.uploaderName}</p>
-                                                <p><strong>Date:</strong> {photo.uploadedAt ? format(photo.uploadedAt.toDate(), 'PPP p') : 'N/A'}</p>
-                                            </CardFooter>
-                                        </Card>
-                                    </div>
-                                </CarouselItem>
-                            ))}
-                        </CarouselContent>
-                        <CarouselPrevious />
-                        <CarouselNext />
-                    </Carousel>
-                </DialogContent>
-            </Dialog>
+        
+        <Dialog open={isGalleryOpen} onOpenChange={setIsGalleryOpen}>
+            <DialogContent className="max-w-6xl">
+                <DialogHeader>
+                    <DialogTitle>Photos for: {project.address}</DialogTitle>
+                    <DialogDescription>{imageFiles.length} photo(s) found for this project.</DialogDescription>
+                </DialogHeader>
+                <Carousel className="w-full">
+                    <CarouselContent>
+                        {imageFiles.map((photo) => (
+                            <CarouselItem key={photo.id}>
+                                <div className="p-1">
+                                    <Card className="cursor-pointer" onClick={() => window.open(photo.url, '_blank', 'noopener,noreferrer')}>
+                                        <CardContent className="flex aspect-video items-center justify-center p-0 relative rounded-lg overflow-hidden">
+                                            <Image
+                                                src={`/api/file?path=${encodeURIComponent(photo.fullPath)}`}
+                                                alt={photo.name}
+                                                fill
+                                                className="object-contain"
+                                            />
+                                        </CardContent>
+                                            <CardFooter className="flex-col items-start text-sm text-muted-foreground p-3">
+                                            <p><strong>File:</strong> {photo.name}</p>
+                                            <p><strong>Uploaded by:</strong> {photo.uploaderName}</p>
+                                            <p><strong>Date:</strong> {photo.uploadedAt ? format(photo.uploadedAt.toDate(), 'PPP p') : 'N/A'}</p>
+                                        </CardFooter>
+                                    </Card>
+                                </div>
+                            </CarouselItem>
+                        ))}
+                    </CarouselContent>
+                    <CarouselPrevious />
+                    <CarouselNext />
+                </Carousel>
+            </DialogContent>
+        </Dialog>
         </>
     );
 }
@@ -822,5 +793,6 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
     
 
     
+
 
 

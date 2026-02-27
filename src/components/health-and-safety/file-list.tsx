@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -18,7 +19,7 @@ import { Dialog, DialogHeader, DialogTitle, DialogContent, DialogDescription, Di
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/shared/spinner';
 import { FileUploader } from './file-uploader';
-import { downloadFile, previewFile } from '@/file-proxy';
+import { downloadFile } from '@/file-proxy';
 import Image from 'next/image';
 import { Separator } from '../ui/separator';
 
@@ -105,11 +106,7 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
   };
   
   const handleFileClick = (file: HealthAndSafetyFile) => {
-    if (file.type?.startsWith('image/')) {
-        setViewingFile(file);
-    } else {
-        previewFile(file.fullPath);
-    }
+    window.open(file.url, '_blank', 'noopener,noreferrer');
   };
 
   const handleCreateFolder = () => {
@@ -316,7 +313,7 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
                                     <AlertDialogTrigger asChild><Button size="sm" variant="destructive"><FolderX className="mr-2 h-4 w-4" />Delete</Button></AlertDialogTrigger>
                                     <AlertDialogContent>
                                         <AlertDialogHeader><AlertDialogTitle>Delete Folder?</AlertDialogTitle><AlertDialogDescription>This will permanently delete the folder "{folderName}" and all files contained within it. This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
-                                        <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteFolder(folderName)} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground" disabled={deletingFolder === folderName}>
+                                        <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteFolder(folderNameToDelete)} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground" disabled={deletingFolder === folderName}>
                                             {deletingFolder === folderName ? <Spinner /> : 'Delete Folder'}
                                         </AlertDialogAction></AlertDialogFooter>
                                     </AlertDialogContent>
@@ -344,30 +341,6 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
         <div className="py-4"><Input placeholder="New folder name..." defaultValue={renamingFolder || ''} onChange={(e) => setNewRenamedFolder(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleRenameFolder()} /></div>
         <DialogFooter><Button onClick={handleRenameFolder}>Rename</Button></DialogFooter></DialogContent>
      </Dialog>
-
-    {/* Image Viewer Dialog */}
-    {viewingFile && (
-        <Dialog open={!!viewingFile} onOpenChange={() => setViewingFile(null)}>
-            <DialogContent 
-                showCloseButton={false}
-                className="w-screen h-screen max-w-full max-h-full p-0 bg-black/80 border-none shadow-none flex items-center justify-center"
-            >
-                    <div className="relative w-full h-full">
-                    <Image
-                        src={`/api/file?path=${encodeURIComponent(viewingFile.fullPath)}`}
-                        alt={viewingFile.name}
-                        fill
-                        className="object-contain"
-                    />
-                    </div>
-                    <DialogClose asChild>
-                    <Button variant="ghost" size="icon" className="absolute top-4 right-4 h-12 w-12 rounded-full bg-black/50 text-white hover:bg-black/75 hover:text-white">
-                        <X className="h-8 w-8" />
-                    </Button>
-                    </DialogClose>
-            </DialogContent>
-        </Dialog>
-      )}
     </>
   );
 }

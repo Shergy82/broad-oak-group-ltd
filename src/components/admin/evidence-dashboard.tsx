@@ -263,7 +263,6 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
     const { userProfile } = useUserProfile();
     const { toast } = useToast();
     const [isGalleryOpen, setIsGalleryOpen] = useState(false);
-    const [enlargedPhoto, setEnlargedPhoto] = useState<ProjectFile | null>(null);
 
     const [isCameraOpen, setIsCameraOpen] = useState(false);
     const [selectedCameraItem, setSelectedCameraItem] = useState<{ text: string, count: number } | null>(null);
@@ -520,8 +519,8 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                                 {imageFiles.map((photo) => (
                                     <CarouselItem key={photo.id}>
                                         <div className="p-1">
-                                            <Card>
-                                                <CardContent className="flex aspect-video items-center justify-center p-0 relative overflow-hidden rounded-lg">
+                                            <Card className="cursor-pointer" onClick={() => window.open(photo.url, '_blank', 'noopener,noreferrer')}>
+                                                <CardContent className="flex aspect-video items-center justify-center p-0 relative rounded-lg overflow-hidden">
                                                     <Image
                                                         src={`/api/file?path=${encodeURIComponent(photo.fullPath)}`}
                                                         alt={photo.name}
