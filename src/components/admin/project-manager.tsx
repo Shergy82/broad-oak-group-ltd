@@ -66,7 +66,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import jsPDF from 'jspdf';
 import Image from 'next/image';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
-import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '@/components/ui/carousel';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 
 const projectSchema = z.object({
@@ -413,33 +413,27 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                     <DialogTitle>Photos for: {project.address}</DialogTitle>
                     <DialogDescription>{imageFiles.length} photo(s) found for this project.</DialogDescription>
                 </DialogHeader>
-                <Carousel className="w-full">
-                    <CarouselContent>
-                        {imageFiles.map((photo) => (
-                            <CarouselItem key={photo.id}>
-                                <div className="p-1">
-                                    <Card className="cursor-pointer overflow-hidden" onClick={() => setViewingFile(photo)}>
-                                        <div className="h-96 relative">
-                                            <Image
-                                                src={`/api/file?path=${encodeURIComponent(photo.fullPath)}`}
-                                                alt={photo.name}
-                                                fill
-                                                className="object-contain"
-                                            />
-                                        </div>
-                                        <CardFooter className="flex-col items-start text-sm text-muted-foreground p-3 border-t">
-                                            <p><strong>File:</strong> {photo.name}</p>
-                                            <p><strong>Uploaded by:</strong> {photo.uploaderName}</p>
-                                            <p><strong>Date:</strong> {photo.uploadedAt ? format(photo.uploadedAt.toDate(), 'PPP p') : 'N/A'}</p>
-                                        </CardFooter>
-                                    </Card>
+                {imageFiles.length > 0 ? (
+                    <ScrollArea className="h-[70vh] rounded-md border p-4">
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                            {imageFiles.map((photo) => (
+                                <div key={photo.id} className="relative aspect-square group cursor-pointer rounded-md overflow-hidden" onClick={() => setViewingFile(photo)}>
+                                    <Image
+                                        src={`/api/file?path=${encodeURIComponent(photo.fullPath)}`}
+                                        alt={photo.name}
+                                        fill
+                                        className="object-cover transition-transform group-hover:scale-105"
+                                    />
+                                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-2">
+                                        <span className="text-white text-xs text-left line-clamp-2">{photo.name}</span>
+                                    </div>
                                 </div>
-                            </CarouselItem>
-                        ))}
-                    </CarouselContent>
-                    <CarouselPrevious />
-                    <CarouselNext />
-                </Carousel>
+                            ))}
+                        </div>
+                    </ScrollArea>
+                ) : (
+                    <p className="text-center text-muted-foreground py-10">No photos to display.</p>
+                )}
             </DialogContent>
         </Dialog>
         <Dialog open={!!viewingFile} onOpenChange={() => setViewingFile(null)}>
@@ -810,6 +804,7 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
     
 
     
+
 
 
 

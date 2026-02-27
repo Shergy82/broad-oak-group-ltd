@@ -20,10 +20,10 @@ import { useToast } from '@/hooks/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { format, differenceInDays, differenceInHours, differenceInMinutes } from 'date-fns';
 import { Dialog, DialogDescription, DialogHeader, DialogTitle, DialogContent, DialogClose } from '@/components/ui/dialog';
-import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from '@/components/ui/carousel';
-import Image from 'next/image';
 import { MultiPhotoCamera } from '@/components/shared/multi-photo-camera';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
+import Image from 'next/image';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 const isMatch = (checklistText: string, fileTag: string | undefined): boolean => {
     if (!fileTag || !checklistText) return false;
@@ -514,34 +514,24 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                         <DialogTitle>Photos for: {project.address}</DialogTitle>
                         <DialogDescription>{imageFiles.length} photo(s) found for this project.</DialogDescription>
                     </DialogHeader>
-                    {imageFiles.length > 0 ? (
-                        <Carousel className="w-full">
-                            <CarouselContent>
+                     {imageFiles.length > 0 ? (
+                        <ScrollArea className="h-[70vh] rounded-md border p-4">
+                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                                 {imageFiles.map((photo) => (
-                                    <CarouselItem key={photo.id}>
-                                        <div className="p-1">
-                                            <Card className="cursor-pointer overflow-hidden" onClick={() => setViewingFile(photo)}>
-                                                <div className="h-96 relative">
-                                                    <Image
-                                                        src={`/api/file?path=${encodeURIComponent(photo.fullPath)}`}
-                                                        alt={photo.name}
-                                                        fill
-                                                        className="object-contain"
-                                                    />
-                                                </div>
-                                                 <CardFooter className="flex-col items-start text-sm text-muted-foreground p-3 border-t">
-                                                    <p><strong>File:</strong> {photo.name}</p>
-                                                    <p><strong>Uploaded by:</strong> {photo.uploaderName}</p>
-                                                    <p><strong>Date:</strong> {photo.uploadedAt ? format(photo.uploadedAt.toDate(), 'PPP p') : 'N/A'}</p>
-                                                </CardFooter>
-                                            </Card>
+                                    <div key={photo.id} className="relative aspect-square group cursor-pointer rounded-md overflow-hidden" onClick={() => setViewingFile(photo)}>
+                                        <Image
+                                            src={`/api/file?path=${encodeURIComponent(photo.fullPath)}`}
+                                            alt={photo.name}
+                                            fill
+                                            className="object-cover transition-transform group-hover:scale-105"
+                                        />
+                                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-2">
+                                            <span className="text-white text-xs text-left line-clamp-2">{photo.name}</span>
                                         </div>
-                                    </CarouselItem>
+                                    </div>
                                 ))}
-                            </CarouselContent>
-                            <CarouselPrevious />
-                            <CarouselNext />
-                        </Carousel>
+                            </div>
+                        </ScrollArea>
                     ) : (
                         <p className="text-center text-muted-foreground py-10">No photos to display.</p>
                     )}
