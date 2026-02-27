@@ -104,6 +104,7 @@ import { useAllUsers } from '@/hooks/use-all-users';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { cn } from '@/lib/utils';
 
 const getStatusBadge = (shift: Shift) => {
   const baseProps = { className: 'capitalize' };
@@ -815,8 +816,11 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                                         </TableCell>
                                         <TableCell className="text-right">
                                             <Badge
-                                                variant={shift.type === 'am' ? 'default' : shift.type === 'pm' ? 'secondary' : 'outline'}
-                                                className="capitalize text-xs"
+                                                variant={shift.type === 'am' ? 'default' : 'outline'}
+                                                className={cn(
+                                                    "capitalize text-xs",
+                                                    shift.type === 'pm' && "bg-purple-500 hover:bg-purple-500/90 text-white border-transparent"
+                                                )}
                                             >
                                                 {shift.type === 'all-day' ? 'All Day' : shift.type.toUpperCase()}
                                             </Badge>
@@ -872,7 +876,13 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                                     <CardTitle className="text-base">{shift.task}</CardTitle>
                                     <CardDescription>{shift.address}</CardDescription>
                                 </div>
-                                <Badge variant={shift.type === 'am' ? 'default' : shift.type === 'pm' ? 'secondary' : 'outline'} className="capitalize text-xs whitespace-nowrap">
+                                <Badge
+                                    variant={shift.type === 'am' ? 'default' : 'outline'}
+                                    className={cn(
+                                        "capitalize text-xs whitespace-nowrap",
+                                        shift.type === 'pm' && "bg-purple-500 hover:bg-purple-500/90 text-white border-transparent"
+                                    )}
+                                >
                                     {shift.type === 'all-day' ? 'All Day' : shift.type.toUpperCase()}
                                 </Badge>
                             </div>
@@ -1288,5 +1298,6 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     
 
     
+
 
 

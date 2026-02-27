@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -251,7 +252,7 @@ type TaskStatus =
 
 const shiftTypeDetails = {
   am: { icon: Sunrise, label: 'AM Shift', color: 'bg-sky-500' },
-  pm: { icon: Sunset, label: 'PM Shift', color: 'bg-orange-500' },
+  pm: { icon: Sunset, label: 'PM Shift', color: 'bg-purple-500' },
   'all-day': { icon: Clock, label: 'All Day', color: 'bg-indigo-500' },
 };
 
