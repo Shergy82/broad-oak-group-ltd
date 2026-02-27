@@ -521,7 +521,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                                     <CarouselItem key={photo.id}>
                                         <div className="p-1">
                                             <Card className="cursor-pointer" onClick={() => setViewingFile(photo)}>
-                                                <CardContent className="flex h-96 items-center justify-center p-0 relative rounded-lg overflow-hidden">
+                                                <CardContent className="h-96 p-0 relative rounded-lg overflow-hidden">
                                                     <Image
                                                         src={`/api/file?path=${encodeURIComponent(photo.fullPath)}`}
                                                         alt={photo.name}
