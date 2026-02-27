@@ -902,6 +902,7 @@ export function EvidenceDashboard() {
             contractName={editingChecklist}
             open={!!editingChecklist}
             onOpenChange={(open) => !open && setEditingChecklist(null)}
+            allChecklists={evidenceChecklists}
         />
        )}
     </>
