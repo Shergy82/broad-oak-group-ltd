@@ -162,7 +162,10 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
   };
 
   const handleCopyItems = async () => {
-    if (!sourceContractForCopy || !allChecklists || !contractName) return;
+    if (!sourceContractForCopy || !allChecklists) return;
+    
+    const isProjectMode = !!projectId;
+
     const sourceChecklist = allChecklists.get(sourceContractForCopy);
     if (!sourceChecklist || !sourceChecklist.items) {
         toast({ variant: 'destructive', title: 'Error', description: 'Source contract has no items.' });
@@ -189,12 +192,21 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
     
     const newItemsWithIds = uniqueNewItems.map(item => ({ ...item, id: `${Date.now()}-${Math.random()}` }));
 
-    const docRef = doc(db, 'evidence_checklists', contractName);
+    const docRef = isProjectMode
+        ? doc(db, 'projects', projectId)
+        : doc(db, 'evidence_checklists', contractName!);
+
     try {
-        await setDoc(docRef, { 
-            contractName: contractName,
-            items: arrayUnion(...newItemsWithIds)
-        }, { merge: true });
+        if (isProjectMode) {
+            const updatedChecklist = [...items, ...newItemsWithIds];
+            await setDoc(docRef, { checklist: updatedChecklist }, { merge: true });
+        } else {
+            if (!contractName) return;
+            await setDoc(docRef, { 
+                contractName: contractName,
+                items: arrayUnion(...newItemsWithIds)
+            }, { merge: true });
+        }
 
         toast({ title: 'Success', description: `${newItemsWithIds.length} item(s) copied.` });
         setCopyDialogOpen(false);
@@ -245,13 +257,27 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
             <Button onClick={handleAddItem} className="w-full sm:w-auto">
               <PlusCircle className="mr-2 h-4 w-4" /> Add
             </Button>
-            {!projectId && allChecklists && (
+            {(!projectId && allChecklists) && (
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <Button variant="outline"><Copy className="mr-2 h-4 w-4" /> Copy...</Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent>
                         {Array.from(allChecklists.keys()).filter(name => name !== contractName && allChecklists.get(name)?.items?.length).map(name => (
+                            <DropdownMenuItem key={name} onSelect={() => handleSelectSourceContract(name)}>
+                                From "{name}"
+                            </DropdownMenuItem>
+                        ))}
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            )}
+             {(projectId && allChecklists) && (
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="outline"><Copy className="mr-2 h-4 w-4" /> Copy from Contract</Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                        {Array.from(allChecklists.keys()).filter(name => allChecklists.get(name)?.items?.length).map(name => (
                             <DropdownMenuItem key={name} onSelect={() => handleSelectSourceContract(name)}>
                                 From "{name}"
                             </DropdownMenuItem>
@@ -292,7 +318,7 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
             <DialogContent>
                 <DialogHeader>
                     <DialogTitle>Copy items from "{sourceContractForCopy}"</DialogTitle>
-                    <DialogDescription>Select the items to copy into "{contractName}". Existing items will be skipped.</DialogDescription>
+                    <DialogDescription>Select the items to copy. Existing items will be skipped.</DialogDescription>
                 </DialogHeader>
 
                 {(() => {

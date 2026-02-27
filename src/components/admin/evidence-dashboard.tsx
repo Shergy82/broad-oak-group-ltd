@@ -9,7 +9,7 @@ import { db, storage } from '@/lib/firebase';
 import type { Project, EvidenceChecklist, ProjectFile, UserProfile, EvidenceChecklistItem } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Building2, Search, Pencil, CheckCircle, XCircle, Download, Trash2, RotateCw, Camera, X, Undo2, ImageIcon } from 'lucide-react';
+import { Building2, Search, Pencil, CheckCircle, XCircle, Download, Trash2, RotateCw, Camera, X, Undo2, ImageIcon, Eye, EyeOff } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { EvidenceChecklistManager } from '@/components/admin/evidence-checklist-manager';
@@ -593,6 +593,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                 onOpenChange={setChecklistEditorOpen}
                 projectId={project.id}
                 contractChecklist={checklist?.items}
+                allChecklists={new Map()}
             />
 
             <Dialog open={!!viewingFile} onOpenChange={() => setViewingFile(null)}>
@@ -633,6 +634,9 @@ export function EvidenceDashboard() {
   const LOCAL_STORAGE_KEY_REMOVED = 'evidence_removed_projects_v1';
   const [removedProjectIds, setRemovedProjectIds] = useState<string[]>([]);
 
+  const [hiddenContracts, setHiddenContracts] = useState<Set<string>>(new Set());
+  const LS_HIDDEN_CONTRACTS_KEY = 'evidence_dashboard_hidden_contracts_v1';
+
   useEffect(() => {
     try {
         const storedGenerated = localStorage.getItem(LOCAL_STORAGE_KEY_GENERATED);
@@ -642,6 +646,10 @@ export function EvidenceDashboard() {
         const storedRemoved = localStorage.getItem(LOCAL_STORAGE_KEY_REMOVED);
         if (storedRemoved) {
             setRemovedProjectIds(JSON.parse(storedRemoved));
+        }
+        const storedHidden = localStorage.getItem(LS_HIDDEN_CONTRACTS_KEY);
+        if (storedHidden) {
+            setHiddenContracts(new Set(JSON.parse(storedHidden)));
         }
     } catch (e) {
         console.error("Failed to load project lists from local storage", e);
@@ -696,6 +704,26 @@ export function EvidenceDashboard() {
     }
   };
 
+  const toggleContractVisibility = (contractName: string) => {
+    setHiddenContracts(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(contractName)) {
+            newSet.delete(contractName);
+        } else {
+            newSet.add(contractName);
+        }
+        try {
+            localStorage.setItem(LS_HIDDEN_CONTRACTS_KEY, JSON.stringify(Array.from(newSet)));
+        } catch (e) {
+            console.error("Failed to save hidden contracts to local storage", e);
+        }
+        return newSet;
+    });
+  };
+
+  const hiddenContractsList = useMemo(() => {
+      return Array.from(hiddenContracts).sort();
+  }, [hiddenContracts]);
 
   useEffect(() => {
     setLoading(true);
@@ -854,6 +882,20 @@ export function EvidenceDashboard() {
               />
           </div>
       </div>
+      
+       {hiddenContractsList.length > 0 && (
+          <div className="mt-4 p-4 border rounded-lg bg-muted/30">
+              <h3 className="font-semibold text-sm mb-2">Hidden Contracts</h3>
+              <div className="flex flex-wrap gap-2">
+                  {hiddenContractsList.map(name => (
+                      <Button key={name} size="sm" variant="secondary" onClick={() => toggleContractVisibility(name)}>
+                          {name} <Eye className="ml-2 h-4 w-4" />
+                      </Button>
+                  ))}
+              </div>
+          </div>
+      )}
+
       <div className="space-y-8 mt-4">
           {loading ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
@@ -872,27 +914,32 @@ export function EvidenceDashboard() {
           ) : (
             groupedProjects.map(([contractName, projectGroup]) => (
               <div key={contractName}>
-                <div className="flex items-center gap-2 mb-4">
+                <div className="flex items-center gap-0.5 mb-4">
                     <h2 className="text-xl font-semibold capitalize">{contractName}</h2>
-                    <Button variant="ghost" size="icon" onClick={() => setEditingChecklist(contractName)}>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditingChecklist(contractName)}>
                         <Pencil className="h-4 w-4 text-muted-foreground" />
                     </Button>
+                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toggleContractVisibility(contractName)}>
+                        {hiddenContracts.has(contractName) ? <EyeOff className="h-4 w-4 text-muted-foreground" /> : <Eye className="h-4 w-4 text-muted-foreground" />}
+                    </Button>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                  {projectGroup.map(project => (
-                    <ProjectEvidenceCard 
-                        key={project.id}
-                        project={project}
-                        checklist={evidenceChecklists.get(project.contract || '')}
-                        files={filesByProject.get(project.id) || []}
-                        loadingFiles={loading}
-                        generatedPdfProjects={generatedPdfProjects}
-                        onMarkAsComplete={handleMarkAsComplete}
-                        onResetStatus={onResetStatus}
-                        onScheduleForDeletion={handleScheduleForDeletion}
-                    />
-                  ))}
-                </div>
+                {!hiddenContracts.has(contractName) && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                    {projectGroup.map(project => (
+                      <ProjectEvidenceCard 
+                          key={project.id}
+                          project={project}
+                          checklist={evidenceChecklists.get(project.contract || '')}
+                          files={filesByProject.get(project.id) || []}
+                          loadingFiles={loading}
+                          generatedPdfProjects={generatedPdfProjects}
+                          onMarkAsComplete={handleMarkAsComplete}
+                          onResetStatus={onResetStatus}
+                          onScheduleForDeletion={handleScheduleForDeletion}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             ))
           )}
