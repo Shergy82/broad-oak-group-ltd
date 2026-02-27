@@ -9,7 +9,7 @@ import { db, storage } from '@/lib/firebase';
 import type { Project, EvidenceChecklist, ProjectFile, UserProfile, EvidenceChecklistItem } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Building2, Search, Pencil, CheckCircle, XCircle, Download, Trash2, RotateCw, Camera, X, Undo2 } from 'lucide-react';
+import { Building2, Search, Pencil, CheckCircle, XCircle, Download, Trash2, RotateCw, Camera, X, Undo2, ImageIcon } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { EvidenceChecklistManager } from '@/components/admin/evidence-checklist-manager';
@@ -262,13 +262,14 @@ interface ProjectEvidenceCardProps {
 function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generatedPdfProjects, onPdfGenerated, onResetStatus, onScheduleForDeletion }: ProjectEvidenceCardProps) {
     const { userProfile } = useUserProfile();
     const { toast } = useToast();
-    const [viewerOpen, setViewerOpen] = useState(false);
-    const [selectedItem, setSelectedItem] = useState<{ text: string; photos: ProjectFile[] } | null>(null);
+    const [isGalleryOpen, setIsGalleryOpen] = useState(false);
     const [enlargedPhoto, setEnlargedPhoto] = useState<ProjectFile | null>(null);
 
     const [isCameraOpen, setIsCameraOpen] = useState(false);
     const [selectedCameraItem, setSelectedCameraItem] = useState<{ text: string, count: number } | null>(null);
     const [isChecklistEditorOpen, setChecklistEditorOpen] = useState(false);
+
+    const imageFiles = useMemo(() => files.filter(f => f.type?.startsWith('image/')), [files]);
 
     const activeChecklistItems = useMemo(() => {
         return project.checklist ?? checklist?.items ?? [];
@@ -333,13 +334,6 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
             };
         });
     }, [files, activeChecklistItems]);
-
-    const handleViewPhotos = (itemText: string, photos: ProjectFile[]) => {
-        if (photos.length > 0) {
-            setSelectedItem({ text: itemText, photos });
-            setViewerOpen(true);
-        }
-    };
 
     const handleTakePhoto = (itemText: string, requiredCount: number) => {
         setSelectedCameraItem({ text: itemText, count: requiredCount });
@@ -425,23 +419,20 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                             {evidenceStatus.length > 0 ? (
                                 <div className="space-y-1">
                                     {evidenceStatus.map(item => (
-                                        <div key={item.text} className={cn("flex items-center gap-2 text-xs", item.isComplete ? cn(textColorClass, "opacity-70") : cn("font-semibold", textColorClass))}>
-                                            {item.isComplete ?
-                                                <button onClick={() => handleViewPhotos(item.text, item.photos)} className="flex items-center gap-2 text-left w-full hover:underline">
+                                        <div key={item.text} className={cn("flex items-center justify-between gap-2 text-xs", item.isComplete ? cn(textColorClass, "opacity-70") : cn("font-semibold", textColorClass))}>
+                                            <div className="flex items-center gap-2">
+                                                {item.isComplete ? (
                                                     <CheckCircle className="h-3 w-3 opacity-90 shrink-0" />
-                                                    <span className="truncate">{item.text} ({item.displayCount}/{item.photoCount})</span>
-                                                </button>
-                                                :
-                                                <div className="flex items-center justify-between gap-2 text-left w-full">
-                                                  <div className="flex items-center gap-2">
+                                                ) : (
                                                     <XCircle className="h-3 w-3 shrink-0" />
-                                                    <span className="truncate">{item.text} ({item.displayCount}/{item.photoCount})</span>
-                                                  </div>
-                                                  <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0 text-white" onClick={() => handleTakePhoto(item.text, item.photoCount)}>
-                                                      <Camera className="h-4 w-4" />
-                                                  </Button>
-                                                </div>
-                                            }
+                                                )}
+                                                <span className="truncate">{item.text} ({item.displayCount}/{item.photoCount})</span>
+                                            </div>
+                                            {!item.isComplete && item.photoCount > 0 && (
+                                                <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0 text-white" onClick={() => handleTakePhoto(item.text, item.photoCount)}>
+                                                    <Camera className="h-4 w-4" />
+                                                </Button>
+                                            )}
                                         </div>
                                     ))}
                                 </div>
@@ -454,19 +445,27 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                         </div>
                     )}
                 </CardContent>
-                <CardFooter className="p-2 border-t mt-auto grid gap-2">
-                     <div className="space-y-2">
+                <CardFooter className="p-2 border-t mt-auto">
+                    <div className="grid grid-cols-3 gap-2 w-full">
+                        <Button variant="secondary" size="sm" className="text-xs px-1 py-1 h-14 w-full flex-col justify-center" onClick={() => setIsGalleryOpen(true)} disabled={imageFiles.length === 0}>
+                            <ImageIcon className="h-4 w-4"/>
+                            <span>View Photos</span>
+                        </Button>
+                        
+                        {evidenceState === 'incomplete' && <div className="col-span-2" />}
+
                         {evidenceState === 'ready' && (
-                            <div className="grid grid-cols-2 gap-2">
+                            <>
                                 <EvidenceReportGenerator project={project} files={files} onGenerated={() => onPdfGenerated(project.id)} userProfile={userProfile} />
                                 <Button variant="secondary" size="sm" className="text-xs px-1 py-1 h-14 w-full flex-col justify-center" onClick={() => onPdfGenerated(project.id)}>
                                     <CheckCircle className="h-4 w-4" />
                                     <span>Mark Complete</span>
                                 </Button>
-                            </div>
+                            </>
                         )}
+                        
                         {evidenceState === 'generated' && (
-                            <div className="grid grid-cols-2 gap-2">
+                            <>
                                 <Button variant="secondary" size="sm" className="text-xs px-1 py-1 h-14 w-full flex-col justify-center" onClick={() => onResetStatus(project.id)}>
                                     <RotateCw className="h-4 w-4" />
                                     <span>More Evidence</span>
@@ -493,7 +492,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                                         </AlertDialogFooter>
                                     </AlertDialogContent>
                                 </AlertDialog>
-                            </div>
+                            </>
                         )}
                     </div>
                 </CardFooter>
@@ -509,33 +508,25 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                 />
             )}
 
-            {selectedItem && (
-                <Dialog open={viewerOpen} onOpenChange={setViewerOpen}>
-                    <DialogContent className="max-w-4xl">
-                        <DialogHeader>
-                            <DialogTitle>Photos for: {selectedItem.text}</DialogTitle>
-                            <DialogDescription>
-                                {selectedItem.photos.length} photo(s) found for this evidence item on project: {project.address}.
-                            </DialogDescription>
-                        </DialogHeader>
+            <Dialog open={isGalleryOpen} onOpenChange={setIsGalleryOpen}>
+                <DialogContent className="max-w-6xl">
+                    <DialogHeader>
+                        <DialogTitle>Photos for: {project.address}</DialogTitle>
+                        <DialogDescription>{imageFiles.length} photo(s) found for this project.</DialogDescription>
+                    </DialogHeader>
+                    {imageFiles.length > 0 ? (
                         <Carousel className="w-full">
                             <CarouselContent>
-                                {selectedItem.photos.map((photo) => (
+                                {imageFiles.map((photo) => (
                                     <CarouselItem key={photo.id}>
                                         <div className="p-1">
                                             <Card>
-                                                <CardContent 
-                                                    className="flex aspect-video items-center justify-center p-0 relative overflow-hidden rounded-lg cursor-pointer group"
-                                                    onClick={() => {
-                                                        setViewerOpen(false);
-                                                        setEnlargedPhoto(photo);
-                                                    }}
-                                                >
+                                                <CardContent className="flex aspect-video items-center justify-center p-0 relative overflow-hidden rounded-lg">
                                                     <Image
                                                         src={`/api/file?path=${encodeURIComponent(photo.fullPath)}`}
                                                         alt={photo.name}
                                                         fill
-                                                        className="object-contain transition-transform duration-300 group-hover:scale-105"
+                                                        className="object-contain"
                                                     />
                                                 </CardContent>
                                                  <CardFooter className="flex-col items-start text-sm text-muted-foreground p-3">
@@ -551,32 +542,11 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                             <CarouselPrevious />
                             <CarouselNext />
                         </Carousel>
-                    </DialogContent>
-                </Dialog>
-            )}
-
-            {enlargedPhoto && (
-                <Dialog open={!!enlargedPhoto} onOpenChange={() => setEnlargedPhoto(null)}>
-                    <DialogContent 
-                        showCloseButton={false}
-                        className="w-screen h-screen max-w-full max-h-full p-0 bg-black/80 border-none shadow-none flex items-center justify-center"
-                    >
-                         <div className="relative w-full h-full">
-                            <Image
-                                src={`/api/file?path=${encodeURIComponent(enlargedPhoto.fullPath)}`}
-                                alt={enlargedPhoto.name}
-                                fill
-                                className="object-contain"
-                            />
-                         </div>
-                         <DialogClose asChild>
-                            <Button variant="ghost" size="icon" className="absolute top-4 right-4 h-12 w-12 rounded-full bg-black/50 text-white hover:bg-black/75 hover:text-white">
-                                <X className="h-8 w-8" />
-                            </Button>
-                         </DialogClose>
-                    </DialogContent>
-                </Dialog>
-            )}
+                    ) : (
+                        <p className="text-center text-muted-foreground py-10">No photos to display.</p>
+                    )}
+                </DialogContent>
+            </Dialog>
             
             <EvidenceChecklistManager
                 open={isChecklistEditorOpen}
