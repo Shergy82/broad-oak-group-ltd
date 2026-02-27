@@ -181,7 +181,7 @@ function EvidenceReportGenerator({ project, files, onGenerated, userProfile }: E
 
           for (const photo of photosInGroup) {
               try {
-                  const imageUrl = `https://images.weserv.nl/?url=${encodeURIComponent(photo.url)}`;
+                  const imageUrl = `/api/file?path=${encodeURIComponent(photo.fullPath)}`;
                   const response = await fetch(imageUrl);
                   const blob = await response.blob();
                   const reader = new FileReader();
@@ -529,7 +529,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                                                     onClick={() => setEnlargedPhoto(photo)}
                                                 >
                                                     <NextImage
-                                                        src={`https://images.weserv.nl/?url=${encodeURIComponent(photo.url)}`}
+                                                        src={`/api/file?path=${encodeURIComponent(photo.fullPath)}`}
                                                         alt={photo.name}
                                                         fill
                                                         className="object-contain transition-transform duration-300 group-hover:scale-105"
@@ -560,7 +560,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                     >
                          <div className="relative w-full h-full">
                             <NextImage
-                                src={`https://images.weserv.nl/?url=${encodeURIComponent(enlargedPhoto.url)}`}
+                                src={`/api/file?path=${encodeURIComponent(enlargedPhoto.fullPath)}`}
                                 alt={enlargedPhoto.name}
                                 fill
                                 className="object-contain"
