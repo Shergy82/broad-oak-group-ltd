@@ -106,7 +106,11 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
   };
   
   const handleFileClick = (file: HealthAndSafetyFile) => {
-    window.open(file.url, '_blank', 'noopener,noreferrer');
+    if (file.type?.startsWith('image/')) {
+        setViewingFile(file);
+    } else {
+        window.open(file.url, '_blank', 'noopener,noreferrer');
+    }
   };
 
   const handleCreateFolder = () => {
@@ -341,6 +345,23 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
         <div className="py-4"><Input placeholder="New folder name..." defaultValue={renamingFolder || ''} onChange={(e) => setNewRenamedFolder(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleRenameFolder()} /></div>
         <DialogFooter><Button onClick={handleRenameFolder}>Rename</Button></DialogFooter></DialogContent>
      </Dialog>
+
+    <Dialog open={!!viewingFile} onOpenChange={() => setViewingFile(null)}>
+        <DialogContent className="max-w-[90vw] max-h-[90vh] h-auto w-auto flex items-center justify-center p-2 bg-transparent border-none shadow-none">
+            {viewingFile && (
+                <img
+                    src={viewingFile.url}
+                    alt={viewingFile.name}
+                    className="object-contain max-w-[90vw] max-h-[90vh] rounded-lg"
+                />
+            )}
+            <DialogClose asChild>
+                <Button variant="ghost" size="icon" className="absolute right-2 top-2 z-10 bg-black/50 text-white rounded-full h-8 w-8 hover:bg-black/70 hover:text-white">
+                    <X className="h-4 w-4" />
+                </Button>
+            </DialogClose>
+        </DialogContent>
+    </Dialog>
     </>
   );
 }

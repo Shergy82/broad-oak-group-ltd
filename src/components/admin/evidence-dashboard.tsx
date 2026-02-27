@@ -263,6 +263,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
     const { userProfile } = useUserProfile();
     const { toast } = useToast();
     const [isGalleryOpen, setIsGalleryOpen] = useState(false);
+    const [viewingFile, setViewingFile] = useState<ProjectFile | null>(null);
 
     const [isCameraOpen, setIsCameraOpen] = useState(false);
     const [selectedCameraItem, setSelectedCameraItem] = useState<{ text: string, count: number } | null>(null);
@@ -519,8 +520,8 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                                 {imageFiles.map((photo) => (
                                     <CarouselItem key={photo.id}>
                                         <div className="p-1">
-                                            <Card className="cursor-pointer" onClick={() => window.open(photo.url, '_blank', 'noopener,noreferrer')}>
-                                                <CardContent className="flex aspect-video items-center justify-center p-0 relative rounded-lg overflow-hidden">
+                                            <Card className="cursor-pointer" onClick={() => setViewingFile(photo)}>
+                                                <CardContent className="flex h-96 items-center justify-center p-0 relative rounded-lg overflow-hidden">
                                                     <Image
                                                         src={`/api/file?path=${encodeURIComponent(photo.fullPath)}`}
                                                         alt={photo.name}
@@ -553,6 +554,23 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, generate
                 projectId={project.id}
                 contractChecklist={checklist?.items}
             />
+
+            <Dialog open={!!viewingFile} onOpenChange={() => setViewingFile(null)}>
+                <DialogContent className="max-w-[90vw] max-h-[90vh] h-auto w-auto flex items-center justify-center p-2 bg-transparent border-none shadow-none">
+                    {viewingFile && (
+                        <img
+                            src={`/api/file?path=${encodeURIComponent(viewingFile.fullPath)}`}
+                            alt={viewingFile.name}
+                            className="object-contain max-w-[90vw] max-h-[90vh] rounded-lg"
+                        />
+                    )}
+                    <DialogClose asChild>
+                        <Button variant="ghost" size="icon" className="absolute right-2 top-2 z-10 bg-black/50 text-white rounded-full h-8 w-8 hover:bg-black/70 hover:text-white">
+                            <X className="h-4 w-4" />
+                        </Button>
+                    </DialogClose>
+                </DialogContent>
+            </Dialog>
         </>
     );
 }
