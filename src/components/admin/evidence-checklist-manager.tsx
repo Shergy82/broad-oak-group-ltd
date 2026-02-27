@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -161,7 +162,7 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
   };
 
   const handleCopyItems = async () => {
-    if (!sourceContractForCopy || !allChecklists) return;
+    if (!sourceContractForCopy || !allChecklists || !contractName) return;
     const sourceChecklist = allChecklists.get(sourceContractForCopy);
     if (!sourceChecklist || !sourceChecklist.items) {
         toast({ variant: 'destructive', title: 'Error', description: 'Source contract has no items.' });
@@ -188,9 +189,13 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
     
     const newItemsWithIds = uniqueNewItems.map(item => ({ ...item, id: `${Date.now()}-${Math.random()}` }));
 
-    const docRef = doc(db, 'evidence_checklists', contractName!);
+    const docRef = doc(db, 'evidence_checklists', contractName);
     try {
-        await updateDoc(docRef, { items: arrayUnion(...newItemsWithIds) });
+        await setDoc(docRef, { 
+            contractName: contractName,
+            items: arrayUnion(...newItemsWithIds)
+        }, { merge: true });
+
         toast({ title: 'Success', description: `${newItemsWithIds.length} item(s) copied.` });
         setCopyDialogOpen(false);
     } catch (e) {
@@ -289,16 +294,47 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
                     <DialogTitle>Copy items from "{sourceContractForCopy}"</DialogTitle>
                     <DialogDescription>Select the items to copy into "{contractName}". Existing items will be skipped.</DialogDescription>
                 </DialogHeader>
-                <ScrollArea className="max-h-64 border rounded-md my-4">
-                    <div className="p-4 space-y-2">
-                        {allChecklists?.get(sourceContractForCopy)?.items.map(item => (
-                            <div key={item.id} className="flex items-center space-x-2">
-                                <Checkbox id={`copy-${item.id}`} onCheckedChange={() => handleToggleCopyItem(item.id)} />
-                                <Label htmlFor={`copy-${item.id}`} className="font-normal">{item.text}</Label>
+
+                {(() => {
+                    const sourceItems = allChecklists?.get(sourceContractForCopy)?.items || [];
+                    const areAllSelected = sourceItems.length > 0 && itemsToCopy.size === sourceItems.length;
+
+                    const handleToggleAllCopyItems = () => {
+                        if (areAllSelected) {
+                            setItemsToCopy(new Set());
+                        } else {
+                            setItemsToCopy(new Set(sourceItems.map(item => item.id)));
+                        }
+                    };
+
+                    return (
+                        <>
+                            <div className="flex items-center space-x-2 border-b pb-2 mb-2">
+                                <Checkbox 
+                                    id="copy-all" 
+                                    checked={areAllSelected}
+                                    onCheckedChange={handleToggleAllCopyItems}
+                                />
+                                <Label htmlFor="copy-all" className="font-semibold">Select All</Label>
                             </div>
-                        ))}
-                    </div>
-                </ScrollArea>
+                            <ScrollArea className="max-h-64 border rounded-md my-4">
+                                <div className="p-4 space-y-2">
+                                    {sourceItems.map(item => (
+                                        <div key={item.id} className="flex items-center space-x-2">
+                                            <Checkbox 
+                                                id={`copy-${item.id}`}
+                                                checked={itemsToCopy.has(item.id)}
+                                                onCheckedChange={() => handleToggleCopyItem(item.id)}
+                                            />
+                                            <Label htmlFor={`copy-${item.id}`} className="font-normal">{item.text}</Label>
+                                        </div>
+                                    ))}
+                                </div>
+                            </ScrollArea>
+                        </>
+                    );
+                })()}
+
                 <DialogFooter>
                     <Button variant="outline" onClick={() => setCopyDialogOpen(false)}>Cancel</Button>
                     <Button onClick={handleCopyItems}>Copy {itemsToCopy.size} Selected</Button>
