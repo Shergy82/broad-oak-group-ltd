@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { collection, onSnapshot, query } from 'firebase/firestore';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Project } from '@/types';
 import { useAuth } from '@/hooks/use-auth';
@@ -32,22 +32,23 @@ export default function ProjectsPage() {
   }, [user, isAuthLoading, router]);
 
   useEffect(() => {
-    // The admin ProjectManager component fetches its own data.
-    // This effect should only run for regular users if they don't have a privileged role.
     if (isPrivilegedUser) {
       setLoading(false);
       return;
     }
+    if (!user || !userProfile) return;
 
     if (!db) {
       setProjects([]);
       setLoading(false);
       return;
     }
-    if (!user) return;
-
+    
+    // Non-privileged users should only see projects in their department
     const projectsCollection = collection(db, 'projects');
-    const q = query(projectsCollection);
+    const q = userProfile.department 
+        ? query(projectsCollection, where('department', '==', userProfile.department))
+        : query(projectsCollection, where('__name__', '==', 'nonexistent-document')); // Query that returns nothing if no department
 
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const fetchedProjects: Project[] = [];
@@ -63,7 +64,7 @@ export default function ProjectsPage() {
     });
 
     return () => unsubscribe();
-  }, [user, isPrivilegedUser]);
+  }, [user, userProfile, isPrivilegedUser]);
 
   const filteredProjects = useMemo(() => {
     return projects.filter(project =>

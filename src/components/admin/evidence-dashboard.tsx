@@ -1,9 +1,8 @@
 
-
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { collection, onSnapshot, query, orderBy, doc, updateDoc, serverTimestamp, addDoc, deleteField } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, doc, updateDoc, serverTimestamp, addDoc, deleteField, where } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '@/lib/firebase';
 import type { Project, EvidenceChecklist, ProjectFile, UserProfile, EvidenceChecklistItem } from '@/types';
@@ -694,7 +693,18 @@ export function EvidenceDashboard() {
 
   useEffect(() => {
     setLoading(true);
-    const projectsQuery = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
+    if (!userProfile) {
+        setLoading(false);
+        return;
+    }
+
+    let projectsQuery;
+    if (isOwner) {
+        projectsQuery = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
+    } else {
+        projectsQuery = query(collection(db, 'projects'), where('department', '==', userProfile.department), orderBy('createdAt', 'desc'));
+    }
+
     const unsubProjects = onSnapshot(projectsQuery, 
       (snapshot) => {
           const allProjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project));
@@ -718,7 +728,7 @@ export function EvidenceDashboard() {
         unsubProjects();
         unsubChecklists();
     };
-  }, []);
+  }, [userProfile, isOwner]);
 
   useEffect(() => {
     if(projects.length === 0) {
@@ -748,8 +758,8 @@ export function EvidenceDashboard() {
 
   const filteredProjects = useMemo(() => {
     const departmentFilteredProjects = isOwner
-        ? projects.filter(p => p.department && selectedDepartments.has(p.department))
-        : projects;
+        ? projects.filter(p => selectedDepartments.size === 0 || (p.department && selectedDepartments.has(p.department)))
+        : projects; // non-owners are already filtered by the query
 
     if (!searchTerm) return departmentFilteredProjects;
     return departmentFilteredProjects.filter(project =>

@@ -1,10 +1,9 @@
 
-
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
 import { db, functions, httpsCallable } from '@/lib/firebase';
-import { collection, onSnapshot, query, doc, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, doc, updateDoc, where } from 'firebase/firestore';
 import type { UserProfile } from '@/types';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { useToast } from '@/hooks/use-toast';
@@ -141,16 +140,24 @@ export default function UserManagementPage() {
     const { selectedDepartments } = useDepartmentFilter();
 
     useEffect(() => {
-        const q = query(collection(db, 'users'));
+        if (!currentUserProfile) return;
+        let q;
+        if (currentUserProfile.role === 'owner') {
+            q = query(collection(db, 'users'));
+        } else {
+            q = query(collection(db, 'users'), where('department', '==', currentUserProfile.department));
+        }
+
         const unsubscribe = onSnapshot(q, (snapshot) => {
             setUsers(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile)));
             setLoading(false);
         }, (error) => {
             console.error("Error fetching users:", error);
+            toast({ variant: 'destructive', title: 'Error', description: 'Could not fetch users.' });
             setLoading(false);
         });
         return () => unsubscribe();
-    }, []);
+    }, [currentUserProfile, toast]);
     
     const availableDepartments = useMemo(() => {
         const depts = new Set<string>();
@@ -162,35 +169,30 @@ export default function UserManagementPage() {
 
     const { pendingUsers, unassignedUsers, activeUsers, suspendedUsers } = useMemo(() => {
         const isOwner = currentUserProfile?.role === 'owner';
-        const isAdmin = currentUserProfile?.role === 'admin';
-
-        const searchedUsers = users.filter(u => 
+        
+        let usersToFilter = users;
+        // For owner, filter by selected departments in the header
+        if (isOwner && selectedDepartments.size > 0) {
+            usersToFilter = users.filter(u => u.department && selectedDepartments.has(u.department));
+        }
+        
+        const searchedUsers = usersToFilter.filter(u => 
             (u.name?.toLowerCase().includes(searchTerm.toLowerCase())) ||
             (u.email?.toLowerCase().includes(searchTerm.toLowerCase()))
         );
         
         const pending = searchedUsers.filter(u => u.status === 'pending-approval');
         const unassigned = searchedUsers.filter(u => u.status !== 'pending-approval' && (!u.department || u.department === ''));
-        const assignedWithDept = searchedUsers.filter(u => u.status !== 'pending-approval' && u.department && u.department !== '');
-        
-        let visibleAssigned = assignedWithDept;
-        if (isOwner) {
-            if (selectedDepartments.size > 0) {
-                 visibleAssigned = assignedWithDept.filter(u => u.department && selectedDepartments.has(u.department));
-            }
-        } else if (isAdmin) {
-             visibleAssigned = assignedWithDept.filter(u => u.department === currentUserProfile?.department);
-        } else {
-            visibleAssigned = [];
-        }
+        const active = searchedUsers.filter(u => (u.status === 'active' || !u.status) && u.department);
+        const suspended = searchedUsers.filter(u => u.status === 'suspended' && u.department);
 
         const sortByName = (a: UserProfile, b: UserProfile) => (a.name || '').localeCompare(b.name || '');
 
         return {
             pendingUsers: pending.sort(sortByName),
             unassignedUsers: unassigned.sort(sortByName),
-            activeUsers: visibleAssigned.filter(u => u.status === 'active' || !u.status).sort(sortByName),
-            suspendedUsers: visibleAssigned.filter(u => u.status === 'suspended').sort(sortByName),
+            activeUsers: active.sort(sortByName),
+            suspendedUsers: suspended.sort(sortByName),
         };
     }, [users, searchTerm, currentUserProfile, selectedDepartments]);
     

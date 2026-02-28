@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -103,6 +102,7 @@ function CreateProjectDialog({ open, onOpenChange, userProfile }: CreateProjectD
         creatorId: userProfile.uid,
         createdAt: serverTimestamp(),
         nextReviewDate: Timestamp.fromDate(reviewDate),
+        department: userProfile.department || ''
       });
       toast({ title: 'Success', description: 'Project created successfully.' });
       form.reset();
@@ -473,20 +473,26 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
   const isOwner = userProfile.role === 'owner';
 
   useEffect(() => {
-    const q = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
+    let q;
+    if (userProfile.role === 'owner') {
+        q = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
+    } else {
+        q = query(collection(db, 'projects'), where('department', '==', userProfile.department), orderBy('createdAt', 'desc'));
+    }
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project)));
       setLoading(false);
     }, (error) => {
       console.error("Error fetching projects:", error);
+      toast({ variant: 'destructive', title: 'Error', description: 'Could not fetch projects. Check permissions.' });
       setLoading(false);
     });
     return () => unsubscribe();
-  }, []);
+  }, [userProfile, toast]);
 
   const filteredProjects = useMemo(() => {
     const departmentFilteredProjects = isOwner
-        ? projects.filter(p => p.department && selectedDepartments.has(p.department))
+        ? projects.filter(p => selectedDepartments.size === 0 || (p.department && selectedDepartments.has(p.department)))
         : projects;
 
     return departmentFilteredProjects.filter(project =>
@@ -801,14 +807,3 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
     </div>
   );
 }
-    
-
-    
-
-
-
-
-
-
-
-

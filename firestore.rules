@@ -37,7 +37,7 @@ service cloud.firestore {
 
       allow delete: if isOwner(request.auth.uid);
 
-      allow list: if signedIn(); // Relies on client-side queries and secure read rules
+      allow list: if isPrivilegedUser(request.auth.uid);
 
       match /pushSubscriptions/{docId} {
         allow read, write, delete: if request.auth != null && request.auth.uid == userId;
@@ -65,11 +65,11 @@ service cloud.firestore {
 
     // ---- PROJECTS ----
     match /projects/{projectId} {
-      allow read: if signedIn();
+      allow read: if isOwner(request.auth.uid) || (signedIn() && userDepartment(request.auth.uid) == resource.data.department);
       allow create, update, delete: if isPrivilegedUser(request.auth.uid);
 
       match /files/{fileId} {
-        allow read, create: if signedIn();
+        allow read, create: if isOwner(request.auth.uid) || (get(/databases/$(database)/documents/projects/$(projectId)).data.department == userDepartment(request.auth.uid));
         allow delete: if isPrivilegedUser(request.auth.uid) || resource.data.uploaderId == request.auth.uid;
       }
     }
