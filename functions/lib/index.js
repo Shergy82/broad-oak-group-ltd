@@ -353,9 +353,8 @@ exports.deleteAllShiftsForUser = (0, https_1.onCall)({ region: REGION, timeoutSe
     const userHomeDepartment = userDoc.data()?.department;
     const shiftsRef = db.collection('shifts');
     const unavailabilityRef = db.collection('unavailability');
-    const BATCH_SIZE = 200; // Keep it well under 500 to be safe with dual deletes.
+    const BATCH_SIZE = 400;
     let totalDeleted = 0;
-    // A loop that continues as long as we keep finding shifts to delete
     // eslint-disable-next-line no-constant-condition
     while (true) {
         v2_1.logger.info(`Querying for next batch of shifts for user ${userId}...`);
@@ -363,24 +362,22 @@ exports.deleteAllShiftsForUser = (0, https_1.onCall)({ region: REGION, timeoutSe
         const snapshot = await shiftsQuery.get();
         if (snapshot.empty) {
             v2_1.logger.info(`No more shifts found for user ${userId}. Exiting loop.`);
-            break; // No more shifts to delete
+            break;
         }
         v2_1.logger.info(`Found ${snapshot.size} shifts in this batch. Preparing to delete.`);
         const batch = db.batch();
         snapshot.docs.forEach(doc => {
             const shift = doc.data();
-            batch.delete(doc.ref); // Add shift deletion to batch
-            // If the shift was for a different department, also delete the corresponding unavailability record
+            batch.delete(doc.ref);
             if (userHomeDepartment && shift.department && userHomeDepartment !== shift.department) {
                 v2_1.logger.info(`Found cross-department shift. Deleting unavailability record ${doc.id}`);
                 batch.delete(unavailabilityRef.doc(doc.id));
             }
         });
-        v2_1.logger.info(`Committing batch of size ${snapshot.size}...`);
+        v2_1.logger.info(`Committing batch of size ${snapshot.docs.length}...`);
         await batch.commit();
         totalDeleted += snapshot.size;
         v2_1.logger.info(`Batch committed. Total deleted so far: ${totalDeleted}.`);
-        // Add a small delay to avoid hitting rate limits on very large datasets
         await new Promise(resolve => setTimeout(resolve, 50));
     }
     if (totalDeleted === 0) {

@@ -428,46 +428,50 @@ export const deleteAllShiftsForUser = onCall({ region: REGION, timeoutSeconds: 5
         throw new HttpsError('not-found', `User with ID ${userId} not found.`);
     }
     const userHomeDepartment = userDoc.data()?.department;
+    
+    const shiftsRef = db.collection('shifts');
+    const unavailabilityRef = db.collection('unavailability');
+    const BATCH_SIZE = 400; 
 
-    const shiftsQuery = db.collection('shifts').where('userId', '==', userId);
-    const snapshot = await shiftsQuery.get();
+    let totalDeleted = 0;
+    
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+        logger.info(`Querying for next batch of shifts for user ${userId}...`);
+        const shiftsQuery = shiftsRef.where('userId', '==', userId).limit(BATCH_SIZE);
+        const snapshot = await shiftsQuery.get();
+        
+        if (snapshot.empty) {
+            logger.info(`No more shifts found for user ${userId}. Exiting loop.`);
+            break; 
+        }
+        
+        logger.info(`Found ${snapshot.size} shifts in this batch. Preparing to delete.`);
+        const batch = db.batch();
+        
+        snapshot.docs.forEach(doc => {
+            const shift = doc.data();
+            batch.delete(doc.ref); 
 
-    if (snapshot.empty) {
+            if (userHomeDepartment && shift.department && userHomeDepartment !== shift.department) {
+                logger.info(`Found cross-department shift. Deleting unavailability record ${doc.id}`);
+                batch.delete(unavailabilityRef.doc(doc.id));
+            }
+        });
+        
+        logger.info(`Committing batch of size ${snapshot.docs.length}...`);
+        await batch.commit();
+        totalDeleted += snapshot.size;
+        logger.info(`Batch committed. Total deleted so far: ${totalDeleted}.`);
+
+        await new Promise(resolve => setTimeout(resolve, 50));
+    }
+
+    if (totalDeleted === 0) {
         return { message: "No shifts found for this user to delete." };
     }
-
-    const BATCH_LIMIT = 498; 
-    const batches: admin.firestore.WriteBatch[] = [];
-    let currentBatch = db.batch();
-    let currentBatchSize = 0;
     
-    for (const doc of snapshot.docs) {
-        currentBatch.delete(doc.ref);
-        currentBatchSize++;
-        
-        const shift = doc.data();
-        if (userHomeDepartment && shift.department && userHomeDepartment !== shift.department) {
-            const unavailabilityRef = db.collection('unavailability').doc(doc.id);
-            currentBatch.delete(unavailabilityRef);
-            currentBatchSize++;
-        }
-
-        if (currentBatchSize >= BATCH_LIMIT) {
-            batches.push(currentBatch);
-            currentBatch = db.batch();
-            currentBatchSize = 0;
-        }
-    }
-
-    if (currentBatchSize > 0) {
-        batches.push(currentBatch);
-    }
-    
-    if (batches.length > 0) {
-        await Promise.all(batches.map(b => b.commit()));
-    }
-
-    return { message: `Successfully deleted ${snapshot.size} shifts and associated records for the user.` };
+    return { message: `Successfully deleted ${totalDeleted} shifts and associated records for the user.` };
 });
 
 
@@ -530,5 +534,3 @@ export const deleteScheduledProjects = onSchedule(
     logger.info("Scheduled project cleanup finished");
   }
 );
-
-    
