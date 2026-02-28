@@ -172,7 +172,13 @@ export const getNotificationStatus = onCall({ region: REGION }, async (req) => {
 
 export const setNotificationStatus = onCall({ region: REGION }, async (req) => {
   assertAuthenticated(req.auth?.uid);
-  const { enabled, subscription } = req.data ?? {};
+  
+  const data = req.data;
+  if (!data || typeof data !== "object") {
+    throw new HttpsError("invalid-argument", "Request data must be an object.");
+  }
+  const enabled = (data as any).enabled;
+  const subscription = (data as any).subscription;
 
   if (typeof enabled !== "boolean") {
     throw new HttpsError("invalid-argument", "enabled must be boolean");
@@ -204,8 +210,13 @@ export const setUserStatus = onCall(
   async (req) => {
     assertAuthenticated(req.auth?.uid);
     await assertAdminOrManager(req.auth.uid);
+    
+    const data = req.data;
+    if (!data || typeof data !== "object") {
+        throw new HttpsError("invalid-argument", "Request data must be an object.");
+    }
+    const { uid, disabled, newStatus, department } = data as any;
 
-    const { uid, disabled, newStatus, department } = req.data ?? {};
     if (
       typeof uid !== 'string' ||
       typeof disabled !== 'boolean' ||
@@ -231,7 +242,11 @@ export const setUserStatus = onCall(
 export const deleteUser = onCall({ region: REGION }, async (req) => {
   await assertIsOwner(req.auth?.uid);
 
-  const { uid } = req.data ?? {};
+  const data = req.data;
+  if (!data || typeof data !== "object") {
+    throw new HttpsError("invalid-argument", "Request data must be an object.");
+  }
+  const uid = (data as any).uid;
   if (typeof uid !== 'string') {
     throw new HttpsError('invalid-argument', 'uid required');
   }
@@ -301,9 +316,13 @@ export const deleteProjectAndFiles = onCall(
     assertAuthenticated(req.auth?.uid);
     await assertAdminOrManager(req.auth.uid);
 
-    const { projectId } = req.data as { projectId: string };
-    if (!projectId) {
-      throw new HttpsError('invalid-argument', 'projectId is required');
+    const data = req.data;
+    if (!data || typeof data !== "object") {
+        throw new HttpsError("invalid-argument", "Request data must be an object.");
+    }
+    const projectId = (data as any).projectId;
+    if (typeof projectId !== 'string' || !projectId.trim()) {
+      throw new HttpsError('invalid-argument', 'A projectId (string) is required.');
     }
 
     const bucket = admin.storage().bucket();
@@ -337,7 +356,11 @@ export const deleteProjectFile = onCall(
   async (req) => {
     assertAuthenticated(req.auth?.uid);
     const uid = req.auth.uid;
-    const { projectId, fileId } = req.data ?? {};
+    const data = req.data;
+    if (!data || typeof data !== "object") {
+        throw new HttpsError("invalid-argument", "Request data must be an object.");
+    }
+    const { projectId, fileId } = data as any;
     if (!projectId || !fileId) {
       throw new HttpsError('invalid-argument', 'projectId and fileId required');
     }
@@ -346,12 +369,12 @@ export const deleteProjectFile = onCall(
     const fileRef = db.collection('projects').doc(projectId).collection('files').doc(fileId);
     const fileDoc = await fileRef.get();
     if (!fileDoc.exists) return { success: true };
-    const data = fileDoc.data()!;
-    if (uid !== data.uploaderId && !['admin', 'owner', 'manager'].includes(role)) {
+    const fileData = fileDoc.data()!;
+    if (uid !== fileData.uploaderId && !['admin', 'owner', 'manager'].includes(role)) {
       throw new HttpsError('permission-denied', 'Not allowed');
     }
-    if (data.fullPath) {
-      await admin.storage().bucket().file(data.fullPath).delete().catch(() => {});
+    if (fileData.fullPath) {
+      await admin.storage().bucket().file(fileData.fullPath).delete().catch(() => {});
     }
     await fileRef.delete();
     return { success: true };
@@ -362,7 +385,11 @@ export const zipProjectFiles = onCall(
   { region: REGION, timeoutSeconds: 300, memory: '1GiB' },
   async (req) => {
     assertAuthenticated(req.auth?.uid);
-    const { projectId } = req.data ?? {};
+    const data = req.data;
+    if (!data || typeof data !== "object") {
+        throw new HttpsError("invalid-argument", "Request data must be an object.");
+    }
+    const projectId = (data as any).projectId;
     if (!projectId) {
       throw new HttpsError('invalid-argument', 'projectId required');
     }
@@ -378,10 +405,10 @@ export const zipProjectFiles = onCall(
     const bucket = admin.storage().bucket();
     await Promise.all(
       filesSnap.docs.map(async (doc) => {
-        const data = doc.data();
-        if (data.fullPath) {
-          const [buf] = await bucket.file(data.fullPath).download();
-          zip.file(data.name, buf);
+        const fileData = doc.data();
+        if (fileData.fullPath) {
+          const [buf] = await bucket.file(fileData.fullPath).download();
+          zip.file(fileData.name, buf);
         }
       })
     );
@@ -402,8 +429,7 @@ export const zipProjectFiles = onCall(
    SHIFTS (CALLABLE)
 ===================================================== */
 export const deleteAllShifts = onCall({ region: REGION }, async (req) => {
-    assertAuthenticated(req.auth?.uid);
-    await assertIsOwner(req.auth.uid);
+    await assertIsOwner(req.auth?.uid);
     const snap = await db.collection('shifts').get();
     if (snap.empty) return { message: "No shifts to delete." };
 
@@ -424,12 +450,19 @@ export const deleteAllShifts = onCall({ region: REGION }, async (req) => {
 export const deleteAllShiftsForUser = onCall(
   { region: REGION, timeoutSeconds: 540, memory: "1GiB" },
   async (req) => {
-    assertAuthenticated(req.auth?.uid);
+    if (!req.auth?.uid) {
+      throw new HttpsError("unauthenticated", "Authentication required");
+    }
     await assertIsOwner(req.auth.uid);
 
-    const { userId } = req.data as { userId: string };
-    if (!userId) {
-      throw new HttpsError("invalid-argument", "A userId is required.");
+    const data = req.data;
+    if (!data || typeof data !== "object") {
+      throw new HttpsError("invalid-argument", "Request data must be an object.");
+    }
+    
+    const userId = (data as any).userId;
+    if (typeof userId !== "string" || !userId.trim()) {
+      throw new HttpsError("invalid-argument", "A userId (string) is required.");
     }
 
     const userDoc = await db.collection("users").doc(userId).get();
@@ -441,7 +474,7 @@ export const deleteAllShiftsForUser = onCall(
     const shiftsRef = db.collection("shifts");
     const unavailabilityRef = db.collection("unavailability");
 
-    const BATCH_SIZE = 200; // Keep it safely under the 500-write limit
+    const BATCH_SIZE = 200; // Safely under 500 limit, accounting for dual deletes
     let totalDeleted = 0;
     let hasMore = true;
 
@@ -461,8 +494,8 @@ export const deleteAllShiftsForUser = onCall(
       }
 
       const batch = db.batch();
-
-      // THIS IS THE CORRECTED, SERIAL LOGIC
+      
+      // SERIAL LOOP to prevent unhandled promise rejections
       for (const doc of snapshot.docs) {
         const shift = doc.data();
         batch.delete(doc.ref);
@@ -482,6 +515,7 @@ export const deleteAllShiftsForUser = onCall(
       await batch.commit();
       totalDeleted += snapshot.size;
       
+      // Add a small delay to avoid hitting rate limits on very large datasets
       await new Promise(r => setTimeout(r, 100));
     }
 
@@ -491,8 +525,7 @@ export const deleteAllShiftsForUser = onCall(
 
 
 export const reGeocodeAllShifts = onCall({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async (req) => {
-    assertAuthenticated(req.auth?.uid);
-    await assertIsOwner(req.auth.uid);
+    await assertIsOwner(req.auth?.uid);
     if (!GEOCODING_KEY) {
       throw new HttpsError('failed-precondition', 'Missing GEOCODING_KEY');
     }

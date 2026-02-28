@@ -399,7 +399,6 @@ exports.deleteAllShiftsForUser = (0, https_1.onCall)({ region: REGION, timeoutSe
         for (const doc of snapshot.docs) {
             const shift = doc.data();
             batch.delete(doc.ref);
-            // If the shift was for a different department, also delete the corresponding unavailability record
             if (userHomeDepartment &&
                 shift.department &&
                 userHomeDepartment !== shift.department) {
