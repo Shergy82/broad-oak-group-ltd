@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { Project } from '@/types';
+import type { Project, Shift } from '@/types';
 import { useAuth } from '@/hooks/use-auth';
 import { useRouter } from 'next/navigation';
 import { Spinner } from '@/components/shared/spinner';
@@ -22,6 +22,9 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  
+  const [userShiftAddresses, setUserShiftAddresses] = useState<Set<string>>(new Set());
+  const [loadingShifts, setLoadingShifts] = useState(true);
 
   const isPrivilegedUser = userProfile && ['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role);
 
@@ -31,40 +34,110 @@ export default function ProjectsPage() {
     }
   }, [user, isAuthLoading, router]);
 
+  // Privileged user project fetching
   useEffect(() => {
-    if (isPrivilegedUser) {
-      setLoading(false);
-      return;
+    if (!isPrivilegedUser || !userProfile) {
+        // If not privileged, this effect does nothing.
+        if (!isAuthLoading && !isProfileLoading) setLoading(false);
+        return;
     }
-    if (!user || !userProfile) return;
 
-    if (!db) {
-      setProjects([]);
-      setLoading(false);
-      return;
-    }
-    
-    // Non-privileged users should only see projects in their department
+    // For privileged users, fetch all projects within their department(s).
     const projectsCollection = collection(db, 'projects');
-    const q = userProfile.department 
-        ? query(projectsCollection, where('department', '==', userProfile.department))
-        : query(projectsCollection, where('__name__', '==', 'nonexistent-document')); // Query that returns nothing if no department
-
+    const q = userProfile.role === 'owner' 
+        ? projectsCollection 
+        : query(projectsCollection, where('department', '==', userProfile.department));
+        
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const fetchedProjects: Project[] = [];
-      querySnapshot.forEach((doc) => {
-        fetchedProjects.push({ id: doc.id, ...doc.data() } as Project);
-      });
-      setProjects(fetchedProjects.sort((a, b) => a.address.localeCompare(b.address)));
-      setLoading(false);
+        const fetchedProjects: Project[] = [];
+        querySnapshot.forEach((doc) => {
+            fetchedProjects.push({ id: doc.id, ...doc.data() } as Project);
+        });
+        setProjects(fetchedProjects.sort((a, b) => a.address.localeCompare(b.address)));
+        setLoading(false);
     }, (error) => {
-      console.error("Error fetching projects: ", error);
-      setProjects([]);
-      setLoading(false);
+        console.error("Error fetching projects for admin:", error);
+        setProjects([]);
+        setLoading(false);
     });
 
     return () => unsubscribe();
-  }, [user, userProfile, isPrivilegedUser]);
+}, [userProfile, isPrivilegedUser, isAuthLoading, isProfileLoading]);
+
+
+  // Non-privileged user shift address fetching
+  useEffect(() => {
+    if (isPrivilegedUser || !user) {
+        setLoadingShifts(false);
+        return;
+    };
+    
+    setLoadingShifts(true);
+    const shiftsQuery = query(collection(db, 'shifts'), where('userId', '==', user.uid));
+    const unsubscribe = onSnapshot(shiftsQuery, (snapshot) => {
+        const addresses = new Set<string>();
+        snapshot.forEach(doc => {
+            const shift = doc.data() as Shift;
+            if (shift.address) {
+                addresses.add(shift.address);
+            }
+        });
+        setUserShiftAddresses(addresses);
+        setLoadingShifts(false);
+    }, (error) => {
+        console.error("Error fetching user shifts for project list:", error);
+        setLoadingShifts(false);
+    });
+
+    return () => unsubscribe();
+  }, [isPrivilegedUser, user]);
+
+  // Non-privileged user project fetching based on addresses
+  useEffect(() => {
+    if (isPrivilegedUser) return;
+    if (loadingShifts) return;
+
+    if (userShiftAddresses.size === 0) {
+        setProjects([]);
+        setLoading(false);
+        return;
+    }
+
+    setLoading(true);
+    
+    const addresses = Array.from(userShiftAddresses);
+    const CHUNK_SIZE = 30;
+    const allFetchedProjects: Map<string, Project> = new Map();
+    const unsubscribes: (() => void)[] = [];
+
+    for (let i = 0; i < addresses.length; i += CHUNK_SIZE) {
+        const chunk = addresses.slice(i, i + CHUNK_SIZE);
+        if (chunk.length > 0) {
+            const projectsQuery = query(collection(db, 'projects'), where('address', 'in', chunk));
+            
+            const unsub = onSnapshot(projectsQuery, (snapshot) => {
+                snapshot.docs.forEach((doc) => {
+                    allFetchedProjects.set(doc.id, { id: doc.id, ...doc.data() } as Project);
+                });
+                setProjects(Array.from(allFetchedProjects.values()).sort((a, b) => a.address.localeCompare(b.address)));
+                // Only set loading to false after the last chunk's initial fetch might have run
+                if (i + CHUNK_SIZE >= addresses.length) {
+                    setLoading(false);
+                }
+            }, (error) => {
+                 console.error("Error fetching project chunk: ", error);
+                 setLoading(false);
+            });
+            unsubscribes.push(unsub);
+        }
+    }
+     if (addresses.length === 0) {
+        setLoading(false);
+    }
+
+    return () => unsubscribes.forEach(unsub => unsub());
+  }, [isPrivilegedUser, userShiftAddresses, loadingShifts]);
+
 
   const filteredProjects = useMemo(() => {
     return projects.filter(project =>
@@ -72,7 +145,7 @@ export default function ProjectsPage() {
     );
   }, [projects, searchTerm]);
   
-  const isLoadingPage = isAuthLoading || isProfileLoading;
+  const isLoadingPage = isAuthLoading || isProfileLoading || (loading && !isPrivilegedUser && loadingShifts);
   
   if (isLoadingPage) {
     return (
@@ -120,7 +193,7 @@ export default function ProjectsPage() {
                       <Building className="mx-auto h-12 w-12 text-muted-foreground" />
                       <h3 className="mt-4 text-lg font-semibold">No Projects Found</h3>
                       <p className="mb-4 mt-2 text-sm text-muted-foreground">
-                          No projects have been added yet. This page will populate once project data exists in the database.
+                          No projects have been assigned to you yet. This page will populate once you have shifts scheduled.
                       </p>
                   </div>
               ) : (

@@ -65,11 +65,11 @@ service cloud.firestore {
 
     // ---- PROJECTS ----
     match /projects/{projectId} {
-      allow read: if isOwner(request.auth.uid) || (signedIn() && userDepartment(request.auth.uid) == resource.data.department);
+      allow read: if signedIn();
       allow create, update, delete: if isPrivilegedUser(request.auth.uid);
 
       match /files/{fileId} {
-        allow read, create: if isOwner(request.auth.uid) || (get(/databases/$(database)/documents/projects/$(projectId)).data.department == userDepartment(request.auth.uid));
+        allow read, create: if signedIn();
         allow delete: if isPrivilegedUser(request.auth.uid) || resource.data.uploaderId == request.auth.uid;
       }
     }

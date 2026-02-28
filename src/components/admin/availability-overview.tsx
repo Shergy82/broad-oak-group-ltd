@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -160,7 +161,7 @@ export function AvailabilityOverview({ viewMode = 'normal', userProfile }: Avail
             usersQuery = query(collection(db, 'users'));
         } else if (department) {
             shiftsQuery = query(collection(db, 'shifts')); // Fetch all shifts for availability logic
-            usersQuery = query(collection(db, 'users'), where('department', '==', department));
+            usersQuery = query(collection(db, 'users'));
         } else {
             setLoading(false);
             return;
@@ -207,37 +208,61 @@ export function AvailabilityOverview({ viewMode = 'normal', userProfile }: Avail
         if (loading) return [];
         
         const isOwner = userProfile.role === 'owner';
-        const usersToProcess = isOwner 
-            ? users.filter(u => u.department && selectedDepartments.has(u.department))
-            : users;
-
-        const userIdsToProcess = new Set(usersToProcess.map(u => u.uid));
-
-        const todaysShifts = shifts.filter(s => isToday(getCorrectedLocalDate(s.date)) && userIdsToProcess.has(s.userId));
         const todaysDate = startOfToday();
+    
+        // 1. Get all shifts for today
+        const allTodaysShifts = shifts.filter(s => isToday(getCorrectedLocalDate(s.date)));
+        
+        // 2. Filter today's shifts by the selected departments
+        const todaysDepartmentShifts = isOwner
+            ? (selectedDepartments.size > 0 ? allTodaysShifts.filter(s => s.department && selectedDepartments.has(s.department)) : allTodaysShifts)
+            : allTodaysShifts.filter(s => s.department && s.department === userProfile.department);
+    
+        const workingUserIds = new Set(todaysDepartmentShifts.map(s => s.userId));
+    
+        // 3. Get all users whose home department is in the filter AND all users who are working today
+        const usersInSelectedDepartments = users.filter(u => {
+            if (isOwner) {
+                return selectedDepartments.size > 0 ? u.department && selectedDepartments.has(u.department) : true;
+            }
+            return u.department === userProfile.department;
+        });
+    
+        const userMap = new Map<string, UserProfile>();
+        usersInSelectedDepartments.forEach(u => userMap.set(u.uid, u));
+        workingUserIds.forEach(uid => {
+            if (!userMap.has(uid)) {
+                const user = users.find(u => u.uid === uid);
+                if (user) {
+                    userMap.set(uid, user);
+                }
+            }
+        });
+        
+        const usersToProcess = Array.from(userMap.values());
+    
         const todaysUnavailable = unavailability.filter(u => {
-            if (!userIdsToProcess.has(u.userId)) return false;
+            if (!userMap.has(u.userId)) return false;
             const startDate = getCorrectedLocalDate(u.startDate);
             const endDate = getCorrectedLocalDate(u.endDate);
             return todaysDate >= startDate && todaysDate <= endDate;
         });
-
-        
+    
         return usersToProcess.map(user => {
             const unavailabilityRecord = todaysUnavailable.find(u => u.userId === user.uid);
             if (unavailabilityRecord) {
                 return { user, availability: 'unavailable', shifts: [], unavailabilityReason: unavailabilityRecord.reason };
             }
-
-            const userShiftsToday = todaysShifts.filter(s => s.userId === user.uid);
+    
+            const userShiftsToday = todaysDepartmentShifts.filter(s => s.userId === user.uid);
             
             if (userShiftsToday.length === 0) {
                 return { user, availability: 'full', shifts: [] };
             }
-
+    
             const hasAmShift = userShiftsToday.some(s => s.type === 'am' || s.type === 'all-day');
             const hasPmShift = userShiftsToday.some(s => s.type === 'pm' || s.type === 'all-day');
-
+    
             if (hasAmShift && hasPmShift) {
                  return { user, availability: 'busy', shifts: userShiftsToday };
             } else if (hasAmShift) { 
@@ -245,12 +270,11 @@ export function AvailabilityOverview({ viewMode = 'normal', userProfile }: Avail
             } else if (hasPmShift) {
                  return { user, availability: 'am', shifts: userShiftsToday };
             }
-
-            // This should not be reached if logic is correct, but as a fallback:
+    
             return { user, availability: 'busy', shifts: userShiftsToday };
         }).filter((u): u is AvailableUser => u !== null);
-
-    }, [loading, shifts, users, unavailability, userProfile.role, selectedDepartments]);
+    
+      }, [loading, shifts, users, unavailability, userProfile, selectedDepartments]);
     
     const { workingTodayCount, fullyAvailableCount, semiAvailableCount, unavailableCount } = useMemo(() => {
         return {
