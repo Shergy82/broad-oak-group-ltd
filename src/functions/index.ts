@@ -415,6 +415,31 @@ export const deleteAllShifts = onCall({ region: REGION }, async (req) => {
     return { message: `Successfully deleted ${count} active shifts.` };
 });
 
+export const deleteAllShiftsForUser = onCall({ region: REGION }, async (req) => {
+    await assertIsOwner(req.auth?.uid);
+    const { userId } = req.data as { userId: string };
+
+    if (!userId) {
+        throw new HttpsError('invalid-argument', 'A userId is required.');
+    }
+
+    const shiftsRef = db.collection('shifts');
+    const q = shiftsRef.where('userId', '==', userId);
+    const snapshot = await q.get();
+
+    if (snapshot.empty) {
+        return { message: "No shifts found for this user to delete." };
+    }
+
+    const batch = db.batch();
+    snapshot.docs.forEach((d) => {
+        batch.delete(d.ref);
+    });
+
+    await batch.commit();
+    return { message: `Successfully deleted ${snapshot.size} shifts for the user.` };
+});
+
 
 export const reGeocodeAllShifts = onCall({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async (req) => {
     await assertIsOwner(req.auth?.uid);
