@@ -444,6 +444,39 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             const u = d.data() as UserProfile;
             return { uid: d.id, normalizedName: normalizeText(u.name), originalName: u.name };
           });
+          
+          const findUser = (chunk: string): UserMapEntry | { error: string } => {
+              const normalizedChunk = normalizeText(chunk);
+              if (!normalizedChunk) return { error: 'Empty name chunk' };
+          
+              // 1. Exact match
+              const exactMatches = userMap.filter(u => u.normalizedName === normalizedChunk);
+              if (exactMatches.length === 1) return exactMatches[0];
+              if (exactMatches.length > 1) return { error: `Ambiguous name (exact): "${chunk}"` };
+          
+              // 2. Prefix-based match (for "Phil" vs "Philip")
+              const chunkParts = normalizedChunk.split(' ');
+              
+              if (chunkParts.length >= 2) {
+                  const chunkLastName = chunkParts[chunkParts.length - 1];
+                  const chunkFirstName = chunkParts[0];
+          
+                  const prefixMatches = userMap.filter(user => {
+                      const userParts = user.normalizedName.split(' ');
+                      if (userParts.length < 2) return false;
+                      
+                      const userLastName = userParts[userParts.length - 1];
+                      const userFirstName = userParts[0];
+                      
+                      return userLastName === chunkLastName && (userFirstName.startsWith(chunkFirstName) || chunkFirstName.startsWith(userFirstName));
+                  });
+          
+                  if (prefixMatches.length === 1) return prefixMatches[0];
+                  if (prefixMatches.length > 1) return { error: `Ambiguous name (prefix): "${chunk}"` };
+              }
+              
+              return { error: `Could not match operative: ${chunk}` };
+          };
 
           if (importType === 'GAS') {
               if (typeof parseGasWorkbook !== 'function') {
@@ -452,31 +485,30 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
               const { parsed, failures } = await parseGasWorkbook(Buffer.from(data));
               
               for (const rawShift of parsed) {
-                  const extraction = extractUsersAndTask(rawShift.operativeNameRaw, userMap);
-                   if (extraction && extraction.users.length > 0) {
-                      for (const user of extraction.users) {
-                          allShiftsFromExcel.push({
-                              date: new Date(rawShift.shiftDate),
-                              address: rawShift.siteAddress,
-                              task: rawShift.task,
-                              userId: user.uid,
-                              userName: user.originalName,
-                              type: rawShift.type,
-                              manager: '',
-                              contract: '',
-                              department: importDepartment,
-                              notes: '',
-                          });
-                      }
-                  } else {
+                  const userResult = findUser(rawShift.operativeNameRaw);
+                   if ('error' in userResult) {
                        failures.push({
-                           reason: `Could not match operative: ${rawShift.operativeNameRaw}`,
+                           reason: userResult.error,
                            siteAddress: rawShift.siteAddress,
                            operativeNameRaw: rawShift.operativeNameRaw,
                            sheetName: rawShift.source.sheetName,
                            cellRef: rawShift.source.cellRef,
                        });
-                  }
+                   } else {
+                        const user = userResult;
+                        allShiftsFromExcel.push({
+                            date: new Date(rawShift.shiftDate),
+                            address: rawShift.siteAddress,
+                            task: rawShift.task,
+                            userId: user.uid,
+                            userName: user.originalName,
+                            type: rawShift.type,
+                            manager: '',
+                            contract: '',
+                            department: importDepartment,
+                            notes: '',
+                        });
+                   }
               }
               
               allFailedShifts.push(...failures.map(f => ({
@@ -521,34 +553,20 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             setIsUploading(false);
             return;
           }
-
-          // --- START OF QUERY MODIFICATION ---
           
-          const allDepartmentShiftsQuery = query(
+          const existingShiftsQuery = query(
             collection(firestore, 'shifts'),
             where('department', '==', importDepartment)
-            // No date range filters here to avoid composite index
           );
           
-          const allDepartmentShiftsSnapshot = await getDocs(allDepartmentShiftsQuery);
+          const existingShiftsSnapshot = await getDocs(existingShiftsQuery);
           
-          const minDate = allShiftsFromExcel.length > 0 ? new Date(Math.min(...allShiftsFromExcel.map(s => s.date.getTime()))) : new Date();
-          const maxDate = allShiftsFromExcel.length > 0 ? new Date(Math.max(...allShiftsFromExcel.map(s => s.date.getTime()))) : new Date();
-
           const existingShiftsMap = new Map<string, Shift>();
-          
-          allDepartmentShiftsSnapshot.forEach((doc) => {
+          existingShiftsSnapshot.forEach((doc) => {
             const shiftData = { id: doc.id, ...doc.data() } as Shift;
-            
-            // Client-side date filtering
-            const shiftDate = shiftData.date.toDate();
-            if (shiftDate >= minDate && shiftDate <= maxDate) {
-              if (!shiftData.userId || !shiftData.date || !shiftData.address) return;
-              existingShiftsMap.set(getShiftKey(shiftData as any), shiftData);
-            }
+            if (!shiftData.userId || !shiftData.date || !shiftData.address) return;
+            existingShiftsMap.set(getShiftKey(shiftData as any), shiftData);
           });
-          
-          // --- END OF QUERY MODIFICATION ---
 
 
           const excelShiftsMap = new Map<string, ParsedShift>();

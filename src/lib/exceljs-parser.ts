@@ -80,43 +80,49 @@ export async function parseWorkbookByType(params: {
    GAS PARSER (NEW)
 ========================= */
 
-function extractTaskAndNames(text: string): { task: string; names: string[]; type: 'am' | 'pm' | 'all-day' } {
-  let raw = normalizeWhitespace(text);
-  
-  let shiftType: 'am' | 'pm' | 'all-day' = 'all-day';
+function normalizeWhitespace(s: string): string {
+  return s.replace(/[ \t]+/g, " ").replace(/\s*\n\s*/g, "\n").trim();
+}
 
-  if (/^AM\b/i.test(raw)) {
-    shiftType = 'am';
-    raw = raw.substring(2).trim();
-  } else if (/^PM\b/i.test(raw)) {
-    shiftType = 'pm';
-    raw = raw.substring(2).trim();
-  }
+function extractGasTaskAndNames(text: string): { task: string; names: string[]; type: 'am' | 'pm' | 'all-day' } {
+    let raw = normalizeWhitespace(text);
+    let shiftType: 'am' | 'pm' | 'all-day' = 'all-day';
 
-  const lastHyphenIndex = raw.lastIndexOf("-");
-  
-  let taskPart = "Task not specified";
-  let namesPart = raw;
-
-  if (lastHyphenIndex > 0) {
-    const potentialTask = raw.substring(0, lastHyphenIndex).trim();
-    const potentialNames = raw.substring(lastHyphenIndex + 1).trim();
-    if (potentialTask && potentialNames) {
-      taskPart = potentialTask;
-      namesPart = potentialNames;
+    if (/^AM\b/i.test(raw)) {
+        shiftType = 'am';
+        raw = raw.substring(2).trim();
+    } else if (/^PM\b/i.test(raw)) {
+        shiftType = 'pm';
+        raw = raw.substring(2).trim();
     }
-  }
 
-  const names = splitNames(namesPart);
-  
-  if (names.length === 0 && lastHyphenIndex === -1) {
-      const potentialNamesOnly = splitNames(raw);
-      if (potentialNamesOnly.length > 0) {
-          return { task: "Task not specified", names: potentialNamesOnly, type: shiftType };
-      }
-  }
+    const lastHyphenIndex = raw.lastIndexOf("-");
+    let taskPart = "Task not specified";
+    let namesPart = raw;
 
-  return { task: taskPart, names, type: shiftType };
+    if (lastHyphenIndex > -1) {
+        const potentialTask = raw.substring(0, lastHyphenIndex).trim();
+        const potentialNames = raw.substring(lastHyphenIndex + 1).trim();
+        if (potentialTask && potentialNames) {
+            taskPart = potentialTask;
+            namesPart = potentialNames;
+        }
+    }
+
+    const peopleChunks = namesPart.split(/,|&|\/|\band\b/gi);
+
+    const names = peopleChunks.map(chunk =>
+        chunk.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim()
+    ).filter(Boolean);
+    
+    if (names.length === 0 && lastHyphenIndex === -1) {
+        const potentialNamesOnly = namesPart.split(/,|&|\/|\band\b/gi).map(c => c.replace(/\r?\n/g, ' ').trim()).filter(Boolean);
+        if (potentialNamesOnly.length > 0) {
+            return { task: "Task not specified", names: potentialNamesOnly, type: shiftType };
+        }
+    }
+
+    return { task: taskPart, names, type: shiftType };
 }
 
 
@@ -222,7 +228,7 @@ export async function parseGasWorkbook(fileBuffer: Buffer): Promise<ParseResult>
         // Ignore obvious non-shift fields
         if (isNonShiftText(text)) continue;
 
-        const { task, names, type } = extractTaskAndNames(text);
+        const { task, names, type } = extractGasTaskAndNames(text);
         
         if (names.length === 0) {
             failures.push({
@@ -485,30 +491,6 @@ function isNonShiftText(text: string): boolean {
   return false;
 }
 
-function splitNames(text: string): string[] {
-  const raw = text
-    .replace(/\r/g, "")
-    .trim();
-
-  if (!raw) return [];
-
-  // Common separators for multiple operatives
-  const parts = raw
-    .split(/\n|,|&|\/|\band\b/gi)
-    .map((p) => normalizeWhitespace(p))
-    .map((p) => p.trim())
-    .filter(Boolean);
-
-  // Remove non-name garbage fragments
-  return parts.filter((p) => {
-    const t = p.toLowerCase();
-    if (t === "ignore") return false;
-    if (/^\+?\d[\d\s-]{7,}$/.test(t)) return false; // phone
-    if (t.includes("tel") || t.includes("mobile")) return false;
-    return true;
-  });
-}
-
 /* =========================
    HELPERS — CELL TEXT + FILL
 ========================= */
@@ -538,10 +520,6 @@ function getCellText(cell: ExcelJS.Cell): string {
   }
 
   return "";
-}
-
-function normalizeWhitespace(s: string): string {
-  return s.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function hasFill(cell: ExcelJS.Cell): boolean {
