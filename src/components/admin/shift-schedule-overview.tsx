@@ -381,8 +381,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
 
     if (siteTimeFrame !== 'all') {
       const today = startOfToday();
-      const weeks = siteTimeFrame === '1w' ? 1 : 2;
-      const endDate = addDays(today, weeks * 7);
+      const endDate = addDays(today, siteTimeFrame === '1w' ? 7 : 14);
       filteredByDate = siteShifts.filter(s => {
           const shiftDate = getCorrectedLocalDate(s.date);
           return shiftDate >= today && shiftDate < endDate;
@@ -1222,18 +1221,17 @@ const handlePasswordConfirmedDeleteUserShifts = async () => {
                           </SelectContent>
                       </Select>
                   </div>
-                  {selectedUserId !== 'all' ? (
+                  {selectedUserId !== 'all' && isOwner && (
                       <div className="flex items-center gap-2">
-                          {isOwner && (
-                              <Button variant="destructive" onClick={() => setIsConfirmDeleteUserShiftsOpen(true)} disabled={isDeleting}>
-                                  <Trash2 className="mr-2 h-4 w-4" /> Delete All Shifts For User
-                              </Button>
-                          )}
+                          <Button variant="destructive" onClick={() => setIsConfirmDeleteUserShiftsOpen(true)} disabled={isDeleting}>
+                              <Trash2 className="mr-2 h-4 w-4" /> Delete All Shifts For User
+                          </Button>
                           <Button variant="outline" onClick={() => handleDownloadPdf('both')}>
                               <Download className="mr-2 h-4 w-4" /> Download PDF
                           </Button>
                       </div>
-                  ) : (
+                  )}
+                  {selectedUserId === 'all' && (
                     <Button variant="outline" onClick={() => handleDownloadPdf('this')}>
                         <Download className="mr-2 h-4 w-4" />
                         Weekly Report
@@ -1375,3 +1373,5 @@ const handlePasswordConfirmedDeleteUserShifts = async () => {
     </>
   );
 }
+
+    
