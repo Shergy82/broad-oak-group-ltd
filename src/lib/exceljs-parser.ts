@@ -1,3 +1,4 @@
+
 /**
  * GAS IMPORT (colour-based divider rows) — DROP-IN CODE
  * - Uses ExcelJS because SheetJS/xlsx usually does NOT preserve cell styles reliably.
@@ -150,16 +151,13 @@ function parseListView(sheet: ExcelJS.Worksheet, headerRowNumber: number, header
     const taskIndex = headers.indexOf('task');
     const addressIndex = headers.indexOf('address');
 
-    sheet.eachRow((row, rowNum) => {
-        if (rowNum <= headerRowNumber) return; // Skip header and rows before it
+    // Use a standard for loop from after the header to the last row with content.
+    for (let rowNum = headerRowNumber + 1; rowNum <= sheet.rowCount; rowNum++) {
+        const row = sheet.getRow(rowNum);
 
-        const dateVal = row.getCell(dateIndex + 1).value;
-        const userVal = row.getCell(userIndex + 1).value;
-        const taskVal = row.getCell(taskIndex + 1).value;
-        const addressVal = row.getCell(addressIndex + 1).value;
-
-        if (!dateVal && !userVal && !taskVal && !addressVal) {
-            return;
+        // If the entire row is empty, skip it.
+        if (row.values.length === 0 || (row.values as any[]).every(v => v === null || v === undefined)) {
+            continue;
         }
 
         const date = parseExcelCellAsDate(row.getCell(dateIndex + 1));
@@ -168,6 +166,7 @@ function parseListView(sheet: ExcelJS.Worksheet, headerRowNumber: number, header
         const address = getCellText(row.getCell(addressIndex + 1));
 
         if (!date || !userNameRaw || !task || !address) {
+            // Only add a failure if there's *some* data on the row. This avoids adding failures for blank formatting rows.
             if (userNameRaw || task || address) {
                 failures.push({
                     reason: 'Missing required data (Date, User, Task, or Address).',
@@ -176,20 +175,20 @@ function parseListView(sheet: ExcelJS.Worksheet, headerRowNumber: number, header
                     cellRef: `A${rowNum}`
                 });
             }
-            return; 
+            continue;
         }
 
         const { users: matchedUsers, reason } = findUsersInMap(userNameRaw, userMap);
 
         if (matchedUsers.length !== 1) {
             failures.push({
-                reason: reason || `Ambiguous or no user match for "${userNameRaw}"`,
+                reason: reason || `Could not find a unique user for "${userNameRaw}"`,
                 siteAddress: address,
                 operativeNameRaw: userNameRaw,
                 sheetName,
                 cellRef: row.getCell(userIndex + 1).address
             });
-            return;
+            continue;
         }
         
         const user = matchedUsers[0];
@@ -202,10 +201,11 @@ function parseListView(sheet: ExcelJS.Worksheet, headerRowNumber: number, header
           user: user,
           source: { sheetName, cellRef: row.getCell(userIndex + 1).address },
         });
-    });
+    }
 
     return { parsed, failures };
 }
+
 
 /* =========================
    MATRIX VIEW PARSER (old GAS)
