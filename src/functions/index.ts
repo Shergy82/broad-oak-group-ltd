@@ -415,7 +415,7 @@ export const deleteAllShifts = onCall({ region: REGION }, async (req) => {
     return { message: `Successfully deleted ${count} active shifts.` };
 });
 
-export const deleteAllShiftsForUser = onCall({ region: REGION, timeoutSeconds: 540 }, async (req) => {
+export const deleteAllShiftsForUser = onCall({ region: REGION, timeoutSeconds: 540, memory: "1GiB" }, async (req) => {
     await assertIsOwner(req.auth?.uid);
     const { userId } = req.data as { userId: string };
 
@@ -424,32 +424,40 @@ export const deleteAllShiftsForUser = onCall({ region: REGION, timeoutSeconds: 5
     }
 
     const shiftsRef = db.collection('shifts');
-    const q = shiftsRef.where('userId', '==', userId);
-    const snapshot = await q.get();
+    let query = shiftsRef.where('userId', '==', userId).orderBy(admin.firestore.FieldPath.documentId()).limit(400);
+    let totalDeleted = 0;
 
-    if (snapshot.empty) {
-        return { message: "No shifts found for this user to delete." };
-    }
-    
-    // Handle deletions in batches of 500
-    const batchSize = 500;
-    const numBatches = Math.ceil(snapshot.size / batchSize);
-    
-    for (let i = 0; i < numBatches; i++) {
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+        const snapshot = await query.get();
+        if (snapshot.empty) {
+            break;
+        }
+
         const batch = db.batch();
-        const start = i * batchSize;
-        const end = start + batchSize;
-        const docsInBatch = snapshot.docs.slice(start, end);
-        
-        docsInBatch.forEach((doc) => {
+        snapshot.docs.forEach((doc) => {
             batch.delete(doc.ref);
         });
-        
         await batch.commit();
-        logger.info(`Batch ${i + 1}/${numBatches} committed for user ${userId}`);
+
+        totalDeleted += snapshot.size;
+        logger.info(`Deleted ${snapshot.size} shifts for user ${userId}. Total deleted so far: ${totalDeleted}`);
+        
+        if (snapshot.size < 400) {
+            // Last batch
+            break;
+        }
+
+        // Get the last document from the current batch to use as a cursor for the next query
+        const lastVisible = snapshot.docs[snapshot.docs.length - 1];
+        query = shiftsRef.where('userId', '==', userId).orderBy(admin.firestore.FieldPath.documentId()).startAfter(lastVisible).limit(400);
     }
-    
-    return { message: `Successfully deleted ${snapshot.size} shifts for the user.` };
+
+    if (totalDeleted === 0) {
+        return { message: "No shifts found for this user to delete." };
+    }
+
+    return { message: `Successfully deleted ${totalDeleted} shifts for the user.` };
 });
 
 
