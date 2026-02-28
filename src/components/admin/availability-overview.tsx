@@ -29,7 +29,7 @@ interface AvailableUser {
   user: UserProfile;
   availability: 'full' | 'am' | 'pm' | 'busy' | 'unavailable';
   shifts: Shift[];
-  unavailabilityReason?: 'Holiday' | 'Sickness' | 'Other';
+  unavailabilityReason?: Unavailability['reason'];
 }
 
 const getInitials = (name?: string) => {
@@ -114,7 +114,7 @@ const UserAvatarList = ({ users, category, onUserClick }: { users: AvailableUser
                             </div>
                             {availability === 'am' && <Badge variant="outline" className="text-sky-600 border-sky-200 bg-sky-50 dark:bg-sky-900/50 dark:text-sky-300 dark:border-sky-800">AM Free</Badge>}
                             {availability === 'pm' && <Badge variant="outline" className="text-orange-600 border-orange-200 bg-orange-50 dark:bg-orange-900/50 dark:text-orange-300 dark:border-orange-800">PM Free</Badge>}
-                            {availability === 'unavailable' && unavailabilityReason && <Badge variant="destructive">{unavailabilityReason}</Badge>}
+                            {availability === 'unavailable' && unavailabilityReason && <Badge variant={unavailabilityReason === 'Cross-Department Work' ? 'outline' : 'destructive'}>{unavailabilityReason}</Badge>}
                         </CardContent>
                     </Card>
                 )
@@ -159,7 +159,7 @@ export function AvailabilityOverview({ viewMode = 'normal', userProfile }: Avail
             shiftsQuery = query(collection(db, 'shifts'));
             usersQuery = query(collection(db, 'users'));
         } else if (department) {
-            shiftsQuery = query(collection(db, 'shifts'), where('department', '==', department));
+            shiftsQuery = query(collection(db, 'shifts')); // Fetch all shifts for availability logic
             usersQuery = query(collection(db, 'users'), where('department', '==', department));
         } else {
             setLoading(false);

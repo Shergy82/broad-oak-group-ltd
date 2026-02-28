@@ -65,7 +65,7 @@
         },
         "reason": {
           "type": "string",
-          "enum": ["Holiday", "Sickness", "Other"],
+          "enum": ["Holiday", "Sickness", "Other", "Cross-Department Work"],
           "description": "The reason for the unavailability."
         },
         "createdAt": {

@@ -182,7 +182,7 @@ export interface Unavailability {
   userName: string;
   startDate: Timestamp;
   endDate: Timestamp;
-  reason: 'Holiday' | 'Sickness' | 'Other';
+  reason: 'Holiday' | 'Sickness' | 'Other' | 'Cross-Department Work';
   createdAt: Timestamp;
 }
 

@@ -56,7 +56,7 @@ export type ParsedShift = Omit<
   eNumber?: string;
 };
 
-type UserMapEntry = { uid: string; normalizedName: string; originalName: string };
+type UserMapEntry = { uid: string; normalizedName: string; originalName: string, department?: string };
 
 export interface FailedShift {
   date: Date | null;
@@ -173,25 +173,30 @@ const extractUsersAndTask = (
   let failureReason: string | null = null;
   
   const findUser = (chunk: string): UserMapEntry | { error: string } => {
-      const normalizedChunk = normalizeText(chunk);
+      const normalizedChunk = normalizeText(chunk.replace(/\r?\n/g, ' '));
       if (!normalizedChunk) return { error: `Empty name chunk found.` };
 
+      // Try exact match first
       const exactMatches = userMap.filter(u => u.normalizedName === normalizedChunk);
       if (exactMatches.length === 1) return exactMatches[0];
       if (exactMatches.length > 1) return { error: `Ambiguous name "${chunk}" matches multiple users exactly.` };
 
-      const partialMatches = userMap.filter(u => u.normalizedName.split(' ').includes(normalizedChunk));
-      if (partialMatches.length === 1) return partialMatches[0];
-      if (partialMatches.length > 1) {
-         return { error: `Ambiguous name "${chunk}" matches: ${partialMatches.slice(0,3).map(m => m.originalName).join(', ')}.` };
-      }
-      
-      if (!normalizedChunk.includes(' ')) {
-          const singleNameMatches = userMap.filter(u => u.normalizedName.startsWith(normalizedChunk + ' ') || u.normalizedName.endsWith(' ' + normalizedChunk));
-           if (singleNameMatches.length === 1) return singleNameMatches[0];
-           if (singleNameMatches.length > 1) {
-                return { error: `Ambiguous name "${chunk}" matches start/end of: ${singleNameMatches.slice(0,3).map(m => m.originalName).join(', ')}.` };
-           }
+      // Try flexible match (e.g., Phil vs Philip)
+      const chunkParts = normalizedChunk.split(' ');
+      const chunkLastName = chunkParts[chunkParts.length - 1];
+
+      const potentialMatches = userMap.filter(u => {
+          const userParts = u.normalizedName.split(' ');
+          const userLastName = userParts[userParts.length - 1];
+          return userLastName === chunkLastName;
+      });
+
+      if (potentialMatches.length === 1) return potentialMatches[0];
+      if (potentialMatches.length > 1) {
+         // Disambiguate by first name initial
+         const initialMatches = potentialMatches.filter(u => u.normalizedName.startsWith(chunkParts[0].charAt(0)));
+         if (initialMatches.length === 1) return initialMatches[0];
+         return { error: `Ambiguous name "${chunk}" matches: ${potentialMatches.slice(0,3).map(m => m.originalName).join(', ')}.` };
       }
 
       return { error: `No user found for name: "${chunk}".` };
@@ -442,11 +447,11 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           const usersSnapshot = await getDocs(collection(firestore, 'users'));
           const userMap: UserMapEntry[] = usersSnapshot.docs.map((d) => {
             const u = d.data() as UserProfile;
-            return { uid: d.id, normalizedName: normalizeText(u.name), originalName: u.name };
+            return { uid: d.id, normalizedName: normalizeText(u.name), originalName: u.name, department: u.department };
           });
           
           const findUser = (chunk: string): UserMapEntry | { error: string } => {
-              const normalizedChunk = normalizeText(chunk);
+              const normalizedChunk = normalizeText(chunk.replace(/\r?\n/g, ' '));
               if (!normalizedChunk) return { error: 'Empty name chunk' };
           
               // 1. Exact match
@@ -454,25 +459,18 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
               if (exactMatches.length === 1) return exactMatches[0];
               if (exactMatches.length > 1) return { error: `Ambiguous name (exact): "${chunk}"` };
           
-              // 2. Prefix-based match (for "Phil" vs "Philip")
+              // 2. Flexible match for names like "Phil" vs "Philip"
               const chunkParts = normalizedChunk.split(' ');
-              
-              if (chunkParts.length >= 2) {
+              if (chunkParts.length > 0) {
                   const chunkLastName = chunkParts[chunkParts.length - 1];
-                  const chunkFirstName = chunkParts[0];
-          
-                  const prefixMatches = userMap.filter(user => {
-                      const userParts = user.normalizedName.split(' ');
-                      if (userParts.length < 2) return false;
-                      
-                      const userLastName = userParts[userParts.length - 1];
-                      const userFirstName = userParts[0];
-                      
-                      return userLastName === chunkLastName && (userFirstName.startsWith(chunkFirstName) || chunkFirstName.startsWith(userFirstName));
-                  });
-          
-                  if (prefixMatches.length === 1) return prefixMatches[0];
-                  if (prefixMatches.length > 1) return { error: `Ambiguous name (prefix): "${chunk}"` };
+                  const potentialMatches = userMap.filter(u => u.normalizedName.endsWith(' ' + chunkLastName));
+
+                  if (potentialMatches.length === 1) return potentialMatches[0];
+                  if (potentialMatches.length > 1) {
+                      const initialMatches = potentialMatches.filter(u => u.normalizedName.startsWith(chunkParts[0]));
+                      if (initialMatches.length === 1) return initialMatches[0];
+                      return { error: `Ambiguous name "${chunk}" matches: ${potentialMatches.slice(0,3).map(m => m.originalName).join(', ')}.` };
+                  }
               }
               
               return { error: `Could not match operative: ${chunk}` };
@@ -665,6 +663,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             }
 
             toCreate.forEach((shift) => {
+              const shiftRef = doc(collection(firestore, 'shifts'));
               const newShiftData = {
                 ...shift,
                 date: Timestamp.fromDate(shift.date),
@@ -672,7 +671,20 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
                 createdAt: serverTimestamp(),
                 source: 'import',
               };
-              batch.set(doc(collection(firestore, 'shifts')), newShiftData);
+              batch.set(shiftRef, newShiftData);
+              
+              const user = userMap.find(u => u.uid === shift.userId);
+              if (user && user.department && user.department !== shift.department) {
+                  const unavailabilityRef = doc(firestore, 'unavailability', shiftRef.id);
+                  batch.set(unavailabilityRef, {
+                      userId: shift.userId,
+                      userName: shift.userName,
+                      startDate: Timestamp.fromDate(shift.date),
+                      endDate: Timestamp.fromDate(shift.date),
+                      reason: 'Cross-Department Work',
+                      createdAt: serverTimestamp()
+                  });
+              }
             });
 
             toUpdate.forEach(({ old, new: newShift }) => {
@@ -690,6 +702,10 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
 
             toDelete.forEach((shift) => {
               batch.delete(doc(firestore, 'shifts', shift.id));
+              const user = userMap.find(u => u.uid === shift.userId);
+              if (user && user.department && user.department !== shift.department) {
+                batch.delete(doc(firestore, 'unavailability', shift.id));
+              }
             });
 
             await batch.commit();
