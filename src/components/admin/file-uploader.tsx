@@ -448,6 +448,9 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           });
 
           if (importType === 'GAS') {
+            if (typeof parseGasWorkbook !== 'function') {
+                throw new Error("GAS import logic is not available. The parsing function could not be loaded.");
+            }
             const { parsed, failures } = await parseGasWorkbook(fileBuffer);
             
             for (const rawShift of parsed) {
@@ -471,7 +474,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
                      failures.push({
                          reason: `Could not match operative: ${rawShift.operativeNameRaw}`,
                          siteAddress: rawShift.siteAddress,
-                         shiftDate: rawShift.shiftDate,
                          operativeNameRaw: rawShift.operativeNameRaw,
                          sheetName: rawShift.source.sheetName,
                          cellRef: rawShift.source.cellRef,
