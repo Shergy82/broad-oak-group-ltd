@@ -430,45 +430,44 @@ export const deleteAllShiftsForUser = onCall({ region: REGION, timeoutSeconds: 5
     const userProfile = userDoc.data();
     const userDepartment = userProfile?.department;
 
-    const shiftsRef = db.collection('shifts');
-    const BATCH_SIZE = 200; 
-    let query = shiftsRef.where('userId', '==', userId).orderBy(admin.firestore.FieldPath.documentId()).limit(BATCH_SIZE);
-    let totalDeleted = 0;
+    const shiftsQuery = db.collection('shifts').where('userId', '==', userId);
+    const snapshot = await shiftsQuery.get();
 
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-        const snapshot = await query.get();
-        if (snapshot.empty) {
-            break;
-        }
-
-        const batch = db.batch();
-        snapshot.docs.forEach((doc) => {
-            const shift = doc.data();
-            batch.delete(doc.ref); 
-            if (userDepartment && shift.department && userDepartment !== shift.department) {
-                const unavailabilityRef = db.collection('unavailability').doc(doc.id);
-                batch.delete(unavailabilityRef);
-            }
-        });
-        await batch.commit();
-
-        totalDeleted += snapshot.size;
-        logger.info(`Deleted batch of ${snapshot.size} shifts for user ${userId}. Total deleted so far: ${totalDeleted}`);
-        
-        if (snapshot.size < BATCH_SIZE) {
-            break;
-        }
-
-        const lastVisible = snapshot.docs[snapshot.docs.length - 1];
-        query = shiftsRef.where('userId', '==', userId).orderBy(admin.firestore.FieldPath.documentId()).startAfter(lastVisible).limit(BATCH_SIZE);
-    }
-
-    if (totalDeleted === 0) {
+    if (snapshot.empty) {
         return { message: "No shifts found for this user to delete." };
     }
 
-    return { message: `Successfully deleted ${totalDeleted} shifts for the user.` };
+    const BATCH_LIMIT = 498; 
+    let batch = db.batch();
+    let writeCount = 0;
+    let totalShiftsDeleted = 0;
+
+    for (const doc of snapshot.docs) {
+        const shift = doc.data();
+        batch.delete(doc.ref);
+        writeCount++;
+        totalShiftsDeleted++;
+        
+        if (userDepartment && shift.department && userDepartment !== shift.department) {
+            const unavailabilityRef = db.collection('unavailability').doc(doc.id);
+            batch.delete(unavailabilityRef);
+            writeCount++;
+        }
+
+        if (writeCount >= BATCH_LIMIT) {
+            await batch.commit();
+            logger.info(`Committed a batch of ${writeCount} writes for user ${userId}.`);
+            batch = db.batch();
+            writeCount = 0;
+        }
+    }
+
+    if (writeCount > 0) {
+        await batch.commit();
+        logger.info(`Committed final batch of ${writeCount} writes for user ${userId}.`);
+    }
+
+    return { message: `Successfully deleted ${totalShiftsDeleted} shifts for the user.` };
 });
 
 

@@ -352,41 +352,37 @@ exports.deleteAllShiftsForUser = (0, https_1.onCall)({ region: REGION, timeoutSe
     }
     const userProfile = userDoc.data();
     const userDepartment = userProfile?.department;
-    const shiftsRef = db.collection('shifts');
-    // Reduce batch size to stay under 500 writes per commit (1 shift + 1 optional unavailability = 2 writes)
-    const BATCH_SIZE = 200;
-    let query = shiftsRef.where('userId', '==', userId).orderBy(admin.firestore.FieldPath.documentId()).limit(BATCH_SIZE);
-    let totalDeleted = 0;
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-        const snapshot = await query.get();
-        if (snapshot.empty) {
-            break;
-        }
-        const batch = db.batch();
-        snapshot.docs.forEach((doc) => {
-            const shift = doc.data();
-            batch.delete(doc.ref);
-            // If user has a department and it's different from the shift's department, it was cross-department work.
-            // This logic is based on the import function which creates unavailability records.
-            if (userDepartment && shift.department && userDepartment !== shift.department) {
-                const unavailabilityRef = db.collection('unavailability').doc(doc.id);
-                batch.delete(unavailabilityRef);
-            }
-        });
-        await batch.commit();
-        totalDeleted += snapshot.size;
-        v2_1.logger.info(`Deleted batch of ${snapshot.size} shifts for user ${userId}. Total deleted so far: ${totalDeleted}`);
-        if (snapshot.size < BATCH_SIZE) {
-            break;
-        }
-        const lastVisible = snapshot.docs[snapshot.docs.length - 1];
-        query = shiftsRef.where('userId', '==', userId).orderBy(admin.firestore.FieldPath.documentId()).startAfter(lastVisible).limit(BATCH_SIZE);
-    }
-    if (totalDeleted === 0) {
+    const shiftsQuery = db.collection('shifts').where('userId', '==', userId);
+    const snapshot = await shiftsQuery.get();
+    if (snapshot.empty) {
         return { message: "No shifts found for this user to delete." };
     }
-    return { message: `Successfully deleted ${totalDeleted} shifts for the user.` };
+    const BATCH_LIMIT = 498;
+    let batch = db.batch();
+    let writeCount = 0;
+    let totalShiftsDeleted = 0;
+    for (const doc of snapshot.docs) {
+        const shift = doc.data();
+        batch.delete(doc.ref);
+        writeCount++;
+        totalShiftsDeleted++;
+        if (userDepartment && shift.department && userDepartment !== shift.department) {
+            const unavailabilityRef = db.collection('unavailability').doc(doc.id);
+            batch.delete(unavailabilityRef);
+            writeCount++;
+        }
+        if (writeCount >= BATCH_LIMIT) {
+            await batch.commit();
+            v2_1.logger.info(`Committed a batch of ${writeCount} writes for user ${userId}.`);
+            batch = db.batch();
+            writeCount = 0;
+        }
+    }
+    if (writeCount > 0) {
+        await batch.commit();
+        v2_1.logger.info(`Committed final batch of ${writeCount} writes for user ${userId}.`);
+    }
+    return { message: `Successfully deleted ${totalShiftsDeleted} shifts for the user.` };
 });
 exports.reGeocodeAllShifts = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async (req) => {
     await assertIsOwner(req.auth?.uid);
