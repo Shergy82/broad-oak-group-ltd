@@ -1181,10 +1181,6 @@ const handlePasswordConfirmedDeleteUserShifts = async () => {
                         <BarChart2 className="mr-2 h-4 w-4" />
                         Daily Report
                     </Button>
-                     <Button variant="outline" size="sm" onClick={() => handleDownloadPdf('this')}>
-                        <Calendar className="mr-2 h-4 w-4" />
-                        Weekly Report
-                    </Button>
                     {isOwner && (
                        <div className="flex items-center gap-2">
                         <Button onClick={handleAddShift}>
@@ -1226,25 +1222,22 @@ const handlePasswordConfirmedDeleteUserShifts = async () => {
                           </SelectContent>
                       </Select>
                   </div>
-                  {isOwner && selectedUserId !== 'all' && (
-                     <Button variant="destructive" size="sm" onClick={() => setIsConfirmDeleteUserShiftsOpen(true)} disabled={isDeleting}>
-                        <Trash2 className="mr-2 h-4 w-4" /> Delete All Shifts For User
-                     </Button>
-                  )}
-                  {activeTab !== 'archive' && (
-                      <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                              <Button variant="outline" size="sm" disabled={loading} className="w-full sm:w-auto">
-                                  <Download className="mr-2 h-4 w-4" />
-                                  Download PDF
+                  {selectedUserId !== 'all' ? (
+                      <div className="flex items-center gap-2">
+                          {isOwner && (
+                              <Button variant="destructive" onClick={() => setIsConfirmDeleteUserShiftsOpen(true)} disabled={isDeleting}>
+                                  <Trash2 className="mr-2 h-4 w-4" /> Delete All Shifts For User
                               </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent>
-                              <DropdownMenuItem onClick={() => handleDownloadPdf('this')}>This Week</DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleDownloadPdf('next')}>Next Week</DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleDownloadPdf('both')}>Both Weeks</DropdownMenuItem>
-                          </DropdownMenuContent>
-                      </DropdownMenu>
+                          )}
+                          <Button variant="outline" onClick={() => handleDownloadPdf('both')}>
+                              <Download className="mr-2 h-4 w-4" /> Download PDF
+                          </Button>
+                      </div>
+                  ) : (
+                    <Button variant="outline" onClick={() => handleDownloadPdf('this')}>
+                        <Download className="mr-2 h-4 w-4" />
+                        Weekly Report
+                    </Button>
                   )}
               </div>
             )}
@@ -1382,12 +1375,3 @@ const handlePasswordConfirmedDeleteUserShifts = async () => {
     </>
   );
 }
-
-
-    
-
-    
-
-
-
-
