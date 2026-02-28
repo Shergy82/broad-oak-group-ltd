@@ -1,3 +1,4 @@
+
 rules_version = '2';
 
 service cloud.firestore {
@@ -11,26 +12,33 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(uid)).data.role;
     }
 
+    function isOwner(uid) {
+      return signedIn() && role(uid) == 'owner';
+    }
+
     function isPrivilegedUser(uid) {
       return signedIn() &&
         (role(uid) == 'admin' || role(uid) == 'owner' || role(uid) == 'manager' || role(uid) == 'TLO');
+    }
+    
+    function userDepartment(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data.department;
     }
 
     // ---- USERS ----
     match /users/{userId} {
       allow create: if signedIn() && request.auth.uid == userId;
 
-      allow read: if signedIn() &&
-        (request.auth.uid == userId || isPrivilegedUser(request.auth.uid));
+      allow read: if isOwner(request.auth.uid) || request.auth.uid == userId || 
+                      (isPrivilegedUser(request.auth.uid) && userDepartment(request.auth.uid) == resource.data.department);
 
       allow update: if signedIn() &&
         (request.auth.uid == userId || isPrivilegedUser(request.auth.uid));
 
-      allow delete: if role(request.auth.uid) == 'owner';
+      allow delete: if isOwner(request.auth.uid);
 
-      allow list: if isPrivilegedUser(request.auth.uid);
+      allow list: if signedIn(); // Relies on client-side queries and secure read rules
 
-      // ---- PUSH SUBSCRIPTIONS ----
       match /pushSubscriptions/{docId} {
         allow read, write, delete: if request.auth != null && request.auth.uid == userId;
       }
@@ -38,18 +46,18 @@ service cloud.firestore {
 
     // ---- SHIFTS ----
     match /shifts/{shiftId} {
-      allow read: if signedIn();
+      allow read: if isOwner(request.auth.uid) || request.auth.uid == resource.data.userId || (isPrivilegedUser(request.auth.uid) && userDepartment(request.auth.uid) == resource.data.department);
+      
       allow create, delete: if isPrivilegedUser(request.auth.uid);
 
       allow update: if signedIn() &&
         (
-          (resource.data.userId == request.auth.uid &&
-           request.resource.data.userId == request.auth.uid)
+          (resource.data.userId == request.auth.uid && request.resource.data.userId == request.auth.uid)
           || isPrivilegedUser(request.auth.uid)
         );
         
       match /materialPurchases/{purchaseId} {
-        allow read, list: if signedIn();
+        allow read, list: if isOwner(request.auth.uid) || (signedIn() && userDepartment(request.auth.uid) == get(/databases/$(database)/documents/shifts/$(shiftId)).data.department);
         allow create: if isPrivilegedUser(request.auth.uid) || request.auth.uid == get(/databases/$(database)/documents/shifts/$(shiftId)).data.userId;
         allow delete: if isPrivilegedUser(request.auth.uid) || request.auth.uid == resource.data.userId;
       }
@@ -62,41 +70,41 @@ service cloud.firestore {
 
       match /files/{fileId} {
         allow read, create: if signedIn();
-        allow delete: if isPrivilegedUser(request.auth.uid)
-          || resource.data.uploaderId == request.auth.uid;
+        allow delete: if isPrivilegedUser(request.auth.uid) || resource.data.uploaderId == request.auth.uid;
       }
     }
-
+    
     // ---- ANNOUNCEMENTS ----
     match /announcements/{id} {
-      allow read: if signedIn();
+      allow read: if isOwner(request.auth.uid) || (signedIn() && (resource.data.department == null || resource.data.department == userDepartment(request.auth.uid)));
       allow create, update, delete: if isPrivilegedUser(request.auth.uid);
     }
 
     // ---- ANNOUNCEMENT ACKNOWLEDGEMENTS ----
-    // Your app writes to: announcementAcknowledgements/{announcementId}_{uid}
     match /announcementAcknowledgements/{docId} {
       allow read: if signedIn();
-
-      // Only allow a user to create/update/delete their own acknowledgement
       allow create, update, delete: if signedIn()
         && request.resource.data.userId == request.auth.uid;
     }
 
     // ---- SETTINGS ----
     match /settings/{id} {
-      allow read, write: if role(request.auth.uid) == 'owner';
+      allow read, write: if isOwner(request.auth.uid);
     }
 
     // ---- TRADE TASKS ----
     match /trade_tasks/{id} {
-      allow read: if signedIn();
-      allow write: if isPrivilegedUser(request.auth.uid);
+      allow read: if isOwner(request.auth.uid) || (signedIn() && (resource.data.department == null || resource.data.department == userDepartment(request.auth.uid)));
+      allow write: if isOwner(request.auth.uid) || (
+          isPrivilegedUser(request.auth.uid) &&
+          (resource == null || resource.data.department == userDepartment(request.auth.uid) || resource.data.department == null) &&
+          (request.resource == null || request.resource.data.department == userDepartment(request.auth.uid) || request.resource.data.department == null)
+      );
     }
 
     // ---- UNAVAILABILITY ----
     match /unavailability/{id} {
-      allow read: if signedIn();
+      allow read: if isOwner(request.auth.uid) || (signedIn() && userDepartment(request.auth.uid) == userDepartment(resource.data.userId));
       allow write: if isPrivilegedUser(request.auth.uid);
     }
 
@@ -112,5 +120,9 @@ service cloud.firestore {
         allow write: if isPrivilegedUser(request.auth.uid);
     }
 
+    // ---- COLLECTION GROUP QUERIES ----
+     match /{path=**}/materialPurchases/{purchaseId} {
+        allow read: if isOwner(request.auth.uid) || (signedIn() && userDepartment(request.auth.uid) == resource.data.department);
+    }
   }
 }

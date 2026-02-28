@@ -503,7 +503,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
                             type: rawShift.type,
                             manager: '',
                             contract: '',
-                            department: importDepartment,
+                            department: 'Gas',
                             notes: '',
                         });
                    }
@@ -552,9 +552,11 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             return;
           }
           
+          const finalImportDepartment = importType === 'GAS' ? 'Gas' : importDepartment;
+          
           const existingShiftsQuery = query(
             collection(firestore, 'shifts'),
-            where('department', '==', importDepartment)
+            where('department', '==', finalImportDepartment)
           );
           
           const existingShiftsSnapshot = await getDocs(existingShiftsQuery);

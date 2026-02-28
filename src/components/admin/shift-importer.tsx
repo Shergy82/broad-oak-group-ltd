@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useAllUsers } from '@/hooks/use-all-users';
 import { Label } from '../ui/label';
 import type { ImportType } from '@/lib/exceljs-parser';
+import { Input } from '../ui/input';
 
 interface ShiftImporterProps {
   userProfile: UserProfile;
@@ -340,7 +341,13 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                 </Select>
                 <p className="text-xs text-muted-foreground">Select the format that matches your Excel file.</p>
             </div>
-            {isOwner && (
+            {importType === 'GAS' ? (
+                <div className="space-y-2">
+                    <Label>Department</Label>
+                    <Input value="Gas" disabled />
+                    <p className="text-xs text-muted-foreground">GAS format files are always imported into the Gas department.</p>
+                </div>
+            ) : isOwner ? (
                 <div className="space-y-2">
                     <Label htmlFor="import-department-select">Assign to Department</Label>
                     <Select value={importDepartment} onValueChange={setImportDepartment}>
@@ -356,7 +363,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                     </Select>
                     <p className="text-xs text-muted-foreground">All imported shifts will be tagged with this department.</p>
                 </div>
-            )}
+            ) : null}
         </div>
         <div className="mt-4">
             <FileUploader
