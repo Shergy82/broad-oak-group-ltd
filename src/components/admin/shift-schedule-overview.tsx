@@ -182,7 +182,6 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
   const [selectedArchiveWeek, setSelectedArchiveWeek] = useState<string>('0');
   const [activeTab, setActiveTab] = useState('today');
   const [isConfirmDeleteAllOpen, setIsConfirmDeleteAllOpen] = useState(false);
-  const [isConfirmDeleteUserShiftsOpen, setIsConfirmDeleteUserShiftsOpen] = useState(false);
   const [password, setPassword] = useState('');
   const [reauthError, setReauthError] = useState<string | null>(null);
   const [isReauthenticating, setIsReauthenticating] = useState(false);
@@ -763,57 +762,6 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     }
   };
 
-  const handleDeleteAllShiftsForUser = async () => {
-    if (!functions) {
-        toast({ variant: 'destructive', title: 'Error', description: 'Firebase Functions service is not available.' });
-        return;
-    }
-    if (selectedUserId === 'all') {
-        return;
-    }
-
-    setIsDeleting(true);
-    toast({ title: 'Deleting All Shifts for User...', description: 'This may take a moment.' });
-    
-    try {
-        const deleteAllShiftsForUserFn = httpsCallable(functions, 'deleteAllShiftsForUser');
-        const result = await deleteAllShiftsForUserFn({ userId: selectedUserId });
-        toast({ title: 'Success', description: (result.data as any).message });
-    } catch (error: any) {
-        toast({
-            variant: 'destructive',
-            title: 'Deletion Failed',
-            description: error.message || 'An unknown error occurred.',
-        });
-    } finally {
-        setIsDeleting(false);
-    }
-};
-
-const handlePasswordConfirmedDeleteUserShifts = async () => {
-    if (!user || !user.email) {
-      toast({ title: 'Could not verify user.', variant: 'destructive' });
-      return;
-    }
-    if (!password) {
-      setReauthError('Password is required.');
-      return;
-    }
-    setIsReauthenticating(true);
-    setReauthError(null);
-    try {
-      const credential = EmailAuthProvider.credential(user.email, password);
-      await reauthenticateWithCredential(user, credential);
-      await handleDeleteAllShiftsForUser();
-      setIsConfirmDeleteUserShiftsOpen(false);
-    } catch (error) {
-      setReauthError('Incorrect password. Deletion cancelled.');
-    } finally {
-      setIsReauthenticating(false);
-      setPassword('');
-    }
-};
-
   const renderShiftList = (shiftsToRender: Shift[]) => {
     if (shiftsToRender.length === 0) {
         return null;
@@ -1223,9 +1171,6 @@ const handlePasswordConfirmedDeleteUserShifts = async () => {
                   </div>
                   {selectedUserId !== 'all' && isOwner && (
                       <div className="flex items-center gap-2">
-                          <Button variant="destructive" onClick={() => setIsConfirmDeleteUserShiftsOpen(true)} disabled={isDeleting}>
-                              <Trash2 className="mr-2 h-4 w-4" /> Delete All Shifts For User
-                          </Button>
                           <Button variant="outline" onClick={() => handleDownloadPdf('both')}>
                               <Download className="mr-2 h-4 w-4" /> Download PDF
                           </Button>
@@ -1338,40 +1283,6 @@ const handlePasswordConfirmedDeleteUserShifts = async () => {
                 </DialogFooter>
             </DialogContent>
         </Dialog>
-
-        <Dialog open={isConfirmDeleteUserShiftsOpen} onOpenChange={setIsConfirmDeleteUserShiftsOpen}>
-            <DialogContent>
-                <DialogHeader>
-                    <DialogTitle>Are you absolutely sure?</DialogTitle>
-                    <DialogDescription>
-                    This action will permanently delete ALL shifts for the selected user. To confirm, please enter your password.
-                    </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-2 pt-4">
-                    <Label htmlFor="password-confirm-user-shifts">Password</Label>
-                    <Input
-                    id="password-confirm-user-shifts"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter your password"
-                    />
-                    {reauthError && <p className="text-sm text-destructive">{reauthError}</p>}
-                </div>
-                <DialogFooter>
-                    <Button variant="outline" onClick={() => setIsConfirmDeleteUserShiftsOpen(false)}>Cancel</Button>
-                    <Button
-                    variant="destructive"
-                    onClick={handlePasswordConfirmedDeleteUserShifts}
-                    disabled={isReauthenticating || isDeleting}
-                    >
-                    {isReauthenticating || isDeleting ? <Spinner /> : 'Confirm & Delete User Shifts'}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
     </>
   );
 }
-
-    
