@@ -16,6 +16,7 @@ import { format } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAllUsers } from '@/hooks/use-all-users';
 import { Label } from '../ui/label';
+import type { ImportType } from '@/lib/exceljs-parser';
 
 interface ShiftImporterProps {
   userProfile: UserProfile;
@@ -30,6 +31,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
 
   const [isConfirmed, setIsConfirmed] = useState(false);
   const [importDepartment, setImportDepartment] = useState(userProfile.department || '');
+  const [importType, setImportType] = useState<ImportType>('BUILD');
   const { users: allUsers, loading: usersLoading } = useAllUsers();
 
   const isOwner = userProfile.role === 'owner';
@@ -324,30 +326,47 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {isOwner && (
-            <div className="space-y-2 mb-4">
+        <div className="space-y-4">
+            <div className="space-y-2">
                 <Label htmlFor="import-format-select">Select Import Format</Label>
-                <Select value={importDepartment} onValueChange={setImportDepartment}>
+                <Select value={importType} onValueChange={(v) => setImportType(v as 'BUILD' | 'GAS')}>
                     <SelectTrigger id="import-format-select">
-                        <SelectValue placeholder="Select department's format..." />
+                        <SelectValue placeholder="Select import format..." />
                     </SelectTrigger>
                     <SelectContent>
-                        {usersLoading 
-                            ? <div className="p-2 text-sm text-muted-foreground">Loading departments...</div>
-                            : availableDepartments.map(dept => <SelectItem key={dept} value={dept}>{dept} Department Format</SelectItem>)
-                        }
-                        <SelectItem value="Other">Standard/ECO Format</SelectItem>
+                        <SelectItem value="BUILD">Build Department Format</SelectItem>
+                        <SelectItem value="GAS">Gas Department Format</SelectItem>
                     </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">Select 'Build' for the new layout, 'Standard/ECO' for the old one.</p>
+                <p className="text-xs text-muted-foreground">Select the format that matches your Excel file.</p>
             </div>
-        )}
-        <FileUploader
-          onImportComplete={handleImportComplete}
-          onFileSelect={handleFileSelect}
-          userProfile={userProfile}
-          importDepartment={importDepartment}
-        />
+            {isOwner && (
+                <div className="space-y-2">
+                    <Label htmlFor="import-department-select">Assign to Department</Label>
+                    <Select value={importDepartment} onValueChange={setImportDepartment}>
+                        <SelectTrigger id="import-department-select">
+                            <SelectValue placeholder="Select department..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {usersLoading 
+                                ? <div className="p-2 text-sm text-muted-foreground">Loading departments...</div>
+                                : availableDepartments.map(dept => <SelectItem key={dept} value={dept}>{dept}</SelectItem>)
+                            }
+                        </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">All imported shifts will be tagged with this department.</p>
+                </div>
+            )}
+        </div>
+        <div className="mt-4">
+            <FileUploader
+            onImportComplete={handleImportComplete}
+            onFileSelect={handleFileSelect}
+            userProfile={userProfile}
+            importDepartment={importDepartment}
+            importType={importType}
+            />
+        </div>
       </CardContent>
 
       {importResults && (

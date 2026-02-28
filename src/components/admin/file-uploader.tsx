@@ -14,7 +14,6 @@ import {
   where,
   Timestamp,
   serverTimestamp,
-  limit,
 } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
 import { Button } from '@/components/ui/button';
@@ -44,6 +43,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '../ui/scroll-area';
 import { cn, getCorrectedLocalDate } from '@/lib/utils';
+import { parseGasWorkbook, type ImportType, type RawParsedShift } from '@/lib/exceljs-parser';
+
 
 export type ParsedShift = Omit<
   Shift,
@@ -127,7 +128,6 @@ const extractUsersAndTask = (
 
   let shiftType: 'am' | 'pm' | 'all-day' = 'all-day';
 
-  // Use a regex with a word boundary to correctly identify "AM" or "PM" as whole words at the start.
   if (/^AM\b/i.test(raw)) {
     shiftType = 'am';
     raw = raw.substring(2).trim();
@@ -158,7 +158,6 @@ const extractUsersAndTask = (
     };
   }
 
-  // Regex to split by common delimiters, treating " and " as a whole word delimiter.
   const nameChunks = namesPart.split(/,|\/|&|\b\s*and\s*\b/i).map(s => s.trim()).filter(Boolean);
 
   if (nameChunks.length === 0) {
@@ -177,19 +176,16 @@ const extractUsersAndTask = (
       const normalizedChunk = normalizeText(chunk);
       if (!normalizedChunk) return { error: `Empty name chunk found.` };
 
-      // 1. Exact match on full normalized name
       const exactMatches = userMap.filter(u => u.normalizedName === normalizedChunk);
       if (exactMatches.length === 1) return exactMatches[0];
       if (exactMatches.length > 1) return { error: `Ambiguous name "${chunk}" matches multiple users exactly.` };
 
-      // 2. Partial match where chunk is one of the words in the full name
       const partialMatches = userMap.filter(u => u.normalizedName.split(' ').includes(normalizedChunk));
       if (partialMatches.length === 1) return partialMatches[0];
       if (partialMatches.length > 1) {
          return { error: `Ambiguous name "${chunk}" matches: ${partialMatches.slice(0,3).map(m => m.originalName).join(', ')}.` };
       }
       
-      // 3. Fallback for single-word names if no space is present (e.g. "John" vs "John Doe")
       if (!normalizedChunk.includes(' ')) {
           const singleNameMatches = userMap.filter(u => u.normalizedName.startsWith(normalizedChunk + ' ') || u.normalizedName.endsWith(' ' + normalizedChunk));
            if (singleNameMatches.length === 1) return singleNameMatches[0];
@@ -329,11 +325,12 @@ interface FileUploaderProps {
   onFileSelect: () => void;
   userProfile: UserProfile;
   importDepartment: string;
+  importType: ImportType;
 }
 
 const LOCAL_STORAGE_KEY = 'shiftImport_selectedSheets_v2';
 
-export function FileUploader({ onImportComplete, onFileSelect, userProfile, importDepartment }: FileUploaderProps) {
+export function FileUploader({ onImportComplete, onFileSelect, userProfile, importDepartment, importType }: FileUploaderProps) {
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -366,13 +363,10 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
       const workbook = XLSX.read(data, { type: 'array' });
       
       const visibleSheetNames = workbook.SheetNames.filter(name => {
-          if (name.startsWith('_')) {
-              return false;
-          }
+          if (name.startsWith('_')) return false;
           const sheet = workbook.Sheets[name];
-          if ((sheet as any)?.Hidden === 1 || (sheet as any)?.Hidden === '1' || (sheet as any)?.Hidden === true) {
-              return false;
-          }
+          // @ts-ignore
+          if (sheet?.Hidden === 1 || sheet?.Hidden === '1' || sheet?.Hidden === true) return false;
           return true;
       });
       
@@ -428,7 +422,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
         return;
       }
 
-      if (selectedSheets.length === 0) {
+      if (importType === 'BUILD' && selectedSheets.length === 0) {
         setError('No sheets selected. Please enable at least one sheet to import.');
         return;
       }
@@ -440,13 +434,12 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
       reader.onload = async (e) => {
         try {
           const data = e.target?.result;
-          if (!data) throw new Error('Could not read file data.');
+          if (!(data instanceof ArrayBuffer)) throw new Error('Could not read file data as ArrayBuffer.');
+          
+          const fileBuffer = Buffer.from(data);
 
-          const workbook = XLSX.read(data, {
-            type: 'array',
-            cellDates: true,
-            cellStyles: true,
-          });
+          let allShiftsFromExcel: ParsedShift[] = [];
+          let allFailedShifts: FailedShift[] = [];
 
           const usersSnapshot = await getDocs(collection(firestore, 'users'));
           const userMap: UserMapEntry[] = usersSnapshot.docs.map((d) => {
@@ -454,22 +447,69 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             return { uid: d.id, normalizedName: normalizeText(u.name), originalName: u.name };
           });
 
-          const allShiftsFromExcel: ParsedShift[] = [];
-          const allFailedShifts: FailedShift[] = [];
-
-          for (const sheetName of selectedSheets) {
-            const worksheet = workbook.Sheets[sheetName];
-            if (!worksheet) continue;
+          if (importType === 'GAS') {
+            const { parsed, failures } = await parseGasWorkbook(fileBuffer);
             
-            const { shifts, failed } = parseBuildSheet(
-              worksheet,
-              userMap,
-              sheetName,
-              importDepartment
-            );
-            allShiftsFromExcel.push(...shifts);
-            allFailedShifts.push(...failed);
+            for (const rawShift of parsed) {
+                const extraction = extractUsersAndTask(rawShift.operativeNameRaw, userMap);
+                 if (extraction && extraction.users.length > 0) {
+                    for (const user of extraction.users) {
+                        allShiftsFromExcel.push({
+                            date: new Date(rawShift.shiftDate),
+                            address: rawShift.siteAddress,
+                            task: rawShift.task,
+                            userId: user.uid,
+                            userName: user.originalName,
+                            type: rawShift.type,
+                            manager: '',
+                            contract: '',
+                            department: importDepartment,
+                            notes: '',
+                        });
+                    }
+                } else {
+                     failures.push({
+                         reason: `Could not match operative: ${rawShift.operativeNameRaw}`,
+                         siteAddress: rawShift.siteAddress,
+                         shiftDate: rawShift.shiftDate,
+                         operativeNameRaw: rawShift.operativeNameRaw,
+                         sheetName: rawShift.source.sheetName,
+                         cellRef: rawShift.source.cellRef,
+                     });
+                }
+            }
+            
+            allFailedShifts.push(...failures.map(f => ({
+                date: f.shiftDate ? new Date(f.shiftDate) : null,
+                projectAddress: f.siteAddress || 'Unknown',
+                cellContent: f.operativeNameRaw || '',
+                reason: f.reason,
+                sheetName: f.sheetName || 'Unknown Sheet',
+                cellRef: f.cellRef || 'N/A'
+            })));
+
+          } else { // BUILD
+              const workbook = XLSX.read(data, {
+                type: 'array',
+                cellDates: true,
+                cellStyles: true,
+              });
+    
+              for (const sheetName of selectedSheets) {
+                const worksheet = workbook.Sheets[sheetName];
+                if (!worksheet) continue;
+                
+                const { shifts: buildShifts, failed: buildFailed } = parseBuildSheet(
+                  worksheet,
+                  userMap,
+                  sheetName,
+                  importDepartment
+                );
+                allShiftsFromExcel.push(...buildShifts);
+                allFailedShifts.push(...buildFailed);
+              }
           }
+
 
           if (allShiftsFromExcel.length === 0 && allFailedShifts.length === 0) {
             toast({
@@ -693,7 +733,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
 
       reader.readAsArrayBuffer(file);
     },
-    [file, selectedSheets, toast, onImportComplete, onFileSelect, userProfile, importDepartment]
+    [file, selectedSheets, toast, onImportComplete, onFileSelect, userProfile, importDepartment, importType]
   );
 
   const handleImport = () => {
@@ -776,7 +816,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
               </Button>
             </div>
 
-            {sheetNames.length > 0 && (
+            {importType === 'BUILD' && sheetNames.length > 0 && (
               <div className="space-y-2">
                 <Label htmlFor="sheet-select">Select Sheets to Import</Label>
                 <DropdownMenu>
@@ -834,7 +874,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             <div className="flex items-center gap-2">
               <Button
                 onClick={handleImport}
-                disabled={!file || isUploading || selectedSheets.length === 0}
+                disabled={!file || isUploading || (importType === 'BUILD' && selectedSheets.length === 0)}
                 className="w-full sm:w-auto"
               >
                 {isUploading ? (
