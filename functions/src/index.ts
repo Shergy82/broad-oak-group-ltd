@@ -58,20 +58,29 @@ if (WEBPUSH_PUBLIC_KEY && WEBPUSH_PRIVATE_KEY) {
    HELPERS
 ===================================================== */
 
-const assertIsOwner = async (uid: string) => {
+const assertAuthenticated = (uid?: string): asserts uid is string => {
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "Authentication required");
+  }
+};
+
+const assertIsOwner = async (uid?: string) => {
+  assertAuthenticated(uid);
   const snap = await db.collection("users").doc(uid).get();
   if (snap.data()?.role !== "owner") {
     throw new HttpsError("permission-denied", "Owner role required");
   }
 };
 
-const assertAdminOrManager = async (uid: string) => {
+const assertAdminOrManager = async (uid?: string) => {
+  assertAuthenticated(uid);
   const snap = await db.collection("users").doc(uid).get();
   const role = snap.data()?.role;
   if (!["admin", "owner", "manager"].includes(role)) {
     throw new HttpsError("permission-denied", "Insufficient permissions");
   }
 };
+
 
 const formatDateUK = (d: Date): string =>
   `${String(d.getUTCDate()).padStart(2, "0")}/${String(
@@ -156,17 +165,13 @@ export const getVapidPublicKey = onCall({ region: REGION }, () => {
 ===================================================== */
 
 export const getNotificationStatus = onCall({ region: REGION }, async (req) => {
-  if (!req.auth?.uid) {
-    throw new HttpsError("unauthenticated", "Authentication required");
-  }
+  assertAuthenticated(req.auth?.uid);
   const snap = await db.collection("users").doc(req.auth.uid).get();
   return { enabled: snap.data()?.notificationsEnabled ?? false };
 });
 
 export const setNotificationStatus = onCall({ region: REGION }, async (req) => {
-  if (!req.auth?.uid) {
-    throw new HttpsError("unauthenticated", "Authentication required");
-  }
+  assertAuthenticated(req.auth?.uid);
   const { enabled, subscription } = req.data ?? {};
 
   if (typeof enabled !== "boolean") {
@@ -197,10 +202,7 @@ export const setNotificationStatus = onCall({ region: REGION }, async (req) => {
 export const setUserStatus = onCall(
   { region: REGION },
   async (req) => {
-    if (!req.auth?.uid) {
-      throw new HttpsError("unauthenticated", "Authentication required");
-    }
-    await assertAdminOrManager(req.auth.uid);
+    await assertAdminOrManager(req.auth?.uid);
 
     const { uid, disabled, newStatus, department } = req.data ?? {};
     if (
@@ -226,10 +228,7 @@ export const setUserStatus = onCall(
 
 
 export const deleteUser = onCall({ region: REGION }, async (req) => {
-  if (!req.auth?.uid) {
-    throw new HttpsError("unauthenticated", "Authentication required");
-  }
-  await assertIsOwner(req.auth.uid);
+  await assertIsOwner(req.auth?.uid);
 
   const { uid } = req.data ?? {};
   if (typeof uid !== 'string') {
@@ -298,10 +297,7 @@ export const onShiftCreated = onDocumentCreated(
 export const deleteProjectAndFiles = onCall(
   { region: REGION, timeoutSeconds: 540, memory: '1GiB' },
   async (req) => {
-    if (!req.auth?.uid) {
-      throw new HttpsError("unauthenticated", "Authentication required");
-    }
-    await assertAdminOrManager(req.auth.uid);
+    await assertAdminOrManager(req.auth?.uid);
 
     const { projectId } = req.data as { projectId: string };
     if (!projectId) {
@@ -328,10 +324,7 @@ export const deleteProjectAndFiles = onCall(
 );
 
 export const deleteAllProjects = onCall({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async (req) => {
-    if (!req.auth?.uid) {
-        throw new HttpsError("unauthenticated", "Authentication required");
-    }
-    await assertIsOwner(req.auth.uid);
+    await assertIsOwner(req.auth?.uid);
     // This is a placeholder for safety. In a real scenario, you'd iterate and delete.
     logger.info("deleteAllProjects called by", req.auth?.uid);
     return { message: "Deletion process simulation complete. No projects were actually deleted." };
@@ -340,9 +333,7 @@ export const deleteAllProjects = onCall({ region: REGION, timeoutSeconds: 540, m
 export const deleteProjectFile = onCall(
   { region: REGION },
   async (req) => {
-    if (!req.auth?.uid) {
-      throw new HttpsError("unauthenticated", "Authentication required");
-    }
+    assertAuthenticated(req.auth?.uid);
     const uid = req.auth.uid;
     const { projectId, fileId } = req.data ?? {};
     if (!projectId || !fileId) {
@@ -368,9 +359,7 @@ export const deleteProjectFile = onCall(
 export const zipProjectFiles = onCall(
   { region: REGION, timeoutSeconds: 300, memory: '1GiB' },
   async (req) => {
-    if (!req.auth?.uid) {
-        throw new HttpsError("unauthenticated", "Authentication required");
-    }
+    assertAuthenticated(req.auth?.uid);
     const { projectId } = req.data ?? {};
     if (!projectId) {
       throw new HttpsError('invalid-argument', 'projectId required');
@@ -411,10 +400,7 @@ export const zipProjectFiles = onCall(
    SHIFTS (CALLABLE)
 ===================================================== */
 export const deleteAllShifts = onCall({ region: REGION }, async (req) => {
-    if (!req.auth?.uid) {
-        throw new HttpsError("unauthenticated", "Authentication required");
-    }
-    await assertIsOwner(req.auth.uid);
+    await assertIsOwner(req.auth?.uid);
     const snap = await db.collection('shifts').get();
     if (snap.empty) return { message: "No shifts to delete." };
 
@@ -435,10 +421,7 @@ export const deleteAllShifts = onCall({ region: REGION }, async (req) => {
 export const deleteAllShiftsForUser = onCall(
   { region: REGION, timeoutSeconds: 540, memory: "1GiB" },
   async (req) => {
-    if (!req.auth?.uid) {
-      throw new HttpsError("unauthenticated", "Authentication required");
-    }
-    await assertIsOwner(req.auth.uid);
+    await assertIsOwner(req.auth?.uid);
 
     const { userId } = req.data as { userId: string };
     if (!userId) {
@@ -454,7 +437,7 @@ export const deleteAllShiftsForUser = onCall(
     const shiftsRef = db.collection("shifts");
     const unavailabilityRef = db.collection("unavailability");
 
-    const BATCH_SIZE = 200; // Keep it safely under the 500-write limit
+    const BATCH_SIZE = 200; // Safely under 500 limit, accounting for dual deletes
     let totalDeleted = 0;
     let hasMore = true;
 
@@ -474,35 +457,29 @@ export const deleteAllShiftsForUser = onCall(
       }
 
       const batch = db.batch();
-      const unavailPromises: Promise<any>[] = [];
-
+      
+      // SERIAL LOOP to prevent unhandled promise rejections
       for (const doc of snapshot.docs) {
         const shift = doc.data();
         batch.delete(doc.ref);
 
+        // If the shift was for a different department, also delete the corresponding unavailability record
         if (
           userHomeDepartment &&
           shift.department &&
           userHomeDepartment !== shift.department
         ) {
-          // Add existence check for related doc before deleting
-          unavailPromises.push(
-            unavailabilityRef.doc(doc.id).get().then(unavailDoc => {
-              if (unavailDoc.exists) {
-                batch.delete(unavailDoc.ref);
-              }
-            })
-          );
+          const unavailDoc = await unavailabilityRef.doc(doc.id).get();
+          if (unavailDoc.exists) {
+            batch.delete(unavailDoc.ref);
+          }
         }
       }
-
-      // Wait for all existence checks to complete before committing the batch
-      await Promise.all(unavailPromises);
-      await batch.commit();
       
+      await batch.commit();
       totalDeleted += snapshot.size;
       
-      // Wait a bit to avoid overwhelming the backend
+      // Add a small delay to avoid hitting rate limits on very large datasets
       await new Promise(r => setTimeout(r, 100));
     }
 
@@ -511,11 +488,8 @@ export const deleteAllShiftsForUser = onCall(
 );
 
 
-export const reGeocodeAllShifts = onCall({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async (req) => {
-    if (!req.auth?.uid) {
-        throw new HttpsError("unauthenticated", "Authentication required");
-    }
-    await assertIsOwner(req.auth.uid);
+export const reGeocodeAllShifts = onCall({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async (req) => => {
+    await assertIsOwner(req.auth?.uid);
     if (!GEOCODING_KEY) {
       throw new HttpsError('failed-precondition', 'Missing GEOCODING_KEY');
     }
@@ -573,3 +547,4 @@ export const deleteScheduledProjects = onSchedule(
     logger.info("Scheduled project cleanup finished");
   }
 );
+

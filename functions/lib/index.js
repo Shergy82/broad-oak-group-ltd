@@ -173,8 +173,7 @@ exports.setNotificationStatus = (0, https_1.onCall)({ region: REGION }, async (r
    USER MANAGEMENT (CALLABLE)
 ===================================================== */
 exports.setUserStatus = (0, https_1.onCall)({ region: REGION }, async (req) => {
-    assertAuthenticated(req.auth?.uid);
-    await assertAdminOrManager(req.auth.uid);
+    await assertAdminOrManager(req.auth?.uid);
     const { uid, disabled, newStatus, department } = req.data ?? {};
     if (typeof uid !== 'string' ||
         typeof disabled !== 'boolean' ||
@@ -232,8 +231,7 @@ exports.onShiftCreated = (0, firestore_1.onDocumentCreated)({ document: "shifts/
    PROJECT & FILE MANAGEMENT (CALLABLE)
 ===================================================== */
 exports.deleteProjectAndFiles = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async (req) => {
-    assertAuthenticated(req.auth?.uid);
-    await assertAdminOrManager(req.auth.uid);
+    await assertAdminOrManager(req.auth?.uid);
     const { projectId } = req.data;
     if (!projectId) {
         throw new https_1.HttpsError('invalid-argument', 'projectId is required');
@@ -318,8 +316,7 @@ exports.zipProjectFiles = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 
    SHIFTS (CALLABLE)
 ===================================================== */
 exports.deleteAllShifts = (0, https_1.onCall)({ region: REGION }, async (req) => {
-    assertAuthenticated(req.auth?.uid);
-    await assertIsOwner(req.auth.uid);
+    await assertIsOwner(req.auth?.uid);
     const snap = await db.collection('shifts').get();
     if (snap.empty)
         return { message: "No shifts to delete." };
@@ -336,8 +333,7 @@ exports.deleteAllShifts = (0, https_1.onCall)({ region: REGION }, async (req) =>
     return { message: `Successfully deleted ${count} active shifts.` };
 });
 exports.deleteAllShiftsForUser = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 540, memory: "1GiB" }, async (req) => {
-    assertAuthenticated(req.auth?.uid);
-    await assertIsOwner(req.auth.uid);
+    await assertIsOwner(req.auth?.uid);
     const { userId } = req.data;
     if (!userId) {
         throw new https_1.HttpsError("invalid-argument", "A userId is required.");
@@ -349,7 +345,7 @@ exports.deleteAllShiftsForUser = (0, https_1.onCall)({ region: REGION, timeoutSe
     const userHomeDepartment = userDoc.data()?.department;
     const shiftsRef = db.collection("shifts");
     const unavailabilityRef = db.collection("unavailability");
-    const BATCH_SIZE = 200; // Keep it safely under the 500-write limit
+    const BATCH_SIZE = 200; // Safely under 500 limit, accounting for dual deletes
     let totalDeleted = 0;
     let hasMore = true;
     if (totalDeleted === 0) {
@@ -365,10 +361,11 @@ exports.deleteAllShiftsForUser = (0, https_1.onCall)({ region: REGION, timeoutSe
             break;
         }
         const batch = db.batch();
-        // THIS IS THE CORRECTED, SERIAL LOGIC
+        // SERIAL LOOP to prevent unhandled promise rejections
         for (const doc of snapshot.docs) {
             const shift = doc.data();
             batch.delete(doc.ref);
+            // If the shift was for a different department, also delete the corresponding unavailability record
             if (userHomeDepartment &&
                 shift.department &&
                 userHomeDepartment !== shift.department) {
@@ -380,13 +377,13 @@ exports.deleteAllShiftsForUser = (0, https_1.onCall)({ region: REGION, timeoutSe
         }
         await batch.commit();
         totalDeleted += snapshot.size;
+        // Add a small delay to avoid hitting rate limits on very large datasets
         await new Promise(r => setTimeout(r, 100));
     }
     return { message: `Deleted ${totalDeleted} shifts and associated records for the user.` };
 });
 exports.reGeocodeAllShifts = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async (req) => {
-    assertAuthenticated(req.auth?.uid);
-    await assertIsOwner(req.auth.uid);
+    await assertIsOwner(req.auth?.uid);
     if (!GEOCODING_KEY) {
         throw new https_1.HttpsError('failed-precondition', 'Missing GEOCODING_KEY');
     }
