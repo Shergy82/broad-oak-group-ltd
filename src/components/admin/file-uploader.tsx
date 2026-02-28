@@ -533,7 +533,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
                       userName: parsedShift.user.originalName,
                       type: parsedShift.type,
                       manager: '', // Manager is not parsed in GAS format
-                      contract: '', // Contract is not parsed in GAS format
+                      contract: parsedShift.source.sheetName || '', // Contract name from sheet name
                       department: 'Gas',
                       notes: '',
                   });
