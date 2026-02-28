@@ -691,10 +691,6 @@ export function EvidenceDashboard() {
     });
   };
 
-  const hiddenContractsList = useMemo(() => {
-      return Array.from(hiddenContracts).sort();
-  }, [hiddenContracts]);
-
   // Unified data fetching
   useEffect(() => {
     if (!userProfile) return;
@@ -857,6 +853,16 @@ export function EvidenceDashboard() {
   }, [relevantProjects, filesByProject, evidenceChecklists, loading]);
   
   const visibleGroups = useMemo(() => groupedProjects.filter(([name]) => !hiddenContracts.has(name)), [groupedProjects, hiddenContracts]);
+  
+  const hiddenContractsList = useMemo(() => {
+    // Get all contract names that are relevant for the current view
+    const allRelevantContractNames = new Set(groupedProjects.map(([name]) => name));
+    
+    // Filter the globally stored hidden contracts to only those that are relevant now
+    return Array.from(hiddenContracts)
+        .filter(hiddenName => allRelevantContractNames.has(hiddenName))
+        .sort();
+  }, [groupedProjects, hiddenContracts]);
 
 
   return (
