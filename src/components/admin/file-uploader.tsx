@@ -89,8 +89,12 @@ const parseDate = (dateValue: any): Date | null => {
     }
   }
   if (typeof dateValue === 'string') {
-    const s = dateValue.trim();
+    let s = dateValue.trim();
     if (!s) return null;
+
+    // Clean ordinal indicators (st, nd, rd, th) from dates
+    s = s.replace(/(\d+)(st|nd|rd|th)/, '$1');
+
     const parts = s.match(/^(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?$/);
     if (parts) {
       const day = parseInt(parts[1], 10);
