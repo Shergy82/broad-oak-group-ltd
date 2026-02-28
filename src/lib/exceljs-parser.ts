@@ -75,9 +75,50 @@ export async function parseWorkbookByType(params: {
   };
 }
 
+
 /* =========================
    GAS PARSER (NEW)
 ========================= */
+
+function extractTaskAndNames(text: string): { task: string; names: string[]; type: 'am' | 'pm' | 'all-day' } {
+  let raw = normalizeWhitespace(text);
+  
+  let shiftType: 'am' | 'pm' | 'all-day' = 'all-day';
+
+  if (/^AM\b/i.test(raw)) {
+    shiftType = 'am';
+    raw = raw.substring(2).trim();
+  } else if (/^PM\b/i.test(raw)) {
+    shiftType = 'pm';
+    raw = raw.substring(2).trim();
+  }
+
+  const lastHyphenIndex = raw.lastIndexOf("-");
+  
+  let taskPart = "Task not specified";
+  let namesPart = raw;
+
+  if (lastHyphenIndex > 0) {
+    const potentialTask = raw.substring(0, lastHyphenIndex).trim();
+    const potentialNames = raw.substring(lastHyphenIndex + 1).trim();
+    if (potentialTask && potentialNames) {
+      taskPart = potentialTask;
+      namesPart = potentialNames;
+    }
+  }
+
+  const names = splitNames(namesPart);
+  
+  if (names.length === 0 && lastHyphenIndex === -1) {
+      const potentialNamesOnly = splitNames(raw);
+      if (potentialNamesOnly.length > 0) {
+          return { task: "Task not specified", names: potentialNamesOnly, type: shiftType };
+      }
+  }
+
+  return { task: taskPart, names, type: shiftType };
+}
+
 
 export async function parseGasWorkbook(fileBuffer: Buffer): Promise<ParseResult> {
   const workbook = new ExcelJS.Workbook();
@@ -181,9 +222,18 @@ export async function parseGasWorkbook(fileBuffer: Buffer): Promise<ParseResult>
         // Ignore obvious non-shift fields
         if (isNonShiftText(text)) continue;
 
-        // Split multi-name cells into multiple shifts
-        const names = splitNames(text);
-        if (names.length === 0) continue;
+        const { task, names, type } = extractTaskAndNames(text);
+        
+        if (names.length === 0) {
+            failures.push({
+                reason: "Could not extract operative names from cell.",
+                siteAddress,
+                operativeNameRaw: text,
+                sheetName,
+                cellRef: cell.address,
+            });
+            continue;
+        }
 
         for (const name of names) {
           parsed.push({
@@ -192,8 +242,8 @@ export async function parseGasWorkbook(fileBuffer: Buffer): Promise<ParseResult>
             operativeNameRaw: name,
             department: "GAS",
             importType: "GAS",
-            task: 'Unknown - from GAS import', // Placeholder task
-            type: 'all-day', // Default type
+            task: task,
+            type: type,
             source: { sheetName, cellRef: cell.address },
           });
         }
@@ -537,8 +587,8 @@ function isWhiteLike(argb: string): boolean {
 function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
   const v = cell.value;
 
-  if (v instanceof Date) {
-    if (!isNaN(v.getTime())) return v;
+  if (v instanceof Date && !isNaN(v.getTime())) {
+    return v;
   }
 
   // Excel serial numbers (often used for dates)
@@ -552,18 +602,17 @@ function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
   if (!text) return null;
 
   // Try parsing dd/mm/yy or dd/mm/yyyy etc.
-  const parts = text.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+  const parts = text.match(/^(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?$/);
   if (parts) {
     const day = parseInt(parts[1], 10);
     const month = parseInt(parts[2], 10) - 1;
-    let year = parseInt(parts[3], 10);
-    if (year < 100) {
-      year += 2000;
-    }
-    const date = new Date(Date.UTC(year, month, day));
-    // Verify that the created date is valid (e.g., handles 31/02)
-    if (date.getUTCFullYear() === year && date.getUTCMonth() === month && date.getUTCDate() === day) {
-      return date;
+    let year = parts[3] ? parseInt(parts[3], 10) : new Date().getFullYear();
+    if (year < 100) year += 2000;
+    if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
+      const d = new Date(Date.UTC(year, month, day));
+      if (d.getUTCFullYear() === year && d.getUTCMonth() === month && d.getUTCDate() === day) {
+        return d;
+      }
     }
   }
 
