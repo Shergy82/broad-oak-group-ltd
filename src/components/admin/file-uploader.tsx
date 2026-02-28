@@ -480,10 +480,10 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
     }
   };
 
-  const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string }): string => {
+  const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; task: string }): string => {
     const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
     const normalizedDate = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-    return `${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${normalizeText(shift.address)}`;
+    return `${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${normalizeText(shift.address)}-${normalizeText(shift.task)}`;
   };
 
   const runImport = useCallback(
@@ -594,7 +594,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           const existingShiftsMap = new Map<string, Shift>();
           existingShiftsSnapshot.forEach((doc) => {
             const shiftData = { id: doc.id, ...doc.data() } as Shift;
-            if (!shiftData.userId || !shiftData.date || !shiftData.address) return;
+            if (!shiftData.userId || !shiftData.date || !shiftData.address || !shiftData.task) return;
             existingShiftsMap.set(getShiftKey(shiftData as any), shiftData);
           });
 
