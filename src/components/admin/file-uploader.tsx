@@ -92,8 +92,7 @@ const parseDate = (dateValue: any): Date | null => {
     let s = dateValue.trim();
     if (!s) return null;
 
-    // Clean ordinal indicators (st, nd, rd, th) from dates
-    s = s.replace(/(\d+)(st|nd|rd|th)/, '$1');
+    s = s.replace(/(\d+)(st|nd|rd|th)/g, '$1');
 
     const parts = s.match(/^(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?$/);
     if (parts) {
@@ -120,6 +119,41 @@ const isRowEmpty = (row: any[]): boolean => {
   if (!row || row.length === 0) return true;
   return row.every(cell => cell === null || cell === undefined || String(cell).trim() === '');
 };
+
+const findUsersInMap = (nameChunk: string, userMap: UserMapEntry[]): { users: UserMapEntry[]; reason?: string } => {
+    const normalizedChunk = normalizeText(nameChunk);
+    if (!normalizedChunk) return { users: [], reason: 'Empty name provided.' };
+
+    // 1. Exact match (most reliable)
+    let matches = userMap.filter(u => u.normalizedName === normalizedChunk);
+    if (matches.length === 1) return { users: matches };
+    if (matches.length > 1) return { users: [], reason: `Ambiguous name "${nameChunk}" matches multiple users exactly.` };
+
+    // 2. The query is a substring of the full name (e.g., "Shergold" finds "Phil Shergold")
+    matches = userMap.filter(u => u.normalizedName.includes(normalizedChunk));
+    if (matches.length === 1) return { users: matches };
+    if (matches.length > 1) return { users: [], reason: `Ambiguous name "${nameChunk}" matches multiple users.` };
+    
+    // 3. Fallback for Matrix-style parsing: Last name match
+    const chunkParts = normalizedChunk.split(' ');
+    const lastName = chunkParts[chunkParts.length - 1];
+    if (lastName) {
+        matches = userMap.filter(u => u.normalizedName.endsWith(' ' + lastName));
+        if (matches.length === 1) return { users: matches };
+        if (matches.length > 1) {
+            // Disambiguate by first initial if possible
+             if (chunkParts.length > 1) {
+                const firstInitial = chunkParts[0].charAt(0);
+                const initialMatches = matches.filter(u => u.normalizedName.startsWith(firstInitial));
+                if (initialMatches.length === 1) return { users: initialMatches };
+            }
+            return { users: [], reason: `Ambiguous name "${nameChunk}" matches multiple users by last name.` };
+        }
+    }
+    
+    return { users: [], reason: `No user found for name: "${nameChunk}".` };
+};
+
 
 const extractUsersAndTask = (
   text: string,
@@ -176,44 +210,15 @@ const extractUsersAndTask = (
   const allMatchedUsers: UserMapEntry[] = [];
   let failureReason: string | null = null;
   
-  const findUser = (chunk: string): UserMapEntry | { error: string } => {
-      const normalizedChunk = normalizeText(chunk.replace(/\r?\n/g, ' '));
-      if (!normalizedChunk) return { error: `Empty name chunk found.` };
-
-      // Try exact match first
-      const exactMatches = userMap.filter(u => u.normalizedName === normalizedChunk);
-      if (exactMatches.length === 1) return exactMatches[0];
-      if (exactMatches.length > 1) return { error: `Ambiguous name "${chunk}" matches multiple users exactly.` };
-
-      // Try flexible match (e.g., Phil vs Philip)
-      const chunkParts = normalizedChunk.split(' ');
-      const chunkLastName = chunkParts[chunkParts.length - 1];
-
-      const potentialMatches = userMap.filter(u => {
-          const userParts = u.normalizedName.split(' ');
-          const userLastName = userParts[userParts.length - 1];
-          return userLastName === chunkLastName;
-      });
-
-      if (potentialMatches.length === 1) return potentialMatches[0];
-      if (potentialMatches.length > 1) {
-         // Disambiguate by first name initial
-         const initialMatches = potentialMatches.filter(u => u.normalizedName.startsWith(chunkParts[0].charAt(0)));
-         if (initialMatches.length === 1) return initialMatches[0];
-         return { error: `Ambiguous name "${chunk}" matches: ${potentialMatches.slice(0,3).map(m => m.originalName).join(', ')}.` };
-      }
-
-      return { error: `No user found for name: "${chunk}".` };
-  };
-
   for (const chunk of nameChunks) {
-      const result = findUser(chunk);
-      if ('error' in result) {
-          failureReason = result.error;
+      const result = findUsersInMap(chunk, userMap);
+      if (result.users.length === 1) {
+          if (!allMatchedUsers.some(u => u.uid === result.users[0].uid)) {
+              allMatchedUsers.push(result.users[0]);
+          }
+      } else {
+          failureReason = result.reason || `Failed to match user for "${chunk}".`;
           break;
-      }
-      if (!allMatchedUsers.some(u => u.uid === result.uid)) {
-          allMatchedUsers.push(result);
       }
   }
 
@@ -285,16 +290,11 @@ const parseBuildSheet = (
             continue;
         }
         
-        const normalizedUserName = normalizeText(userNameRaw);
-        const matchedUsers = userMap.filter(u => u.normalizedName === normalizedUserName);
+        const { users: matchedUsers, reason } = findUsersInMap(userNameRaw, userMap);
 
-        if (matchedUsers.length === 0) {
-             allFailed.push({ date, projectAddress: address, cellContent: userNameRaw, reason: `Could not find user: "${userNameRaw}"`, sheetName, cellRef });
+        if (matchedUsers.length !== 1) {
+             allFailed.push({ date, projectAddress: address, cellContent: userNameRaw, reason: reason || `Ambiguous or no user match for "${userNameRaw}"`, sheetName, cellRef });
              continue;
-        }
-        if (matchedUsers.length > 1) {
-            allFailed.push({ date, projectAddress: address, cellContent: userNameRaw, reason: `Ambiguous user name: "${userNameRaw}"`, sheetName, cellRef });
-            continue;
         }
         
         const user = matchedUsers[0];
