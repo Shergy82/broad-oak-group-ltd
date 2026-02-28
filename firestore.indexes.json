@@ -1,7 +1,6 @@
 {
   "indexes": [
     {
-      "queryScope": "COLLECTION_GROUP",
       "collectionId": "shifts",
       "fields": [
         { "fieldPath": "department", "order": "ASCENDING" },
@@ -9,7 +8,6 @@
       ]
     },
     {
-      "queryScope": "COLLECTION_GROUP",
       "collectionId": "shifts",
       "fields": [
         { "fieldPath": "address", "order": "ASCENDING" },
@@ -17,7 +15,6 @@
       ]
     },
     {
-      "queryScope": "COLLECTION_GROUP",
       "collectionId": "shifts",
       "fields": [
         { "fieldPath": "userId", "order": "ASCENDING" },
