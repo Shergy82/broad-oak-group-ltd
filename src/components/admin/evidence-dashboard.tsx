@@ -1,11 +1,12 @@
 
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { collection, onSnapshot, query, orderBy, doc, updateDoc, serverTimestamp, addDoc, deleteField, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, doc, updateDoc, serverTimestamp, addDoc, deleteField, where, getDocs } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '@/lib/firebase';
-import type { Project, EvidenceChecklist, ProjectFile, UserProfile, EvidenceChecklistItem } from '@/types';
+import type { Project, EvidenceChecklist, ProjectFile, UserProfile, EvidenceChecklistItem, Shift } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Building2, Search, Pencil, CheckCircle, XCircle, Download, Trash2, RotateCw, Camera, X, Undo2, ImageIcon, Eye, EyeOff } from 'lucide-react';
@@ -17,7 +18,7 @@ import { Spinner } from '@/components/shared/spinner';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { useToast } from '@/hooks/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { format, differenceInDays, differenceInHours, differenceInMinutes } from 'date-fns';
+import { format, differenceInDays, differenceInHours, differenceInMinutes, isBefore } from 'date-fns';
 import { Dialog, DialogDescription, DialogHeader, DialogTitle, DialogContent, DialogClose } from '@/components/ui/dialog';
 import { MultiPhotoCamera } from '@/components/shared/multi-photo-camera';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
@@ -25,6 +26,7 @@ import Image from 'next/image';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Badge } from '@/components/ui/badge';
+import { useAllUsers } from '@/hooks/use-all-users';
 
 
 const isMatch = (checklistText: string, fileTag: string | undefined): boolean => {
@@ -598,11 +600,13 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, onMarkAs
 
 export function EvidenceDashboard() {
   const [projects, setProjects] = useState<Project[]>([]);
+  const [allShifts, setAllShifts] = useState<Shift[]>([]);
   const [evidenceChecklists, setEvidenceChecklists] = useState<Map<string, EvidenceChecklist>>(new Map());
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [editingChecklist, setEditingChecklist] = useState<string | null>(null);
   const { userProfile } = useUserProfile();
+  const { users } = useAllUsers();
   const { toast } = useToast();
   const { selectedDepartments } = useDepartmentFilter();
   const isOwner = userProfile?.role === 'owner';
@@ -691,31 +695,26 @@ export function EvidenceDashboard() {
       return Array.from(hiddenContracts).sort();
   }, [hiddenContracts]);
 
+  // Unified data fetching
   useEffect(() => {
+    if (!userProfile) return;
     setLoading(true);
-    if (!userProfile) {
-        setLoading(false);
-        return;
-    }
 
-    let projectsQuery;
-    if (isOwner) {
-        projectsQuery = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
-    } else {
-        projectsQuery = query(collection(db, 'projects'), where('department', '==', userProfile.department), orderBy('createdAt', 'desc'));
-    }
+    const projectsQuery = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
+    const unsubProjects = onSnapshot(projectsQuery, (snapshot) => {
+        setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project)));
+    }, (err) => {
+        console.error("Error fetching projects:", err);
+        toast({ variant: 'destructive', title: 'Error', description: 'Could not fetch projects.' });
+    });
 
-    const unsubProjects = onSnapshot(projectsQuery, 
-      (snapshot) => {
-          const allProjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project));
-          setProjects(allProjects);
-          if (snapshot.docs.length === 0) setLoading(false);
-      },
-      (err) => {
-          console.error("Error fetching projects:", err);
-          setLoading(false);
-      }
-    );
+    const shiftsQuery = query(collection(db, 'shifts'));
+    const unsubShifts = onSnapshot(shiftsQuery, (snapshot) => {
+        setAllShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
+    }, (err) => {
+        console.error("Error fetching shifts:", err);
+        toast({ variant: 'destructive', title: 'Error', description: 'Could not fetch shifts.' });
+    });
 
     const checklistsQuery = query(collection(db, 'evidence_checklists'));
     const unsubChecklists = onSnapshot(checklistsQuery, (snapshot) => {
@@ -724,11 +723,15 @@ export function EvidenceDashboard() {
         setEvidenceChecklists(checklistsMap);
     });
 
+    // We can set loading to false here, as file fetching is secondary
+    setLoading(false);
+
     return () => {
         unsubProjects();
+        unsubShifts();
         unsubChecklists();
     };
-  }, [userProfile, isOwner]);
+}, [userProfile, toast]);
 
   useEffect(() => {
     if(projects.length === 0) {
@@ -746,27 +749,50 @@ export function EvidenceDashboard() {
 
     return () => unsubscribers.forEach(unsub => unsub());
   }, [projects]);
+  
+  const relevantProjects = useMemo(() => {
+    if (!userProfile) return [];
 
-  useEffect(() => {
-    if (projects.length > 0 && filesByProject.size < projects.length) {
-        setLoading(true);
-    } else {
-        setLoading(false);
+    let relevantProjectAddresses = new Set<string>();
+    
+    // For non-owners, figure out which projects they should see.
+    if (!isOwner) {
+        // 1. Projects in their own department
+        projects.forEach(p => {
+            if (p.department === userProfile.department) {
+                relevantProjectAddresses.add(p.address);
+            }
+        });
+        // 2. Projects they have shifts for (cross-department)
+        allShifts.forEach(s => {
+            if (s.userId === userProfile.uid && s.address) {
+                relevantProjectAddresses.add(s.address);
+            }
+        });
     }
-  }, [projects, filesByProject]);
 
-
-  const filteredProjects = useMemo(() => {
-    const departmentFilteredProjects = isOwner
-        ? projects.filter(p => selectedDepartments.size === 0 || (p.department && selectedDepartments.has(p.department)))
-        : projects; // non-owners are already filtered by the query
-
-    if (!searchTerm) return departmentFilteredProjects;
-    return departmentFilteredProjects.filter(project =>
+    const filtered = projects.filter(project => {
+        if (isOwner) {
+             // Owners see projects based on the department filter
+            if (selectedDepartments.size > 0) {
+                return project.department && selectedDepartments.has(project.department);
+            }
+            return true; // Or all projects if no filter
+        } else {
+            // Non-owners see projects if the address is in their relevant set
+            return relevantProjectAddresses.has(project.address);
+        }
+    });
+    
+    // Final search term filter
+    if (!searchTerm) return filtered;
+    return filtered.filter(project =>
       project.address.toLowerCase().includes(searchTerm.toLowerCase()) ||
       project.contract?.toLowerCase().includes(searchTerm.toLowerCase())
     );
-  }, [projects, searchTerm, isOwner, selectedDepartments]);
+
+  }, [projects, allShifts, userProfile, isOwner, selectedDepartments, searchTerm]);
+
 
   const groupedProjects = useMemo(() => {
     if (loading) return [];
@@ -776,7 +802,7 @@ export function EvidenceDashboard() {
         return differenceInDays(new Date(), project.createdAt.toDate());
     }
 
-    const enrichedProjects = filteredProjects
+    const enrichedProjects = relevantProjects
     .filter(p => !p.deletionScheduledAt)
     .map(project => {
         const contractChecklist = evidenceChecklists.get(project.contract || '');
@@ -828,7 +854,7 @@ export function EvidenceDashboard() {
     });
     
     return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
-  }, [filteredProjects, filesByProject, evidenceChecklists, loading]);
+  }, [relevantProjects, filesByProject, evidenceChecklists, loading]);
   
   const visibleGroups = useMemo(() => groupedProjects.filter(([name]) => !hiddenContracts.has(name)), [groupedProjects, hiddenContracts]);
 
