@@ -5,7 +5,6 @@
 ===================================================== */
 
 import * as admin from "firebase-admin";
-import * as functions from "firebase-functions";
 import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
 import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
@@ -59,25 +58,29 @@ if (WEBPUSH_PUBLIC_KEY && WEBPUSH_PRIVATE_KEY) {
    HELPERS
 ===================================================== */
 
-const assertAuthenticated = (uid?: string) => {
-  if (!uid) throw new HttpsError("unauthenticated", "Authentication required");
+const assertAuthenticated = (uid?: string): asserts uid is string => {
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "Authentication required");
+  }
 };
 
 const assertIsOwner = async (uid?: string) => {
   assertAuthenticated(uid);
-  const snap = await db.collection("users").doc(uid!).get();
+  const snap = await db.collection("users").doc(uid).get();
   if (snap.data()?.role !== "owner") {
     throw new HttpsError("permission-denied", "Owner role required");
   }
 };
 
-const assertAdminOrManager = async (uid: string) => {
+const assertAdminOrManager = async (uid?: string) => {
+  assertAuthenticated(uid);
   const snap = await db.collection("users").doc(uid).get();
   const role = snap.data()?.role;
   if (!["admin", "owner", "manager"].includes(role)) {
     throw new HttpsError("permission-denied", "Insufficient permissions");
   }
 };
+
 
 const formatDateUK = (d: Date): string =>
   `${String(d.getUTCDate()).padStart(2, "0")}/${String(
@@ -163,7 +166,7 @@ export const getVapidPublicKey = onCall({ region: REGION }, () => {
 
 export const getNotificationStatus = onCall({ region: REGION }, async (req) => {
   assertAuthenticated(req.auth?.uid);
-  const snap = await db.collection("users").doc(req.auth!.uid).get();
+  const snap = await db.collection("users").doc(req.auth.uid).get();
   return { enabled: snap.data()?.notificationsEnabled ?? false };
 });
 
@@ -177,13 +180,13 @@ export const setNotificationStatus = onCall({ region: REGION }, async (req) => {
 
   await db
     .collection("users")
-    .doc(req.auth!.uid)
+    .doc(req.auth.uid)
     .set({ notificationsEnabled: enabled }, { merge: true });
 
   if (enabled && subscription) {
     await db
       .collection("users")
-      .doc(req.auth!.uid)
+      .doc(req.auth.uid)
       .collection("pushSubscriptions")
       .doc("browser")
       .set(subscription, { merge: true });
@@ -199,7 +202,8 @@ export const setNotificationStatus = onCall({ region: REGION }, async (req) => {
 export const setUserStatus = onCall(
   { region: REGION },
   async (req) => {
-    await assertAdminOrManager(req.auth!.uid);
+    assertAuthenticated(req.auth?.uid);
+    await assertAdminOrManager(req.auth.uid);
 
     const { uid, disabled, newStatus, department } = req.data ?? {};
     if (
@@ -294,7 +298,8 @@ export const onShiftCreated = onDocumentCreated(
 export const deleteProjectAndFiles = onCall(
   { region: REGION, timeoutSeconds: 540, memory: '1GiB' },
   async (req) => {
-    await assertAdminOrManager(req.auth!.uid);
+    assertAuthenticated(req.auth?.uid);
+    await assertAdminOrManager(req.auth.uid);
 
     const { projectId } = req.data as { projectId: string };
     if (!projectId) {
@@ -321,7 +326,7 @@ export const deleteProjectAndFiles = onCall(
 );
 
 export const deleteAllProjects = onCall({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async (req) => {
-    await assertIsOwner(req.auth!.uid);
+    await assertIsOwner(req.auth?.uid);
     // This is a placeholder for safety. In a real scenario, you'd iterate and delete.
     logger.info("deleteAllProjects called by", req.auth?.uid);
     return { message: "Deletion process simulation complete. No projects were actually deleted." };
@@ -331,7 +336,7 @@ export const deleteProjectFile = onCall(
   { region: REGION },
   async (req) => {
     assertAuthenticated(req.auth?.uid);
-    const uid = req.auth!.uid;
+    const uid = req.auth.uid;
     const { projectId, fileId } = req.data ?? {};
     if (!projectId || !fileId) {
       throw new HttpsError('invalid-argument', 'projectId and fileId required');
@@ -397,7 +402,8 @@ export const zipProjectFiles = onCall(
    SHIFTS (CALLABLE)
 ===================================================== */
 export const deleteAllShifts = onCall({ region: REGION }, async (req) => {
-    await assertIsOwner(req.auth?.uid);
+    assertAuthenticated(req.auth?.uid);
+    await assertIsOwner(req.auth.uid);
     const snap = await db.collection('shifts').get();
     if (snap.empty) return { message: "No shifts to delete." };
 
@@ -415,74 +421,78 @@ export const deleteAllShifts = onCall({ region: REGION }, async (req) => {
     return { message: `Successfully deleted ${count} active shifts.` };
 });
 
-export const deleteAllShiftsForUser = onCall({ region: REGION, timeoutSeconds: 540, memory: "1GiB" }, async (req) => {
-  await assertIsOwner(req.auth?.uid);
-  const { userId } = req.data as { userId: string };
+export const deleteAllShiftsForUser = onCall(
+  { region: REGION, timeoutSeconds: 540, memory: "1GiB" },
+  async (req) => {
+    assertAuthenticated(req.auth?.uid);
+    await assertIsOwner(req.auth.uid);
 
-  if (!userId) {
-      throw new HttpsError('invalid-argument', 'A userId is required.');
-  }
-  
-  logger.info(`Starting deletion for user: ${userId} by admin: ${req.auth?.uid}`);
+    const { userId } = req.data as { userId: string };
+    if (!userId) {
+      throw new HttpsError("invalid-argument", "A userId is required.");
+    }
 
-  const userDoc = await db.collection('users').doc(userId).get();
-  if (!userDoc.exists) {
-      logger.error(`User with ID ${userId} not found.`);
-      throw new HttpsError('not-found', `User with ID ${userId} not found.`);
-  }
-  const userHomeDepartment = userDoc.data()?.department;
-  
-  const shiftsRef = db.collection('shifts');
-  const unavailabilityRef = db.collection('unavailability');
-  const BATCH_SIZE = 200; // Keep it well under 500 to be safe with dual deletes.
+    const userDoc = await db.collection("users").doc(userId).get();
+    if (!userDoc.exists) {
+      throw new HttpsError("not-found", "User not found.");
+    }
 
-  let totalDeleted = 0;
-  
-  // A loop that continues as long as we keep finding shifts to delete
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-      logger.info(`Querying for next batch of shifts for user ${userId}...`);
-      const shiftsQuery = shiftsRef.where('userId', '==', userId).limit(BATCH_SIZE);
-      const snapshot = await shiftsQuery.get();
-      
+    const userHomeDepartment = userDoc.data()?.department;
+    const shiftsRef = db.collection("shifts");
+    const unavailabilityRef = db.collection("unavailability");
+
+    const BATCH_SIZE = 200; // Keep it safely under the 500-write limit
+    let totalDeleted = 0;
+    let hasMore = true;
+
+    if (totalDeleted === 0) {
+      logger.info(`Starting batched deletion for user ${userId}.`);
+    }
+
+    while (hasMore) {
+      const snapshot = await shiftsRef
+        .where("userId", "==", userId)
+        .limit(BATCH_SIZE)
+        .get();
+
       if (snapshot.empty) {
-          logger.info(`No more shifts found for user ${userId}. Exiting loop.`);
-          break; // No more shifts to delete
+        hasMore = false;
+        break;
+      }
+
+      const batch = db.batch();
+
+      // THIS IS THE CORRECTED, SERIAL LOGIC
+      for (const doc of snapshot.docs) {
+        const shift = doc.data();
+        batch.delete(doc.ref);
+
+        if (
+          userHomeDepartment &&
+          shift.department &&
+          userHomeDepartment !== shift.department
+        ) {
+          const unavailDoc = await unavailabilityRef.doc(doc.id).get();
+          if (unavailDoc.exists) {
+            batch.delete(unavailDoc.ref);
+          }
+        }
       }
       
-      logger.info(`Found ${snapshot.size} shifts in this batch. Preparing to delete.`);
-      const batch = db.batch();
-      
-      snapshot.docs.forEach(doc => {
-          const shift = doc.data();
-          batch.delete(doc.ref); // Add shift deletion to batch
-
-          // If the shift was for a different department, also delete the corresponding unavailability record
-          if (userHomeDepartment && shift.department && userHomeDepartment !== shift.department) {
-              logger.info(`Found cross-department shift. Deleting unavailability record ${doc.id}`);
-              batch.delete(unavailabilityRef.doc(doc.id));
-          }
-      });
-      
-      logger.info(`Committing batch of size ${snapshot.size}...`);
       await batch.commit();
       totalDeleted += snapshot.size;
-      logger.info(`Batch committed. Total deleted so far: ${totalDeleted}.`);
+      
+      await new Promise(r => setTimeout(r, 100));
+    }
 
-      // Add a small delay to avoid hitting rate limits on very large datasets
-      await new Promise(resolve => setTimeout(resolve, 50));
+    return { message: `Deleted ${totalDeleted} shifts and associated records for the user.` };
   }
-
-  if (totalDeleted === 0) {
-      return { message: "No shifts found for this user to delete." };
-  }
-  
-  return { message: `Successfully deleted ${totalDeleted} shifts and associated records for the user.` };
-});
+);
 
 
 export const reGeocodeAllShifts = onCall({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async (req) => {
-    await assertIsOwner(req.auth?.uid);
+    assertAuthenticated(req.auth?.uid);
+    await assertIsOwner(req.auth.uid);
     if (!GEOCODING_KEY) {
       throw new HttpsError('failed-precondition', 'Missing GEOCODING_KEY');
     }
