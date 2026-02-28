@@ -242,25 +242,88 @@ const extractUsersAndTask = (
   };
 };
 
-
 const parseBuildSheet = (
   worksheet: XLSX.WorkSheet,
   userMap: UserMapEntry[],
   sheetName: string,
   department: string
-): { shifts: ParsedShift[], failed: FailedShift[] } => {
+): { shifts: ParsedShift[]; failed: FailedShift[] } => {
   const data: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: null });
   if (data.length < 2) return { shifts: [], failed: [] };
 
+  const allShifts: ParsedShift[] = [];
+  const allFailed: FailedShift[] = [];
+
+  const headers = data[0].map(h => String(h || '').trim().toLowerCase());
+  const dateIndex = headers.indexOf('date');
+  const userIndex = headers.indexOf('user');
+  const taskIndex = headers.indexOf('task');
+  const addressIndex = headers.indexOf('address');
+  const eNumberIndex = headers.findIndex(h => h.includes('number'));
+  const contractIndex = headers.indexOf('contract');
+  const managerIndex = headers.indexOf('manager');
+
+  // --- NEW: LIST VIEW PARSER ---
+  if (dateIndex !== -1 && (userIndex !== -1 || headers.includes('operative')) && taskIndex !== -1 && addressIndex !== -1) {
+    const operativeIndex = userIndex !== -1 ? userIndex : headers.indexOf('operative');
+    
+    for (let i = 1; i < data.length; i++) {
+        const row = data[i];
+        if (isRowEmpty(row)) continue;
+
+        const cellRef = `A${i + 1}`;
+        
+        const date = parseDate(row[dateIndex]);
+        const userNameRaw = String(row[operativeIndex] || '').trim();
+        const task = String(row[taskIndex] || '').trim();
+        const address = String(row[addressIndex] || '').trim();
+
+        if (!date || !userNameRaw || !task || !address) {
+            if (userNameRaw || task || address) {
+                 allFailed.push({ date, projectAddress: address, cellContent: `Row ${i+1}`, reason: 'Missing required data (Date, User, Task, or Address).', sheetName, cellRef });
+            }
+            continue;
+        }
+        
+        const normalizedUserName = normalizeText(userNameRaw);
+        const matchedUsers = userMap.filter(u => u.normalizedName === normalizedUserName);
+
+        if (matchedUsers.length === 0) {
+             allFailed.push({ date, projectAddress: address, cellContent: userNameRaw, reason: `Could not find user: "${userNameRaw}"`, sheetName, cellRef });
+             continue;
+        }
+        if (matchedUsers.length > 1) {
+            allFailed.push({ date, projectAddress: address, cellContent: userNameRaw, reason: `Ambiguous user name: "${userNameRaw}"`, sheetName, cellRef });
+            continue;
+        }
+        
+        const user = matchedUsers[0];
+
+        allShifts.push({
+            date,
+            address: address,
+            eNumber: eNumberIndex !== -1 ? String(row[eNumberIndex] || '') : '',
+            task: task,
+            userId: user.uid,
+            userName: user.originalName,
+            type: 'all-day',
+            manager: managerIndex !== -1 ? String(row[managerIndex] || sheetName) : sheetName,
+            contract: contractIndex !== -1 ? String(row[contractIndex] || '') : '',
+            department,
+            notes: '',
+        });
+    }
+
+    return { shifts: allShifts, failed: allFailed };
+  }
+
+  // --- ORIGINAL: MATRIX VIEW PARSER ---
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
 
   const dateRowRaw = data[0];
   const dateRow: (Date | null)[] = dateRowRaw.map(parseDate);
   const manager = sheetName;
-
-  const allShifts: ParsedShift[] = [];
-  const allFailed: FailedShift[] = [];
 
   let currentAddress = '';
   let currentENumber = '';
