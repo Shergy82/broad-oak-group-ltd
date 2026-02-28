@@ -415,7 +415,7 @@ export const deleteAllShifts = onCall({ region: REGION }, async (req) => {
     return { message: `Successfully deleted ${count} active shifts.` };
 });
 
-export const deleteAllShiftsForUser = onCall({ region: REGION }, async (req) => {
+export const deleteAllShiftsForUser = onCall({ region: REGION, timeoutSeconds: 540 }, async (req) => {
     await assertIsOwner(req.auth?.uid);
     const { userId } = req.data as { userId: string };
 
@@ -430,13 +430,25 @@ export const deleteAllShiftsForUser = onCall({ region: REGION }, async (req) => 
     if (snapshot.empty) {
         return { message: "No shifts found for this user to delete." };
     }
-
-    const batch = db.batch();
-    snapshot.docs.forEach((d) => {
-        batch.delete(d.ref);
-    });
-
-    await batch.commit();
+    
+    // Handle deletions in batches of 500
+    const batchSize = 500;
+    const numBatches = Math.ceil(snapshot.size / batchSize);
+    
+    for (let i = 0; i < numBatches; i++) {
+        const batch = db.batch();
+        const start = i * batchSize;
+        const end = start + batchSize;
+        const docsInBatch = snapshot.docs.slice(start, end);
+        
+        docsInBatch.forEach((doc) => {
+            batch.delete(doc.ref);
+        });
+        
+        await batch.commit();
+        logger.info(`Batch ${i + 1}/${numBatches} committed for user ${userId}`);
+    }
+    
     return { message: `Successfully deleted ${snapshot.size} shifts for the user.` };
 });
 
