@@ -436,8 +436,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           const data = e.target?.result;
           if (!(data instanceof ArrayBuffer)) throw new Error('Could not read file data as ArrayBuffer.');
           
-          const fileBuffer = Buffer.from(data);
-
           let allShiftsFromExcel: ParsedShift[] = [];
           let allFailedShifts: FailedShift[] = [];
 
@@ -448,47 +446,47 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           });
 
           if (importType === 'GAS') {
-            if (typeof parseGasWorkbook !== 'function') {
-                throw new Error("GAS import logic is not available. The parsing function could not be loaded.");
-            }
-            const { parsed, failures } = await parseGasWorkbook(fileBuffer);
-            
-            for (const rawShift of parsed) {
-                const extraction = extractUsersAndTask(rawShift.operativeNameRaw, userMap);
-                 if (extraction && extraction.users.length > 0) {
-                    for (const user of extraction.users) {
-                        allShiftsFromExcel.push({
-                            date: new Date(rawShift.shiftDate),
-                            address: rawShift.siteAddress,
-                            task: rawShift.task,
-                            userId: user.uid,
-                            userName: user.originalName,
-                            type: rawShift.type,
-                            manager: '',
-                            contract: '',
-                            department: importDepartment,
-                            notes: '',
-                        });
-                    }
-                } else {
-                     failures.push({
-                         reason: `Could not match operative: ${rawShift.operativeNameRaw}`,
-                         siteAddress: rawShift.siteAddress,
-                         operativeNameRaw: rawShift.operativeNameRaw,
-                         sheetName: rawShift.source.sheetName,
-                         cellRef: rawShift.source.cellRef,
-                     });
-                }
-            }
-            
-            allFailedShifts.push(...failures.map(f => ({
-                date: f.shiftDate ? new Date(f.shiftDate) : null,
-                projectAddress: f.siteAddress || 'Unknown',
-                cellContent: f.operativeNameRaw || '',
-                reason: f.reason,
-                sheetName: f.sheetName || 'Unknown Sheet',
-                cellRef: f.cellRef || 'N/A'
-            })));
+              if (typeof parseGasWorkbook !== 'function') {
+                  throw new Error("GAS import logic is not available. The parsing function could not be loaded.");
+              }
+              const { parsed, failures } = await parseGasWorkbook(Buffer.from(data));
+              
+              for (const rawShift of parsed) {
+                  const extraction = extractUsersAndTask(rawShift.operativeNameRaw, userMap);
+                   if (extraction && extraction.users.length > 0) {
+                      for (const user of extraction.users) {
+                          allShiftsFromExcel.push({
+                              date: new Date(rawShift.shiftDate),
+                              address: rawShift.siteAddress,
+                              task: rawShift.task,
+                              userId: user.uid,
+                              userName: user.originalName,
+                              type: rawShift.type,
+                              manager: '',
+                              contract: '',
+                              department: importDepartment,
+                              notes: '',
+                          });
+                      }
+                  } else {
+                       failures.push({
+                           reason: `Could not match operative: ${rawShift.operativeNameRaw}`,
+                           siteAddress: rawShift.siteAddress,
+                           operativeNameRaw: rawShift.operativeNameRaw,
+                           sheetName: rawShift.source.sheetName,
+                           cellRef: rawShift.source.cellRef,
+                       });
+                  }
+              }
+              
+              allFailedShifts.push(...failures.map(f => ({
+                  date: f.shiftDate ? new Date(f.shiftDate) : null,
+                  projectAddress: f.siteAddress || 'Unknown',
+                  cellContent: f.operativeNameRaw || '',
+                  reason: f.reason,
+                  sheetName: f.sheetName || 'Unknown Sheet',
+                  cellRef: f.cellRef || 'N/A'
+              })));
 
           } else { // BUILD
               const workbook = XLSX.read(data, {
@@ -524,47 +522,34 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             return;
           }
 
-          const allDatesFound = allShiftsFromExcel.map((s) => s.date).filter((d): d is Date => d !== null);
-
-          if (allDatesFound.length === 0) {
-            if (allFailedShifts.length > 0) {
-              onImportComplete(allFailedShifts, async () => {}, {
-                toCreate: [],
-                toUpdate: [],
-                toDelete: [],
-                failed: allFailedShifts,
-              });
-            } else {
-               toast({
-                variant: 'destructive',
-                title: 'No Shifts Found',
-                description: 'No valid shifts with dates were found in the selected sheets.',
-              });
-            }
-            setIsUploading(false);
-            return;
-          }
-
-          const minDate = new Date(Math.min(...allDatesFound.map((d) => d.getTime())));
-          const maxDate = new Date(Math.max(...allDatesFound.map((d) => d.getTime())));
-          const today = new Date();
-          today.setUTCHours(0, 0, 0, 0);
-
-          const shiftsQuery = query(
+          // --- START OF QUERY MODIFICATION ---
+          
+          const allDepartmentShiftsQuery = query(
             collection(firestore, 'shifts'),
-            where('department', '==', importDepartment),
-            where('date', '>=', Timestamp.fromDate(minDate)),
-            where('date', '<=', Timestamp.fromDate(maxDate))
+            where('department', '==', importDepartment)
+            // No date range filters here to avoid composite index
           );
-
-          const existingShiftsSnapshot = await getDocs(shiftsQuery);
+          
+          const allDepartmentShiftsSnapshot = await getDocs(allDepartmentShiftsQuery);
+          
+          const minDate = allShiftsFromExcel.length > 0 ? new Date(Math.min(...allShiftsFromExcel.map(s => s.date.getTime()))) : new Date();
+          const maxDate = allShiftsFromExcel.length > 0 ? new Date(Math.max(...allShiftsFromExcel.map(s => s.date.getTime()))) : new Date();
 
           const existingShiftsMap = new Map<string, Shift>();
-          existingShiftsSnapshot.forEach((d) => {
-            const shiftData = { id: d.id, ...d.data() } as Shift;
-            if (!shiftData.userId || !shiftData.date || !shiftData.address) return;
-            existingShiftsMap.set(getShiftKey(shiftData as any), shiftData);
+          
+          allDepartmentShiftsSnapshot.forEach((doc) => {
+            const shiftData = { id: doc.id, ...doc.data() } as Shift;
+            
+            // Client-side date filtering
+            const shiftDate = shiftData.date.toDate();
+            if (shiftDate >= minDate && shiftDate <= maxDate) {
+              if (!shiftData.userId || !shiftData.date || !shiftData.address) return;
+              existingShiftsMap.set(getShiftKey(shiftData as any), shiftData);
+            }
           });
+          
+          // --- END OF QUERY MODIFICATION ---
+
 
           const excelShiftsMap = new Map<string, ParsedShift>();
           for (const excelShift of allShiftsFromExcel) {
@@ -596,6 +581,9 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
               }
             }
           }
+
+          const today = new Date();
+          today.setUTCHours(0, 0, 0, 0);
 
           for (const [key, existingShift] of existingShiftsMap.entries()) {
             if (!excelShiftsMap.has(key) && !protectedStatuses.includes(existingShift.status) && existingShift.source !== 'manual') {
