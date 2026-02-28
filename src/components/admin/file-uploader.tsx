@@ -552,6 +552,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
 
           const shiftsQuery = query(
             collection(firestore, 'shifts'),
+            where('department', '==', importDepartment),
             where('date', '>=', Timestamp.fromDate(minDate)),
             where('date', '<=', Timestamp.fromDate(maxDate))
           );
