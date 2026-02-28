@@ -537,26 +537,40 @@ function isWhiteLike(argb: string): boolean {
 function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
   const v = cell.value;
 
-  if (v instanceof Date) return v;
+  if (v instanceof Date) {
+    if (!isNaN(v.getTime())) return v;
+  }
 
   // Excel serial numbers (often used for dates)
   if (typeof v === "number") {
-    // reject obvious non-date numbers (e.g., small integers)
-    if (v < 20000 || v > 60000) return null;
-    return excelSerialToDate(v);
+    if (v < 20000 || v > 60000) return null; // Simple sanity check for excel dates
+    const date = excelSerialToDate(v);
+    if (!isNaN(date.getTime())) return date;
   }
 
-  const text = getCellText(cell);
+  const text = getCellText(cell).trim();
   if (!text) return null;
 
-  // dd/mm/yyyy or d/m/yyyy
-  const m = text.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (m) {
-    const dd = Number(m[1]);
-    const mm = Number(m[2]);
-    const yyyy = Number(m[3]);
-    const dt = new Date(Date.UTC(yyyy, mm - 1, dd));
-    if (!isNaN(dt.getTime())) return dt;
+  // Try parsing dd/mm/yy or dd/mm/yyyy etc.
+  const parts = text.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+  if (parts) {
+    const day = parseInt(parts[1], 10);
+    const month = parseInt(parts[2], 10) - 1;
+    let year = parseInt(parts[3], 10);
+    if (year < 100) {
+      year += 2000;
+    }
+    const date = new Date(Date.UTC(year, month, day));
+    // Verify that the created date is valid (e.g., handles 31/02)
+    if (date.getUTCFullYear() === year && date.getUTCMonth() === month && date.getUTCDate() === day) {
+      return date;
+    }
+  }
+
+  // Fallback for other formats that Date.parse might understand
+  const parsedDate = new Date(text);
+  if (!isNaN(parsedDate.getTime()) && parsedDate.getUTCFullYear() > 2000) {
+    return new Date(Date.UTC(parsedDate.getFullYear(), parsedDate.getMonth(), parsedDate.getDate()));
   }
 
   return null;
