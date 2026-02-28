@@ -72,13 +72,20 @@ else {
 /* =====================================================
    HELPERS
 ===================================================== */
+const assertAuthenticated = (uid) => {
+    if (!uid) {
+        throw new https_1.HttpsError("unauthenticated", "Authentication required");
+    }
+};
 const assertIsOwner = async (uid) => {
+    assertAuthenticated(uid);
     const snap = await db.collection("users").doc(uid).get();
     if (snap.data()?.role !== "owner") {
         throw new https_1.HttpsError("permission-denied", "Owner role required");
     }
 };
 const assertAdminOrManager = async (uid) => {
+    assertAuthenticated(uid);
     const snap = await db.collection("users").doc(uid).get();
     const role = snap.data()?.role;
     if (!["admin", "owner", "manager"].includes(role)) {
@@ -138,16 +145,12 @@ exports.getVapidPublicKey = (0, https_1.onCall)({ region: REGION }, () => {
    CALLABLE FUNCTIONS
 ===================================================== */
 exports.getNotificationStatus = (0, https_1.onCall)({ region: REGION }, async (req) => {
-    if (!req.auth?.uid) {
-        throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    }
+    assertAuthenticated(req.auth?.uid);
     const snap = await db.collection("users").doc(req.auth.uid).get();
     return { enabled: snap.data()?.notificationsEnabled ?? false };
 });
 exports.setNotificationStatus = (0, https_1.onCall)({ region: REGION }, async (req) => {
-    if (!req.auth?.uid) {
-        throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    }
+    assertAuthenticated(req.auth?.uid);
     const { enabled, subscription } = req.data ?? {};
     if (typeof enabled !== "boolean") {
         throw new https_1.HttpsError("invalid-argument", "enabled must be boolean");
@@ -170,10 +173,7 @@ exports.setNotificationStatus = (0, https_1.onCall)({ region: REGION }, async (r
    USER MANAGEMENT (CALLABLE)
 ===================================================== */
 exports.setUserStatus = (0, https_1.onCall)({ region: REGION }, async (req) => {
-    if (!req.auth?.uid) {
-        throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    }
-    await assertAdminOrManager(req.auth.uid);
+    await assertAdminOrManager(req.auth?.uid);
     const { uid, disabled, newStatus, department } = req.data ?? {};
     if (typeof uid !== 'string' ||
         typeof disabled !== 'boolean' ||
@@ -189,10 +189,7 @@ exports.setUserStatus = (0, https_1.onCall)({ region: REGION }, async (req) => {
     return { success: true };
 });
 exports.deleteUser = (0, https_1.onCall)({ region: REGION }, async (req) => {
-    if (!req.auth?.uid) {
-        throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    }
-    await assertIsOwner(req.auth.uid);
+    await assertIsOwner(req.auth?.uid);
     const { uid } = req.data ?? {};
     if (typeof uid !== 'string') {
         throw new https_1.HttpsError('invalid-argument', 'uid required');
@@ -234,13 +231,14 @@ exports.onShiftCreated = (0, firestore_1.onDocumentCreated)({ document: "shifts/
    PROJECT & FILE MANAGEMENT (CALLABLE)
 ===================================================== */
 exports.deleteProjectAndFiles = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async (req) => {
-    if (!req.auth?.uid) {
-        throw new https_1.HttpsError("unauthenticated", "Authentication required");
+    await assertAdminOrManager(req.auth?.uid);
+    const data = req.data;
+    if (!data || typeof data !== "object") {
+        throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
     }
-    await assertAdminOrManager(req.auth.uid);
-    const { projectId } = req.data;
-    if (!projectId) {
-        throw new https_1.HttpsError('invalid-argument', 'projectId is required');
+    const projectId = data.projectId;
+    if (typeof projectId !== 'string' || !projectId.trim()) {
+        throw new https_1.HttpsError('invalid-argument', 'A projectId (string) is required.');
     }
     const bucket = admin.storage().bucket();
     const projectRef = db.collection('projects').doc(projectId);
@@ -257,18 +255,13 @@ exports.deleteProjectAndFiles = (0, https_1.onCall)({ region: REGION, timeoutSec
     return { success: true };
 });
 exports.deleteAllProjects = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async (req) => {
-    if (!req.auth?.uid) {
-        throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    }
-    await assertIsOwner(req.auth.uid);
+    await assertIsOwner(req.auth?.uid);
     // This is a placeholder for safety. In a real scenario, you'd iterate and delete.
     v2_1.logger.info("deleteAllProjects called by", req.auth?.uid);
     return { message: "Deletion process simulation complete. No projects were actually deleted." };
 });
 exports.deleteProjectFile = (0, https_1.onCall)({ region: REGION }, async (req) => {
-    if (!req.auth?.uid) {
-        throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    }
+    assertAuthenticated(req.auth?.uid);
     const uid = req.auth.uid;
     const { projectId, fileId } = req.data ?? {};
     if (!projectId || !fileId) {
@@ -291,9 +284,7 @@ exports.deleteProjectFile = (0, https_1.onCall)({ region: REGION }, async (req) 
     return { success: true };
 });
 exports.zipProjectFiles = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 300, memory: '1GiB' }, async (req) => {
-    if (!req.auth?.uid) {
-        throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    }
+    assertAuthenticated(req.auth?.uid);
     const { projectId } = req.data ?? {};
     if (!projectId) {
         throw new https_1.HttpsError('invalid-argument', 'projectId required');
@@ -329,10 +320,7 @@ exports.zipProjectFiles = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 
    SHIFTS (CALLABLE)
 ===================================================== */
 exports.deleteAllShifts = (0, https_1.onCall)({ region: REGION }, async (req) => {
-    if (!req.auth?.uid) {
-        throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    }
-    await assertIsOwner(req.auth.uid);
+    await assertIsOwner(req.auth?.uid);
     const snap = await db.collection('shifts').get();
     if (snap.empty)
         return { message: "No shifts to delete." };
@@ -353,9 +341,13 @@ exports.deleteAllShiftsForUser = (0, https_1.onCall)({ region: REGION, timeoutSe
         throw new https_1.HttpsError("unauthenticated", "Authentication required");
     }
     await assertIsOwner(req.auth.uid);
-    const { userId } = req.data;
-    if (!userId) {
-        throw new https_1.HttpsError("invalid-argument", "A userId is required.");
+    const data = req.data;
+    if (!data || typeof data !== "object") {
+        throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
+    }
+    const userId = data.userId;
+    if (typeof userId !== "string" || !userId.trim()) {
+        throw new https_1.HttpsError("invalid-argument", "A userId (string) is required.");
     }
     const userDoc = await db.collection("users").doc(userId).get();
     if (!userDoc.exists) {
@@ -402,10 +394,7 @@ exports.deleteAllShiftsForUser = (0, https_1.onCall)({ region: REGION, timeoutSe
     return { message: `Deleted ${totalDeleted} shifts and associated records for the user.` };
 });
 exports.reGeocodeAllShifts = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async (req) => {
-    if (!req.auth?.uid) {
-        throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    }
-    await assertIsOwner(req.auth.uid);
+    await assertIsOwner(req.auth?.uid);
     if (!GEOCODING_KEY) {
         throw new https_1.HttpsError('failed-precondition', 'Missing GEOCODING_KEY');
     }
