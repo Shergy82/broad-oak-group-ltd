@@ -346,44 +346,43 @@ exports.deleteAllShiftsForUser = (0, https_1.onCall)({ region: REGION, timeoutSe
     if (!userId) {
         throw new https_1.HttpsError('invalid-argument', 'A userId is required.');
     }
-    // Get the user's home department once before the loop
+    v2_1.logger.info(`Starting deletion for user: ${userId} by admin: ${req.auth?.uid}`);
     const userDoc = await db.collection('users').doc(userId).get();
     if (!userDoc.exists) {
+        v2_1.logger.error(`User with ID ${userId} not found.`);
         throw new https_1.HttpsError('not-found', `User with ID ${userId} not found.`);
     }
     const userHomeDepartment = userDoc.data()?.department;
     const shiftsRef = db.collection('shifts');
-    let query = shiftsRef.where('userId', '==', userId).orderBy(admin.firestore.FieldPath.documentId()).limit(249);
+    const unavailabilityRef = db.collection('unavailability');
+    const BATCH_SIZE = 200; // Keep it well under 500 to be safe with dual deletes.
     let totalDeleted = 0;
     // eslint-disable-next-line no-constant-condition
     while (true) {
-        const snapshot = await query.get();
+        v2_1.logger.info(`Querying for next batch of shifts for user ${userId}...`);
+        const shiftsQuery = shiftsRef.where('userId', '==', userId).limit(BATCH_SIZE);
+        const snapshot = await shiftsQuery.get();
         if (snapshot.empty) {
+            v2_1.logger.info(`No more shifts found for user ${userId}. Exiting loop.`);
             break; // No more shifts to delete
         }
+        v2_1.logger.info(`Found ${snapshot.size} shifts in this batch. Preparing to delete.`);
         const batch = db.batch();
-        let writeCountInBatch = 0;
-        snapshot.docs.forEach((doc) => {
+        snapshot.docs.forEach(doc => {
             const shift = doc.data();
-            batch.delete(doc.ref); // Delete the shift
-            writeCountInBatch++;
+            batch.delete(doc.ref); // Add shift deletion to batch
             // If the shift was for a different department, also delete the corresponding unavailability record
             if (userHomeDepartment && shift.department && userHomeDepartment !== shift.department) {
-                const unavailabilityRef = db.collection('unavailability').doc(doc.id);
-                batch.delete(unavailabilityRef);
-                writeCountInBatch++;
+                v2_1.logger.info(`Found cross-department shift. Deleting unavailability record ${doc.id}`);
+                batch.delete(unavailabilityRef.doc(doc.id));
             }
         });
+        v2_1.logger.info(`Committing batch of size ${snapshot.size}...`);
         await batch.commit();
         totalDeleted += snapshot.size;
-        v2_1.logger.info(`Deleted a batch of ${snapshot.size} shifts and ${writeCountInBatch - snapshot.size} unavailability records for user ${userId}. Total shifts deleted so far: ${totalDeleted}`);
-        if (snapshot.size < 249) {
-            // This was the last batch
-            break;
-        }
-        // Prepare the query for the next batch
-        const lastVisible = snapshot.docs[snapshot.docs.length - 1];
-        query = shiftsRef.where('userId', '==', userId).orderBy(admin.firestore.FieldPath.documentId()).startAfter(lastVisible).limit(249);
+        v2_1.logger.info(`Batch committed. Total deleted so far: ${totalDeleted}.`);
+        // Add a small delay to avoid hitting rate limits on very large datasets
+        await new Promise(resolve => setTimeout(resolve, 50));
     }
     if (totalDeleted === 0) {
         return { message: "No shifts found for this user to delete." };
@@ -437,5 +436,3 @@ exports.deleteScheduledProjects = (0, scheduler_1.onSchedule)({
     v2_1.logger.info("Scheduled project cleanup finished");
 });
 //# sourceMappingURL=index.js.map
-
-    
