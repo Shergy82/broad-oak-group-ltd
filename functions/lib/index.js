@@ -1,3 +1,4 @@
+
 "use strict";
 /* =====================================================
    IMPORTS
@@ -18,7 +19,7 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || (function () {
+var __importStar = (this && this.__importStar) || function () {
     var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function (o) {
             var ar = [];
@@ -39,7 +40,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteScheduledProjects = exports.pendingShiftNotifier = exports.projectReviewNotifier = exports.reGeocodeAllShifts = exports.deleteAllShifts = exports.zipProjectFiles = exports.deleteProjectFile = exports.deleteAllProjects = exports.deleteProjectAndFiles = exports.onShiftCreated = exports.serveFile = exports.deleteUser = exports.setUserStatus = exports.setNotificationStatus = exports.getNotificationStatus = exports.getVapidPublicKey = void 0;
+exports.deleteScheduledProjects = exports.pendingShiftNotifier = exports.projectReviewNotifier = exports.reGeocodeAllShifts = exports.deleteAllShiftsForUser = exports.deleteAllShifts = exports.zipProjectFiles = exports.deleteProjectFile = exports.deleteAllProjects = exports.deleteProjectAndFiles = exports.onShiftCreated = exports.serveFile = exports.deleteUser = exports.setUserStatus = exports.setNotificationStatus = exports.getNotificationStatus = exports.getVapidPublicKey = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
@@ -338,6 +339,34 @@ exports.deleteAllShifts = (0, https_1.onCall)({ region: REGION }, async (req) =>
     });
     await batch.commit();
     return { message: `Successfully deleted ${count} active shifts.` };
+});
+exports.deleteAllShiftsForUser = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 540, memory: "1GiB" }, async (req) => {
+    await assertIsOwner(req.auth?.uid);
+    const { userId } = req.data;
+    if (!userId) {
+        throw new https_1.HttpsError('invalid-argument', 'A userId is required.');
+    }
+    const shiftsRef = db.collection('shifts');
+    const query = shiftsRef.where('userId', '==', userId).limit(400);
+    let totalDeleted = 0;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+        const snapshot = await query.get();
+        if (snapshot.empty) {
+            break;
+        }
+        const batch = db.batch();
+        snapshot.docs.forEach((doc) => {
+            batch.delete(doc.ref);
+        });
+        await batch.commit();
+        totalDeleted += snapshot.size;
+        v2_1.logger.info(`Deleted ${snapshot.size} shifts for user ${userId}. Total deleted so far: ${totalDeleted}`);
+    }
+    if (totalDeleted === 0) {
+        return { message: "No shifts found for this user to delete." };
+    }
+    return { message: `Successfully deleted ${totalDeleted} shifts for the user.` };
 });
 exports.reGeocodeAllShifts = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async (req) => {
     await assertIsOwner(req.auth?.uid);

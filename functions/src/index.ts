@@ -1,4 +1,5 @@
 
+
 /* =====================================================
    IMPORTS
 ===================================================== */
@@ -412,6 +413,42 @@ export const deleteAllShifts = onCall({ region: REGION }, async (req) => {
 
     await batch.commit();
     return { message: `Successfully deleted ${count} active shifts.` };
+});
+
+export const deleteAllShiftsForUser = onCall({ region: REGION, timeoutSeconds: 540, memory: "1GiB" }, async (req) => {
+    await assertIsOwner(req.auth?.uid);
+    const { userId } = req.data as { userId: string };
+
+    if (!userId) {
+        throw new HttpsError('invalid-argument', 'A userId is required.');
+    }
+
+    const shiftsRef = db.collection('shifts');
+    const query = shiftsRef.where('userId', '==', userId).limit(400); // Process in chunks of 400
+    let totalDeleted = 0;
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+        const snapshot = await query.get();
+        if (snapshot.empty) {
+            break;
+        }
+
+        const batch = db.batch();
+        snapshot.docs.forEach((doc) => {
+            batch.delete(doc.ref);
+        });
+        await batch.commit();
+
+        totalDeleted += snapshot.size;
+        logger.info(`Deleted ${snapshot.size} shifts for user ${userId}. Total deleted so far: ${totalDeleted}`);
+    }
+
+    if (totalDeleted === 0) {
+        return { message: "No shifts found for this user to delete." };
+    }
+
+    return { message: `Successfully deleted ${totalDeleted} shifts for the user.` };
 });
 
 
