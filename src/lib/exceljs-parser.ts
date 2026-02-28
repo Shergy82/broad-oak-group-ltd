@@ -1,4 +1,5 @@
 
+
 /**
  * GAS IMPORT (colour-based divider rows) — DROP-IN CODE
  * - Uses ExcelJS because SheetJS/xlsx usually does NOT preserve cell styles reliably.
@@ -299,17 +300,13 @@ async function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]
     }
 
     for (const { col, isoDate } of dateCols) {
-      let blankRun = 0;
       for (let r = dateRowIdx + 1; r <= blockEnd; r++) {
         if (dividerRows.includes(r)) break;
         const cell = sheet.getCell(r, col);
         const text = getCellText(cell);
         if (!text) {
-          blankRun++;
-          if (blankRun >= 3) break;
-          continue;
+          continue; // FIX: Simply continue to the next row if the cell is blank
         }
-        blankRun = 0;
         if (isNonShiftText(text)) continue;
 
         const { task, names, type } = extractGasTaskAndNames(text);
