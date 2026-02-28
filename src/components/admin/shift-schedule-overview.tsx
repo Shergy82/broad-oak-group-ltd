@@ -249,10 +249,11 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     week4Shifts,
     archiveShifts,
   } = useMemo(() => {
-    // Determine the pool of users to display based on role and department filters.
+    // Determine the pool of users to display in the dropdown filter.
     const relevantUsers = allUsers.filter(u => {
         if (isOwner) {
           // Owners see users from the departments they have selected in the filter.
+          if (selectedDepartments.size === 0) return true; // No filter means all users
           return u.department && selectedDepartments.has(u.department);
         }
         if (userProfile.department) {
@@ -264,15 +265,26 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
       });
 
     const usersForDropdownResult = [...relevantUsers].sort((a, b) => a.name.localeCompare(b.name));
-    const relevantUserIds = new Set(relevantUsers.map(u => u.uid));
-
-    // Filter all shifts to include only those belonging to the relevant users.
-    const departmentFilteredShifts = allShifts.filter(shift => relevantUserIds.has(shift.userId));
     
-    // Now, apply the user selection from the dropdown.
+    // Filter shifts based on selected department(s), not based on the user's home department.
+    let shiftsToShow: Shift[];
+    if (isOwner) {
+      // For owners, filter all available shifts by the selected departments in the header.
+      if (selectedDepartments.size > 0) {
+        shiftsToShow = allShifts.filter(shift => shift.department && selectedDepartments.has(shift.department));
+      } else {
+        // If owner has no department filter, show all shifts.
+        shiftsToShow = allShifts;
+      }
+    } else {
+      // For non-owners, `allShifts` is already correctly pre-filtered by their department from the initial Firestore query.
+      shiftsToShow = allShifts;
+    }
+    
+    // Now, apply the secondary user filter from the dropdown.
     const finalFilteredShifts = selectedUserId === 'all'
-      ? departmentFilteredShifts
-      : departmentFilteredShifts.filter(s => s.userId === selectedUserId);
+      ? shiftsToShow
+      : shiftsToShow.filter(s => s.userId === selectedUserId);
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -335,7 +347,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
       usersForDropdown: usersForDropdownResult,
       todayShifts: shiftsToday,
       thisWeekShifts: shiftsThisWeek,
-      lastWeekShifts: shiftsThisWeek,
+      lastWeekShifts: shiftsLastWeek,
       nextWeekShifts: shiftsNextWeek,
       week3Shifts: shiftsWeek3,
       week4Shifts: shiftsWeek4,
