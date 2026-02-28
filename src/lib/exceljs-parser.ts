@@ -122,7 +122,11 @@ export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry
   });
 
   if (headerRow) {
-      const headers = (headerRow.values as string[]).map(h => String(h || '').trim().toLowerCase());
+      const headers: string[] = [];
+      headerRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+        headers[colNumber - 1] = String(cell.value || '').trim().toLowerCase();
+      });
+
       const dateIndex = headers.indexOf('date');
       const userIndex = headers.indexOf('user') > -1 ? headers.indexOf('user') : headers.indexOf('operative');
       const taskIndex = headers.indexOf('task');
@@ -156,7 +160,7 @@ function parseListView(sheet: ExcelJS.Worksheet, headerRowNumber: number, header
         const row = sheet.getRow(rowNum);
 
         // If the entire row is empty, skip it.
-        if (row.values.length === 0 || (row.values as any[]).every(v => v === null || v === undefined)) {
+        if (!row.hasValues) {
             continue;
         }
 
