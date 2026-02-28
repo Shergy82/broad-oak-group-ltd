@@ -489,20 +489,9 @@ function isNonShiftText(text: string): boolean {
 ========================= */
 
 function getCellText(cell: ExcelJS.Cell): string {
-  const v = cell.value;
-  if (v === null || v === undefined) return "";
-  if (typeof v === "string") return v.trim();
-  if (typeof v === "number") return String(v);
-  if (v instanceof Date) return v.toISOString();
-  if (typeof v === "object") {
-    // @ts-ignore
-    if (Array.isArray(v.richText)) return v.richText.map((rt) => rt.text).join("").trim();
-    // @ts-ignore
-    if (typeof v.text === "string") return v.text.trim();
-    // @ts-ignore
-    if (v.result !== undefined && v.result !== null) return String(v.result).trim();
-  }
-  return "";
+  // Use the .text property which returns the cell's formatted text,
+  // handling rich text, formulas, etc. automatically.
+  return cell.text?.trim() || "";
 }
 
 function hasFill(cell: ExcelJS.Cell): boolean {
