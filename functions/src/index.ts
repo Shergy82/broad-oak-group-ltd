@@ -424,7 +424,7 @@ export const deleteAllShiftsForUser = onCall({ region: REGION, timeoutSeconds: 5
     }
 
     const shiftsRef = db.collection('shifts');
-    const query = shiftsRef.where('userId', '==', userId).limit(400); // Process in chunks of 400
+    let query = shiftsRef.where('userId', '==', userId).orderBy(admin.firestore.FieldPath.documentId()).limit(400);
     let totalDeleted = 0;
 
     // eslint-disable-next-line no-constant-condition
@@ -442,6 +442,14 @@ export const deleteAllShiftsForUser = onCall({ region: REGION, timeoutSeconds: 5
 
         totalDeleted += snapshot.size;
         logger.info(`Deleted ${snapshot.size} shifts for user ${userId}. Total deleted so far: ${totalDeleted}`);
+        
+        if (snapshot.size < 400) {
+            // Last batch
+            break;
+        }
+
+        const lastVisible = snapshot.docs[snapshot.docs.length - 1];
+        query = shiftsRef.where('userId', '==', userId).orderBy(admin.firestore.FieldPath.documentId()).startAfter(lastVisible).limit(400);
     }
 
     if (totalDeleted === 0) {
