@@ -43,7 +43,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '../ui/scroll-area';
 import { cn, getCorrectedLocalDate } from '@/lib/utils';
-import { parseGasWorkbook, type ImportType, type RawParsedShift } from '@/lib/exceljs-parser';
+import { parseGasWorkbook, type ImportType, type ParsedGasShift } from '@/lib/exceljs-parser';
 
 
 export type ParsedShift = Omit<
@@ -517,63 +517,26 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             return { uid: d.id, normalizedName: normalizeText(u.name), originalName: u.name, department: u.department };
           });
           
-          const findUser = (chunk: string): UserMapEntry | { error: string } => {
-              const normalizedChunk = normalizeText(chunk.replace(/\r?\n/g, ' '));
-              if (!normalizedChunk) return { error: 'Empty name chunk' };
-          
-              // 1. Exact match
-              const exactMatches = userMap.filter(u => u.normalizedName === normalizedChunk);
-              if (exactMatches.length === 1) return exactMatches[0];
-              if (exactMatches.length > 1) return { error: `Ambiguous name (exact): "${chunk}"` };
-          
-              // 2. Flexible match for names like "Phil" vs "Philip"
-              const chunkParts = normalizedChunk.split(' ');
-              if (chunkParts.length > 0) {
-                  const chunkLastName = chunkParts[chunkParts.length - 1];
-                  const potentialMatches = userMap.filter(u => u.normalizedName.endsWith(' ' + chunkLastName));
-
-                  if (potentialMatches.length === 1) return potentialMatches[0];
-                  if (potentialMatches.length > 1) {
-                      const initialMatches = potentialMatches.filter(u => u.normalizedName.startsWith(chunkParts[0]));
-                      if (initialMatches.length === 1) return initialMatches[0];
-                      return { error: `Ambiguous name "${chunk}" matches: ${potentialMatches.slice(0,3).map(m => m.originalName).join(', ')}.` };
-                  }
-              }
-              
-              return { error: `Could not match operative: ${chunk}` };
-          };
 
           if (importType === 'GAS') {
               if (typeof parseGasWorkbook !== 'function') {
                   throw new Error("GAS import logic is not available. The parsing function could not be loaded.");
               }
-              const { parsed, failures } = await parseGasWorkbook(Buffer.from(data));
+              const { parsed, failures } = await parseGasWorkbook(Buffer.from(data), userMap);
               
-              for (const rawShift of parsed) {
-                  const userResult = findUser(rawShift.operativeNameRaw);
-                   if ('error' in userResult) {
-                       failures.push({
-                           reason: userResult.error,
-                           siteAddress: rawShift.siteAddress,
-                           operativeNameRaw: rawShift.operativeNameRaw,
-                           sheetName: rawShift.source.sheetName,
-                           cellRef: rawShift.source.cellRef,
-                       });
-                   } else {
-                        const user = userResult;
-                        allShiftsFromExcel.push({
-                            date: new Date(rawShift.shiftDate),
-                            address: rawShift.siteAddress,
-                            task: rawShift.task,
-                            userId: user.uid,
-                            userName: user.originalName,
-                            type: rawShift.type,
-                            manager: '',
-                            contract: '',
-                            department: 'Gas',
-                            notes: '',
-                        });
-                   }
+              for (const parsedShift of parsed) {
+                  allShiftsFromExcel.push({
+                      date: new Date(parsedShift.shiftDate),
+                      address: parsedShift.siteAddress,
+                      task: parsedShift.task,
+                      userId: parsedShift.user.uid,
+                      userName: parsedShift.user.originalName,
+                      type: parsedShift.type,
+                      manager: '', // Manager is not parsed in GAS format
+                      contract: '', // Contract is not parsed in GAS format
+                      department: 'Gas',
+                      notes: '',
+                  });
               }
               
               allFailedShifts.push(...failures.map(f => ({
