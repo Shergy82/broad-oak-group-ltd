@@ -35,7 +35,7 @@ var __importStar = (this && this.__importStar) || function () {
         __setModuleDefault(result, mod);
         return result;
     };
-})();
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -347,27 +347,32 @@ exports.deleteAllShiftsForUser = (0, https_1.onCall)({ region: REGION, timeoutSe
         throw new https_1.HttpsError('invalid-argument', 'A userId is required.');
     }
     const shiftsRef = db.collection('shifts');
-    let query = shiftsRef.where('userId', '==', userId).orderBy(admin.firestore.FieldPath.documentId()).limit(400);
+    let query = shiftsRef.where('userId', '==', userId).orderBy("__name__").limit(400);
     let totalDeleted = 0;
     // eslint-disable-next-line no-constant-condition
     while (true) {
+        v2_1.logger.info(`Getting next batch for user ${userId}...`);
         const snapshot = await query.get();
         if (snapshot.empty) {
+            v2_1.logger.info("Snapshot is empty, finishing deletion.");
             break;
         }
+        v2_1.logger.info(`Found ${snapshot.size} shifts to delete.`);
         const batch = db.batch();
         snapshot.docs.forEach((doc) => {
             batch.delete(doc.ref);
         });
+        v2_1.logger.info("Committing batch delete...");
         await batch.commit();
         totalDeleted += snapshot.size;
         v2_1.logger.info(`Deleted ${snapshot.size} shifts for user ${userId}. Total deleted so far: ${totalDeleted}`);
         if (snapshot.size < 400) {
-            // Last batch
+            v2_1.logger.info("Last batch was smaller than limit, finishing deletion.");
             break;
         }
         const lastVisible = snapshot.docs[snapshot.docs.length - 1];
-        query = shiftsRef.where('userId', '==', userId).orderBy(admin.firestore.FieldPath.documentId()).startAfter(lastVisible).limit(400);
+        v2_1.logger.info(`Paginating after doc ID: ${lastVisible.id}`);
+        query = shiftsRef.where('userId', '==', userId).orderBy("__name__").startAfter(lastVisible).limit(400);
     }
     if (totalDeleted === 0) {
         return { message: "No shifts found for this user to delete." };

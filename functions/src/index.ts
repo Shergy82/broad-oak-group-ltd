@@ -424,32 +424,39 @@ export const deleteAllShiftsForUser = onCall({ region: REGION, timeoutSeconds: 5
     }
 
     const shiftsRef = db.collection('shifts');
-    let query = shiftsRef.where('userId', '==', userId).orderBy(admin.firestore.FieldPath.documentId()).limit(400);
+    let query = shiftsRef.where('userId', '==', userId).orderBy("__name__").limit(400);
     let totalDeleted = 0;
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
+        logger.info(`Getting next batch for user ${userId}...`);
         const snapshot = await query.get();
+        
         if (snapshot.empty) {
+            logger.info("Snapshot is empty, finishing deletion.");
             break;
         }
 
+        logger.info(`Found ${snapshot.size} shifts to delete.`);
         const batch = db.batch();
         snapshot.docs.forEach((doc) => {
             batch.delete(doc.ref);
         });
+        
+        logger.info("Committing batch delete...");
         await batch.commit();
-
+        
         totalDeleted += snapshot.size;
         logger.info(`Deleted ${snapshot.size} shifts for user ${userId}. Total deleted so far: ${totalDeleted}`);
         
         if (snapshot.size < 400) {
-            // Last batch
+            logger.info("Last batch was smaller than limit, finishing deletion.");
             break;
         }
 
         const lastVisible = snapshot.docs[snapshot.docs.length - 1];
-        query = shiftsRef.where('userId', '==', userId).orderBy(admin.firestore.FieldPath.documentId()).startAfter(lastVisible).limit(400);
+        logger.info(`Paginating after doc ID: ${lastVisible.id}`);
+        query = shiftsRef.where('userId', '==', userId).orderBy("__name__").startAfter(lastVisible).limit(400);
     }
 
     if (totalDeleted === 0) {
