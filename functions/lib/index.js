@@ -151,7 +151,12 @@ exports.getNotificationStatus = (0, https_1.onCall)({ region: REGION }, async (r
 });
 exports.setNotificationStatus = (0, https_1.onCall)({ region: REGION }, async (req) => {
     assertAuthenticated(req.auth?.uid);
-    const { enabled, subscription } = req.data ?? {};
+    const data = req.data;
+    if (!data || typeof data !== "object") {
+        throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
+    }
+    const enabled = data.enabled;
+    const subscription = data.subscription;
     if (typeof enabled !== "boolean") {
         throw new https_1.HttpsError("invalid-argument", "enabled must be boolean");
     }
@@ -173,8 +178,13 @@ exports.setNotificationStatus = (0, https_1.onCall)({ region: REGION }, async (r
    USER MANAGEMENT (CALLABLE)
 ===================================================== */
 exports.setUserStatus = (0, https_1.onCall)({ region: REGION }, async (req) => {
-    await assertAdminOrManager(req.auth?.uid);
-    const { uid, disabled, newStatus, department } = req.data ?? {};
+    assertAuthenticated(req.auth?.uid);
+    await assertAdminOrManager(req.auth.uid);
+    const data = req.data;
+    if (!data || typeof data !== "object") {
+        throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
+    }
+    const { uid, disabled, newStatus, department } = data;
     if (typeof uid !== 'string' ||
         typeof disabled !== 'boolean' ||
         !['active', 'suspended'].includes(newStatus)) {
@@ -190,7 +200,11 @@ exports.setUserStatus = (0, https_1.onCall)({ region: REGION }, async (req) => {
 });
 exports.deleteUser = (0, https_1.onCall)({ region: REGION }, async (req) => {
     await assertIsOwner(req.auth?.uid);
-    const { uid } = req.data ?? {};
+    const data = req.data;
+    if (!data || typeof data !== "object") {
+        throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
+    }
+    const uid = data.uid;
     if (typeof uid !== 'string') {
         throw new https_1.HttpsError('invalid-argument', 'uid required');
     }
@@ -231,7 +245,8 @@ exports.onShiftCreated = (0, firestore_1.onDocumentCreated)({ document: "shifts/
    PROJECT & FILE MANAGEMENT (CALLABLE)
 ===================================================== */
 exports.deleteProjectAndFiles = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async (req) => {
-    await assertAdminOrManager(req.auth?.uid);
+    assertAuthenticated(req.auth?.uid);
+    await assertAdminOrManager(req.auth.uid);
     const data = req.data;
     if (!data || typeof data !== "object") {
         throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
@@ -263,7 +278,11 @@ exports.deleteAllProjects = (0, https_1.onCall)({ region: REGION, timeoutSeconds
 exports.deleteProjectFile = (0, https_1.onCall)({ region: REGION }, async (req) => {
     assertAuthenticated(req.auth?.uid);
     const uid = req.auth.uid;
-    const { projectId, fileId } = req.data ?? {};
+    const data = req.data;
+    if (!data || typeof data !== "object") {
+        throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
+    }
+    const { projectId, fileId } = data;
     if (!projectId || !fileId) {
         throw new https_1.HttpsError('invalid-argument', 'projectId and fileId required');
     }
@@ -273,19 +292,23 @@ exports.deleteProjectFile = (0, https_1.onCall)({ region: REGION }, async (req) 
     const fileDoc = await fileRef.get();
     if (!fileDoc.exists)
         return { success: true };
-    const data = fileDoc.data();
-    if (uid !== data.uploaderId && !['admin', 'owner', 'manager'].includes(role)) {
+    const fileData = fileDoc.data();
+    if (uid !== fileData.uploaderId && !['admin', 'owner', 'manager'].includes(role)) {
         throw new https_1.HttpsError('permission-denied', 'Not allowed');
     }
-    if (data.fullPath) {
-        await admin.storage().bucket().file(data.fullPath).delete().catch(() => { });
+    if (fileData.fullPath) {
+        await admin.storage().bucket().file(fileData.fullPath).delete().catch(() => { });
     }
     await fileRef.delete();
     return { success: true };
 });
 exports.zipProjectFiles = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 300, memory: '1GiB' }, async (req) => {
     assertAuthenticated(req.auth?.uid);
-    const { projectId } = req.data ?? {};
+    const data = req.data;
+    if (!data || typeof data !== "object") {
+        throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
+    }
+    const projectId = data.projectId;
     if (!projectId) {
         throw new https_1.HttpsError('invalid-argument', 'projectId required');
     }
@@ -300,10 +323,10 @@ exports.zipProjectFiles = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 
     const zip = new jszip_1.default();
     const bucket = admin.storage().bucket();
     await Promise.all(filesSnap.docs.map(async (doc) => {
-        const data = doc.data();
-        if (data.fullPath) {
-            const [buf] = await bucket.file(data.fullPath).download();
-            zip.file(data.name, buf);
+        const fileData = doc.data();
+        if (fileData.fullPath) {
+            const [buf] = await bucket.file(fileData.fullPath).download();
+            zip.file(fileData.name, buf);
         }
     }));
     const buffer = await zip.generateAsync({ type: 'nodebuffer' });
