@@ -341,6 +341,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                 </Select>
                 <p className="text-xs text-muted-foreground">Select the format that matches your Excel file.</p>
             </div>
+            
             {importType === 'GAS' ? (
                 <div className="space-y-2">
                     <Label>Department</Label>
@@ -363,7 +364,13 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                     </Select>
                     <p className="text-xs text-muted-foreground">All imported shifts will be tagged with this department.</p>
                 </div>
-            ) : null}
+            ) : (
+                 <div className="space-y-2">
+                    <Label>Department</Label>
+                    <Input value={userProfile.department || 'No department assigned'} disabled />
+                    <p className="text-xs text-muted-foreground">Shifts will be imported into your assigned department.</p>
+                </div>
+            )}
         </div>
         <div className="mt-4">
             <FileUploader
