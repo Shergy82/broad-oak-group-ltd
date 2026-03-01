@@ -1,4 +1,3 @@
-
 "use strict";
 /* =====================================================
    IMPORTS
@@ -19,7 +18,7 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || function () {
+var __importStar = (this && this.__importStar) || (function () {
     var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function (o) {
             var ar = [];
@@ -35,12 +34,12 @@ var __importStar = (this && this.__importStar) || function () {
         __setModuleDefault(result, mod);
         return result;
     };
-};
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteScheduledProjects = exports.pendingShiftNotifier = exports.projectReviewNotifier = exports.reGeocodeAllShifts = exports.deleteAllShifts = exports.deleteShift = exports.onShiftDeleted = exports.onShiftCreated = exports.zipProjectFiles = exports.deleteProjectFile = exports.deleteAllProjects = exports.deleteProjectAndFiles = exports.serveFile = exports.deleteUser = exports.setUserStatus = exports.setNotificationStatus = exports.getNotificationStatus = exports.getVapidPublicKey = void 0;
+exports.deleteScheduledProjects = exports.pendingShiftNotifier = exports.projectReviewNotifier = exports.reGeocodeAllShifts = exports.deleteAllShifts = exports.deleteShift = exports.zipProjectFiles = exports.deleteProjectFile = exports.deleteAllProjects = exports.deleteProjectAndFiles = exports.onShiftDeleted = exports.onShiftCreated = exports.serveFile = exports.deleteUser = exports.setUserStatus = exports.setNotificationStatus = exports.getNotificationStatus = exports.getVapidPublicKey = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
@@ -255,7 +254,7 @@ exports.onShiftCreated = (0, firestore_1.onDocumentCreated)({ document: "shifts/
 });
 exports.onShiftDeleted = (0, firestore_1.onDocumentDeleted)({ document: "shifts/{shiftId}", region: REGION }, async (event) => {
     const shiftId = event.params.shiftId;
-    // 🔥 ALWAYS CLEAN UP FIRST
+    // ALWAYS CLEAN UP FIRST
     const snap = await db
         .collection("unavailability")
         .where("shiftId", "==", shiftId)
@@ -269,9 +268,7 @@ exports.onShiftDeleted = (0, firestore_1.onDocumentDeleted)({ document: "shifts/
             count: snap.size,
         });
     }
-    // ─────────────────────────
     // OPTIONAL: notification logic
-    // ─────────────────────────
     const shift = event.data?.data();
     const date = shift?.date?.toDate?.();
     if (!date || isShiftInPast(date)) {
