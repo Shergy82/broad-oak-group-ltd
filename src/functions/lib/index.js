@@ -40,7 +40,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteScheduledProjects = exports.pendingShiftNotifier = exports.projectReviewNotifier = exports.reGeocodeAllShifts = exports.deleteAllShifts = exports.deleteShift = exports.zipProjectFiles = exports.deleteProjectFile = exports.deleteAllProjects = exports.deleteProjectAndFiles = exports.onShiftCreated = exports.serveFile = exports.deleteUser = exports.setUserStatus = exports.setNotificationStatus = exports.getNotificationStatus = exports.getVapidPublicKey = void 0;
+exports.deleteScheduledProjects = exports.pendingShiftNotifier = exports.projectReviewNotifier = exports.reGeocodeAllShifts = exports.deleteAllShifts = exports.deleteShift = exports.onShiftDeleted = exports.onShiftCreated = exports.zipProjectFiles = exports.deleteProjectFile = exports.deleteAllProjects = exports.deleteProjectAndFiles = exports.serveFile = exports.deleteUser = exports.setUserStatus = exports.setNotificationStatus = exports.getNotificationStatus = exports.getVapidPublicKey = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
@@ -253,6 +253,23 @@ exports.onShiftCreated = (0, firestore_1.onDocumentCreated)({ document: "shifts/
         return;
     await sendShiftNotification(shift.userId, "New shift added", `A new shift was added for ${formatDateUK(date)}`, pendingGateUrl(), { shiftId: event.params.shiftId });
 });
+exports.onShiftDeleted = (0, firestore_1.onDocumentDeleted)({ document: "shifts/{shiftId}", region: REGION }, async (event) => {
+    const shiftId = event.params.shiftId;
+    const unavailabilityRef = db.collection("unavailability").doc(shiftId);
+    try {
+        const snap = await unavailabilityRef.get();
+        if (snap.exists) {
+            await unavailabilityRef.delete();
+            v2_1.logger.info(`Unavailability ${shiftId} deleted following shift deletion.`);
+        }
+    }
+    catch (err) {
+        v2_1.logger.error("Failed to clean up unavailability for deleted shift.", {
+            shiftId,
+            error: err,
+        });
+    }
+});
 /* =====================================================
    PROJECT & FILE MANAGEMENT (CALLABLE)
 ===================================================== */
@@ -368,7 +385,6 @@ exports.deleteShift = (0, https_1.onCall)({ region: REGION }, async (req) => {
         throw new https_1.HttpsError("unauthenticated", "Authentication required");
     }
     await assertAdminOrManager(uid);
-    // 🔒 CRITICAL FIX: validate req.data before destructuring
     const data = req.data;
     if (!data || typeof data !== "object") {
         throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
@@ -383,29 +399,9 @@ exports.deleteShift = (0, https_1.onCall)({ region: REGION }, async (req) => {
         v2_1.logger.info(`Shift with id ${shiftId} not found. Returning success.`);
         return { success: true };
     }
-    const shiftData = shiftDoc.data();
+    // The batch is no longer needed, but is safe to keep.
     const batch = db.batch();
     batch.delete(shiftRef);
-    const userId = shiftData.userId;
-    // Cross-department unavailability cleanup (unchanged logic)
-    if (userId) {
-        const userRef = db.collection("users").doc(userId);
-        const userDoc = await userRef.get();
-        if (userDoc.exists) {
-            const userData = userDoc.data();
-            if (userData.department &&
-                shiftData.department &&
-                userData.department !== shiftData.department) {
-                const unavailabilityRef = db
-                    .collection("unavailability")
-                    .doc(shiftId);
-                const unavailDoc = await unavailabilityRef.get();
-                if (unavailDoc.exists) {
-                    batch.delete(unavailabilityRef);
-                }
-            }
-        }
-    }
     await batch.commit();
     return { success: true };
 });

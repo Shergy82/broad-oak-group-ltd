@@ -6,7 +6,7 @@
 
 import * as admin from "firebase-admin";
 import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
-import { onDocumentCreated } from "firebase-functions/v2/firestore";
+import { onDocumentCreated, onDocumentDeleted } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { logger } from "firebase-functions/v2";
 import JSZip from "jszip";
@@ -307,6 +307,26 @@ export const onShiftCreated = onDocumentCreated(
   }
 );
 
+export const onShiftDeleted = onDocumentDeleted(
+  { document: "shifts/{shiftId}", region: REGION },
+  async (event) => {
+    const shiftId = event.params.shiftId;
+    const unavailabilityRef = db.collection("unavailability").doc(shiftId);
+    try {
+      const snap = await unavailabilityRef.get();
+      if (snap.exists) {
+        await unavailabilityRef.delete();
+        logger.info(`Unavailability ${shiftId} deleted following shift deletion.`);
+      }
+    } catch (err) {
+      logger.error("Failed to clean up unavailability for deleted shift.", {
+        shiftId,
+        error: err,
+      });
+    }
+  }
+);
+
 
 /* =====================================================
    PROJECT & FILE MANAGEMENT (CALLABLE)
@@ -465,37 +485,11 @@ export const deleteShift = onCall({ region: REGION }, async (req) => {
     return { success: true };
   }
 
-  const shiftData = shiftDoc.data()!;
+  // The batch is no longer needed, but is safe to keep.
   const batch = db.batch();
-
   batch.delete(shiftRef);
-
-  const userId = shiftData.userId;
-
-  if (userId) {
-    const userRef = db.collection("users").doc(userId);
-    const userDoc = await userRef.get();
-
-    if (userDoc.exists) {
-      const userData = userDoc.data()!;
-      if (
-        userData.department &&
-        shiftData.department &&
-        userData.department !== shiftData.department
-      ) {
-        const unavailabilityRef = db
-          .collection("unavailability")
-          .doc(shiftId);
-
-        const unavailDoc = await unavailabilityRef.get();
-        if (unavailDoc.exists) {
-          batch.delete(unavailabilityRef);
-        }
-      }
-    }
-  }
-
   await batch.commit();
+  
   return { success: true };
 });
 
@@ -583,3 +577,4 @@ export const deleteScheduledProjects = onSchedule(
     logger.info("Scheduled project cleanup finished");
   }
 );
+
