@@ -447,7 +447,6 @@ export const deleteShift = onCall({ region: REGION }, async (req) => {
 
   await assertAdminOrManager(uid);
 
-  // 🔒 CRITICAL FIX: validate req.data before destructuring
   const data = req.data;
   if (!data || typeof data !== "object") {
     throw new HttpsError("invalid-argument", "Request data must be an object.");
@@ -473,7 +472,6 @@ export const deleteShift = onCall({ region: REGION }, async (req) => {
 
   const userId = shiftData.userId;
 
-  // Cross-department unavailability cleanup (unchanged logic)
   if (userId) {
     const userRef = db.collection("users").doc(userId);
     const userDoc = await userRef.get();
