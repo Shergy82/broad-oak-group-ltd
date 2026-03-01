@@ -6,7 +6,7 @@
 
 import * as admin from "firebase-admin";
 import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
-import { onDocumentCreated } from "firebase-functions/v2/firestore";
+import { onDocumentCreated, onDocumentDeleted } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { logger } from "firebase-functions/v2";
 import JSZip from "jszip";
@@ -308,6 +308,42 @@ export const onShiftCreated = onDocumentCreated(
 );
 
 
+export const onShiftDeleted = onDocumentDeleted(
+  { document: "shifts/{shiftId}", region: REGION },
+  async (event) => {
+    const shiftId = event.params.shiftId;
+
+    // ALWAYS CLEAN UP FIRST
+    const snap = await db
+      .collection("unavailability")
+      .where("shiftId", "==", shiftId)
+      .get();
+
+    if (!snap.empty) {
+      const batch = db.batch();
+      snap.docs.forEach((doc) => batch.delete(doc.ref));
+      await batch.commit();
+
+      logger.info("Unavailability cleaned up", {
+        shiftId,
+        count: snap.size,
+      });
+    }
+
+    // OPTIONAL: notification logic
+    const shift = event.data?.data();
+    const date = shift?.date?.toDate?.();
+
+    if (!date || isShiftInPast(date)) {
+      logger.info("Shift deleted but in past; no notify", { shiftId });
+      return;
+    }
+
+    // notification logic here (if any)
+  }
+);
+
+
 /* =====================================================
    PROJECT & FILE MANAGEMENT (CALLABLE)
 ===================================================== */
@@ -439,7 +475,6 @@ export const zipProjectFiles = onCall(
    SHIFTS (CALLABLE)
 ===================================================== */
 export const deleteShift = onCall({ region: REGION }, async (req) => {
-  logger.info("deleteShift CALLED");
   const uid = req.auth?.uid;
   if (!uid) {
     throw new HttpsError("unauthenticated", "Authentication required");
@@ -459,45 +494,9 @@ export const deleteShift = onCall({ region: REGION }, async (req) => {
   }
 
   const shiftRef = db.collection("shifts").doc(shiftId);
-  const shiftDoc = await shiftRef.get();
+  
+  await shiftRef.delete();
 
-  if (!shiftDoc.exists) {
-    logger.info(`Shift with id ${shiftId} not found. Returning success.`);
-    return { success: true };
-  }
-
-  const shiftData = shiftDoc.data()!;
-  const batch = db.batch();
-
-  batch.delete(shiftRef);
-
-  const userId = shiftData.userId;
-
-  // Cross-department unavailability cleanup (unchanged logic)
-  if (userId) {
-    const userRef = db.collection("users").doc(userId);
-    const userDoc = await userRef.get();
-
-    if (userDoc.exists) {
-      const userData = userDoc.data()!;
-      if (
-        userData.department &&
-        shiftData.department &&
-        userData.department !== shiftData.department
-      ) {
-        const unavailabilityRef = db
-          .collection("unavailability")
-          .doc(shiftId);
-
-        const unavailDoc = await unavailabilityRef.get();
-        if (unavailDoc.exists) {
-          batch.delete(unavailabilityRef);
-        }
-      }
-    }
-  }
-
-  await batch.commit();
   return { success: true };
 });
 

@@ -1,3 +1,4 @@
+
 "use strict";
 /* =====================================================
    IMPORTS
@@ -18,7 +19,7 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || (function () {
+var __importStar = (this && this.__importStar) || function () {
     var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function (o) {
             var ar = [];
@@ -34,12 +35,12 @@ var __importStar = (this && this.__importStar) || (function () {
         __setModuleDefault(result, mod);
         return result;
     };
-})();
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteScheduledProjects = exports.pendingShiftNotifier = exports.projectReviewNotifier = exports.reGeocodeAllShifts = exports.deleteAllShifts = exports.deleteShift = exports.zipProjectFiles = exports.deleteProjectFile = exports.deleteAllProjects = exports.deleteProjectAndFiles = exports.onShiftCreated = exports.serveFile = exports.deleteUser = exports.setUserStatus = exports.setNotificationStatus = exports.getNotificationStatus = exports.getVapidPublicKey = void 0;
+exports.deleteScheduledProjects = exports.pendingShiftNotifier = exports.projectReviewNotifier = exports.reGeocodeAllShifts = exports.deleteAllShifts = exports.deleteShift = exports.onShiftDeleted = exports.onShiftCreated = exports.zipProjectFiles = exports.deleteProjectFile = exports.deleteAllProjects = exports.deleteProjectAndFiles = exports.serveFile = exports.deleteUser = exports.setUserStatus = exports.setNotificationStatus = exports.getNotificationStatus = exports.getVapidPublicKey = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
@@ -252,6 +253,33 @@ exports.onShiftCreated = (0, firestore_1.onDocumentCreated)({ document: "shifts/
         return;
     await sendShiftNotification(shift.userId, "New shift added", `A new shift was added for ${formatDateUK(date)}`, pendingGateUrl(), { shiftId: event.params.shiftId });
 });
+exports.onShiftDeleted = (0, firestore_1.onDocumentDeleted)({ document: "shifts/{shiftId}", region: REGION }, async (event) => {
+    const shiftId = event.params.shiftId;
+    // 🔥 ALWAYS CLEAN UP FIRST
+    const snap = await db
+        .collection("unavailability")
+        .where("shiftId", "==", shiftId)
+        .get();
+    if (!snap.empty) {
+        const batch = db.batch();
+        snap.docs.forEach((doc) => batch.delete(doc.ref));
+        await batch.commit();
+        v2_1.logger.info("Unavailability cleaned up", {
+            shiftId,
+            count: snap.size,
+        });
+    }
+    // ─────────────────────────
+    // OPTIONAL: notification logic
+    // ─────────────────────────
+    const shift = event.data?.data();
+    const date = shift?.date?.toDate?.();
+    if (!date || isShiftInPast(date)) {
+        v2_1.logger.info("Shift deleted but in past; no notify", { shiftId });
+        return;
+    }
+    // notification logic here (if any)
+});
 /* =====================================================
    PROJECT & FILE MANAGEMENT (CALLABLE)
 ===================================================== */
@@ -363,7 +391,6 @@ exports.zipProjectFiles = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 
    SHIFTS (CALLABLE)
 ===================================================== */
 exports.deleteShift = (0, https_1.onCall)({ region: REGION }, async (req) => {
-    v2_1.logger.info("deleteShift CALLED");
     const uid = req.auth?.uid;
     if (!uid) {
         throw new https_1.HttpsError("unauthenticated", "Authentication required");
@@ -379,35 +406,7 @@ exports.deleteShift = (0, https_1.onCall)({ region: REGION }, async (req) => {
         throw new https_1.HttpsError("invalid-argument", "shiftId is required.");
     }
     const shiftRef = db.collection("shifts").doc(shiftId);
-    const shiftDoc = await shiftRef.get();
-    if (!shiftDoc.exists) {
-        v2_1.logger.info(`Shift with id ${shiftId} not found. Returning success.`);
-        return { success: true };
-    }
-    const shiftData = shiftDoc.data();
-    const batch = db.batch();
-    batch.delete(shiftRef);
-    const userId = shiftData.userId;
-    // Cross-department unavailability cleanup (unchanged logic)
-    if (userId) {
-        const userRef = db.collection("users").doc(userId);
-        const userDoc = await userRef.get();
-        if (userDoc.exists) {
-            const userData = userDoc.data();
-            if (userData.department &&
-                shiftData.department &&
-                userData.department !== shiftData.department) {
-                const unavailabilityRef = db
-                    .collection("unavailability")
-                    .doc(shiftId);
-                const unavailDoc = await unavailabilityRef.get();
-                if (unavailDoc.exists) {
-                    batch.delete(unavailabilityRef);
-                }
-            }
-        }
-    }
-    await batch.commit();
+    await shiftRef.delete();
     return { success: true };
 });
 exports.deleteAllShifts = (0, https_1.onCall)({ region: REGION }, async (req) => {
