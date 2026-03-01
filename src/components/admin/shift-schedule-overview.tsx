@@ -414,13 +414,17 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
   };
   
   const handleDeleteShift = async (shift: Shift) => {
-    if (!db) return;
+    if (!functions) {
+        toast({ variant: 'destructive', title: 'Functions not available' });
+        return;
+    }
     try {
-        await deleteDoc(doc(db, 'shifts', shift.id));
+        const deleteShiftFn = httpsCallable<{ shiftId: string }, { success: boolean }>(functions, 'deleteShift');
+        await deleteShiftFn({ shiftId: shift.id });
         toast({ title: 'Success', description: 'Shift has been deleted.' });
-    } catch (error) {
+    } catch (error: any) {
         console.error("Error deleting shift:", error);
-        toast({ variant: 'destructive', title: 'Error', description: 'Could not delete the shift.' });
+        toast({ variant: 'destructive', title: 'Error', description: error.message || 'Could not delete the shift.' });
     }
   };
 
