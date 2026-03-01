@@ -392,7 +392,6 @@ exports.deleteShift = (0, https_1.onCall)({ region: REGION }, async (req) => {
         throw new https_1.HttpsError("invalid-argument", "shiftId is required.");
     }
     const shiftRef = db.collection("shifts").doc(shiftId);
-    // The function's only job is to delete the shift. The `onShiftDeleted` trigger will handle cleanup.
     await shiftRef.delete();
     return { success: true };
 });

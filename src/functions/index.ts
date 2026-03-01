@@ -479,7 +479,6 @@ export const deleteShift = onCall({ region: REGION }, async (req) => {
 
   const shiftRef = db.collection("shifts").doc(shiftId);
   
-  // The function's only job is to delete the shift. The `onShiftDeleted` trigger will handle cleanup.
   await shiftRef.delete();
 
   return { success: true };
