@@ -116,7 +116,7 @@ export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry
   let headerRow: ExcelJS.Row | undefined;
   let headerRowNumber: number = -1;
   sheet.eachRow((row, rowNum) => {
-      if(!headerRow && row.values.some(v => v)) {
+      if(!headerRow && row.hasValues) {
           headerRow = row;
           headerRowNumber = rowNum;
       }
@@ -156,11 +156,9 @@ function parseListView(sheet: ExcelJS.Worksheet, headerRowNumber: number, header
     const taskIndex = headers.indexOf('task');
     const addressIndex = headers.indexOf('address');
 
-    // Use a standard for loop from after the header to the last row with content.
     for (let rowNum = headerRowNumber + 1; rowNum <= sheet.rowCount; rowNum++) {
         const row = sheet.getRow(rowNum);
 
-        // If the entire row is empty, skip it.
         if (!row.hasValues) {
             continue;
         }
@@ -171,7 +169,6 @@ function parseListView(sheet: ExcelJS.Worksheet, headerRowNumber: number, header
         const address = getCellText(row.getCell(addressIndex + 1));
 
         if (!date || !userNameRaw || !task || !address) {
-            // Only add a failure if there's *some* data on the row. This avoids adding failures for blank formatting rows.
             if (userNameRaw || task || address) {
                 failures.push({
                     reason: 'Missing required data (Date, User, Task, or Address).',
@@ -305,7 +302,7 @@ async function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]
         const cell = sheet.getCell(r, col);
         const text = getCellText(cell);
         if (!text) {
-          continue; // FIX: Simply continue to the next row if the cell is blank
+          continue; 
         }
         if (isNonShiftText(text)) continue;
 
@@ -490,8 +487,6 @@ function isNonShiftText(text: string): boolean {
 ========================= */
 
 function getCellText(cell: ExcelJS.Cell): string {
-  // Use the .text property which returns the cell's formatted text,
-  // handling rich text, formulas, etc. automatically.
   return cell.text?.trim() || "";
 }
 
@@ -577,3 +572,280 @@ function colToA1(col: number): string {
   }
   return s;
 }
+
+// Full sheet parser for BUILD format
+export const parseBuildSheet = (
+  worksheet: any, // Using 'any' for SheetJS worksheet type
+  userMap: UserMapEntry[],
+  sheetName: string,
+  department: string
+): { shifts: any[], failed: ImportFailure[] } => {
+  const data: any[][] = worksheet; // SheetJS returns array of arrays
+  const allShifts: any[] = [];
+  const allFailed: ImportFailure[] = [];
+
+  const headers = data[0].map((h: any) => String(h || '').trim().toLowerCase());
+  const dateIndex = headers.indexOf('date');
+  const userIndex = headers.indexOf('user');
+  const taskIndex = headers.indexOf('task');
+  const addressIndex = headers.indexOf('address');
+
+  if ([dateIndex, userIndex, taskIndex, addressIndex].includes(-1)) {
+    // --- MATRIX VIEW PARSER ---
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+
+    const dateRowRaw = data[0];
+    const dateRow: (Date | null)[] = dateRowRaw.map((cell: any) => parseDate(cell));
+    
+    let currentAddress = '';
+    let currentENumber = '';
+    let currentContract = '';
+    let currentManager = '';
+    let currentNotes = '';
+    
+    let blankRun = 0;
+
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      if (!row || row.every(cell => !cell)) {
+          blankRun++;
+          if (blankRun >= 3) {
+             // Stop processing this site if we hit 3 consecutive empty rows
+             currentAddress = '';
+          }
+          continue;
+      }
+      blankRun = 0;
+
+      const newAddressAndENumber = String(row[0] || '').trim();
+      if (newAddressAndENumber) {
+        const eNumMatch = newAddressAndENumber.match(/\b([BE]\d+\S*)$/i);
+        if (eNumMatch) {
+          currentENumber = eNumMatch[0].toUpperCase();
+          currentAddress = newAddressAndENumber.replace(eNumMatch[0], '').trim().replace(/,$/, '').trim();
+        } else {
+          currentAddress = newAddressAndENumber;
+          currentENumber = '';
+        }
+        currentContract = String(row[2] || '').trim() || currentContract;
+        currentManager = String(row[3] || '').trim() || sheetName;
+        const notePart1 = String(row[1] || '').trim();
+        const notePart2 = String(row[4] || '').trim();
+        currentNotes = [notePart1, notePart2].filter(Boolean).join('; ');
+      }
+
+      if (!currentAddress) continue;
+      
+      const shiftDateCells = dateRow.slice(5);
+
+      for (let c = 0; c < shiftDateCells.length; c++) {
+          const date = shiftDateCells[c];
+          const cellText = String(row[c + 5] || '').trim();
+          if (!date || !cellText || !/[a-zA-Z]/.test(cellText)) continue;
+
+          if (date < today) continue;
+          
+          const extraction = extractUsersAndTask(cellText, userMap);
+          if (!extraction || extraction.users.length === 0) {
+              allFailed.push({
+                  date,
+                  projectAddress: currentAddress,
+                  cellContent: cellText,
+                  reason: extraction?.reason || 'No valid user found in cell.',
+                  sheetName,
+                  cellRef: `Col ${c + 6}, Row ${i + 1}`,
+              });
+              continue;
+          }
+
+          extraction.users.forEach(user => {
+              allShifts.push({
+                  date,
+                  address: currentAddress,
+                  eNumber: currentENumber,
+                  task: extraction.task,
+                  userId: user.uid,
+                  userName: user.originalName,
+                  type: extraction.type,
+                  manager: currentManager,
+                  contract: currentContract,
+                  department,
+                  notes: currentNotes,
+              });
+          });
+      }
+    }
+  } else {
+    // --- LIST VIEW PARSER ---
+    const operativeIndex = userIndex !== -1 ? userIndex : headers.indexOf('operative');
+    const eNumberIndex = headers.findIndex(h => h.includes('number'));
+    const contractIndex = headers.indexOf('contract');
+    const managerIndex = headers.indexOf('manager');
+
+    for (let i = 1; i < data.length; i++) {
+        const row = data[i];
+        if (!row || row.every((cell: any) => !cell)) continue;
+
+        const date = parseDate(row[dateIndex]);
+        const userNameRaw = String(row[operativeIndex] || '').trim();
+        const task = String(row[taskIndex] || '').trim();
+        const address = String(row[addressIndex] || '').trim();
+
+        if (!date || !userNameRaw || !task || !address) continue;
+
+        const { users: matchedUsers, reason } = findUsersInMap(userNameRaw, userMap);
+        if (matchedUsers.length !== 1) {
+            allFailed.push({ date, projectAddress: address, cellContent: userNameRaw, reason: reason || 'No unique user found', sheetName, cellRef: `Row ${i + 1}` });
+            continue;
+        }
+
+        allShifts.push({
+            date,
+            address,
+            eNumber: eNumberIndex !== -1 ? String(row[eNumberIndex] || '') : '',
+            task,
+            userId: matchedUsers[0].uid,
+            userName: matchedUsers[0].originalName,
+            type: 'all-day',
+            manager: managerIndex !== -1 ? String(row[managerIndex] || sheetName) : sheetName,
+            contract: contractIndex !== -1 ? String(row[contractIndex] || '') : '',
+            department,
+            notes: '',
+        });
+    }
+  }
+
+  return { shifts: allShifts, failed: allFailed };
+};
+
+const extractUsersAndTask = (
+  text: string,
+  userMap: UserMapEntry[]
+): { users: UserMapEntry[]; task: string; type: 'am' | 'pm' | 'all-day', reason?: string } | null => {
+  if (!text || typeof text !== 'string') return null;
+
+  let raw = text.trim();
+  if (!raw) return null;
+
+  let shiftType: 'am' | 'pm' | 'all-day' = 'all-day';
+
+  if (/^AM\b/i.test(raw)) {
+    shiftType = 'am';
+    raw = raw.substring(2).trim();
+  } else if (/^PM\b/i.test(raw)) {
+    shiftType = 'pm';
+    raw = raw.substring(2).trim();
+  }
+
+  const lastHyphenIndex = raw.lastIndexOf('-');
+  if (lastHyphenIndex === -1) {
+    return {
+      users: [],
+      task: raw,
+      type: shiftType,
+      reason: 'No " - " separator found to distinguish task from names.',
+    };
+  }
+
+  const taskPart = raw.substring(0, lastHyphenIndex).trim();
+  const namesPart = raw.substring(lastHyphenIndex + 1).trim();
+
+  if (!namesPart) {
+    return {
+      users: [],
+      task: taskPart,
+      type: shiftType,
+      reason: 'No names found after the " - " separator.',
+    };
+  }
+
+  const nameChunks = namesPart.split(/,|\/|&|\b\s*and\s*\b/i).map(s => s.trim()).filter(Boolean);
+
+  if (nameChunks.length === 0) {
+      return {
+          users: [],
+          task: taskPart,
+          type: shiftType,
+          reason: `No valid names found in cell part: "${namesPart}"`
+      };
+  }
+
+  const allMatchedUsers: UserMapEntry[] = [];
+  let failureReason: string | null = null;
+  
+  for (const chunk of nameChunks) {
+      const result = findUsersInMap(chunk, userMap);
+      if (result.users.length === 1) {
+          if (!allMatchedUsers.some(u => u.uid === result.users[0].uid)) {
+              allMatchedUsers.push(result.users[0]);
+          }
+      } else {
+          failureReason = result.reason || `Failed to match user for "${chunk}".`;
+          break;
+      }
+  }
+
+  if (failureReason) {
+    return {
+      users: [],
+      task: taskPart,
+      type: shiftType,
+      reason: failureReason,
+    };
+  }
+  
+  if (allMatchedUsers.length === 0) {
+      return {
+          users: [],
+          task: taskPart,
+          type: shiftType,
+          reason: `Could not identify any valid users from "${namesPart}".`
+      }
+  }
+  
+  return {
+    users: allMatchedUsers,
+    task: taskPart,
+    type: shiftType,
+  };
+};
+
+const parseDate = (dateValue: any): Date | null => {
+  if (!dateValue) return null;
+  if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
+    return dateValue;
+  }
+  if (typeof dateValue === 'number' && dateValue > 1) {
+    const excelEpoch = new Date(1899, 11, 30);
+    const d = new Date(excelEpoch.getTime() + dateValue * 24 * 60 * 60 * 1000);
+    if (!isNaN(d.getTime())) {
+      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    }
+  }
+  if (typeof dateValue === 'string') {
+    let s = dateValue.trim();
+    if (!s) return null;
+
+    s = s.replace(/(\d+)(st|nd|rd|th)/g, '$1');
+
+    const parts = s.match(/^(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?$/);
+    if (parts) {
+      const day = parseInt(parts[1], 10);
+      const month = parseInt(parts[2], 10) - 1;
+      let year = parts[3] ? parseInt(parts[3], 10) : new Date().getFullYear();
+      if (year < 100) year += 2000;
+      if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
+        const d = new Date(Date.UTC(year, month, day));
+        if (d.getUTCFullYear() === year && d.getUTCMonth() === month && d.getUTCDate() === day) {
+          return d;
+        }
+      }
+    }
+    const parsed = new Date(s);
+    if (!isNaN(parsed.getTime())) {
+      return new Date(Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()));
+    }
+  }
+  return null;
+};
