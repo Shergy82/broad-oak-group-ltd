@@ -1,5 +1,4 @@
 
-
 /* =====================================================
    IMPORTS
 ===================================================== */
@@ -311,18 +310,12 @@ export const onShiftCreated = onDocumentCreated(
 export const onShiftDeleted = onDocumentDeleted(
   { document: "shifts/{shiftId}", region: REGION },
   async (event) => {
-    const shiftId = event.params.shiftId;
+    logger.error("🔥 onShiftDeleted FIRED", {
+      shiftId: event.params.shiftId,
+    });
 
-    const snap = await db
-      .collection("unavailability")
-      .where("shiftId", "==", shiftId)
-      .get();
-
-    if (snap.empty) return;
-
-    const batch = db.batch();
-    snap.docs.forEach((doc) => batch.delete(doc.ref));
-    await batch.commit();
+    // TEMP: stop here
+    return;
   }
 );
 
@@ -478,7 +471,6 @@ export const deleteShift = onCall({ region: REGION }, async (req) => {
   }
 
   const shiftRef = db.collection("shifts").doc(shiftId);
-  
   await shiftRef.delete();
 
   return { success: true };

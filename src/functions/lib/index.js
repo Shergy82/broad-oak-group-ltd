@@ -254,16 +254,11 @@ exports.onShiftCreated = (0, firestore_1.onDocumentCreated)({ document: "shifts/
     await sendShiftNotification(shift.userId, "New shift added", `A new shift was added for ${formatDateUK(date)}`, pendingGateUrl(), { shiftId: event.params.shiftId });
 });
 exports.onShiftDeleted = (0, firestore_1.onDocumentDeleted)({ document: "shifts/{shiftId}", region: REGION }, async (event) => {
-    const shiftId = event.params.shiftId;
-    const snap = await db
-        .collection("unavailability")
-        .where("shiftId", "==", shiftId)
-        .get();
-    if (snap.empty)
-        return;
-    const batch = db.batch();
-    snap.docs.forEach((doc) => batch.delete(doc.ref));
-    await batch.commit();
+    v2_1.logger.error("🔥 onShiftDeleted FIRED", {
+        shiftId: event.params.shiftId,
+    });
+    // TEMP: stop here
+    return;
 });
 /* =====================================================
    PROJECT & FILE MANAGEMENT (CALLABLE)
