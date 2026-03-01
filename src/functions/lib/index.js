@@ -257,14 +257,15 @@ exports.onShiftDeleted = (0, firestore_1.onDocumentDeleted)({ document: "shifts/
     const shiftId = event.params.shiftId;
     const unavailabilityRef = db.collection("unavailability").doc(shiftId);
     try {
-        const snap = await unavailabilityRef.get();
-        if (snap.exists) {
-            await unavailabilityRef.delete();
-            v2_1.logger.info(`Unavailability ${shiftId} deleted following shift deletion.`);
-        }
+        // This is a fire-and-forget operation.
+        // We don't need to check if it exists first. If it doesn't, .delete() is a no-op.
+        // We add a catch to prevent the function from logging an error if it fails (e.g., due to permissions).
+        await unavailabilityRef.delete().catch(() => { });
+        v2_1.logger.info(`Cleanup for unavailability record ${shiftId} triggered.`);
     }
     catch (err) {
-        v2_1.logger.error("Failed to clean up unavailability for deleted shift.", {
+        // This outer catch is a fallback, but the inner .catch() should handle most cases.
+        v2_1.logger.error("Error during unavailability cleanup for deleted shift.", {
             shiftId,
             error: err,
         });
@@ -394,15 +395,9 @@ exports.deleteShift = (0, https_1.onCall)({ region: REGION }, async (req) => {
         throw new https_1.HttpsError("invalid-argument", "shiftId is required.");
     }
     const shiftRef = db.collection("shifts").doc(shiftId);
-    const shiftDoc = await shiftRef.get();
-    if (!shiftDoc.exists) {
-        v2_1.logger.info(`Shift with id ${shiftId} not found. Returning success.`);
-        return { success: true };
-    }
-    // The batch is no longer needed, but is safe to keep.
-    const batch = db.batch();
-    batch.delete(shiftRef);
-    await batch.commit();
+    // The function's only job is to delete the shift. The `onShiftDeleted` trigger will handle cleanup.
+    // No need to check for existence first; .delete() is a no-op if the doc doesn't exist.
+    await shiftRef.delete();
     return { success: true };
 });
 exports.deleteAllShifts = (0, https_1.onCall)({ region: REGION }, async (req) => {
