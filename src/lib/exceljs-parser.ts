@@ -288,7 +288,7 @@ async function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]
       continue;
     }
     
-    const { address: rawSiteAddress } = siteAddressResult;
+    const { address: rawSiteAddress, addressRow } = siteAddressResult;
 
     const eNumMatch = rawSiteAddress.match(/\b([BE]\d+\S*)$/i);
     let siteAddress = rawSiteAddress;
@@ -304,6 +304,21 @@ async function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]
       continue;
     }
 
+    let manager = sheetName;
+    const notesArray: string[] = [];
+
+    for (let r = blockStart; r < addressRow; r++) {
+        const cellText = getCellText(sheet.getCell(r, 1)).trim();
+        if (cellText) {
+            if (cellText.toUpperCase().includes('SITE MANAGER')) {
+                manager = cellText.toUpperCase().replace('SITE MANAGER', '').replace(/\d/g, '').trim();
+            } else if (!cellText.toUpperCase().includes('JOB MANAGER')) {
+                notesArray.push(cellText);
+            }
+        }
+    }
+    const notes = notesArray.join('\n');
+
     const dateCols = getDateColumns(sheet, used, dateRowIdx);
     if (dateCols.length === 0) {
       failures.push({ reason: "Block skipped — no valid date columns found on date row.", sheetName, siteAddress, cellRef: `${colToA1(used.startCol)}${dateRowIdx}:${colToA1(used.endCol)}${dateRowIdx}` });
@@ -318,14 +333,6 @@ async function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]
         if (!text || isNonShiftText(text)) {
           continue; 
         }
-        
-        const managerCell = sheet.getCell(r, 2); // Column B of shift row
-        const manager = getCellText(managerCell) || sheetName; // Use sheetName as fallback
-        
-        const note1CellBelow = sheet.getCell(r + 1, col);
-        const note2CellBelow = sheet.getCell(r + 2, col);
-        const notes = [getCellText(note1CellBelow), getCellText(note2CellBelow)].filter(Boolean).join('; ');
-
 
         const { task, names, type } = extractGasTaskAndNames(text);
         if (names.length === 0) {
@@ -352,7 +359,6 @@ async function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]
             });
           }
         }
-        r += 2; // Skip the two note rows
       }
     }
   }
@@ -772,7 +778,7 @@ const extractUsersAndTask = (
     };
   }
 
-  const nameChunks = namesPart.split(/,|\/|&|\b\s*and\s*\b/i).map(s => s.trim()).filter(Boolean);
+  const nameChunks = namesPart.split(/,|&|\/|\b\s*and\s*\b/i).map(s => s.trim()).filter(Boolean);
 
   if (nameChunks.length === 0) {
       return {
@@ -861,4 +867,5 @@ const parseDate = (dateValue: any): Date | null => {
   }
   return null;
 };
+
 
