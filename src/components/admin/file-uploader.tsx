@@ -704,8 +704,9 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
               
               const user = userMap.find(u => u.uid === shift.userId);
               if (user && user.department && user.department !== shift.department) {
-                  const unavailabilityRef = doc(firestore, 'unavailability', shiftRef.id);
+                  const unavailabilityRef = doc(collection(firestore, 'unavailability'));
                   batch.set(unavailabilityRef, {
+                      shiftId: shiftRef.id,
                       userId: shift.userId,
                       userName: shift.userName,
                       startDate: Timestamp.fromDate(shift.date),
@@ -731,10 +732,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
 
             toDelete.forEach((shift) => {
               batch.delete(doc(firestore, 'shifts', shift.id));
-              const user = userMap.find(u => u.uid === shift.userId);
-              if (user && user.department && user.department !== shift.department) {
-                batch.delete(doc(firestore, 'unavailability', shift.id));
-              }
             });
 
             await batch.commit();

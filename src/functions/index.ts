@@ -312,21 +312,17 @@ export const onShiftDeleted = onDocumentDeleted(
   { document: "shifts/{shiftId}", region: REGION },
   async (event) => {
     const shiftId = event.params.shiftId;
-    const unavailabilityRef = db.collection("unavailability").doc(shiftId);
 
-    try {
-      // This is a fire-and-forget operation.
-      // We don't need to check if it exists first. If it doesn't, .delete() is a no-op.
-      // We add a catch to prevent the function from logging an error if it fails (e.g., due to permissions).
-      await unavailabilityRef.delete().catch(() => {});
-      logger.info(`Cleanup for unavailability record ${shiftId} triggered.`);
-    } catch (err) {
-      // This outer catch is a fallback, but the inner .catch() should handle most cases.
-      logger.error("Error during unavailability cleanup for deleted shift.", {
-        shiftId,
-        error: err,
-      });
-    }
+    const snap = await db
+      .collection("unavailability")
+      .where("shiftId", "==", shiftId)
+      .get();
+
+    if (snap.empty) return;
+
+    const batch = db.batch();
+    snap.docs.forEach((doc) => batch.delete(doc.ref));
+    await batch.commit();
   }
 );
 
@@ -470,6 +466,7 @@ export const deleteShift = onCall({ region: REGION }, async (req) => {
 
   await assertAdminOrManager(uid);
 
+  // 🔒 CRITICAL FIX: validate req.data before destructuring
   const data = req.data;
   if (!data || typeof data !== "object") {
     throw new HttpsError("invalid-argument", "Request data must be an object.");
@@ -483,7 +480,6 @@ export const deleteShift = onCall({ region: REGION }, async (req) => {
   const shiftRef = db.collection("shifts").doc(shiftId);
   
   // The function's only job is to delete the shift. The `onShiftDeleted` trigger will handle cleanup.
-  // No need to check for existence first; .delete() is a no-op if the doc doesn't exist.
   await shiftRef.delete();
 
   return { success: true };
@@ -573,4 +569,3 @@ export const deleteScheduledProjects = onSchedule(
     logger.info("Scheduled project cleanup finished");
   }
 );
-
