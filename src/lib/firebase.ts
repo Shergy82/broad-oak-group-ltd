@@ -71,8 +71,7 @@ export const db: Firestore = getFirestore(app);
 export const storage: FirebaseStorage = getStorage(app);
 
 /* =========================
-   Cloud Functions
-   🔑 REGION FIX — THIS SOLVES CORS
+   Cloud Functions (CENTRALIZED)
    ========================= */
 
 export const functions: Functions = getFunctions(app, 'europe-west2');

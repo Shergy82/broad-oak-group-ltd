@@ -362,15 +362,22 @@ exports.zipProjectFiles = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 
    SHIFTS (CALLABLE)
 ===================================================== */
 exports.deleteShift = (0, https_1.onCall)({ region: REGION }, async (req) => {
+    v2_1.logger.info("deleteShift CALLED");
     const uid = req.auth?.uid;
-    if (!uid)
+    if (!uid) {
         throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    await assertAdminOrManager(uid);
-    const { shiftId } = req.data;
-    if (!shiftId) {
-        throw new https_1.HttpsError('invalid-argument', 'shiftId is required.');
     }
-    const shiftRef = db.collection('shifts').doc(shiftId);
+    await assertAdminOrManager(uid);
+    // 🔒 CRITICAL FIX: validate req.data before destructuring
+    const data = req.data;
+    if (!data || typeof data !== "object") {
+        throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
+    }
+    const { shiftId } = data;
+    if (typeof shiftId !== "string" || !shiftId.trim()) {
+        throw new https_1.HttpsError("invalid-argument", "shiftId is required.");
+    }
+    const shiftRef = db.collection("shifts").doc(shiftId);
     const shiftDoc = await shiftRef.get();
     if (!shiftDoc.exists) {
         v2_1.logger.info(`Shift with id ${shiftId} not found. Returning success.`);
@@ -380,14 +387,18 @@ exports.deleteShift = (0, https_1.onCall)({ region: REGION }, async (req) => {
     const batch = db.batch();
     batch.delete(shiftRef);
     const userId = shiftData.userId;
-    // Only check for cross-department unavailability if the shift has a user assigned
+    // Cross-department unavailability cleanup (unchanged logic)
     if (userId) {
         const userRef = db.collection("users").doc(userId);
         const userDoc = await userRef.get();
         if (userDoc.exists) {
             const userData = userDoc.data();
-            if (userData.department && shiftData.department && userData.department !== shiftData.department) {
-                const unavailabilityRef = db.collection("unavailability").doc(shiftId);
+            if (userData.department &&
+                shiftData.department &&
+                userData.department !== shiftData.department) {
+                const unavailabilityRef = db
+                    .collection("unavailability")
+                    .doc(shiftId);
                 const unavailDoc = await unavailabilityRef.get();
                 if (unavailDoc.exists) {
                     batch.delete(unavailabilityRef);
