@@ -1,4 +1,5 @@
 
+
 /* =====================================================
    IMPORTS
 ===================================================== */
@@ -451,23 +452,25 @@ export const deleteShift = onCall({ region: REGION }, async (req) => {
   }
 
   const shiftData = shiftDoc.data()!;
-  const userId = shiftData.userId;
-  const userRef = db.collection('users').doc(userId);
-  const userDoc = await userRef.get();
-  
   const batch = db.batch();
-  
   batch.delete(shiftRef);
-
-  if (userDoc.exists) {
-    const userData = userDoc.data()!;
-    if (userData.department && shiftData.department && userData.department !== shiftData.department) {
-       const unavailabilityRef = db.collection('unavailability').doc(shiftId);
-       const unavailDoc = await unavailabilityRef.get();
-       if (unavailDoc.exists) {
-         batch.delete(unavailabilityRef);
-       }
-    }
+  
+  const userId = shiftData.userId;
+  // Only check for cross-department unavailability if the shift has a user assigned
+  if (userId) {
+      const userRef = db.collection('users').doc(userId);
+      const userDoc = await userRef.get();
+    
+      if (userDoc.exists) {
+        const userData = userDoc.data()!;
+        if (userData.department && shiftData.department && userData.department !== shiftData.department) {
+           const unavailabilityRef = db.collection('unavailability').doc(shiftId);
+           const unavailDoc = await unavailabilityRef.get();
+           if (unavailDoc.exists) {
+             batch.delete(unavailabilityRef);
+           }
+        }
+      }
   }
 
   await batch.commit();
