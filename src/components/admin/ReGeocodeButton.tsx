@@ -1,6 +1,7 @@
+
 'use client';
 
-import { httpsCallable, getFunctions } from 'firebase/functions';
+import { httpsCallable, functions } from '@/lib/firebase';
 import { getAuth } from 'firebase/auth';
 import { Button } from '@/components/ui/button';
 import { useState } from 'react';
@@ -18,7 +19,6 @@ export function ReGeocodeButton() {
 
     setLoading(true);
     try {
-      const functions = getFunctions(undefined, 'europe-west2');
       const fn = httpsCallable(functions, 'reGeocodeAllShifts');
       const res = await fn({});
       setResult(res.data);

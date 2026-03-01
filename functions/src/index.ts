@@ -438,6 +438,69 @@ export const zipProjectFiles = onCall(
 /* =====================================================
    SHIFTS (CALLABLE)
 ===================================================== */
+export const deleteShift = onCall({ region: REGION }, async (req) => {
+  logger.info("deleteShift CALLED");
+  const uid = req.auth?.uid;
+  if (!uid) {
+    throw new HttpsError("unauthenticated", "Authentication required");
+  }
+
+  await assertAdminOrManager(uid);
+
+  // 🔒 CRITICAL FIX: validate req.data before destructuring
+  const data = req.data;
+  if (!data || typeof data !== "object") {
+    throw new HttpsError("invalid-argument", "Request data must be an object.");
+  }
+
+  const { shiftId } = data as { shiftId: string };
+  if (typeof shiftId !== "string" || !shiftId.trim()) {
+    throw new HttpsError("invalid-argument", "shiftId is required.");
+  }
+
+  const shiftRef = db.collection("shifts").doc(shiftId);
+  const shiftDoc = await shiftRef.get();
+
+  if (!shiftDoc.exists) {
+    logger.info(`Shift with id ${shiftId} not found. Returning success.`);
+    return { success: true };
+  }
+
+  const shiftData = shiftDoc.data()!;
+  const batch = db.batch();
+
+  batch.delete(shiftRef);
+
+  const userId = shiftData.userId;
+
+  // Cross-department unavailability cleanup (unchanged logic)
+  if (userId) {
+    const userRef = db.collection("users").doc(userId);
+    const userDoc = await userRef.get();
+
+    if (userDoc.exists) {
+      const userData = userDoc.data()!;
+      if (
+        userData.department &&
+        shiftData.department &&
+        userData.department !== shiftData.department
+      ) {
+        const unavailabilityRef = db
+          .collection("unavailability")
+          .doc(shiftId);
+
+        const unavailDoc = await unavailabilityRef.get();
+        if (unavailDoc.exists) {
+          batch.delete(unavailabilityRef);
+        }
+      }
+    }
+  }
+
+  await batch.commit();
+  return { success: true };
+});
+
 export const deleteAllShifts = onCall({ region: REGION }, async (req) => {
     if (!req.auth?.uid) {
       throw new HttpsError("unauthenticated", "Authentication required");

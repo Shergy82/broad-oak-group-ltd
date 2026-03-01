@@ -362,6 +362,7 @@ exports.zipProjectFiles = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 
    SHIFTS (CALLABLE)
 ===================================================== */
 exports.deleteShift = (0, https_1.onCall)({ region: REGION }, async (req) => {
+    v2_1.logger.info("deleteShift CALLED");
     const uid = req.auth?.uid;
     if (!uid) {
         throw new https_1.HttpsError("unauthenticated", "Authentication required");

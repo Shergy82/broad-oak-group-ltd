@@ -48,7 +48,8 @@ service cloud.firestore {
     match /shifts/{shiftId} {
       allow read: if isOwner(request.auth.uid) || request.auth.uid == resource.data.userId || (isPrivilegedUser(request.auth.uid) && userDepartment(request.auth.uid) == resource.data.department);
       
-      allow create, delete: if isPrivilegedUser(request.auth.uid);
+      allow create: if isPrivilegedUser(request.auth.uid);
+      allow delete: if false; // Deletes must go through the backend function
 
       allow update: if signedIn() &&
         (
