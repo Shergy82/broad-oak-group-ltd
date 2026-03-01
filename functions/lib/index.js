@@ -1,3 +1,4 @@
+
 "use strict";
 /* =====================================================
    IMPORTS
@@ -18,7 +19,7 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 }) : function(o, v) {
     o["default"] = v;
 });
-var __importStar = (this && this.__importStar) || (function () {
+var __importStar = (this && this.__importStar) || function () {
     var ownKeys = function(o) {
         ownKeys = Object.getOwnPropertyNames || function (o) {
             var ar = [];
@@ -34,12 +35,12 @@ var __importStar = (this && this.__importStar) || (function () {
         __setModuleDefault(result, mod);
         return result;
     };
-})();
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteScheduledProjects = exports.pendingShiftNotifier = exports.projectReviewNotifier = exports.reGeocodeAllShifts = exports.deleteAllShifts = exports.zipProjectFiles = exports.deleteProjectFile = exports.deleteAllProjects = exports.deleteProjectAndFiles = exports.onShiftCreated = exports.serveFile = exports.deleteUser = exports.setUserStatus = exports.setNotificationStatus = exports.getNotificationStatus = exports.getVapidPublicKey = void 0;
+exports.deleteScheduledProjects = exports.pendingShiftNotifier = exports.projectReviewNotifier = exports.reGeocodeAllShifts = exports.deleteAllShifts = exports.deleteShift = exports.zipProjectFiles = exports.deleteProjectFile = exports.deleteAllProjects = exports.deleteProjectAndFiles = exports.onShiftCreated = exports.serveFile = exports.deleteUser = exports.setUserStatus = exports.setNotificationStatus = exports.getNotificationStatus = exports.getVapidPublicKey = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
@@ -147,16 +148,16 @@ exports.getVapidPublicKey = (0, https_1.onCall)({ region: REGION }, () => {
    CALLABLE FUNCTIONS
 ===================================================== */
 exports.getNotificationStatus = (0, https_1.onCall)({ region: REGION }, async (req) => {
-    if (!req.auth?.uid) {
+    const uid = req.auth?.uid;
+    if (!uid)
         throw new https_1.HttpsError("unauthenticated", "Authentication required.");
-    }
-    const snap = await db.collection("users").doc(req.auth.uid).get();
+    const snap = await db.collection("users").doc(uid).get();
     return { enabled: snap.data()?.notificationsEnabled ?? false };
 });
 exports.setNotificationStatus = (0, https_1.onCall)({ region: REGION }, async (req) => {
-    if (!req.auth?.uid) {
+    const uid = req.auth?.uid;
+    if (!uid)
         throw new https_1.HttpsError("unauthenticated", "Authentication required.");
-    }
     const data = req.data;
     if (!data || typeof data !== "object") {
         throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
@@ -168,12 +169,12 @@ exports.setNotificationStatus = (0, https_1.onCall)({ region: REGION }, async (r
     }
     await db
         .collection("users")
-        .doc(req.auth.uid)
+        .doc(uid)
         .set({ notificationsEnabled: enabled }, { merge: true });
     if (enabled && subscription) {
         await db
             .collection("users")
-            .doc(req.auth.uid)
+            .doc(uid)
             .collection("pushSubscriptions")
             .doc("browser")
             .set(subscription, { merge: true });
@@ -184,16 +185,16 @@ exports.setNotificationStatus = (0, https_1.onCall)({ region: REGION }, async (r
    USER MANAGEMENT (CALLABLE)
 ===================================================== */
 exports.setUserStatus = (0, https_1.onCall)({ region: REGION }, async (req) => {
-    if (!req.auth?.uid) {
+    const uid = req.auth?.uid;
+    if (!uid)
         throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    }
-    await assertAdminOrManager(req.auth.uid);
+    await assertAdminOrManager(uid);
     const data = req.data;
     if (!data || typeof data !== "object") {
         throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
     }
-    const { uid, disabled, newStatus, department } = data;
-    if (typeof uid !== 'string' ||
+    const { uid: targetUid, disabled, newStatus, department } = data;
+    if (typeof targetUid !== 'string' ||
         typeof disabled !== 'boolean' ||
         !['active', 'suspended'].includes(newStatus)) {
         throw new https_1.HttpsError('invalid-argument', 'Invalid input for user status update.');
@@ -202,25 +203,25 @@ exports.setUserStatus = (0, https_1.onCall)({ region: REGION }, async (req) => {
     if (department && typeof department === 'string') {
         userUpdateData.department = department;
     }
-    await admin.auth().updateUser(uid, { disabled });
-    await db.collection('users').doc(uid).update(userUpdateData);
+    await admin.auth().updateUser(targetUid, { disabled });
+    await db.collection('users').doc(targetUid).update(userUpdateData);
     return { success: true };
 });
 exports.deleteUser = (0, https_1.onCall)({ region: REGION }, async (req) => {
-    if (!req.auth?.uid) {
+    const uid = req.auth?.uid;
+    if (!uid)
         throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    }
-    await assertIsOwner(req.auth.uid);
+    await assertIsOwner(uid);
     const data = req.data;
     if (!data || typeof data !== "object") {
         throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
     }
-    const uid = data.uid;
-    if (typeof uid !== 'string') {
+    const targetUid = data.uid;
+    if (typeof targetUid !== 'string') {
         throw new https_1.HttpsError('invalid-argument', 'uid required');
     }
-    await admin.auth().deleteUser(uid);
-    await db.collection('users').doc(uid).delete();
+    await admin.auth().deleteUser(targetUid);
+    await db.collection('users').doc(targetUid).delete();
     return { success: true };
 });
 /* =====================================================
@@ -256,10 +257,10 @@ exports.onShiftCreated = (0, firestore_1.onDocumentCreated)({ document: "shifts/
    PROJECT & FILE MANAGEMENT (CALLABLE)
 ===================================================== */
 exports.deleteProjectAndFiles = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async (req) => {
-    if (!req.auth?.uid) {
+    const uid = req.auth?.uid;
+    if (!uid)
         throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    }
-    await assertAdminOrManager(req.auth.uid);
+    await assertAdminOrManager(uid);
     const data = req.data;
     if (!data || typeof data !== "object") {
         throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
@@ -283,19 +284,17 @@ exports.deleteProjectAndFiles = (0, https_1.onCall)({ region: REGION, timeoutSec
     return { success: true };
 });
 exports.deleteAllProjects = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async (req) => {
-    if (!req.auth?.uid) {
+    const uid = req.auth?.uid;
+    if (!uid)
         throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    }
-    await assertIsOwner(req.auth.uid);
-    // This is a placeholder for safety. In a real scenario, you'd iterate and delete.
-    v2_1.logger.info("deleteAllProjects called by", req.auth?.uid);
+    await assertIsOwner(uid);
+    v2_1.logger.info("deleteAllProjects called by", uid);
     return { message: "Deletion process simulation complete. No projects were actually deleted." };
 });
 exports.deleteProjectFile = (0, https_1.onCall)({ region: REGION }, async (req) => {
-    if (!req.auth?.uid) {
+    const uid = req.auth?.uid;
+    if (!uid)
         throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    }
-    const uid = req.auth.uid;
     const data = req.data;
     if (!data || typeof data !== "object") {
         throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
@@ -321,9 +320,9 @@ exports.deleteProjectFile = (0, https_1.onCall)({ region: REGION }, async (req) 
     return { success: true };
 });
 exports.zipProjectFiles = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 300, memory: '1GiB' }, async (req) => {
-    if (!req.auth?.uid) {
+    const uid = req.auth?.uid;
+    if (!uid)
         throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    }
     const data = req.data;
     if (!data || typeof data !== "object") {
         throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
@@ -362,11 +361,58 @@ exports.zipProjectFiles = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 
 /* =====================================================
    SHIFTS (CALLABLE)
 ===================================================== */
-exports.deleteAllShifts = (0, https_1.onCall)({ region: REGION }, async (req) => {
-    if (!req.auth?.uid) {
+exports.deleteShift = (0, https_1.onCall)({ region: REGION }, async (req) => {
+    const uid = req.auth?.uid;
+    if (!uid) {
         throw new https_1.HttpsError("unauthenticated", "Authentication required");
     }
-    await assertIsOwner(req.auth.uid);
+    await assertAdminOrManager(uid);
+    // 🔒 CRITICAL FIX: validate req.data before destructuring
+    const data = req.data;
+    if (!data || typeof data !== "object") {
+        throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
+    }
+    const { shiftId } = data;
+    if (typeof shiftId !== "string" || !shiftId.trim()) {
+        throw new https_1.HttpsError("invalid-argument", "shiftId is required.");
+    }
+    const shiftRef = db.collection("shifts").doc(shiftId);
+    const shiftDoc = await shiftRef.get();
+    if (!shiftDoc.exists) {
+        v2_1.logger.info(`Shift with id ${shiftId} not found. Returning success.`);
+        return { success: true };
+    }
+    const shiftData = shiftDoc.data();
+    const batch = db.batch();
+    batch.delete(shiftRef);
+    const userId = shiftData.userId;
+    // Cross-department unavailability cleanup (unchanged logic)
+    if (userId) {
+        const userRef = db.collection("users").doc(userId);
+        const userDoc = await userRef.get();
+        if (userDoc.exists) {
+            const userData = userDoc.data();
+            if (userData.department &&
+                shiftData.department &&
+                userData.department !== shiftData.department) {
+                const unavailabilityRef = db
+                    .collection("unavailability")
+                    .doc(shiftId);
+                const unavailDoc = await unavailabilityRef.get();
+                if (unavailDoc.exists) {
+                    batch.delete(unavailabilityRef);
+                }
+            }
+        }
+    }
+    await batch.commit();
+    return { success: true };
+});
+exports.deleteAllShifts = (0, https_1.onCall)({ region: REGION }, async (req) => {
+    const uid = req.auth?.uid;
+    if (!uid)
+        throw new https_1.HttpsError("unauthenticated", "Authentication required");
+    await assertIsOwner(uid);
     const snap = await db.collection('shifts').get();
     if (snap.empty)
         return { message: "No shifts to delete." };
@@ -383,10 +429,10 @@ exports.deleteAllShifts = (0, https_1.onCall)({ region: REGION }, async (req) =>
     return { message: `Successfully deleted ${count} active shifts.` };
 });
 exports.reGeocodeAllShifts = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async (req) => {
-    if (!req.auth?.uid) {
+    const uid = req.auth?.uid;
+    if (!uid)
         throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    }
-    await assertIsOwner(req.auth.uid);
+    await assertIsOwner(uid);
     if (!GEOCODING_KEY) {
         throw new https_1.HttpsError('failed-precondition', 'Missing GEOCODING_KEY');
     }
