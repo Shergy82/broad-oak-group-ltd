@@ -264,9 +264,6 @@ const parseBuildSheet = (
   const userIndex = headers.indexOf('user');
   const taskIndex = headers.indexOf('task');
   const addressIndex = headers.indexOf('address');
-  const eNumberIndex = headers.findIndex(h => h.includes('number'));
-  const contractIndex = headers.indexOf('contract');
-  const managerIndex = headers.indexOf('manager');
 
   // --- NEW: LIST VIEW PARSER ---
   if (dateIndex !== -1 && (userIndex !== -1 || headers.includes('operative')) && taskIndex !== -1 && addressIndex !== -1) {
@@ -302,13 +299,13 @@ const parseBuildSheet = (
         allShifts.push({
             date,
             address: address,
-            eNumber: eNumberIndex !== -1 ? String(row[eNumberIndex] || '') : '',
+            eNumber: '',
             task: task,
             userId: user.uid,
             userName: user.originalName,
             type: 'all-day',
-            manager: managerIndex !== -1 ? String(row[managerIndex] || sheetName) : sheetName,
-            contract: contractIndex !== -1 ? String(row[contractIndex] || '') : '',
+            manager: sheetName,
+            contract: '',
             department,
             notes: '',
         });
@@ -323,8 +320,7 @@ const parseBuildSheet = (
 
   const dateRowRaw = data[0];
   const dateRow: (Date | null)[] = dateRowRaw.map(parseDate);
-  const manager = sheetName;
-
+  
   let currentAddress = '';
   let currentENumber = '';
   let currentContract = '';
@@ -378,7 +374,7 @@ const parseBuildSheet = (
             userId: user.uid,
             userName: user.originalName,
             type: extraction.type,
-            manager,
+            manager: sheetName,
             contract: currentContract,
             department,
             notes: '',
@@ -480,7 +476,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
     }
   };
 
-  const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; task: string }): string => {
+  const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; task: string; }): string => {
     const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
     const normalizedDate = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
     return `${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${normalizeText(shift.address)}-${normalizeText(shift.task)}`;
@@ -532,10 +528,11 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
                       userId: parsedShift.user.uid,
                       userName: parsedShift.user.originalName,
                       type: parsedShift.type,
-                      manager: '', // Manager is not parsed in GAS format
-                      contract: parsedShift.source.sheetName || '', // Contract name from sheet name
+                      manager: parsedShift.manager || '',
+                      contract: parsedShift.contract || parsedShift.source.sheetName || '',
                       department: 'Gas',
-                      notes: '',
+                      notes: parsedShift.notes || '',
+                      eNumber: parsedShift.eNumber || '',
                   });
               }
               

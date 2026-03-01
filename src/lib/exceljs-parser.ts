@@ -31,6 +31,10 @@ export type ParsedGasShift = {
   type: 'am' | 'pm' | 'all-day';
   user: UserMapEntry;
   source: { sheetName: string; cellRef: string };
+  manager?: string;
+  notes?: string;
+  eNumber?: string;
+  contract?: string;
 };
 
 export type ImportFailure = {
@@ -278,11 +282,25 @@ async function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]
     const blockEnd = dividerRows[i + 1] - 1;
     if (blockEnd <= blockStart) continue;
 
-    const siteAddress = extractSiteAddress(sheet, used, blockStart, blockEnd);
-    if (!siteAddress) {
+    const siteAddressResult = extractSiteAddress(sheet, used, blockStart, blockEnd);
+    if (!siteAddressResult) {
       failures.push({ reason: "Block skipped — site address not found.", sheetName, cellRef: `A${blockStart}:B${blockEnd}` });
       continue;
     }
+    
+    const { address: rawSiteAddress, addressRow } = siteAddressResult;
+
+    const eNumMatch = rawSiteAddress.match(/\b([BE]\d+\S*)$/i);
+    let siteAddress = rawSiteAddress;
+    let eNumber = '';
+    if (eNumMatch) {
+      eNumber = eNumMatch[0].toUpperCase();
+      siteAddress = rawSiteAddress.replace(eNumMatch[0], '').trim().replace(/,$/, '').trim();
+    }
+    
+    const managerCell = sheet.getCell(addressRow, 4); // Column D
+    const manager = getCellText(managerCell) || sheetName;
+
 
     const dateRowIdx = findDateRow(sheet, used, blockStart, blockEnd);
     if (!dateRowIdx) {
@@ -305,6 +323,10 @@ async function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]
           continue; 
         }
         if (isNonShiftText(text)) continue;
+        
+        const note1Cell = sheet.getCell(r, 2); // Column B
+        const note2Cell = sheet.getCell(r, 5); // Column E
+        const notes = [getCellText(note1Cell), getCellText(note2Cell)].filter(Boolean).join('; ');
 
         const { task, names, type } = extractGasTaskAndNames(text);
         if (names.length === 0) {
@@ -324,6 +346,10 @@ async function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]
               type,
               user: matchedUsers[0],
               source: { sheetName, cellRef: cell.address },
+              manager,
+              notes,
+              eNumber,
+              contract: sheetName,
             });
           }
         }
@@ -403,17 +429,7 @@ function isDividerRow(ws: ExcelJS.Worksheet, used: UsedBounds, r: number): boole
    HELPERS — SITE ADDRESS
 ========================= */
 
-function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, endRow: number): string | null {
-  const candidatesA = collectAddressCandidates(ws, startRow, endRow, [1]);
-  const bestA = pickBestAddressCandidate(candidatesA);
-  if (bestA) return bestA;
-  const candidatesAB = collectAddressCandidates(ws, startRow, endRow, [1, 2]);
-  const bestAB = pickBestAddressCandidate(candidatesAB);
-  if (bestAB) return bestAB;
-  return null;
-}
-
-type AddressCandidate = { text: string; score: number };
+type AddressCandidate = { text: string; score: number; row: number; };
 
 function collectAddressCandidates(ws: ExcelJS.Worksheet, startRow: number, endRow: number, cols: number[]): AddressCandidate[] {
   const out: AddressCandidate[] = [];
@@ -428,17 +444,27 @@ function collectAddressCandidates(ws: ExcelJS.Worksheet, startRow: number, endRo
       const looksLikePostcode = /\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i.test(text) ? 15 : 0;
       const lenScore = Math.min(text.length, 120);
       const score = fillBoost + hasNumber + hasCommaOrNewline + looksLikePostcode + lenScore;
-      out.push({ text: normalizeWhitespace(text), score });
+      out.push({ text: normalizeWhitespace(text), score, row: r });
     }
   }
   return out;
 }
 
-function pickBestAddressCandidate(cands: AddressCandidate[]): string | null {
+function pickBestAddressCandidate(cands: AddressCandidate[]): { text: string; row: number } | null {
   if (cands.length === 0) return null;
   cands.sort((a, b) => b.score - a.score);
   const best = cands[0];
-  return best && best.score >= 30 ? best.text : null;
+  return best && best.score >= 30 ? { text: best.text, row: best.row } : null;
+}
+
+function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, endRow: number): { address: string; addressRow: number; } | null {
+  const candidatesA = collectAddressCandidates(ws, startRow, endRow, [1]);
+  const bestA = pickBestAddressCandidate(candidatesA);
+  if (bestA) return { address: bestA.text, addressRow: bestA.row };
+  const candidatesAB = collectAddressCandidates(ws, startRow, endRow, [1, 2]);
+  const bestAB = pickBestAddressCandidate(candidatesAB);
+  if (bestAB) return { address: bestAB.text, addressRow: bestAB.row };
+  return null;
 }
 
 /* =========================
@@ -601,22 +627,12 @@ export const parseBuildSheet = (
     let currentAddress = '';
     let currentENumber = '';
     let currentContract = '';
-    let currentManager = '';
-    let currentNotes = '';
     
-    let blankRun = 0;
-
     for (let i = 1; i < data.length; i++) {
       const row = data[i];
       if (!row || row.every(cell => !cell)) {
-          blankRun++;
-          if (blankRun >= 3) {
-             // Stop processing this site if we hit 3 consecutive empty rows
-             currentAddress = '';
-          }
           continue;
       }
-      blankRun = 0;
 
       const newAddressAndENumber = String(row[0] || '').trim();
       if (newAddressAndENumber) {
@@ -629,10 +645,6 @@ export const parseBuildSheet = (
           currentENumber = '';
         }
         currentContract = String(row[2] || '').trim() || currentContract;
-        currentManager = String(row[3] || '').trim() || sheetName;
-        const notePart1 = String(row[1] || '').trim();
-        const notePart2 = String(row[4] || '').trim();
-        currentNotes = [notePart1, notePart2].filter(Boolean).join('; ');
       }
 
       if (!currentAddress) continue;
@@ -668,10 +680,10 @@ export const parseBuildSheet = (
                   userId: user.uid,
                   userName: user.originalName,
                   type: extraction.type,
-                  manager: currentManager,
+                  manager: sheetName,
                   contract: currentContract,
                   department,
-                  notes: currentNotes,
+                  notes: '',
               });
           });
       }
