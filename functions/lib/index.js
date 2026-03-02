@@ -39,7 +39,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteScheduledProjects = exports.pendingShiftNotifier = exports.projectReviewNotifier = exports.reconcileShifts = exports.reGeocodeAllShifts = exports.deleteAllShifts = exports.deleteShift = exports.zipProjectFiles = exports.deleteProjectFile = exports.deleteAllProjects = exports.deleteProjectAndFiles = exports.onShiftDeleted = exports.onShiftCreated = exports.serveFile = exports.deleteUser = exports.setUserStatus = exports.setNotificationStatus = exports.getNotificationStatus = exports.getVapidPublicKey = void 0;
+exports.deleteScheduledProjects = exports.pendingShiftNotifier = exports.projectReviewNotifier = exports.reconcileShifts = exports.reGeocodeAllShifts = exports.deleteAllShifts = exports.deleteShift = exports.zipProjectFiles = exports.deleteProjectFile = exports.deleteAllProjects = exports.deleteProjectAndFiles = exports.onShiftDeleted = exports.syncUnavailabilityOnShiftWrite = exports.onShiftCreated = exports.serveFile = exports.deleteUser = exports.setUserStatus = exports.setNotificationStatus = exports.getNotificationStatus = exports.getVapidPublicKey = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
@@ -252,30 +252,43 @@ exports.onShiftCreated = (0, firestore_1.onDocumentCreated)({ document: "shifts/
         return;
     await sendShiftNotification(shift.userId, "New shift added", `A new shift was added for ${formatDateUK(date)}`, pendingGateUrl(), { shiftId: event.params.shiftId });
 });
-exports.onShiftDeleted = (0, firestore_1.onDocumentDeleted)({ document: "shifts/{shiftId}", region: REGION }, async (event) => {
+exports.syncUnavailabilityOnShiftWrite = (0, firestore_1.onDocumentWritten)({ document: "shifts/{shiftId}", region: REGION }, async (event) => {
     const shiftId = event.params.shiftId;
-    // ALWAYS CLEAN UP FIRST
-    const snap = await db
-        .collection("unavailability")
-        .where("shiftId", "==", shiftId)
-        .get();
-    if (!snap.empty) {
-        const batch = db.batch();
-        snap.docs.forEach((doc) => batch.delete(doc.ref));
-        await batch.commit();
-        v2_1.logger.info("Unavailability cleaned up", {
-            shiftId,
-            count: snap.size,
-        });
-    }
-    // OPTIONAL: notification logic
-    const shift = event.data?.data();
-    const date = shift?.date?.toDate?.();
-    if (!date || isShiftInPast(date)) {
-        v2_1.logger.info("Shift deleted but in past; no notify", { shiftId });
+    const shiftAfter = event.data?.after.data();
+    // On delete, the onShiftDeleted trigger will handle cleanup
+    if (!shiftAfter) {
         return;
     }
-    // notification logic here (if any)
+    // On create/update
+    const userRef = db.doc(`users/${shiftAfter.userId}`);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) {
+        v2_1.logger.warn("User not found for shift, cannot sync unavailability.", { userId: shiftAfter.userId, shiftId });
+        return;
+    }
+    const homeDepartment = userSnap.data().department;
+    const shiftDepartment = shiftAfter.department;
+    const unavailabilityRef = db.doc(`unavailability/${shiftId}`);
+    // If shift is in home department, or no departments are set, ensure no unavailability record exists
+    if (!shiftDepartment || !homeDepartment || shiftDepartment === homeDepartment) {
+        await unavailabilityRef.delete().catch(() => { });
+        return;
+    }
+    // Otherwise, user is working cross-department. Create/update unavailability record.
+    await unavailabilityRef.set({
+        userId: shiftAfter.userId,
+        userName: shiftAfter.userName,
+        startDate: shiftAfter.date,
+        endDate: shiftAfter.date,
+        reason: "Cross-Department Work",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        shiftId: shiftId,
+    }, { merge: true });
+});
+exports.onShiftDeleted = (0, firestore_1.onDocumentDeleted)({ document: "shifts/{shiftId}", region: REGION }, async (event) => {
+    const shiftId = event.params.shiftId;
+    await db.doc(`unavailability/${shiftId}`).delete().catch(() => { });
+    v2_1.logger.info("Cleaned up unavailability for deleted shift", { shiftId });
 });
 /* =====================================================
    PROJECT & FILE MANAGEMENT (CALLABLE)

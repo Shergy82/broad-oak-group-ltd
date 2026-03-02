@@ -11,7 +11,7 @@ import { onSchedule } from "firebase-functions/v2/scheduler";
 import { logger } from "firebase-functions/v2";
 import JSZip from "jszip";
 import * as webPush from "web-push";
-import type { Shift } from "../../src/types";
+import type { Shift } from "./types";
 
 /* =====================================================
    CONSTANTS
