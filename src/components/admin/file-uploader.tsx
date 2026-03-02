@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useCallback, useMemo } from 'react';
@@ -265,6 +263,9 @@ const parseBuildSheet = (
   const taskIndex = headers.indexOf('task');
   const addressIndex = headers.indexOf('address');
 
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+
   // --- NEW: LIST VIEW PARSER ---
   if (dateIndex !== -1 && (userIndex !== -1 || headers.includes('operative')) && taskIndex !== -1 && addressIndex !== -1) {
     const operativeIndex = userIndex !== -1 ? userIndex : headers.indexOf('operative');
@@ -286,6 +287,8 @@ const parseBuildSheet = (
             }
             continue;
         }
+        
+        if (date < today) continue; // Skip past shifts
         
         const { users: matchedUsers, reason } = findUsersInMap(userNameRaw, userMap);
 
@@ -315,9 +318,6 @@ const parseBuildSheet = (
   }
 
   // --- ORIGINAL: MATRIX VIEW PARSER ---
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-
   const dateRowRaw = data[0];
   const dateRow: (Date | null)[] = dateRowRaw.map(parseDate);
   
@@ -567,13 +567,23 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
               }
           }
 
+          const today = new Date();
+          today.setUTCHours(0, 0, 0, 0);
+
+          const futureShiftsFromExcel = allShiftsFromExcel.filter(s => s.date >= today);
+          const pastShiftCount = allShiftsFromExcel.length - futureShiftsFromExcel.length;
+
+          allShiftsFromExcel = futureShiftsFromExcel;
 
           if (allShiftsFromExcel.length === 0 && allFailedShifts.length === 0) {
+            let toastDescription = 'The file was processed, but no shifts were found to import from the selected sheets. Check for structural issues.';
+             if (pastShiftCount > 0) {
+              toastDescription = `The file was processed, but only past shifts were found (${pastShiftCount} skipped). No changes will be made.`
+            }
             toast({
-              variant: 'destructive',
-              title: 'No Shifts Found',
-              description:
-                'The file was processed, but no shifts were found to import from the selected sheets. Check for structural issues.',
+              variant: 'default',
+              title: 'No New Shifts to Import',
+              description: toastDescription,
             });
             setIsUploading(false);
             return;
@@ -627,13 +637,13 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             }
           }
 
-          const today = new Date();
-          today.setUTCHours(0, 0, 0, 0);
+          const importToday = new Date();
+          importToday.setUTCHours(0, 0, 0, 0);
 
           for (const [key, existingShift] of existingShiftsMap.entries()) {
             if (!excelShiftsMap.has(key) && !protectedStatuses.includes(existingShift.status) && existingShift.source !== 'manual') {
               const shiftDate = getCorrectedLocalDate(existingShift.date as any);
-              if (shiftDate >= today) {
+              if (shiftDate >= importToday) {
                 toDelete.push(existingShift);
               }
             }

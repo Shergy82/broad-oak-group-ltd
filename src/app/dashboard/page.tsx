@@ -12,6 +12,8 @@ import type { Announcement, Shift } from '@/types';
 import { UnreadAnnouncements } from '@/components/announcements/unread-announcements';
 import { NewShiftsDialog } from '@/components/dashboard/new-shifts-dialog';
 import { useToast } from '@/hooks/use-toast';
+import { startOfToday, isBefore } from 'date-fns';
+import { getCorrectedLocalDate } from '@/lib/utils';
 
 export default function DashboardPage() {
   const { user, isLoading: isAuthLoading } = useAuth();
@@ -117,7 +119,13 @@ export default function DashboardPage() {
 
   const newShifts = useMemo(() => {
     if (!user) return [];
-    return allShifts.filter(shift => shift.status === 'pending-confirmation');
+    const today = startOfToday();
+    return allShifts.filter(shift => {
+        if (shift.status !== 'pending-confirmation') return false;
+        const shiftDate = getCorrectedLocalDate(shift.date);
+        // Only include shifts that are for today or in the future
+        return !isBefore(shiftDate, today);
+    });
   }, [allShifts, user]);
 
   const isLoading = isAuthLoading || isProfileLoading;
