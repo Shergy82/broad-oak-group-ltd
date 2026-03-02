@@ -4,7 +4,7 @@
 
 import React, { useState, useCallback, useMemo } from 'react';
 import { useToast } from '@/hooks/use-toast';
-import { db } from '@/lib/firebase';
+import { db, functions, httpsCallable } from '@/lib/firebase';
 import {
   collection,
   writeBatch,
@@ -640,117 +640,46 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           }
 
           const onConfirm = async () => {
-            const batch = writeBatch(firestore);
-            const projectsRef = collection(firestore, 'projects');
-            
-            const allImportedShifts = [...toCreate, ...toUpdate.map(u => u.new)];
-            const projectInfoFromImport = new Map<string, ParsedShift>();
-            allImportedShifts.forEach(shift => {
-                if (shift.address) {
-                    projectInfoFromImport.set(shift.address, shift);
-                }
-            });
-
-            if (projectInfoFromImport.size > 0) {
-                const projectAddresses = Array.from(projectInfoFromImport.keys());
-                for (let i = 0; i < projectAddresses.length; i += 30) {
-                    const chunk = projectAddresses.slice(i, i + 30);
-                    const existingProjectsQuery = query(projectsRef, where('address', 'in', chunk));
-                    const existingProjectsSnap = await getDocs(existingProjectsQuery);
-                    
-                    const foundAddresses = new Set<string>();
-                    existingProjectsSnap.forEach(docSnap => {
-                        const project = docSnap.data() as Project;
-                        foundAddresses.add(project.address);
-                        const importInfo = projectInfoFromImport.get(project.address);
-                        if (importInfo && project.contract !== importInfo.contract) {
-                            batch.update(docSnap.ref, { contract: importInfo.contract });
-                        }
-                    });
-
-                    chunk.forEach(address => {
-                        if (!foundAddresses.has(address)) {
-                             const info = projectInfoFromImport.get(address);
-                             if (info) {
-                                const reviewDate = new Date();
-                                reviewDate.setDate(reviewDate.getDate() + 28);
-                                batch.set(doc(projectsRef), {
-                                    address: info.address,
-                                    eNumber: info.eNumber || '',
-                                    manager: info.manager || '',
-                                    contract: info.contract || '',
-                                    department: info.department || '',
-                                    createdAt: serverTimestamp(),
-                                    createdBy: userProfile.name,
-                                    creatorId: userProfile.uid,
-                                    nextReviewDate: Timestamp.fromDate(reviewDate),
-                                });
-                             }
-                        }
-                    });
-                }
-            }
-
-            toCreate.forEach((shift) => {
-              const shiftRef = doc(collection(firestore, 'shifts'));
-              const newShiftData = {
-                ...shift,
-                date: Timestamp.fromDate(shift.date),
-                status: 'pending-confirmation' as ShiftStatus,
-                createdAt: serverTimestamp(),
-                source: 'import',
-              };
-              batch.set(shiftRef, newShiftData);
+            try {
+              if (!functions) throw new Error("Functions service is not initialized.");
               
-              const user = userMap.find(u => u.uid === shift.userId);
-              if (user && user.department && user.department !== shift.department) {
-                  const unavailabilityRef = doc(collection(firestore, 'unavailability'));
-                  batch.set(unavailabilityRef, {
-                      shiftId: shiftRef.id,
-                      userId: shift.userId,
-                      userName: shift.userName,
-                      startDate: Timestamp.fromDate(shift.date),
-                      endDate: Timestamp.fromDate(shift.date),
-                      reason: 'Cross-Department Work',
-                      createdAt: serverTimestamp()
-                  });
-              }
-            });
+              const reconcileShiftsFn = httpsCallable(functions, 'reconcileShifts');
+              
+              // Serialize data for the callable function
+              const payload = {
+                toCreate: toCreate.map(s => ({ ...s, date: s.date.toISOString() })),
+                toUpdate: toUpdate.map(u => ({
+                  id: u.old.id,
+                  new: { ...u.new, date: u.new.date.toISOString() }
+                })),
+                toDelete: toDelete.map(s => ({ id: s.id })),
+                department: finalImportDepartment
+              };
 
-            toUpdate.forEach(({ old, new: newShift }) => {
-              batch.update(doc(firestore, 'shifts', old.id), {
-                address: newShift.address,
-                task: newShift.task,
-                type: newShift.type,
-                eNumber: newShift.eNumber || '',
-                manager: newShift.manager || '',
-                notes: newShift.notes || '',
-                contract: newShift.contract || '',
-                status: 'pending-confirmation',
-              });
-            });
-
-            toDelete.forEach((shift) => {
-              batch.delete(doc(firestore, 'shifts', shift.id));
-            });
-
-            await batch.commit();
-            
-            const parts: string[] = [];
-            if (toCreate.length > 0) parts.push(`created ${toCreate.length} new shift(s)`);
-            if (toUpdate.length > 0) parts.push(`updated ${toUpdate.length} shift(s)`);
-            if (toDelete.length > 0) parts.push(`deleted ${toDelete.length} old shift(s)`);
-
-            if (parts.length > 0) {
+              const result = await reconcileShiftsFn(payload);
+              
               toast({
                 title: 'Import Complete & Reconciled',
-                description: `Successfully processed the file: ${parts.join(', ')}.`,
+                description: (result.data as any).message || `Successfully processed: ${toCreate.length} created, ${toUpdate.length} updated, ${toDelete.length} deleted.`,
               });
-            } else if (allFailedShifts.length === 0) {
-              toast({
-                title: 'No Changes Detected',
-                description: 'The schedule is already up-to-date with the selected file.',
-              });
+
+            } catch (error: any) {
+              console.error("Error during shift reconciliation:", error);
+              if (error.code === 'functions/permission-denied' || (error.details && error.details.code === 'PERMISSION_DENIED')) {
+                toast({
+                  variant: 'destructive',
+                  title: 'Permission Denied',
+                  description: 'You do not have permission to import shifts for this department.',
+                  duration: 10000,
+                });
+              } else {
+                toast({
+                  variant: 'destructive',
+                  title: 'Reconciliation Failed',
+                  description: error.message || 'An unknown error occurred on the server.',
+                  duration: 10000,
+                });
+              }
             }
           };
 
