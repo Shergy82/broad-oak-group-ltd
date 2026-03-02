@@ -79,7 +79,56 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
   }, [users, watchedDepartment]);
 
   const sortedProjects = useMemo(() => {
-    return [...projects].sort((a, b) => {
+    // This function attempts to get a "base" address, excluding extra details like eNumbers
+    // that might be tacked onto the end of the address string in some cases.
+    const getBaseAddress = (address: string): string => {
+        // A simple heuristic: find the first occurrence of a B/E number pattern and trim the string there.
+        const match = address.match(/\s+\b[BE]\d/);
+        if (match && match.index) {
+            return address.substring(0, match.index).trim();
+        }
+        // If no match, return the original trimmed address.
+        return address.trim();
+    };
+
+    const projectsByBaseAddress = new Map<string, Project[]>();
+
+    // Group all projects by their normalized "base" address.
+    projects.forEach(p => {
+        const baseAddress = getBaseAddress(p.address).toLowerCase();
+        if (!projectsByBaseAddress.has(baseAddress)) {
+            projectsByBaseAddress.set(baseAddress, []);
+        }
+        projectsByBaseAddress.get(baseAddress)!.push(p);
+    });
+
+    const result: Project[] = [];
+
+    // For each group of projects with the same base address, select which ones to display.
+    projectsByBaseAddress.forEach((group) => {
+        if (group.length <= 1) {
+            // If there's only one project for this base address, add it directly.
+            result.push(...group);
+        } else {
+            // If there are multiple projects for the same base address, we need to deduplicate.
+            // We'll keep one project for each unique E/B number.
+            const uniqueENumbers = new Map<string, Project>();
+            group.forEach(project => {
+                // Use the eNumber from its own field first, and normalize it.
+                const key = (project.eNumber || '').trim().toLowerCase();
+                
+                // If we haven't seen this eNumber (or lack of eNumber) before for this base address, add it.
+                // We keep the first one we encounter.
+                if (!uniqueENumbers.has(key)) {
+                    uniqueENumbers.set(key, project);
+                }
+            });
+            result.push(...Array.from(uniqueENumbers.values()));
+        }
+    });
+    
+    // Finally, sort the filtered, unique list for display.
+    return result.sort((a, b) => {
         const getAddressNumber = (address: string) => {
             const match = address.match(/^(\d+)/);
             return match ? parseInt(match[1], 10) : null;
@@ -102,7 +151,6 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
             return 1; // addresses without numbers come after
         }
 
-        // Fallback to full string comparison if numbers are same or both are null
         return a.address.localeCompare(b.address, undefined, { numeric: true });
     });
   }, [projects]);
