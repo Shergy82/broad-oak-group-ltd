@@ -47,7 +47,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/shared/spinner';
 import { useToast } from '@/hooks/use-toast';
-import { PlusCircle, UploadCloud, File as FileIcon, Trash2, FolderOpen, Download, Trash, FileArchive, Image as ImageIcon, X, Undo2 } from 'lucide-react';
+import { PlusCircle, UploadCloud, File as FileIcon, Trash2, FolderOpen, Download, Trash, FileArchive, Image as ImageIcon, X, Undo2, Edit } from 'lucide-react';
 import type { Project, ProjectFile, UserProfile } from '@/types';
 import { cn } from '@/lib/utils';
 import {
@@ -457,6 +457,94 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
     );
 }
 
+const editProjectSchema = z.object({
+  address: z.string().min(1, 'Address is required.'),
+  eNumber: z.string().min(1, 'Number is required.'),
+  manager: z.string().min(1, 'Manager is required.'),
+});
+
+interface EditProjectDialogProps {
+  project: Project;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+function EditProjectDialog({ project, open, onOpenChange }: EditProjectDialogProps) {
+  const [isLoading, setIsLoading] = useState(false);
+  const { toast } = useToast();
+
+  const form = useForm<z.infer<typeof editProjectSchema>>({
+    resolver: zodResolver(editProjectSchema),
+    defaultValues: {
+      address: project.address,
+      eNumber: project.eNumber || '',
+      manager: project.manager,
+    },
+  });
+
+  useEffect(() => {
+    if (project) {
+      form.reset({
+        address: project.address,
+        eNumber: project.eNumber || '',
+        manager: project.manager,
+      });
+    }
+  }, [project, form, open]);
+
+  const handleUpdateProject = async (values: z.infer<typeof editProjectSchema>) => {
+    setIsLoading(true);
+    try {
+      const projectRef = doc(db, 'projects', project.id);
+      await updateDoc(projectRef, {
+        address: values.address,
+        eNumber: values.eNumber,
+        manager: values.manager,
+      });
+      toast({ title: 'Success', description: 'Project updated successfully.' });
+      onOpenChange(false);
+    } catch (error) {
+      console.error('Error updating project:', error);
+      toast({ variant: 'destructive', title: 'Error', description: 'Could not update project.' });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit Project</DialogTitle>
+          <DialogDescription>
+            Modify the details for this project.
+          </DialogDescription>
+        </DialogHeader>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(handleUpdateProject)} className="space-y-4 py-4">
+            <FormField control={form.control} name="address" render={({ field }) => (
+                <FormItem><FormLabel>Address</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+            )}/>
+            <FormField control={form.control} name="eNumber" render={({ field }) => (
+                <FormItem><FormLabel>Number</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+            )}/>
+            <FormField control={form.control} name="manager" render={({ field }) => (
+                <FormItem><FormLabel>Manager</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+            )}/>
+             <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isLoading}>Cancel</Button>
+                <Button type="submit" disabled={isLoading}>
+                    {isLoading ? <Spinner /> : 'Save Changes'}
+                </Button>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+
 interface ProjectManagerProps {
   userProfile: UserProfile;
 }
@@ -472,6 +560,9 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
   const { toast } = useToast();
   const { selectedDepartments } = useDepartmentFilter();
   const isOwner = userProfile.role === 'owner';
+
+  const [isEditProjectDialogOpen, setEditProjectDialogOpen] = useState(false);
+  const [projectToEdit, setProjectToEdit] = useState<Project | null>(null);
 
   useEffect(() => {
     let q;
@@ -509,6 +600,11 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
     setFileManagerOpen(true);
   };
   
+  const handleEditProject = (project: Project) => {
+    setProjectToEdit(project);
+    setEditProjectDialogOpen(true);
+  };
+
   const handleDeleteProject = async (project: Project) => {
     if (!['admin', 'owner', 'manager'].includes(userProfile.role)) {
         toast({ variant: 'destructive', title: 'Permission Denied', description: 'You do not have permission to delete projects.' });
@@ -684,27 +780,32 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                                     Files
                                     </Button>
                                     {['admin', 'owner', 'manager'].includes(userProfile.role) && (
-                                        <AlertDialog>
-                                            <AlertDialogTrigger asChild>
-                                                <Button variant="destructive" size="sm">
-                                                    <Trash2 className="mr-2 h-4 w-4" /> Delete
-                                                </Button>
-                                            </AlertDialogTrigger>
-                                            <AlertDialogContent>
-                                                <AlertDialogHeader>
-                                                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                                                    <AlertDialogDescription>
-                                                        This will permanently delete the project <span className="font-semibold">"{project.address}"</span> and all of its associated files. This action cannot be undone.
-                                                    </AlertDialogDescription>
-                                                </AlertDialogHeader>
-                                                <AlertDialogFooter>
-                                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                    <AlertDialogAction onClick={() => handleDeleteProject(project)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                                                        Delete Project
-                                                    </AlertDialogAction>
-                                                </AlertDialogFooter>
-                                            </AlertDialogContent>
-                                        </AlertDialog>
+                                        <>
+                                            <Button variant="outline" size="sm" onClick={() => handleEditProject(project)}>
+                                                <Edit className="mr-2 h-4 w-4" /> Edit
+                                            </Button>
+                                            <AlertDialog>
+                                                <AlertDialogTrigger asChild>
+                                                    <Button variant="destructive" size="sm">
+                                                        <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                                    </Button>
+                                                </AlertDialogTrigger>
+                                                <AlertDialogContent>
+                                                    <AlertDialogHeader>
+                                                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                                        <AlertDialogDescription>
+                                                            This will permanently delete the project <span className="font-semibold">"{project.address}"</span> and all of its associated files. This action cannot be undone.
+                                                        </AlertDialogDescription>
+                                                    </AlertDialogHeader>
+                                                    <AlertDialogFooter>
+                                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                        <AlertDialogAction onClick={() => handleDeleteProject(project)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                                            Delete Project
+                                                        </AlertDialogAction>
+                                                    </AlertDialogFooter>
+                                                </AlertDialogContent>
+                                            </AlertDialog>
+                                        </>
                                     )}
                                 </>
                                 )}
@@ -742,9 +843,9 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                                 <div><strong>Created:</strong> {project.createdAt ? format(project.createdAt.toDate(), 'dd/MM/yyyy') : 'N/A'}</div>
                                 <div><strong>Next Review:</strong> {project.nextReviewDate ? format(project.nextReviewDate.toDate(), 'dd/MM/yyyy') : 'N/A'}</div>
                             </CardContent>
-                            <CardFooter className="grid grid-cols-1 gap-2">
+                            <CardFooter className="flex flex-col gap-2">
                                 {isScheduledForDeletion ? (
-                                    <div className="space-y-2">
+                                    <div className="w-full space-y-2">
                                         <div className="text-center w-full space-y-1">
                                             <p className="text-sm font-semibold text-destructive">Scheduled for deletion</p>
                                             <p className="text-xs text-destructive">{countdownText}</p>
@@ -761,35 +862,40 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                                         </div>
                                     </div>
                                 ) : (
-                                    <div className="grid grid-cols-2 gap-2 w-full">
+                                    <>
                                         <Button variant="outline" className="w-full" onClick={() => handleManageFiles(project)}>
                                             <FolderOpen className="mr-2 h-4 w-4" />
                                             Manage Files
                                         </Button>
                                         {['admin', 'owner', 'manager'].includes(userProfile.role) && (
-                                            <AlertDialog>
-                                                <AlertDialogTrigger asChild>
-                                                    <Button variant="destructive" className="w-full">
-                                                        <Trash2 className="mr-2 h-4 w-4" /> Delete
-                                                    </Button>
-                                                </AlertDialogTrigger>
-                                                <AlertDialogContent>
-                                                    <AlertDialogHeader>
-                                                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                                                        <AlertDialogDescription>
-                                                            This will permanently delete the project <span className="font-semibold">"{project.address}"</span> and all of its associated files. This action cannot be undone.
-                                                        </AlertDialogDescription>
-                                                    </AlertDialogHeader>
-                                                    <AlertDialogFooter>
-                                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                        <AlertDialogAction onClick={() => handleDeleteProject(project)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                                                            Delete Project
-                                                        </AlertDialogAction>
-                                                    </AlertDialogFooter>
-                                                </AlertDialogContent>
-                                            </AlertDialog>
+                                            <div className="grid grid-cols-2 gap-2 w-full">
+                                                <Button variant="outline" className="w-full" onClick={() => handleEditProject(project)}>
+                                                    <Edit className="mr-2 h-4 w-4" /> Edit
+                                                </Button>
+                                                <AlertDialog>
+                                                    <AlertDialogTrigger asChild>
+                                                        <Button variant="destructive" className="w-full">
+                                                            <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                                        </Button>
+                                                    </AlertDialogTrigger>
+                                                    <AlertDialogContent>
+                                                        <AlertDialogHeader>
+                                                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                                            <AlertDialogDescription>
+                                                                This will permanently delete the project <span className="font-semibold">"{project.address}"</span> and all of its associated files. This action cannot be undone.
+                                                            </AlertDialogDescription>
+                                                        </AlertDialogHeader>
+                                                        <AlertDialogFooter>
+                                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                            <AlertDialogAction onClick={() => handleDeleteProject(project)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                                                Delete Project
+                                                            </AlertDialogAction>
+                                                        </AlertDialogFooter>
+                                                    </AlertDialogContent>
+                                                </AlertDialog>
+                                            </div>
                                         )}
-                                    </div>
+                                    </>
                                 )}
                             </CardFooter>
                         </Card>
@@ -797,6 +903,14 @@ export function ProjectManager({ userProfile }: ProjectManagerProps) {
                 })}
             </div>
         </>
+      )}
+
+      {projectToEdit && (
+        <EditProjectDialog
+            project={projectToEdit}
+            open={isEditProjectDialogOpen}
+            onOpenChange={setEditProjectDialogOpen}
+        />
       )}
 
       <FileManagerDialog 
