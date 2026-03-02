@@ -105,7 +105,7 @@ service cloud.firestore {
 
     // ---- UNAVAILABILITY ----
     match /unavailability/{id} {
-      allow read: if isOwner(request.auth.uid) || (signedIn() && userDepartment(request.auth.uid) == userDepartment(resource.data.userId));
+      allow read: if isPrivilegedUser(request.auth.uid);
       allow write: if isPrivilegedUser(request.auth.uid);
     }
 

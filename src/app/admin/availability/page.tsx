@@ -1111,7 +1111,7 @@ export default function AvailabilityPage() {
       {renderDayDetailDialog()}
        <UnavailabilityManagerDialog 
         users={departmentFilteredUsers}
-        unavailability={departmentFilteredUnavailability}
+        unavailability={unavailability}
         handleDeleteUnavailability={handleDeleteUnavailability}
         open={isUnavailabilityManagerOpen}
         onOpenChange={setIsUnavailabilityManagerOpen}
