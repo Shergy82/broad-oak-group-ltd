@@ -79,7 +79,32 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
   }, [users, watchedDepartment]);
 
   const sortedProjects = useMemo(() => {
-    return [...projects].sort((a, b) => a.address.localeCompare(b.address));
+    return [...projects].sort((a, b) => {
+        const getAddressNumber = (address: string) => {
+            const match = address.match(/^(\d+)/);
+            return match ? parseInt(match[1], 10) : null;
+        };
+
+        const numA = getAddressNumber(a.address);
+        const numB = getAddressNumber(b.address);
+
+        if (numA !== null && numB !== null) {
+            if (numA !== numB) {
+                return numA - numB;
+            }
+        }
+        
+        if (numA !== null && numB === null) {
+            return -1; // addresses with numbers come first
+        }
+        
+        if (numA === null && numB !== null) {
+            return 1; // addresses without numbers come after
+        }
+
+        // Fallback to full string comparison if numbers are same or both are null
+        return a.address.localeCompare(b.address, undefined, { numeric: true });
+    });
   }, [projects]);
 
 
