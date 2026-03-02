@@ -72,6 +72,10 @@
             "type": "string",
             "format": "date-time",
             "description": "The timestamp when the record was created."
+        },
+        "shiftId": {
+            "type": "string",
+            "description": "The ID of the source shift if this unavailability is due to cross-department work."
         }
       },
       "required": ["userId", "userName", "startDate", "endDate", "reason", "createdAt"]

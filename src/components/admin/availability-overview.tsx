@@ -115,7 +115,7 @@ const UserAvatarList = ({ users, category, onUserClick }: { users: AvailableUser
                             </div>
                             {availability === 'am' && <Badge variant="outline" className="text-sky-600 border-sky-200 bg-sky-50 dark:bg-sky-900/50 dark:text-sky-300 dark:border-sky-800">AM Free</Badge>}
                             {availability === 'pm' && <Badge variant="outline" className="text-orange-600 border-orange-200 bg-orange-50 dark:bg-orange-900/50 dark:text-orange-300 dark:border-orange-800">PM Free</Badge>}
-                            {availability === 'unavailable' && unavailabilityReason && <Badge variant={unavailabilityReason === 'Cross-Department Work' ? 'outline' : 'destructive'}>{unavailabilityReason}</Badge>}
+                            {availability === 'unavailable' && unavailabilityReason && <Badge variant={unavailabilityReason === 'Cross-Department Work' ? 'secondary' : 'destructive'}>{unavailabilityReason}</Badge>}
                         </CardContent>
                     </Card>
                 )

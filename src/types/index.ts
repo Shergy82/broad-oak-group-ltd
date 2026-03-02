@@ -184,6 +184,7 @@ export interface Unavailability {
   endDate: Timestamp;
   reason: 'Holiday' | 'Sickness' | 'Other' | 'Cross-Department Work';
   createdAt: Timestamp;
+  shiftId?: string;
 }
 
 /* =========================
