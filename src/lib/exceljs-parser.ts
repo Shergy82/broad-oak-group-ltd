@@ -184,12 +184,27 @@ function parseListView(sheet: ExcelJS.Worksheet, headerRowNumber: number, header
             continue;
         }
 
+        const eNumMatchStart = address.match(/^\s*([BE]\d+\S*)\s+/i);
+        let finalAddress = address;
+        let eNumber = '';
+        if (eNumMatchStart) {
+          eNumber = eNumMatchStart[1].trim().toUpperCase();
+          finalAddress = address.replace(eNumMatchStart[0], '').trim();
+        } else {
+            // Fallback for number at the end, just in case
+            const eNumMatchEnd = address.match(/\b([BE]\d+\S*)$/i);
+            if (eNumMatchEnd) {
+                eNumber = eNumMatchEnd[0].toUpperCase();
+                finalAddress = address.replace(eNumMatchEnd[0], '').trim().replace(/,$/, '').trim();
+            }
+        }
+
         const { users: matchedUsers, reason } = findUsersInMap(userNameRaw, userMap);
 
         if (matchedUsers.length !== 1) {
             failures.push({
                 reason: reason || `Could not find a unique user for "${userNameRaw}"`,
-                siteAddress: address,
+                siteAddress: finalAddress,
                 operativeNameRaw: userNameRaw,
                 sheetName,
                 cellRef: row.getCell(userIndex + 1).address
@@ -200,7 +215,8 @@ function parseListView(sheet: ExcelJS.Worksheet, headerRowNumber: number, header
         const user = matchedUsers[0];
 
         parsed.push({
-          siteAddress: address,
+          siteAddress: finalAddress,
+          eNumber: eNumber,
           shiftDate: toISODate(date),
           task: task,
           type: 'all-day',
@@ -290,12 +306,19 @@ async function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]
     
     const { address: rawSiteAddress, addressRow } = siteAddressResult;
 
-    const eNumMatch = rawSiteAddress.match(/\b([BE]\d+\S*)$/i);
+    const eNumMatchStart = rawSiteAddress.match(/^\s*([BE]\d+\S*)\s+/i);
     let siteAddress = rawSiteAddress;
     let eNumber = '';
-    if (eNumMatch) {
-      eNumber = eNumMatch[0].toUpperCase();
-      siteAddress = rawSiteAddress.replace(eNumMatch[0], '').trim().replace(/,$/, '').trim();
+    if (eNumMatchStart) {
+      eNumber = eNumMatchStart[1].trim().toUpperCase();
+      siteAddress = rawSiteAddress.replace(eNumMatchStart[0], '').trim();
+    } else {
+        // Fallback for number at the end, just in case
+        const eNumMatchEnd = rawSiteAddress.match(/\b([BE]\d+\S*)$/i);
+        if (eNumMatchEnd) {
+            eNumber = eNumMatchEnd[0].toUpperCase();
+            siteAddress = rawSiteAddress.replace(eNumMatchEnd[0], '').trim().replace(/,$/, '').trim();
+        }
     }
     
     const dateRowIdx = findDateRow(sheet, used, blockStart, blockEnd);
@@ -867,5 +890,6 @@ const parseDate = (dateValue: any): Date | null => {
   }
   return null;
 };
+
 
 

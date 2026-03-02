@@ -39,7 +39,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteScheduledProjects = exports.pendingShiftNotifier = exports.projectReviewNotifier = exports.reGeocodeAllShifts = exports.deleteAllShifts = exports.deleteShift = exports.zipProjectFiles = exports.deleteProjectFile = exports.deleteAllProjects = exports.deleteProjectAndFiles = exports.onShiftDeleted = exports.onShiftCreated = exports.serveFile = exports.deleteUser = exports.setUserStatus = exports.setNotificationStatus = exports.getNotificationStatus = exports.getVapidPublicKey = void 0;
+exports.deleteScheduledProjects = exports.pendingShiftNotifier = exports.projectReviewNotifier = exports.reconcileShifts = exports.reGeocodeAllShifts = exports.deleteAllShifts = exports.deleteShift = exports.zipProjectFiles = exports.deleteProjectFile = exports.deleteAllProjects = exports.deleteProjectAndFiles = exports.onShiftDeleted = exports.onShiftCreated = exports.serveFile = exports.deleteUser = exports.setUserStatus = exports.setNotificationStatus = exports.getNotificationStatus = exports.getVapidPublicKey = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const firestore_1 = require("firebase-functions/v2/firestore");
@@ -449,6 +449,104 @@ exports.reGeocodeAllShifts = (0, https_1.onCall)({ region: REGION, timeoutSecond
         }
     }
     return { updated };
+});
+exports.reconcileShifts = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 300, memory: '1GiB' }, async (req) => {
+    const uid = req.auth?.uid;
+    if (!uid) {
+        throw new https_1.HttpsError("unauthenticated", "Authentication required");
+    }
+    await assertAdminOrManager(uid);
+    const data = req.data;
+    if (!data || typeof data !== "object") {
+        throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
+    }
+    const { toCreate, toUpdate, toDelete, department } = data;
+    if (!Array.isArray(toCreate) || !Array.isArray(toUpdate) || !Array.isArray(toDelete) || !department) {
+        throw new https_1.HttpsError('invalid-argument', 'Invalid payload. "toCreate", "toUpdate", and "toDelete" arrays are required.');
+    }
+    const batch = db.batch();
+    const projectsRef = db.collection('projects');
+    const shiftsRef = db.collection('shifts');
+    // --- Handle Project Creation/Update ---
+    const allImportedShifts = [...toCreate, ...toUpdate.map((u) => u.new)];
+    const projectInfoFromImport = new Map();
+    allImportedShifts.forEach((shift) => {
+        if (shift.address) {
+            projectInfoFromImport.set(shift.address, shift);
+        }
+    });
+    if (projectInfoFromImport.size > 0) {
+        const projectAddresses = Array.from(projectInfoFromImport.keys());
+        for (let i = 0; i < projectAddresses.length; i += 30) {
+            const chunk = projectAddresses.slice(i, i + 30);
+            const existingProjectsQuery = projectsRef.where('address', 'in', chunk);
+            const existingProjectsSnap = await existingProjectsQuery.get();
+            const foundAddresses = new Set();
+            existingProjectsSnap.forEach(docSnap => {
+                const project = docSnap.data();
+                foundAddresses.add(project.address);
+                const importInfo = projectInfoFromImport.get(project.address);
+                if (importInfo && project.contract !== importInfo.contract) {
+                    batch.update(docSnap.ref, { contract: importInfo.contract });
+                }
+            });
+            const userSnap = await db.collection("users").doc(uid).get();
+            const userProfile = userSnap.data();
+            chunk.forEach(address => {
+                if (!foundAddresses.has(address)) {
+                    const info = projectInfoFromImport.get(address);
+                    if (info) {
+                        const reviewDate = new Date();
+                        reviewDate.setDate(reviewDate.getDate() + 28);
+                        batch.set(db.collection('projects').doc(), {
+                            address: info.address,
+                            eNumber: info.eNumber || '',
+                            manager: info.manager || '',
+                            contract: info.contract || '',
+                            department: info.department || '',
+                            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                            createdBy: userProfile?.name || 'System Import',
+                            creatorId: uid,
+                            nextReviewDate: admin.firestore.Timestamp.fromDate(reviewDate),
+                        });
+                    }
+                }
+            });
+        }
+    }
+    // --- Handle Shift Creation ---
+    toCreate.forEach((shift) => {
+        const newShiftRef = shiftsRef.doc();
+        batch.set(newShiftRef, {
+            ...shift,
+            date: admin.firestore.Timestamp.fromDate(new Date(shift.date)), // Deserialize date
+            status: 'pending-confirmation',
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            source: 'import',
+        });
+    });
+    // --- Handle Shift Updates ---
+    toUpdate.forEach(({ id, new: newShift }) => {
+        batch.update(shiftsRef.doc(id), {
+            address: newShift.address,
+            task: newShift.task,
+            type: newShift.type,
+            eNumber: newShift.eNumber || '',
+            manager: newShift.manager || '',
+            notes: newShift.notes || '',
+            contract: newShift.contract || '',
+            status: 'pending-confirmation',
+        });
+    });
+    // --- Handle Shift Deletions ---
+    toDelete.forEach((shift) => {
+        batch.delete(shiftsRef.doc(shift.id));
+    });
+    await batch.commit();
+    return {
+        success: true,
+        message: `Reconciliation complete: ${toCreate.length} created, ${toUpdate.length} updated, ${toDelete.length} deleted.`
+    };
 });
 /* =====================================================
    SCHEDULED FUNCTIONS (FIXED)
