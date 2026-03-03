@@ -167,7 +167,7 @@ function ProjectsPageContent() {
               <CardDescription>Create new projects and upload or delete files associated with them. All users can view projects and files here.</CardDescription>
               </CardHeader>
               <CardContent>
-                  <ProjectManager userProfile={userProfile} />
+                  <ProjectManager userProfile={userProfile} initialSearchTerm={initialSearchTerm} />
               </CardContent>
           </Card>
       ) : (

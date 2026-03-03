@@ -541,12 +541,13 @@ function EditProjectDialog({ project, open, onOpenChange }: EditProjectDialogPro
 
 interface ProjectManagerProps {
   userProfile: UserProfile;
+  initialSearchTerm?: string;
 }
 
-export function ProjectManager({ userProfile }: ProjectManagerProps) {
+export function ProjectManager({ userProfile, initialSearchTerm = '' }: ProjectManagerProps) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(initialSearchTerm);
   const [isCreateProjectDialogOpen, setCreateProjectDialogOpen] = useState(false);
   const [isFileManagerOpen, setFileManagerOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
