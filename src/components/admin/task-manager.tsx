@@ -19,6 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
 import { Badge } from '@/components/ui/badge';
+import { useAllUsers } from '@/hooks/use-all-users';
 
 export function TaskManager() {
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -30,6 +31,7 @@ export function TaskManager() {
   const [newSubTaskPhotoCount, setNewSubTaskPhotoCount] = useState<{ [key: string]: number }>({});
   const { toast } = useToast();
   const { userProfile } = useUserProfile();
+  const { users: allUsers, loading: usersLoading } = useAllUsers();
   const { selectedDepartments } = useDepartmentFilter();
   const isPrivilegedUser = userProfile && ['admin', 'owner', 'manager'].includes(userProfile.role);
 
@@ -229,7 +231,7 @@ export function TaskManager() {
     }
   };
 
-  if (loading) {
+  if (loading || usersLoading) {
     return (
         <Card>
             <CardHeader>
@@ -272,12 +274,17 @@ export function TaskManager() {
 
         {filteredTrades.length > 0 ? (
           <Accordion type="multiple" className="w-full">
-            {filteredTrades.map((trade) => (
+            {filteredTrades.map((trade) => {
+              const userForTrade = allUsers.find(u => u.name === trade.name);
+              const userTrade = userForTrade?.trade;
+
+              return (
               <AccordionItem key={trade.id} value={trade.id}>
                 <AccordionTrigger className="hover:no-underline">
                   <div className="flex w-full items-center justify-between">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-semibold text-lg">{trade.name}</span>
+                        {userTrade && <Badge variant="outline">{userTrade}</Badge>}
                         {trade.department && <Badge variant="secondary">{trade.department}</Badge>}
                         {trade.tasks?.some(t => t.evidenceTag) && <Tags className="h-4 w-4 text-muted-foreground" title="Contains tasks with evidence tags" />}
                     </div>
@@ -415,7 +422,7 @@ export function TaskManager() {
                   </div>
                 </AccordionContent>
               </AccordionItem>
-            ))}
+            )})}
           </Accordion>
         ) : (
           <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center">
