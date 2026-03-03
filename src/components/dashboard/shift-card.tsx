@@ -324,7 +324,6 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
   const [isNoteDialogOpen, setIsNoteDialogOpen] = useState(false);
   const [isRejectNoteDialogOpen, setRejectNoteDialogOpen] = useState(false);
   const [rejectionNote, setRejectionNote] = useState('');
-  const [rejectingTaskIndex, setRejectingTaskIndex] = useState<number | null>(null);
   const [note, setNote] = useState('');
 
   const [tradeTasks, setTradeTasks] = useState<TradeTask[]>([]);
@@ -397,20 +396,36 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
     async function fetchTasks() {
       if (!userProfile || !db) return;
 
-      const categoryName = userProfile.trade || userProfile.role;
+      const potentialCategories = [
+        userProfile.name,
+        userProfile.trade,
+        userProfile.role,
+      ].filter(Boolean) as string[];
 
-      if (categoryName) {
+      if (potentialCategories.length > 0) {
         try {
-          const q = query(collection(db, 'trade_tasks'), where('name', '==', categoryName));
+          const q = query(collection(db, 'trade_tasks'), where('name', 'in', potentialCategories));
           const querySnapshot = await getDocs(q);
+          
           if (!querySnapshot.empty) {
-            const tradeData = querySnapshot.docs[0].data() as Trade;
-            setTradeTasks(tradeData.tasks || []);
-          } else {
-            setTradeTasks([]);
+            const matchingTasks = new Map<string, TradeTask[]>();
+            querySnapshot.forEach(doc => {
+              const tradeData = doc.data() as Trade;
+              matchingTasks.set(tradeData.name, tradeData.tasks || []);
+            });
+
+            for (const categoryName of potentialCategories) {
+              if (matchingTasks.has(categoryName)) {
+                setTradeTasks(matchingTasks.get(categoryName)!);
+                return; // Found tasks, exit
+              }
+            }
           }
+          // No matching categories found
+          setTradeTasks([]);
+
         } catch (e) {
-          console.error(`Failed to load tasks for category "${categoryName}" from Firestore`, e);
+          console.error(`Failed to load tasks from Firestore`, e);
           setTradeTasks([]);
         }
       } else {
@@ -418,7 +433,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
       }
     }
     fetchTasks();
-  }, [userProfile, shift.userId]);
+  }, [userProfile]);
 
   useEffect(() => {
     if (tradeTasks.length > 0) {

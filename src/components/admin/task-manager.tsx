@@ -191,7 +191,7 @@ export function TaskManager() {
       <CardContent className="space-y-6">
         <div className="flex gap-2">
           <Input
-            placeholder="e.g., Plumber, Owner..."
+            placeholder="e.g., Plumber, John Doe, Owner..."
             value={newTradeName}
             onChange={(e) => setNewTradeName(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && handleAddTrade()}
