@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { db, functions, httpsCallable } from '@/lib/firebase';
-import { collection, onSnapshot, query, doc, updateDoc, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, doc, updateDoc } from 'firebase/firestore';
 import type { UserProfile } from '@/types';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { useToast } from '@/hooks/use-toast';
@@ -24,7 +24,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
-import { useAllUsers } from '@/hooks/use-all-users';
 
 function EditUserDialog({ user, open, onOpenChange, context, availableDepartments }: { user: UserProfile, open: boolean, onOpenChange: (open: boolean) => void, context: 'unassigned' | 'default', availableDepartments: string[] }) {
     const { toast } = useToast();
@@ -58,7 +57,8 @@ function EditUserDialog({ user, open, onOpenChange, context, availableDepartment
                 department,
                 trade,
                 operativeId,
-                ...(context === 'unassigned' && department && user.status !== 'active' && { status: 'active' }),
+                // If they were pending or unassigned and are now being assigned a department, set them to active.
+                ...(context === 'unassigned' && department && { status: 'active' }),
             });
             toast({ title: "User Updated", description: `${user.name}'s details have been updated.` });
             onOpenChange(false);
@@ -132,7 +132,8 @@ function EditUserDialog({ user, open, onOpenChange, context, availableDepartment
 
 export default function UserManagementPage() {
     const { userProfile: currentUserProfile, loading: currentUserLoading } = useUserProfile();
-    const { users: allUsers, loading: allUsersLoading } = useAllUsers();
+    const [users, setUsers] = useState<UserProfile[]>([]);
+    const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
     const [isEditUserOpen, setIsEditUserOpen] = useState(false);
@@ -140,49 +141,59 @@ export default function UserManagementPage() {
     const { toast } = useToast();
     const { selectedDepartments } = useDepartmentFilter();
 
-    const loading = currentUserLoading || allUsersLoading;
+    useEffect(() => {
+        const q = query(collection(db, 'users'));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            setUsers(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile)));
+            setLoading(false);
+        }, (error) => {
+            console.error("Error fetching users:", error);
+            setLoading(false);
+        });
+        return () => unsubscribe();
+    }, []);
     
     const availableDepartments = useMemo(() => {
         const depts = new Set<string>();
-        allUsers.forEach(u => {
+        users.forEach(u => {
             if (u.department) depts.add(u.department);
         });
         return Array.from(depts).sort();
-    }, [allUsers]);
+    }, [users]);
 
     const { pendingUsers, unassignedUsers, activeUsers, suspendedUsers } = useMemo(() => {
         const isOwner = currentUserProfile?.role === 'owner';
-        
-        let usersToFilter = allUsers;
-        if (!isOwner) {
-            // For non-owners, only show users from their own department.
-            usersToFilter = allUsers.filter(u => u.department === currentUserProfile?.department);
-        } else {
-             // For owners, filter by the selected departments in the header filter
-             if (selectedDepartments.size > 0) {
-                usersToFilter = allUsers.filter(u => u.department && selectedDepartments.has(u.department));
-             }
-        }
-        
-        const searchedUsers = usersToFilter.filter(u => 
+        const isAdmin = currentUserProfile?.role === 'admin';
+
+        const searchedUsers = users.filter(u => 
             (u.name?.toLowerCase().includes(searchTerm.toLowerCase())) ||
             (u.email?.toLowerCase().includes(searchTerm.toLowerCase()))
         );
         
         const pending = searchedUsers.filter(u => u.status === 'pending-approval');
         const unassigned = searchedUsers.filter(u => u.status !== 'pending-approval' && (!u.department || u.department === ''));
-        const active = searchedUsers.filter(u => (u.status === 'active' || !u.status) && u.department);
-        const suspended = searchedUsers.filter(u => u.status === 'suspended' && u.department);
+        const assignedWithDept = searchedUsers.filter(u => u.status !== 'pending-approval' && u.department && u.department !== '');
+        
+        let visibleAssigned = assignedWithDept;
+        if (isOwner) {
+            if (selectedDepartments.size > 0) {
+                 visibleAssigned = assignedWithDept.filter(u => u.department && selectedDepartments.has(u.department));
+            }
+        } else if (isAdmin) {
+             visibleAssigned = assignedWithDept.filter(u => u.department === currentUserProfile?.department);
+        } else {
+            visibleAssigned = [];
+        }
 
         const sortByName = (a: UserProfile, b: UserProfile) => (a.name || '').localeCompare(b.name || '');
 
         return {
             pendingUsers: pending.sort(sortByName),
             unassignedUsers: unassigned.sort(sortByName),
-            activeUsers: active.sort(sortByName),
-            suspendedUsers: suspended.sort(sortByName),
+            activeUsers: visibleAssigned.filter(u => u.status === 'active' || !u.status).sort(sortByName),
+            suspendedUsers: visibleAssigned.filter(u => u.status === 'suspended').sort(sortByName),
         };
-    }, [allUsers, searchTerm, currentUserProfile, selectedDepartments]);
+    }, [users, searchTerm, currentUserProfile, selectedDepartments]);
     
     const handleSetUserStatus = async (user: UserProfile, newStatus: 'active' | 'suspended') => {
         if (!functions) {
@@ -299,8 +310,6 @@ export default function UserManagementPage() {
                     <TableHeader>
                         <TableRow>
                             <TableHead>Name</TableHead>
-                            <TableHead>Department</TableHead>
-                            <TableHead>Trade</TableHead>
                             <TableHead>Role</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
@@ -312,11 +321,13 @@ export default function UserManagementPage() {
                             return (
                                 <TableRow key={user.uid}>
                                     <TableCell className="font-medium">
-                                        {user.name}
-                                        {user.operativeId && <div className="text-xs text-muted-foreground">{user.operativeId}</div>}
+                                        <div className="flex items-center gap-2">
+                                            <span>{user.name}</span>
+                                            {user.department && <Badge variant="secondary">{user.department}</Badge>}
+                                            {user.trade && <Badge variant="outline" className="capitalize">{user.trade}</Badge>}
+                                        </div>
+                                        {user.operativeId && <div className="text-xs text-muted-foreground mt-1">{user.operativeId}</div>}
                                     </TableCell>
-                                    <TableCell>{user.department || 'N/A'}</TableCell>
-                                    <TableCell>{user.trade || 'N/A'}</TableCell>
                                     <TableCell><Badge variant="outline" className="capitalize">{user.role}</Badge></TableCell>
                                     <TableCell>
                                         <Badge
@@ -362,12 +373,14 @@ export default function UserManagementPage() {
                   return (
                       <Card key={user.uid}>
                           <CardHeader>
-                              <CardTitle>{user.name}</CardTitle>
-                              {user.operativeId && <CardDescription>ID: {user.operativeId}</CardDescription>}
+                                <CardTitle className="flex flex-wrap items-center gap-2">
+                                    <span>{user.name}</span>
+                                    {user.department && <Badge variant="secondary">{user.department}</Badge>}
+                                    {user.trade && <Badge variant="outline" className="capitalize">{user.trade}</Badge>}
+                                </CardTitle>
+                                {user.operativeId && <CardDescription className="pt-1">ID: {user.operativeId}</CardDescription>}
                           </CardHeader>
                           <CardContent className="text-sm space-y-3">
-                              <div><strong>Department:</strong> {user.department || 'N/A'}</div>
-                              <div><strong>Trade:</strong> {user.trade || 'N/A'}</div>
                               <div className="flex items-center gap-2"><strong>Role:</strong> <Badge variant="outline" className="capitalize">{user.role}</Badge></div>
                               <div className="flex items-center gap-2"><strong>Status:</strong>
                                   <Badge
@@ -402,7 +415,7 @@ export default function UserManagementPage() {
         );
     }
     
-    if (loading) {
+    if (loading || currentUserLoading) {
         return (
              <Card>
                 <CardHeader>
@@ -463,4 +476,6 @@ export default function UserManagementPage() {
         </>
     )
 }
+    
+
     
