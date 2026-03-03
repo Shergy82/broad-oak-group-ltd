@@ -15,6 +15,7 @@ import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from '@/components/ui/select';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Checkbox } from '../ui/checkbox';
 
 interface EvidenceChecklistManagerProps {
   contractName?: string;
@@ -35,6 +36,7 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
 
   const [allTrades, setAllTrades] = useState<Trade[]>([]);
   const [isTradesLoading, setIsTradesLoading] = useState(true);
+  const [selectedTradeIds, setSelectedTradeIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!open) return;
@@ -159,30 +161,38 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
     }
   };
 
-  const handleAddAllFromTrade = async (trade: Trade) => {
-    if (!trade.tasks || trade.tasks.length === 0) {
-        toast({ title: 'No tasks to add', description: `The category "${trade.name}" is empty.` });
+  const handleAddSelectedTrades = async () => {
+    const tradesToAdd = allTrades.filter(t => selectedTradeIds.has(t.id));
+    if (tradesToAdd.length === 0) {
+        toast({ title: 'No categories selected' });
+        return;
+    }
+
+    const allNewTasks = tradesToAdd.flatMap(trade => trade.tasks || []);
+    
+    if (allNewTasks.length === 0) {
+        toast({ title: 'No tasks to add', description: `The selected categories are empty.` });
         return;
     }
     
     const isProjectMode = !!projectId;
 
     const currentItemTexts = new Set(items.map(i => i.text.trim().toLowerCase()));
-    const uniqueNewItems = trade.tasks.filter(task => !currentItemTexts.has(task.text.trim().toLowerCase()));
+    const uniqueNewItems = allNewTasks.filter(task => !currentItemTexts.has(task.text.trim().toLowerCase()));
     
-    if (uniqueNewItems.length < trade.tasks.length) {
-        toast({ title: 'Duplicates Skipped', description: `${trade.tasks.length - uniqueNewItems.length} task(s) were already in the checklist.` });
+    if (uniqueNewItems.length < allNewTasks.length) {
+        toast({ title: 'Duplicates Skipped', description: `${allNewTasks.length - uniqueNewItems.length} task(s) were already in the checklist.` });
     }
     
     if (uniqueNewItems.length === 0) {
-        toast({ title: 'All tasks already exist' });
+        toast({ title: 'All tasks from selected categories already exist' });
         return;
     }
     
     const newItemsWithIds = uniqueNewItems.map(item => ({ ...item, id: `${Date.now()}-${Math.random()}` }));
 
     const docRef = isProjectMode
-        ? doc(db, 'projects', projectId)
+        ? doc(db, 'projects', projectId!)
         : doc(db, 'evidence_checklists', contractName!);
 
     try {
@@ -197,7 +207,8 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
             }, { merge: true });
         }
 
-        toast({ title: 'Success', description: `${newItemsWithIds.length} task(s) added from "${trade.name}".` });
+        toast({ title: 'Success', description: `${newItemsWithIds.length} task(s) added.` });
+        setSelectedTradeIds(new Set()); // Clear selection
     } catch (e) {
         console.error('Error adding all tasks from trade:', e);
         toast({ variant: 'destructive', title: 'Error', description: 'Could not add tasks.' });
@@ -279,19 +290,31 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
                     </div>
                 </div>
                  <div className="space-y-2">
-                    <Label>Add all tasks from a category</Label>
-                    <ScrollArea className="h-48 rounded-md border">
+                    <Label>Add from categories</Label>
+                    <ScrollArea className="h-40 rounded-md border">
                         <div className="p-2 space-y-1">
                             {isTradesLoading ? (
                                 <div className="p-4 text-center text-sm text-muted-foreground">Loading...</div>
                             ) : allTrades.length > 0 ? (
                                 allTrades.map(trade => (
-                                    <div key={trade.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted">
-                                        <span className="text-sm font-medium">{trade.name}</span>
-                                        <Button size="sm" variant="ghost" onClick={() => handleAddAllFromTrade(trade)}>
-                                            <PlusCircle className="mr-2 h-4 w-4"/>
-                                            Add All
-                                        </Button>
+                                    <div key={trade.id} className="flex items-center p-2 rounded-md hover:bg-muted">
+                                        <Checkbox
+                                            id={`trade-${trade.id}`}
+                                            checked={selectedTradeIds.has(trade.id)}
+                                            onCheckedChange={(checked) => {
+                                                setSelectedTradeIds(prev => {
+                                                    const newSet = new Set(prev);
+                                                    if (checked) {
+                                                        newSet.add(trade.id);
+                                                    } else {
+                                                        newSet.delete(trade.id);
+                                                    }
+                                                    return newSet;
+                                                });
+                                            }}
+                                            className="mr-2"
+                                        />
+                                        <Label htmlFor={`trade-${trade.id}`} className="text-sm font-medium flex-grow cursor-pointer">{trade.name}</Label>
                                     </div>
                                 ))
                             ) : (
@@ -299,6 +322,10 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
                             )}
                         </div>
                     </ScrollArea>
+                    <Button size="sm" className="w-full" onClick={handleAddSelectedTrades} disabled={selectedTradeIds.size === 0}>
+                        <PlusCircle className="mr-2 h-4 w-4"/>
+                        Add Selected ({selectedTradeIds.size})
+                    </Button>
                 </div>
             </div>
           
