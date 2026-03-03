@@ -95,7 +95,7 @@ service cloud.firestore {
 
     // ---- TRADE TASKS ----
     match /trade_tasks/{id} {
-      allow read: if isOwner(request.auth.uid) || (signedIn() && (resource.data.department == null || resource.data.department == userDepartment(request.auth.uid)));
+      allow read: if signedIn();
       allow write: if isOwner(request.auth.uid) || (
           isPrivilegedUser(request.auth.uid) &&
           (resource == null || resource.data.department == userDepartment(request.auth.uid) || resource.data.department == null) &&
