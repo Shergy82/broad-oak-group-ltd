@@ -2,7 +2,7 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
 import { doc, onSnapshot, setDoc, updateDoc, arrayUnion, arrayRemove, serverTimestamp, collection, query } from 'firebase/firestore';
@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGr
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Checkbox } from '../ui/checkbox';
+import { useAllUsers } from '@/hooks/use-all-users';
 
 interface EvidenceChecklistManagerProps {
   contractName?: string;
@@ -33,10 +34,25 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
   const [newItemPhotoCount, setNewItemPhotoCount] = useState(1);
   const [newItemEvidenceTag, setNewItemEvidenceTag] = useState('');
   const { toast } = useToast();
+  const { users: allUsers, loading: usersLoading } = useAllUsers();
 
   const [allTrades, setAllTrades] = useState<Trade[]>([]);
   const [isTradesLoading, setIsTradesLoading] = useState(true);
   const [selectedTradeIds, setSelectedTradeIds] = useState<Set<string>>(new Set());
+
+  const { tradeTags, allTasksForDropdown } = useMemo(() => {
+    if (usersLoading) return { tradeTags: [], allTasksForDropdown: [] };
+    
+    const userNames = new Set(allUsers.map(u => u.name.trim().toLowerCase()));
+    
+    const tradeTags = allTrades.filter(trade => !userNames.has(trade.name.trim().toLowerCase()));
+    
+    const allTasks = allTrades.flatMap(trade => trade.tasks || []);
+    const uniqueTasks = Array.from(new Map(tasks.map(task => [task.text, task])).values());
+    const allTasksForDropdown = uniqueTasks.sort((a, b) => a.text.localeCompare(b.text));
+    
+    return { tradeTags, allTasksForDropdown };
+  }, [allTrades, allUsers, usersLoading]);
 
   useEffect(() => {
     if (!open) return;
@@ -234,12 +250,7 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
                     <Label>Add a specific task</Label>
                     <Select
                         onValueChange={(value) => {
-                            let selectedTask: TradeTask | undefined;
-                            for (const trade of allTrades) {
-                                selectedTask = trade.tasks?.find(t => t.text === value);
-                                if (selectedTask) break;
-                            }
-
+                            const selectedTask = allTasksForDropdown.find(t => t.text === value);
                             if (selectedTask) {
                                 setNewItemText(selectedTask.text);
                                 setNewItemPhotoCount(selectedTask.photoCount || 1);
@@ -252,16 +263,11 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
                         </SelectTrigger>
                         <SelectContent>
                             <ScrollArea className="h-64">
-                            {isTradesLoading ? (
+                            {(isTradesLoading || usersLoading) ? (
                                 <div className="p-4 text-center text-sm text-muted-foreground">Loading tasks...</div>
-                            ) : allTrades.length > 0 ? (
-                                allTrades.map(trade => (
-                                    <SelectGroup key={trade.id}>
-                                        <SelectLabel>{trade.name}</SelectLabel>
-                                        {trade.tasks?.map(task => (
-                                            <SelectItem key={task.text} value={task.text}>{task.text}</SelectItem>
-                                        ))}
-                                    </SelectGroup>
+                            ) : allTasksForDropdown.length > 0 ? (
+                                allTasksForDropdown.map(task => (
+                                    <SelectItem key={task.text} value={task.text}>{task.text}</SelectItem>
                                 ))
                             ) : (
                                 <div className="p-4 text-center text-sm text-muted-foreground">No pre-defined tasks found.</div>
@@ -293,10 +299,10 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
                     <Label>Add from categories</Label>
                     <ScrollArea className="h-40 rounded-md border">
                         <div className="p-2 space-y-1">
-                            {isTradesLoading ? (
+                            {(isTradesLoading || usersLoading) ? (
                                 <div className="p-4 text-center text-sm text-muted-foreground">Loading...</div>
-                            ) : allTrades.length > 0 ? (
-                                allTrades.map(trade => (
+                            ) : tradeTags.length > 0 ? (
+                                tradeTags.map(trade => (
                                     <div key={trade.id} className="flex items-center p-2 rounded-md hover:bg-muted">
                                         <Checkbox
                                             id={`trade-${trade.id}`}
