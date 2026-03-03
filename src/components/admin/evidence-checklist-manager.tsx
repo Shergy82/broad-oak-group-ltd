@@ -48,7 +48,7 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
     const tradeTags = allTrades.filter(trade => !userNames.has(trade.name.trim().toLowerCase()));
     
     const allTasks = allTrades.flatMap(trade => trade.tasks || []);
-    const uniqueTasks = Array.from(new Map(tasks.map(task => [task.text, task])).values());
+    const uniqueTasks = Array.from(new Map(allTasks.map(task => [task.text, task])).values());
     const allTasksForDropdown = uniqueTasks.sort((a, b) => a.text.localeCompare(b.text));
     
     return { tradeTags, allTasksForDropdown };
