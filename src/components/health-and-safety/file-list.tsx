@@ -3,7 +3,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { collection, onSnapshot, query, orderBy, doc, deleteDoc, writeBatch, getDocs, where, deleteField } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, doc, deleteDoc, writeBatch, getDocs, where, deleteField, updateDoc } from 'firebase/firestore';
 import { ref, deleteObject } from 'firebase/storage';
 import { db, storage } from '@/lib/firebase';
 import type { HealthAndSafetyFile, UserProfile } from '@/types';
@@ -22,6 +22,7 @@ import { FileUploader } from './file-uploader';
 import { downloadFile } from '@/file-proxy';
 import Image from 'next/image';
 import { Separator } from '../ui/separator';
+import { cn } from '@/lib/utils';
 
 interface HealthAndSafetyFileListProps {
   userProfile: UserProfile;
@@ -39,6 +40,9 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
   
   const [deletingFolder, setDeletingFolder] = useState<string | null>(null);
   const [viewingFile, setViewingFile] = useState<HealthAndSafetyFile | null>(null);
+  
+  const [draggedItem, setDraggedItem] = useState<{ type: 'file' | 'folder', data: HealthAndSafetyFile | string } | null>(null);
+  const [draggingOverFolder, setDraggingOverFolder] = useState<string | null>(null);
 
   const { toast } = useToast();
   const isPrivilegedUser = ['admin', 'owner', 'manager'].includes(userProfile.role);
@@ -90,6 +94,94 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
     emptyFolders.forEach(name => names.add(name));
     return names;
   }, [files, emptyFolders]);
+
+  const handleDragStart = (type: 'file' | 'folder', data: HealthAndSafetyFile | string) => {
+    if (!isPrivilegedUser) return;
+    setDraggedItem({ type, data });
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+  
+  const handleFolderDragOver = (e: React.DragEvent, folderName: string) => {
+    e.preventDefault();
+    if (draggedItem) {
+        // Prevent dropping a folder into itself or a child of itself
+        if (draggedItem.type === 'folder' && (draggedItem.data === folderName || folderName.startsWith(draggedItem.data + '/'))) {
+            setDraggingOverFolder(null);
+            e.dataTransfer.dropEffect = "none";
+        } else {
+            setDraggingOverFolder(folderName);
+            e.dataTransfer.dropEffect = "move";
+        }
+    }
+  };
+
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDraggingOverFolder(null);
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetFolderName: string) => {
+    e.preventDefault();
+    setDraggingOverFolder(null);
+    if (!draggedItem || !isPrivilegedUser) return;
+    
+    // Prevent dropping a folder into itself
+    if(draggedItem.type === 'folder' && draggedItem.data === targetFolderName) return;
+    // Prevent dropping a file into its current location
+    if(draggedItem.type === 'file' && (draggedItem.data as HealthAndSafetyFile).folder === targetFolderName) return;
+    if(draggedItem.type === 'file' && !(draggedItem.data as HealthAndSafetyFile).folder && targetFolderName === 'uncategorized') return;
+
+    try {
+        if (draggedItem.type === 'file') {
+            const file = draggedItem.data as HealthAndSafetyFile;
+            toast({ title: 'Moving file...' });
+            await updateDoc(doc(db, 'health_and_safety_files', file.id), {
+                folder: targetFolderName === 'uncategorized' ? deleteField() : targetFolderName
+            });
+            toast({ title: 'Success', description: 'File moved.' });
+        } else if (draggedItem.type === 'folder') {
+            const sourceFolderName = draggedItem.data as string;
+            const folderNameOnly = sourceFolderName.split('/').pop() || '';
+            const newBaseFolder = targetFolderName === 'uncategorized' ? folderNameOnly : `${targetFolderName}/${folderNameOnly}`;
+            
+            toast({ title: `Moving folder "${folderNameOnly}"...` });
+
+            const q = query(
+                collection(db, 'health_and_safety_files'),
+                where('folder', '>=', sourceFolderName),
+                where('folder', '<', sourceFolderName + '\uf8ff')
+            );
+            const snapshot = await getDocs(q);
+
+            if (snapshot.empty) {
+                setEmptyFolders(prev => {
+                    const newSet = new Set(prev.filter(f => f !== sourceFolderName));
+                    if (newBaseFolder) newSet.add(newBaseFolder);
+                    return Array.from(newSet);
+                });
+                toast({ title: 'Success', description: 'Empty folder moved.' });
+            } else {
+                const batch = writeBatch(db);
+                snapshot.docs.forEach(document => {
+                    const fileData = document.data() as HealthAndSafetyFile;
+                    const newPath = fileData.folder!.replace(sourceFolderName, newBaseFolder);
+                    batch.update(document.ref, { folder: newPath });
+                });
+                await batch.commit();
+                toast({ title: 'Success', description: 'Folder and its contents moved.' });
+            }
+        }
+    } catch (error) {
+        console.error("Error moving item:", error);
+        toast({ variant: 'destructive', title: 'Error', description: 'Could not move the item.' });
+    } finally {
+        setDraggedItem(null);
+    }
+  };
 
   const handleDeleteFile = async (file: HealthAndSafetyFile) => {
     try {
@@ -239,7 +331,7 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
           </TableHeader>
           <TableBody>
             {filesToList.map(file => (
-              <TableRow key={file.id}>
+              <TableRow key={file.id} draggable={isPrivilegedUser} onDragStart={() => handleDragStart('file', file)}>
                 <TableCell className="font-medium truncate max-w-[200px]">
                     <button onClick={() => handleFileClick(file)} className="hover:underline text-left truncate block w-full" title={file.name}>
                         {file.name}
@@ -327,36 +419,65 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
         
         {(uncategorizedFiles.length > 0 || folders.length > 0) && <Separator />}
 
-        {uncategorizedFiles.length > 0 && (
-            <div className="space-y-4">
+        {(uncategorizedFiles.length > 0 || isPrivilegedUser) && (
+            <div
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e, 'uncategorized')}
+                className={cn('space-y-4 p-2 rounded-md', draggingOverFolder === 'uncategorized' && 'bg-primary/10 ring-2 ring-inset ring-primary')}
+            >
                 <h2 className="text-xl font-semibold">General Files</h2>
-                {renderFileList(uncategorizedFiles)}
+                {uncategorizedFiles.length > 0 ? renderFileList(uncategorizedFiles) : 
+                    <p className="text-sm text-muted-foreground italic text-center py-4">Drag files or folders here to move them to the top level.</p>
+                }
             </div>
         )}
 
-        <Accordion type="multiple" className="w-full" defaultValue={folders.map(([name]) => name)}>
+
+        <Accordion type="multiple" className="w-full">
             {folders.map(([folderName, folderFiles]) => (
-                <AccordionItem key={folderName} value={folderName}>
-                    <AccordionTrigger>
-                        <div className="flex items-center gap-2 text-lg font-semibold">
-                            <Folder /> {folderName} <span className="text-sm font-normal text-muted-foreground">({folderFiles.length})</span>
+                <AccordionItem 
+                    key={folderName} 
+                    value={folderName}
+                    onDragOver={(e) => handleFolderDragOver(e, folderName)}
+                    onDragLeave={handleDragLeave}
+                    onDrop={(e) => handleDrop(e, folderName)}
+                    className={cn('border-b', draggingOverFolder === folderName && 'bg-primary/10 ring-2 ring-inset ring-primary rounded-md')}
+                >
+                    <AccordionTrigger
+                      draggable={isPrivilegedUser}
+                      onDragStart={() => handleDragStart('folder', folderName)}
+                    >
+                        <div className="flex w-full items-center justify-between">
+                            <div className="flex items-center gap-2 text-lg font-semibold">
+                                <Folder /> {folderName} <span className="text-sm font-normal text-muted-foreground">({folderFiles.length})</span>
+                            </div>
+                            {isPrivilegedUser && (
+                                <div>
+                                    <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground" onClick={(e) => {e.stopPropagation(); setRenamingFolder(folderName);}}><FolderCog className="h-4 w-4" /></Button>
+                                    <AlertDialog>
+                                        <AlertDialogTrigger asChild>
+                                            <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-8 w-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10"
+                                            onClick={(e) => e.stopPropagation()}
+                                            >
+                                            <FolderX className="h-4 w-4" />
+                                            </Button>
+                                        </AlertDialogTrigger>
+                                        <AlertDialogContent>
+                                            <AlertDialogHeader><AlertDialogTitle>Delete Folder?</AlertDialogTitle><AlertDialogDescription>This will permanently delete the folder "{folderName}" and all files contained within it. This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
+                                            <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteFolder(folderName)} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground" disabled={deletingFolder === folderName}>
+                                                {deletingFolder === folderName ? <Spinner /> : 'Delete Folder'}
+                                            </AlertDialogAction></AlertDialogFooter>
+                                        </AlertDialogContent>
+                                    </AlertDialog>
+                                </div>
+                            )}
                         </div>
                     </AccordionTrigger>
                     <AccordionContent className="p-4 bg-muted/50 rounded-b-md space-y-4">
-                        {isPrivilegedUser && (
-                            <div className="flex justify-end gap-2">
-                                <Button size="sm" variant="outline" onClick={() => setRenamingFolder(folderName)}><FolderCog className="mr-2 h-4 w-4" />Rename</Button>
-                                <AlertDialog>
-                                    <AlertDialogTrigger asChild><Button size="sm" variant="destructive"><FolderX className="mr-2 h-4 w-4" />Delete</Button></AlertDialogTrigger>
-                                    <AlertDialogContent>
-                                        <AlertDialogHeader><AlertDialogTitle>Delete Folder?</AlertDialogTitle><AlertDialogDescription>This will permanently delete the folder "{folderName}" and all files contained within it. This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
-                                        <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteFolder(folderName)} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground" disabled={deletingFolder === folderName}>
-                                            {deletingFolder === folderName ? <Spinner /> : 'Delete Folder'}
-                                        </AlertDialogAction></AlertDialogFooter>
-                                    </AlertDialogContent>
-                                </AlertDialog>
-                            </div>
-                        )}
                         {renderFileList(folderFiles)}
                         {isPrivilegedUser && <FileUploader userProfile={userProfile} folder={folderName} />}
                     </AccordionContent>
@@ -396,3 +517,5 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
     </>
   );
 }
+
+    
