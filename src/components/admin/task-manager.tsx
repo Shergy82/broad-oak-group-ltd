@@ -277,6 +277,8 @@ export function TaskManager() {
             {filteredTrades.map((trade) => {
               const userForTrade = allUsers.find(u => u.name === trade.name);
               const userTrade = userForTrade?.trade;
+              const uniqueEvidenceTags = trade.tasks ? Array.from(new Set(trade.tasks.map(t => t.evidenceTag).filter(Boolean))) : [];
+
 
               return (
               <AccordionItem key={trade.id} value={trade.id}>
@@ -286,7 +288,7 @@ export function TaskManager() {
                         <span className="font-semibold text-lg">{trade.name}</span>
                         {userTrade && <Badge variant="outline">{userTrade}</Badge>}
                         {trade.department && <Badge variant="secondary">{trade.department}</Badge>}
-                        {trade.tasks?.some(t => t.evidenceTag) && <Tags className="h-4 w-4 text-muted-foreground" title="Contains tasks with evidence tags" />}
+                        {uniqueEvidenceTags.map(tag => <Badge key={tag} variant="secondary">{tag}</Badge>)}
                     </div>
                     {isPrivilegedUser && (
                         <div>
