@@ -280,29 +280,25 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
                 </div>
                  <div className="space-y-2">
                     <Label>Add all tasks from a category</Label>
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button variant="outline" className="w-full justify-between">
-                                <span>Select a category...</span>
-                                <PlusCircle className="h-4 w-4" />
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
-                            <ScrollArea className="h-64">
+                    <ScrollArea className="h-48 rounded-md border">
+                        <div className="p-2 space-y-1">
                             {isTradesLoading ? (
-                                <DropdownMenuItem disabled>Loading categories...</DropdownMenuItem>
+                                <div className="p-4 text-center text-sm text-muted-foreground">Loading...</div>
                             ) : allTrades.length > 0 ? (
                                 allTrades.map(trade => (
-                                    <DropdownMenuItem key={trade.id} onSelect={() => handleAddAllFromTrade(trade)}>
-                                        {trade.name}
-                                    </DropdownMenuItem>
+                                    <div key={trade.id} className="flex items-center justify-between p-2 rounded-md hover:bg-muted">
+                                        <span className="text-sm font-medium">{trade.name}</span>
+                                        <Button size="sm" variant="ghost" onClick={() => handleAddAllFromTrade(trade)}>
+                                            <PlusCircle className="mr-2 h-4 w-4"/>
+                                            Add All
+                                        </Button>
+                                    </div>
                                 ))
                             ) : (
-                                <DropdownMenuItem disabled>No categories found.</DropdownMenuItem>
+                                <div className="p-4 text-center text-sm text-muted-foreground">No categories found.</div>
                             )}
-                            </ScrollArea>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+                        </div>
+                    </ScrollArea>
                 </div>
             </div>
           
