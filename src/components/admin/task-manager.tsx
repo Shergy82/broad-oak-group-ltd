@@ -18,6 +18,7 @@ import type { Trade, TradeTask, UserProfile } from '@/types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
+import { Badge } from '@/components/ui/badge';
 
 export function TaskManager() {
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -275,7 +276,7 @@ export function TaskManager() {
                   <div className="flex w-full items-center justify-between">
                     <div className="flex items-center gap-2">
                         <span className="font-semibold text-lg">{trade.name}</span>
-                        {isPrivilegedUser && trade.department && <span className="text-sm font-normal text-muted-foreground">({trade.department})</span>}
+                        {trade.department && <Badge variant="secondary">{trade.department}</Badge>}
                     </div>
                     <div>
                       <Button
@@ -420,5 +421,3 @@ export function TaskManager() {
     </Card>
   );
 }
-
-    
