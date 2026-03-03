@@ -67,7 +67,7 @@ import jsPDF from 'jspdf';
 import Image from 'next/image';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { downloadFile, previewFile } from '@/file-proxy';
+import { downloadFile } from '@/file-proxy';
 
 
 const projectSchema = z.object({
@@ -306,11 +306,43 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
     };
     
     const handleFileClick = (file: ProjectFile) => {
-        if (file.type?.startsWith('image/')) {
+        const isImage = file.type?.startsWith('image/');
+        const isPdf = file.type === 'application/pdf';
+        const officeExtensions = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
+        const fileExtension = file.name.split('.').pop()?.toLowerCase() || '';
+        const isOfficeDoc = officeExtensions.includes(fileExtension);
+
+        if (isImage || isPdf || isOfficeDoc) {
             setViewingFile(file);
         } else {
-            previewFile(file.fullPath);
+            downloadFile(file.fullPath);
         }
+    };
+    
+    const renderFileViewer = () => {
+        if (!viewingFile) return null;
+
+        const isImage = viewingFile.type?.startsWith('image/');
+        const isPdf = viewingFile.type === 'application/pdf';
+        const officeExtensions = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
+        const fileExtension = viewingFile.name.split('.').pop()?.toLowerCase() || '';
+        const isOfficeDoc = officeExtensions.includes(fileExtension);
+        
+        if (isImage) {
+            return <Image src={`/api/file?path=${encodeURIComponent(viewingFile.fullPath)}`} alt={viewingFile.name} fill className="object-contain" />;
+        }
+
+        if (isPdf) {
+            const pdfUrl = `/api/file?path=${encodeURIComponent(viewingFile.fullPath)}`;
+            return <iframe src={pdfUrl} className="w-full h-full border-0" title={viewingFile.name} />;
+        }
+
+        if (isOfficeDoc) {
+            const officeUrl = `https://docs.google.com/gview?url=${encodeURIComponent(viewingFile.url)}&embedded=true`;
+            return <iframe src={officeUrl} className="w-full h-full border-0" title={viewingFile.name} />;
+        }
+        
+        return <div className="p-8 text-center">Cannot preview this file type.</div>;
     };
 
 
@@ -412,7 +444,7 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                     <ScrollArea className="h-[70vh] rounded-md border p-4">
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                             {imageFiles.map((photo) => (
-                                <div key={photo.id} className="relative aspect-square group cursor-pointer rounded-md overflow-hidden" onClick={() => setViewingFile(photo)}>
+                                <div key={photo.id} className="relative aspect-square group cursor-pointer rounded-md overflow-hidden" onClick={() => handleFileClick(photo)}>
                                     <Image
                                         src={`/api/file?path=${encodeURIComponent(photo.fullPath)}`}
                                         alt={photo.name}
@@ -432,19 +464,13 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
             </DialogContent>
         </Dialog>
         <Dialog open={!!viewingFile} onOpenChange={() => setViewingFile(null)}>
-            <DialogContent showCloseButton={false} className="max-w-[90vw] max-h-[90vh] h-auto w-auto flex items-center justify-center p-2 bg-transparent border-none shadow-none">
-                {viewingFile && (
-                    <img
-                        src={`/api/file?path=${encodeURIComponent(viewingFile.fullPath)}`}
-                        alt={viewingFile.name}
-                        className="object-contain max-w-[90vw] max-h-[90vh] rounded-lg"
-                    />
-                )}
-                <DialogClose asChild>
-                    <Button variant="ghost" size="icon" className="absolute right-2 top-2 z-10 bg-black/50 text-white rounded-full h-8 w-8 hover:bg-black/70 hover:text-white">
-                        <X className="h-4 w-4" />
-                    </Button>
-                </DialogClose>
+            <DialogContent className="max-w-[90vw] h-[90vh] p-2 flex flex-col">
+                <DialogHeader className="p-2 border-b flex-shrink-0">
+                    <DialogTitle className="truncate">{viewingFile?.name}</DialogTitle>
+                </DialogHeader>
+                <div className="flex-grow relative bg-muted/20">
+                    {renderFileViewer()}
+                </div>
             </DialogContent>
         </Dialog>
         </>
