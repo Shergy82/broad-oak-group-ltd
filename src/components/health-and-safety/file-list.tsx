@@ -153,18 +153,14 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
     } else if (draggedItem.type === 'folder') {
         const sourceFolderName = draggedItem.data as string;
         
-        if (newParentFolder.startsWith(sourceFolderName)) {
+        // Prevent dropping folder into itself or its own subfolder
+        if (newParentFolder === sourceFolderName || (newParentFolder && newParentFolder.startsWith(sourceFolderName + '/'))) {
             setDraggedItem(null);
             return;
         }
 
         const folderNameOnly = sourceFolderName.split('/').pop() || sourceFolderName;
         const newBaseName = newParentFolder ? `${newParentFolder}/${folderNameOnly}` : folderNameOnly;
-        
-        if (newBaseName === sourceFolderName) {
-             setDraggedItem(null);
-             return;
-        }
 
         toast({ title: `Moving folder "${folderNameOnly}"...` });
         try {
