@@ -560,12 +560,9 @@ export function ProjectManager({ userProfile, initialSearchTerm = '' }: ProjectM
   const [projectToEdit, setProjectToEdit] = useState<Project | null>(null);
 
   useEffect(() => {
-    let q;
-    if (userProfile.role === 'owner') {
-        q = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
-    } else {
-        q = query(collection(db, 'projects'), where('department', '==', userProfile.department), orderBy('createdAt', 'desc'));
-    }
+    // Fetch all projects. Filtering is now done client-side.
+    const q = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
+    
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project)));
       setLoading(false);
@@ -575,12 +572,13 @@ export function ProjectManager({ userProfile, initialSearchTerm = '' }: ProjectM
       setLoading(false);
     });
     return () => unsubscribe();
-  }, [userProfile, toast]);
+  }, [toast]);
 
   const filteredProjects = useMemo(() => {
+    // Apply department filtering first
     const departmentFilteredProjects = isOwner
         ? projects.filter(p => selectedDepartments.size === 0 || (p.department && selectedDepartments.has(p.department)))
-        : projects;
+        : projects.filter(p => p.department === userProfile.department);
 
     const searchedProjects = departmentFilteredProjects.filter(project =>
       project.address.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -598,7 +596,7 @@ export function ProjectManager({ userProfile, initialSearchTerm = '' }: ProjectM
     }
 
     return Array.from(uniqueProjects.values());
-  }, [projects, searchTerm, isOwner, selectedDepartments]);
+  }, [projects, searchTerm, isOwner, selectedDepartments, userProfile.department]);
 
   const handleManageFiles = (project: Project) => {
     setSelectedProject(project);
