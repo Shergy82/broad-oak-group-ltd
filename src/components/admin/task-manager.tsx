@@ -173,7 +173,7 @@ export function TaskManager() {
       setNewSubTaskText({ ...newSubTaskText, [tradeId]: '' });
       setNewSubTaskPhotoRequired({ ...newSubTaskPhotoRequired, [tradeId]: false });
       setNewSubTaskEvidenceTag({ ...newSubTaskEvidenceTag, [tradeId]: '' });
-      setNewSubTaskPhotoCount({ ...newSubTaskPhotoCount, [tradeId]: 1 });
+      setNewSubTaskPhotoCount({ ...newSubTaskPhotoCount, [tradeId]: 6 });
       toast({ title: 'Success', description: `Task added.` });
     } catch (error) {
       console.error('Error adding task: ', error);
@@ -256,17 +256,19 @@ export function TaskManager() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="flex gap-2">
-          <Input
-            placeholder="e.g., Plumber, John Doe, Owner..."
-            value={newTradeName}
-            onChange={(e) => setNewTradeName(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleAddTrade()}
-          />
-          <Button onClick={handleAddTrade}>
-            <PlusCircle className="mr-2 h-4 w-4" /> Add Category
-          </Button>
-        </div>
+        {isPrivilegedUser && (
+            <div className="flex gap-2">
+            <Input
+                placeholder="e.g., Plumber, John Doe, Owner..."
+                value={newTradeName}
+                onChange={(e) => setNewTradeName(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && handleAddTrade()}
+            />
+            <Button onClick={handleAddTrade}>
+                <PlusCircle className="mr-2 h-4 w-4" /> Add Category
+            </Button>
+            </div>
+        )}
 
         {filteredTrades.length > 0 ? (
           <Accordion type="multiple" className="w-full">
@@ -279,91 +281,95 @@ export function TaskManager() {
                         {trade.department && <Badge variant="secondary">{trade.department}</Badge>}
                         {trade.tasks?.some(t => t.evidenceTag) && <Tags className="h-4 w-4 text-muted-foreground" title="Contains tasks with evidence tags" />}
                     </div>
-                    <div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-muted-foreground"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDuplicateTrade(trade);
-                        }}
-                      >
-                        <Copy className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteTrade(trade.id);
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    {isPrivilegedUser && (
+                        <div>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground"
+                            onClick={(e) => {
+                            e.stopPropagation();
+                            handleDuplicateTrade(trade);
+                            }}
+                        >
+                            <Copy className="h-4 w-4" />
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10"
+                            onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteTrade(trade.id);
+                            }}
+                        >
+                            <Trash2 className="h-4 w-4" />
+                        </Button>
+                        </div>
+                    )}
                   </div>
                 </AccordionTrigger>
                 <AccordionContent className="p-4 bg-muted/30 rounded-b-md">
                   <div className="space-y-4">
-                    <div className="space-y-3 p-3 border bg-background rounded-md">
-                      <Input
-                        placeholder="Add a new sub-task..."
-                        value={newSubTaskText[trade.id] || ''}
-                        onChange={(e) => {
-                            const text = e.target.value;
-                            setNewSubTaskText({ ...newSubTaskText, [trade.id]: text });
-                            setNewSubTaskEvidenceTag({ ...newSubTaskEvidenceTag, [trade.id]: text });
-                        }}
-                        onKeyPress={(e) => e.key === 'Enter' && handleAddTask(trade.id)}
-                      />
-                      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-                        <div className="flex items-center space-x-2">
-                          <Checkbox
-                            id={`photo-required-${trade.id}`}
-                            checked={newSubTaskPhotoRequired[trade.id] || false}
-                            onCheckedChange={(checked) => setNewSubTaskPhotoRequired({ ...newSubTaskPhotoRequired, [trade.id]: !!checked })}
-                          />
-                          <Label htmlFor={`photo-required-${trade.id}`} className="text-sm font-normal">Photo Required</Label>
-                        </div>
-                        
-                        {newSubTaskPhotoRequired[trade.id] && (
-                            <div className="flex-grow flex flex-col sm:flex-row gap-4 items-center">
-                                <div className="flex items-center gap-2">
-                                    <Select
-                                        value={(newSubTaskPhotoCount[trade.id] ?? 6).toString()}
-                                        onValueChange={(value) => setNewSubTaskPhotoCount({ ...newSubTaskPhotoCount, [trade.id]: parseInt(value, 10) || 1 })}
-                                    >
-                                        <SelectTrigger className="w-20 h-8">
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {Array.from({ length: 20 }, (_, i) => i + 1).map(num => (
-                                                <SelectItem key={num} value={num.toString()}>{num}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                    <Label className="text-sm text-muted-foreground whitespace-nowrap">photo(s)</Label>
-                                </div>
-                                 <div className="flex items-center gap-2 w-full flex-grow">
-                                    <Tags className="h-4 w-4 text-muted-foreground" />
-                                    <Input 
-                                        placeholder="Evidence Tag (e.g., boiler-photo)"
-                                        value={newSubTaskEvidenceTag[trade.id] || ''}
-                                        onChange={(e) => setNewSubTaskEvidenceTag({...newSubTaskEvidenceTag, [trade.id]: e.target.value})}
-                                        className="h-8 flex-grow"
-                                    />
-                                </div>
+                    {isPrivilegedUser && (
+                        <div className="space-y-3 p-3 border bg-background rounded-md">
+                        <Input
+                            placeholder="Add a new sub-task..."
+                            value={newSubTaskText[trade.id] || ''}
+                            onChange={(e) => {
+                                const text = e.target.value;
+                                setNewSubTaskText({ ...newSubTaskText, [trade.id]: text });
+                                setNewSubTaskEvidenceTag({ ...newSubTaskEvidenceTag, [trade.id]: text });
+                            }}
+                            onKeyPress={(e) => e.key === 'Enter' && handleAddTask(trade.id)}
+                        />
+                        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+                            <div className="flex items-center space-x-2">
+                            <Checkbox
+                                id={`photo-required-${trade.id}`}
+                                checked={newSubTaskPhotoRequired[trade.id] || false}
+                                onCheckedChange={(checked) => setNewSubTaskPhotoRequired({ ...newSubTaskPhotoRequired, [trade.id]: !!checked })}
+                            />
+                            <Label htmlFor={`photo-required-${trade.id}`} className="text-sm font-normal">Photo Required</Label>
                             </div>
-                        )}
-                        
-                        <Button size="sm" onClick={() => handleAddTask(trade.id)} className="w-full sm:w-auto mt-2 sm:mt-0">
-                          Add Task
-                        </Button>
-                    </div>
-                    </div>
-                    {trade.tasks?.length > 0 && (
+                            
+                            {newSubTaskPhotoRequired[trade.id] && (
+                                <div className="flex-grow flex flex-col sm:flex-row gap-4 items-center">
+                                    <div className="flex items-center gap-2">
+                                        <Select
+                                            value={(newSubTaskPhotoCount[trade.id] ?? 6).toString()}
+                                            onValueChange={(value) => setNewSubTaskPhotoCount({ ...newSubTaskPhotoCount, [trade.id]: parseInt(value, 10) || 1 })}
+                                        >
+                                            <SelectTrigger className="w-20 h-8">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {Array.from({ length: 20 }, (_, i) => i + 1).map(num => (
+                                                    <SelectItem key={num} value={num.toString()}>{num}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <Label className="text-sm text-muted-foreground whitespace-nowrap">photo(s)</Label>
+                                    </div>
+                                    <div className="flex items-center gap-2 w-full flex-grow">
+                                        <Tags className="h-4 w-4 text-muted-foreground" />
+                                        <Input 
+                                            placeholder="Evidence Tag (e.g., boiler-photo)"
+                                            value={newSubTaskEvidenceTag[trade.id] || ''}
+                                            onChange={(e) => setNewSubTaskEvidenceTag({...newSubTaskEvidenceTag, [trade.id]: e.target.value})}
+                                            className="h-8 flex-grow"
+                                        />
+                                    </div>
+                                </div>
+                            )}
+                            
+                            <Button size="sm" onClick={() => handleAddTask(trade.id)} className="w-full sm:w-auto mt-2 sm:mt-0">
+                            Add Task
+                            </Button>
+                        </div>
+                        </div>
+                    )}
+                    {trade.tasks?.length > 0 ? (
                       <ul className="space-y-2">
                         {trade.tasks.map((task, index) => (
                           <li
@@ -377,33 +383,34 @@ export function TaskManager() {
                                 <span className="text-xs text-muted-foreground">({task.photoCount} photos)</span>
                                 )}
                                 {task.evidenceTag && (
-                                    <div className="flex items-center gap-1">
-                                        <Tags className="h-3 w-3 text-muted-foreground" />
-                                        <p className="text-xs text-muted-foreground font-mono bg-muted px-1.5 py-0.5 rounded">{task.evidenceTag}</p>
-                                    </div>
+                                  <Badge variant="secondary">{task.evidenceTag}</Badge>
                                 )}
                             </div>
-                            <div>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 text-muted-foreground"
-                                  onClick={() => handleDuplicateTask(trade.id, task)}
-                                >
-                                  <Copy className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 text-destructive/70 hover:text-destructive hover:bg-destructive/10"
-                                  onClick={() => handleDeleteTask(trade.id, task)}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                            </div>
+                            {isPrivilegedUser && (
+                                <div>
+                                    <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 text-muted-foreground"
+                                    onClick={() => handleDuplicateTask(trade.id, task)}
+                                    >
+                                    <Copy className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 text-destructive/70 hover:text-destructive hover:bg-destructive/10"
+                                    onClick={() => handleDeleteTask(trade.id, task)}
+                                    >
+                                    <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                            )}
                           </li>
                         ))}
                       </ul>
+                    ) : (
+                        <div className="text-center text-sm text-muted-foreground py-4">No tasks in this category yet.</div>
                     )}
                   </div>
                 </AccordionContent>
@@ -414,7 +421,7 @@ export function TaskManager() {
           <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center">
             <h3 className="text-lg font-semibold">No Categories Created Yet</h3>
             <p className="mt-2 text-sm text-muted-foreground">
-              Add a category using the form above to start organizing your tasks.
+              {isPrivilegedUser ? 'Add a category using the form above to start organizing your tasks.' : 'Tasks will appear here once they have been configured by an administrator.'}
             </p>
           </div>
         )}
