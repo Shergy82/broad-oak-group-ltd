@@ -153,50 +153,51 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
     } else if (draggedItem.type === 'folder') {
         const sourceFolderName = draggedItem.data as string;
         
-        if (newParentFolder === sourceFolderName || (newParentFolder && newParentFolder.startsWith(sourceFolderName + '/'))) {
+        if (newParentFolder.startsWith(sourceFolderName)) {
             setDraggedItem(null);
             return;
         }
 
-        const folderNameOnly = sourceFolderName.split('/').pop() || sourceFolderName;
-        const newBaseName = newParentFolder ? `${newParentFolder}/${folderNameOnly}` : folderNameOnly;
+        const sourceFolderBaseName = sourceFolderName.split('/').pop() || sourceFolderName;
+        const newFolderName = newParentFolder ? `${newParentFolder}/${sourceFolderBaseName}` : sourceFolderBaseName;
 
-        toast({ title: `Moving folder "${folderNameOnly}"...` });
+        toast({ title: `Moving folder "${sourceFolderBaseName}"...` });
+
         try {
-            const q = query(
+            const batch = writeBatch(db);
+
+            const filesToMoveQuery = query(
                 collection(db, 'health_and_safety_files'),
                 where('folder', '>=', sourceFolderName),
                 where('folder', '<', sourceFolderName + '\uf8ff')
             );
-            const snapshot = await getDocs(q);
+            const filesToMoveSnapshot = await getDocs(filesToMoveQuery);
 
-            const batch = writeBatch(db);
-
-            snapshot.docs.forEach(document => {
-                const fileData = document.data() as HealthAndSafetyFile;
+            filesToMoveSnapshot.forEach(docSnap => {
+                const fileData = docSnap.data() as HealthAndSafetyFile;
                 const relativePath = fileData.folder!.substring(sourceFolderName.length);
-                const newPath = newBaseName + relativePath;
-                batch.update(document.ref, { folder: newPath });
+                const newPath = newFolderName + relativePath;
+                batch.update(docSnap.ref, { folder: newPath });
             });
-
+            
             setEmptyFolders(prev => {
-                const newEmptyFolders = new Set<string>();
+                const next = new Set<string>();
                 for (const f of prev) {
                     if (f === sourceFolderName || f.startsWith(sourceFolderName + '/')) {
                         const relativePath = f.substring(sourceFolderName.length);
-                        const newPath = newBaseName + relativePath;
-                        newEmptyFolders.add(newPath);
+                        const newPath = newFolderName + relativePath;
+                        next.add(newPath);
                     } else {
-                        newEmptyFolders.add(f);
+                        next.add(f);
                     }
                 }
-                if (snapshot.empty && !prev.some(f => f === sourceFolderName)) {
-                    newEmptyFolders.add(newBaseName);
-                    newEmptyFolders.delete(sourceFolderName);
+                if (filesToMoveSnapshot.empty && prev.includes(sourceFolderName)) {
+                     next.delete(sourceFolderName);
+                     next.add(newFolderName);
                 }
-                return Array.from(newEmptyFolders);
+                return Array.from(next);
             });
-            
+
             await batch.commit();
 
             toast({ title: 'Success', description: 'Folder and its contents moved.' });
@@ -548,4 +549,5 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
     
 
     
+
 
