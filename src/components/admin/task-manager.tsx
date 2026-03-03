@@ -277,6 +277,7 @@ export function TaskManager() {
                     <div className="flex items-center gap-2">
                         <span className="font-semibold text-lg">{trade.name}</span>
                         {trade.department && <Badge variant="secondary">{trade.department}</Badge>}
+                        {trade.tasks?.some(t => t.evidenceTag) && <Tags className="h-4 w-4 text-muted-foreground" title="Contains tasks with evidence tags" />}
                     </div>
                     <div>
                       <Button
