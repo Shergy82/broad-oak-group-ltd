@@ -7,16 +7,14 @@ import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
 import { doc, onSnapshot, setDoc, updateDoc, arrayUnion, arrayRemove, serverTimestamp, collection, query } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Spinner } from '@/components/shared/spinner';
-import { PlusCircle, Trash2, Camera, Tags, Copy } from 'lucide-react';
+import { PlusCircle, Trash2, Camera, Tags } from 'lucide-react';
 import type { EvidenceChecklistItem, EvidenceChecklist, Project, Trade, TradeTask } from '@/types';
 import { Label } from '../ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from '@/components/ui/select';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Checkbox } from '@/components/ui/checkbox';
 
 interface EvidenceChecklistManagerProps {
   contractName?: string;
@@ -27,7 +25,7 @@ interface EvidenceChecklistManagerProps {
   allChecklists?: Map<string, EvidenceChecklist>;
 }
 
-export function EvidenceChecklistManager({ contractName, projectId, open, onOpenChange, contractChecklist, allChecklists }: EvidenceChecklistManagerProps) {
+export function EvidenceChecklistManager({ contractName, projectId, open, onOpenChange, contractChecklist }: EvidenceChecklistManagerProps) {
   const [items, setItems] = useState<EvidenceChecklistItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [newItemText, setNewItemText] = useState('');
@@ -35,32 +33,20 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
   const [newItemEvidenceTag, setNewItemEvidenceTag] = useState('');
   const { toast } = useToast();
 
-  const [copyDialogOpen, setCopyDialogOpen] = useState(false);
-  const [sourceContractForCopy, setSourceContractForCopy] = useState<string | null>(null);
-  const [itemsToCopy, setItemsToCopy] = useState<Set<string>>(new Set());
-
-  const [allTradeTasks, setAllTradeTasks] = useState<TradeTask[]>([]);
-  const [isTradeTasksLoading, setIsTradeTasksLoading] = useState(true);
-  const [selectedTaskText, setSelectedTaskText] = useState('');
+  const [allTrades, setAllTrades] = useState<Trade[]>([]);
+  const [isTradesLoading, setIsTradesLoading] = useState(true);
 
   useEffect(() => {
     if (!open) return;
-    setIsTradeTasksLoading(true);
+    setIsTradesLoading(true);
     const q = query(collection(db, 'trade_tasks'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-        const tasks: TradeTask[] = [];
-        snapshot.forEach(doc => {
-            const trade = doc.data() as Trade;
-            if (trade.tasks) {
-                tasks.push(...trade.tasks);
-            }
-        });
-        const uniqueTasks = Array.from(new Map(tasks.map(task => [task.text.toLowerCase(), task])).values());
-        setAllTradeTasks(uniqueTasks.sort((a,b) => a.text.localeCompare(b.text)));
-        setIsTradeTasksLoading(false);
+        const fetchedTrades = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Trade));
+        setAllTrades(fetchedTrades.sort((a,b) => a.name.localeCompare(b.name)));
+        setIsTradesLoading(false);
     }, (error) => {
-        console.error("Error fetching trade tasks:", error);
-        setIsTradeTasksLoading(false);
+        console.error("Error fetching trades:", error);
+        setIsTradesLoading(false);
     });
 
     return () => unsubscribe();
@@ -141,7 +127,6 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
       setNewItemText('');
       setNewItemPhotoCount(1);
       setNewItemEvidenceTag('');
-      setSelectedTaskText('');
       toast({ title: 'Success', description: 'Checklist item added.' });
     } catch (error) {
       console.error('Error adding item:', error);
@@ -173,48 +158,24 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
       toast({ variant: 'destructive', title: 'Error', description: 'Could not remove item.' });
     }
   };
-  
-  const handleSelectSourceContract = (contract: string) => {
-    setSourceContractForCopy(contract);
-    setCopyDialogOpen(true);
-    setItemsToCopy(new Set());
-  };
 
-  const handleToggleCopyItem = (itemId: string) => {
-    setItemsToCopy(prev => {
-        const newSet = new Set(prev);
-        if (newSet.has(itemId)) newSet.delete(itemId);
-        else newSet.add(itemId);
-        return newSet;
-    });
-  };
-
-  const handleCopyItems = async () => {
-    if (!sourceContractForCopy || !allChecklists) return;
+  const handleAddAllFromTrade = async (trade: Trade) => {
+    if (!trade.tasks || trade.tasks.length === 0) {
+        toast({ title: 'No tasks to add', description: `The category "${trade.name}" is empty.` });
+        return;
+    }
     
     const isProjectMode = !!projectId;
 
-    const sourceChecklist = allChecklists.get(sourceContractForCopy);
-    if (!sourceChecklist || !sourceChecklist.items) {
-        toast({ variant: 'destructive', title: 'Error', description: 'Source contract has no items.' });
-        return;
-    }
-
-    const itemsToPotentiallyAdd = sourceChecklist.items.filter(item => itemsToCopy.has(item.id));
-    if (itemsToPotentiallyAdd.length === 0) {
-        toast({ title: 'No items selected', description: 'Please select at least one item to copy.' });
-        return;
-    }
-
     const currentItemTexts = new Set(items.map(i => i.text.trim().toLowerCase()));
-    const uniqueNewItems = itemsToPotentiallyAdd.filter(item => !currentItemTexts.has(item.text.trim().toLowerCase()));
+    const uniqueNewItems = trade.tasks.filter(task => !currentItemTexts.has(task.text.trim().toLowerCase()));
     
-    if (uniqueNewItems.length < itemsToPotentiallyAdd.length) {
-        toast({ title: 'Duplicates Skipped', description: `${itemsToPotentiallyAdd.length - uniqueNewItems.length} item(s) were already in the checklist.` });
+    if (uniqueNewItems.length < trade.tasks.length) {
+        toast({ title: 'Duplicates Skipped', description: `${trade.tasks.length - uniqueNewItems.length} task(s) were already in the checklist.` });
     }
     
     if (uniqueNewItems.length === 0) {
-        setCopyDialogOpen(false);
+        toast({ title: 'All tasks already exist' });
         return;
     }
     
@@ -236,11 +197,10 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
             }, { merge: true });
         }
 
-        toast({ title: 'Success', description: `${newItemsWithIds.length} item(s) copied.` });
-        setCopyDialogOpen(false);
+        toast({ title: 'Success', description: `${newItemsWithIds.length} task(s) added from "${trade.name}".` });
     } catch (e) {
-        console.error('Error copying items:', e);
-        toast({ variant: 'destructive', title: 'Error', description: 'Could not copy items.' });
+        console.error('Error adding all tasks from trade:', e);
+        toast({ variant: 'destructive', title: 'Error', description: 'Could not add tasks.' });
     }
   };
 
@@ -260,14 +220,17 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
         <div className="py-4 space-y-4">
           <div className="flex flex-col sm:flex-row gap-2">
             <Select
-                value={selectedTaskText}
                 onValueChange={(value) => {
-                    setSelectedTaskText(value);
-                    const task = allTradeTasks.find(t => t.text === value);
-                    if (task) {
-                        setNewItemText(task.text);
-                        setNewItemPhotoCount(task.photoCount || 1);
-                        setNewItemEvidenceTag(task.evidenceTag || task.text);
+                    let selectedTask: TradeTask | undefined;
+                    for (const trade of allTrades) {
+                        selectedTask = trade.tasks?.find(t => t.text === value);
+                        if (selectedTask) break;
+                    }
+
+                    if (selectedTask) {
+                        setNewItemText(selectedTask.text);
+                        setNewItemPhotoCount(selectedTask.photoCount || 1);
+                        setNewItemEvidenceTag(selectedTask.evidenceTag || selectedTask.text);
                     }
                 }}
             >
@@ -276,11 +239,16 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
                 </SelectTrigger>
                 <SelectContent>
                     <ScrollArea className="h-64">
-                    {isTradeTasksLoading ? (
+                    {isTradesLoading ? (
                         <div className="p-4 text-center text-sm text-muted-foreground">Loading tasks...</div>
-                    ) : allTradeTasks.length > 0 ? (
-                        allTradeTasks.map(task => (
-                            <SelectItem key={task.text} value={task.text}>{task.text}</SelectItem>
+                    ) : allTrades.length > 0 ? (
+                        allTrades.map(trade => (
+                            <SelectGroup key={trade.id}>
+                                <SelectLabel>{trade.name}</SelectLabel>
+                                {trade.tasks?.map(task => (
+                                    <SelectItem key={task.text} value={task.text}>{task.text}</SelectItem>
+                                ))}
+                            </SelectGroup>
                         ))
                     ) : (
                         <div className="p-4 text-center text-sm text-muted-foreground">No pre-defined tasks found.</div>
@@ -307,34 +275,26 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
             <Button onClick={handleAddItem} className="w-full sm:w-auto">
               <PlusCircle className="mr-2 h-4 w-4" /> Add
             </Button>
-            {(!projectId && allChecklists) && (
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button variant="outline"><Copy className="mr-2 h-4 w-4" /> Copy...</Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent>
-                        {Array.from(allChecklists.keys()).filter(name => name !== contractName && allChecklists.get(name)?.items?.length).map(name => (
-                            <DropdownMenuItem key={name} onSelect={() => handleSelectSourceContract(name)}>
-                                From "{name}"
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <Button variant="outline"><PlusCircle className="mr-2 h-4 w-4" /> Add All from Category</Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                    <ScrollArea className="h-64">
+                    {isTradesLoading ? (
+                        <DropdownMenuItem disabled>Loading categories...</DropdownMenuItem>
+                    ) : allTrades.length > 0 ? (
+                        allTrades.map(trade => (
+                            <DropdownMenuItem key={trade.id} onSelect={() => handleAddAllFromTrade(trade)}>
+                                {trade.name}
                             </DropdownMenuItem>
-                        ))}
-                    </DropdownMenuContent>
-                </DropdownMenu>
-            )}
-             {(projectId && allChecklists) && (
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button variant="outline"><Copy className="mr-2 h-4 w-4" /> Copy from Contract</Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent>
-                        {Array.from(allChecklists.keys()).filter(name => allChecklists.get(name)?.items?.length).map(name => (
-                            <DropdownMenuItem key={name} onSelect={() => handleSelectSourceContract(name)}>
-                                From "{name}"
-                            </DropdownMenuItem>
-                        ))}
-                    </DropdownMenuContent>
-                </DropdownMenu>
-            )}
+                        ))
+                    ) : (
+                        <DropdownMenuItem disabled>No categories found.</DropdownMenuItem>
+                    )}
+                    </ScrollArea>
+                </DropdownMenuContent>
+            </DropdownMenu>
           </div>
           
           {loading ? (
@@ -363,61 +323,6 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
         </div>
       </DialogContent>
     </Dialog>
-    {sourceContractForCopy && (
-        <Dialog open={copyDialogOpen} onOpenChange={setCopyDialogOpen}>
-            <DialogContent>
-                <DialogHeader>
-                    <DialogTitle>Copy items from "{sourceContractForCopy}"</DialogTitle>
-                    <DialogDescription>Select the items to copy. Existing items will be skipped.</DialogDescription>
-                </DialogHeader>
-
-                {(() => {
-                    const sourceItems = allChecklists?.get(sourceContractForCopy)?.items || [];
-                    const areAllSelected = sourceItems.length > 0 && itemsToCopy.size === sourceItems.length;
-
-                    const handleToggleAllCopyItems = () => {
-                        if (areAllSelected) {
-                            setItemsToCopy(new Set());
-                        } else {
-                            setItemsToCopy(new Set(sourceItems.map(item => item.id)));
-                        }
-                    };
-
-                    return (
-                        <>
-                            <div className="flex items-center space-x-2 border-b pb-2 mb-2">
-                                <Checkbox 
-                                    id="copy-all" 
-                                    checked={areAllSelected}
-                                    onCheckedChange={handleToggleAllCopyItems}
-                                />
-                                <Label htmlFor="copy-all" className="font-semibold">Select All</Label>
-                            </div>
-                            <ScrollArea className="max-h-64 border rounded-md my-4">
-                                <div className="p-4 space-y-2">
-                                    {sourceItems.map(item => (
-                                        <div key={item.id} className="flex items-center space-x-2">
-                                            <Checkbox 
-                                                id={`copy-${item.id}`}
-                                                checked={itemsToCopy.has(item.id)}
-                                                onCheckedChange={() => handleToggleCopyItem(item.id)}
-                                            />
-                                            <Label htmlFor={`copy-${item.id}`} className="font-normal">{item.text}</Label>
-                                        </div>
-                                    ))}
-                                </div>
-                            </ScrollArea>
-                        </>
-                    );
-                })()}
-
-                <DialogFooter>
-                    <Button variant="outline" onClick={() => setCopyDialogOpen(false)}>Cancel</Button>
-                    <Button onClick={handleCopyItems}>Copy {itemsToCopy.size} Selected</Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    )}
     </>
   );
 }
