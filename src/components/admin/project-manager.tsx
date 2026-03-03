@@ -67,6 +67,7 @@ import jsPDF from 'jspdf';
 import Image from 'next/image';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { downloadFile, previewFile } from '@/file-proxy';
 
 
 const projectSchema = z.object({
@@ -308,12 +309,7 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
         if (file.type?.startsWith('image/')) {
             setViewingFile(file);
         } else {
-            const officeExtensions = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
-            const fileExtension = file.name.split('.').pop()?.toLowerCase();
-            const url = (fileExtension && officeExtensions.includes(fileExtension)) 
-                ? `https://docs.google.com/gview?url=${encodeURIComponent(file.url)}&embedded=true` 
-                : file.url;
-            window.open(url, '_blank', 'noopener,noreferrer');
+            previewFile(file.fullPath);
         }
     };
 
@@ -365,18 +361,16 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                                         {files.map(file => (
                                             <TableRow key={file.id}>
                                                 <TableCell className="font-medium truncate max-w-[180px]">
-                                                  <button onClick={() => handleFileClick(file)} className="hover:underline" title={file.name}>
+                                                  <button onClick={() => handleFileClick(file)} className="hover:underline text-left truncate block w-full" title={file.name}>
                                                     {file.name}
                                                   </button>
                                                   <p className="text-xs text-muted-foreground">{formatFileSize(file.size)}</p>
                                                 </TableCell>
                                                 <TableCell className="text-xs text-muted-foreground">{file.uploaderName}</TableCell>
                                                 <TableCell className="text-right">
-                                                    <a href={file.url} target="_blank" rel="noopener noreferrer" download>
-                                                      <Button variant="ghost" size="icon" className="h-8 w-8">
-                                                          <Download className="h-4 w-4" />
-                                                      </Button>
-                                                    </a>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => downloadFile(file.fullPath)}>
+                                                        <Download className="h-4 w-4" />
+                                                    </Button>
                                                      {(userProfile.uid === file.uploaderId || ['admin', 'owner', 'manager'].includes(userProfile.role)) && (
                                                         <AlertDialog>
                                                             <AlertDialogTrigger asChild>
