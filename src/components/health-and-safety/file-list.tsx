@@ -153,7 +153,6 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
     } else if (draggedItem.type === 'folder') {
         const sourceFolderName = draggedItem.data as string;
         
-        // Prevent dropping folder into itself or its own subfolder
         if (newParentFolder === sourceFolderName || (newParentFolder && newParentFolder.startsWith(sourceFolderName + '/'))) {
             setDraggedItem(null);
             return;
@@ -172,29 +171,33 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
             const snapshot = await getDocs(q);
 
             const batch = writeBatch(db);
+
             snapshot.docs.forEach(document => {
                 const fileData = document.data() as HealthAndSafetyFile;
                 const relativePath = fileData.folder!.substring(sourceFolderName.length);
                 const newPath = newBaseName + relativePath;
                 batch.update(document.ref, { folder: newPath });
             });
-            await batch.commit();
 
             setEmptyFolders(prev => {
-                const foldersToMove = prev.filter(f => f === sourceFolderName || f.startsWith(sourceFolderName + '/'));
-                const otherFolders = prev.filter(f => !foldersToMove.includes(f));
-                const movedFolders = foldersToMove.map(f => {
-                    const relativePath = f.substring(sourceFolderName.length);
-                    return newBaseName + relativePath;
-                });
-                const finalFolders = Array.from(new Set([...otherFolders, ...movedFolders]));
-                 if (snapshot.empty && !foldersToMove.includes(sourceFolderName)) {
-                    const oldIndex = finalFolders.indexOf(sourceFolderName);
-                    if (oldIndex > -1) finalFolders.splice(oldIndex, 1);
-                    finalFolders.push(newBaseName);
+                const newEmptyFolders = new Set<string>();
+                for (const f of prev) {
+                    if (f === sourceFolderName || f.startsWith(sourceFolderName + '/')) {
+                        const relativePath = f.substring(sourceFolderName.length);
+                        const newPath = newBaseName + relativePath;
+                        newEmptyFolders.add(newPath);
+                    } else {
+                        newEmptyFolders.add(f);
+                    }
                 }
-                return finalFolders;
+                if (snapshot.empty && !prev.some(f => f === sourceFolderName)) {
+                    newEmptyFolders.add(newBaseName);
+                    newEmptyFolders.delete(sourceFolderName);
+                }
+                return Array.from(newEmptyFolders);
             });
+            
+            await batch.commit();
 
             toast({ title: 'Success', description: 'Folder and its contents moved.' });
         } catch (error) {
@@ -545,3 +548,4 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
     
 
     
+
