@@ -288,7 +288,16 @@ export function TaskManager() {
                         <span className="font-semibold text-lg">{trade.name}</span>
                         {userTrade && <Badge variant="outline">{userTrade}</Badge>}
                         {trade.department && <Badge variant="secondary">{trade.department}</Badge>}
-                        {uniqueEvidenceTags.map(tag => <Badge key={tag} variant="secondary">{tag}</Badge>)}
+                        {uniqueEvidenceTags.length > 0 && (
+                            <div className="flex items-center gap-1.5">
+                                <span className="text-xs font-semibold text-muted-foreground">TAGS:</span>
+                                {uniqueEvidenceTags.map(tag => (
+                                    <Badge key={tag} variant="default">
+                                        {tag}
+                                    </Badge>
+                                ))}
+                            </div>
+                        )}
                     </div>
                     {isPrivilegedUser && (
                         <div>
