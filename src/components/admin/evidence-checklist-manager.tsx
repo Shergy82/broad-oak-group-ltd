@@ -218,84 +218,93 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <div className="py-4 space-y-4">
-          <div className="flex flex-col sm:flex-row gap-2">
-            <Select
-                onValueChange={(value) => {
-                    let selectedTask: TradeTask | undefined;
-                    for (const trade of allTrades) {
-                        selectedTask = trade.tasks?.find(t => t.text === value);
-                        if (selectedTask) break;
-                    }
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                    <Label>Add a specific task</Label>
+                    <Select
+                        onValueChange={(value) => {
+                            let selectedTask: TradeTask | undefined;
+                            for (const trade of allTrades) {
+                                selectedTask = trade.tasks?.find(t => t.text === value);
+                                if (selectedTask) break;
+                            }
 
-                    if (selectedTask) {
-                        setNewItemText(selectedTask.text);
-                        setNewItemPhotoCount(selectedTask.photoCount || 1);
-                        setNewItemEvidenceTag(selectedTask.evidenceTag || selectedTask.text);
-                    }
-                }}
-            >
-                <SelectTrigger className="flex-grow">
-                    <SelectValue placeholder="Select a pre-defined task..." />
-                </SelectTrigger>
-                <SelectContent>
-                    <ScrollArea className="h-64">
-                    {isTradesLoading ? (
-                        <div className="p-4 text-center text-sm text-muted-foreground">Loading tasks...</div>
-                    ) : allTrades.length > 0 ? (
-                        allTrades.map(trade => (
-                            <SelectGroup key={trade.id}>
-                                <SelectLabel>{trade.name}</SelectLabel>
-                                {trade.tasks?.map(task => (
-                                    <SelectItem key={task.text} value={task.text}>{task.text}</SelectItem>
+                            if (selectedTask) {
+                                setNewItemText(selectedTask.text);
+                                setNewItemPhotoCount(selectedTask.photoCount || 1);
+                                setNewItemEvidenceTag(selectedTask.evidenceTag || selectedTask.text);
+                            }
+                        }}
+                    >
+                        <SelectTrigger className="flex-grow">
+                            <SelectValue placeholder="Select a pre-defined task..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <ScrollArea className="h-64">
+                            {isTradesLoading ? (
+                                <div className="p-4 text-center text-sm text-muted-foreground">Loading tasks...</div>
+                            ) : allTrades.length > 0 ? (
+                                allTrades.map(trade => (
+                                    <SelectGroup key={trade.id}>
+                                        <SelectLabel>{trade.name}</SelectLabel>
+                                        {trade.tasks?.map(task => (
+                                            <SelectItem key={task.text} value={task.text}>{task.text}</SelectItem>
+                                        ))}
+                                    </SelectGroup>
+                                ))
+                            ) : (
+                                <div className="p-4 text-center text-sm text-muted-foreground">No pre-defined tasks found.</div>
+                            )}
+                            </ScrollArea>
+                        </SelectContent>
+                    </Select>
+                    <div className="flex items-center gap-2 pt-2">
+                        <Select
+                            value={newItemPhotoCount.toString()}
+                            onValueChange={(value) => setNewItemPhotoCount(parseInt(value, 10) || 1)}
+                        >
+                            <SelectTrigger className="w-20">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {Array.from({ length: 20 }, (_, i) => i + 1).map(num => (
+                                    <SelectItem key={num} value={num.toString()}>{num}</SelectItem>
                                 ))}
-                            </SelectGroup>
-                        ))
-                    ) : (
-                        <div className="p-4 text-center text-sm text-muted-foreground">No pre-defined tasks found.</div>
-                    )}
-                    </ScrollArea>
-                </SelectContent>
-            </Select>
-            <div className="flex items-center gap-2">
-                <Select
-                    value={newItemPhotoCount.toString()}
-                    onValueChange={(value) => setNewItemPhotoCount(parseInt(value, 10) || 1)}
-                >
-                    <SelectTrigger className="w-20 h-10">
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {Array.from({ length: 20 }, (_, i) => i + 1).map(num => (
-                            <SelectItem key={num} value={num.toString()}>{num}</SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-                <Label className="text-sm text-muted-foreground whitespace-nowrap">photo(s)</Label>
+                            </SelectContent>
+                        </Select>
+                        <Label className="text-sm text-muted-foreground whitespace-nowrap">photo(s)</Label>
+                         <Button onClick={handleAddItem} className="ml-auto">
+                            <PlusCircle className="mr-2 h-4 w-4" /> Add
+                        </Button>
+                    </div>
+                </div>
+                 <div className="space-y-2">
+                    <Label>Add all tasks from a category</Label>
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="outline" className="w-full justify-between">
+                                <span>Select a category...</span>
+                                <PlusCircle className="h-4 w-4" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]">
+                            <ScrollArea className="h-64">
+                            {isTradesLoading ? (
+                                <DropdownMenuItem disabled>Loading categories...</DropdownMenuItem>
+                            ) : allTrades.length > 0 ? (
+                                allTrades.map(trade => (
+                                    <DropdownMenuItem key={trade.id} onSelect={() => handleAddAllFromTrade(trade)}>
+                                        {trade.name}
+                                    </DropdownMenuItem>
+                                ))
+                            ) : (
+                                <DropdownMenuItem disabled>No categories found.</DropdownMenuItem>
+                            )}
+                            </ScrollArea>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
             </div>
-            <Button onClick={handleAddItem} className="w-full sm:w-auto">
-              <PlusCircle className="mr-2 h-4 w-4" /> Add
-            </Button>
-            <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                    <Button variant="outline"><PlusCircle className="mr-2 h-4 w-4" /> Add All from Category</Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent>
-                    <ScrollArea className="h-64">
-                    {isTradesLoading ? (
-                        <DropdownMenuItem disabled>Loading categories...</DropdownMenuItem>
-                    ) : allTrades.length > 0 ? (
-                        allTrades.map(trade => (
-                            <DropdownMenuItem key={trade.id} onSelect={() => handleAddAllFromTrade(trade)}>
-                                {trade.name}
-                            </DropdownMenuItem>
-                        ))
-                    ) : (
-                        <DropdownMenuItem disabled>No categories found.</DropdownMenuItem>
-                    )}
-                    </ScrollArea>
-                </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
           
           {loading ? (
             <div className="flex justify-center p-4"><Spinner /></div>
