@@ -232,13 +232,25 @@ exports.serveFile = (0, https_1.onRequest)({ region: REGION, cors: true }, async
         res.status(400).send("Missing path");
         return;
     }
-    const file = admin.storage().bucket().file(path);
-    const [exists] = await file.exists();
-    if (!exists) {
-        res.status(404).send("Not found");
-        return;
+    try {
+        const file = admin.storage().bucket().file(path);
+        const [exists] = await file.exists();
+        if (!exists) {
+            res.status(404).send("File not found");
+            return;
+        }
+        const [metadata] = await file.getMetadata();
+        const download = req.query.download === "1";
+        // Set Content-Type, defaulting to a generic binary stream if not available
+        res.setHeader("Content-Type", metadata.contentType || "application/octet-stream");
+        // Set Content-Disposition to control whether browser downloads or previews
+        res.setHeader("Content-Disposition", `${download ? "attachment" : "inline"}; filename="${encodeURIComponent(metadata.name || "download")}"`);
+        file.createReadStream().pipe(res);
     }
-    file.createReadStream().pipe(res);
+    catch (error) {
+        v2_1.logger.error("Error in serveFile:", error);
+        res.status(500).send("Error serving file");
+    }
 });
 /* =====================================================
    FIRESTORE TRIGGERS

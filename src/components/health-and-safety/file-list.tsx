@@ -347,7 +347,7 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
      </Dialog>
 
     <Dialog open={!!viewingFile} onOpenChange={() => setViewingFile(null)}>
-        <DialogContent className="max-w-[90vw] max-h-[90vh] h-auto w-auto flex items-center justify-center p-2 bg-transparent border-none shadow-none">
+        <DialogContent showCloseButton={false} className="max-w-[90vw] max-h-[90vh] h-auto w-auto flex items-center justify-center p-2 bg-transparent border-none shadow-none">
             {viewingFile && (
                 <img
                     src={viewingFile.url}
