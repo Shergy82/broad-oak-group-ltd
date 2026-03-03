@@ -48,7 +48,26 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
     const tradeTags = allTrades.filter(trade => !userNames.has(trade.name.trim().toLowerCase()));
     
     const allTasks = allTrades.flatMap(trade => trade.tasks || []);
-    const uniqueTasks = Array.from(new Map(allTasks.map(task => [task.text, task])).values());
+    
+    const taskMap = new Map<string, TradeTask>();
+    allTasks.forEach(task => {
+        const key = task.text.toLowerCase();
+        const existing = taskMap.get(key);
+
+        if (!existing) {
+            taskMap.set(key, task);
+        } else {
+            // Prefer the capitalized version if a duplicate is found
+            const isCurrentCapitalized = task.text[0] === task.text[0].toUpperCase();
+            const isExistingCapitalized = existing.text[0] === existing.text[0].toUpperCase();
+
+            if (isCurrentCapitalized && !isExistingCapitalized) {
+                taskMap.set(key, task);
+            }
+        }
+    });
+
+    const uniqueTasks = Array.from(taskMap.values());
     const allTasksForDropdown = uniqueTasks.sort((a, b) => a.text.localeCompare(b.text));
     
     return { tradeTags, allTasksForDropdown };
