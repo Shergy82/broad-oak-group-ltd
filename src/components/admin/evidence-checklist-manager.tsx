@@ -5,13 +5,13 @@
 import { useState, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
-import { doc, onSnapshot, setDoc, updateDoc, arrayUnion, arrayRemove, serverTimestamp } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, updateDoc, arrayUnion, arrayRemove, serverTimestamp, collection, query } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Spinner } from '@/components/shared/spinner';
 import { PlusCircle, Trash2, Camera, Tags, Copy } from 'lucide-react';
-import type { EvidenceChecklistItem, EvidenceChecklist, Project } from '@/types';
+import type { EvidenceChecklistItem, EvidenceChecklist, Project, Trade, TradeTask } from '@/types';
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -38,6 +38,33 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
   const [copyDialogOpen, setCopyDialogOpen] = useState(false);
   const [sourceContractForCopy, setSourceContractForCopy] = useState<string | null>(null);
   const [itemsToCopy, setItemsToCopy] = useState<Set<string>>(new Set());
+
+  const [allTradeTasks, setAllTradeTasks] = useState<TradeTask[]>([]);
+  const [isTradeTasksLoading, setIsTradeTasksLoading] = useState(true);
+  const [selectedTaskText, setSelectedTaskText] = useState('');
+
+  useEffect(() => {
+    if (!open) return;
+    setIsTradeTasksLoading(true);
+    const q = query(collection(db, 'trade_tasks'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+        const tasks: TradeTask[] = [];
+        snapshot.forEach(doc => {
+            const trade = doc.data() as Trade;
+            if (trade.tasks) {
+                tasks.push(...trade.tasks);
+            }
+        });
+        const uniqueTasks = Array.from(new Map(tasks.map(task => [task.text.toLowerCase(), task])).values());
+        setAllTradeTasks(uniqueTasks.sort((a,b) => a.text.localeCompare(b.text)));
+        setIsTradeTasksLoading(false);
+    }, (error) => {
+        console.error("Error fetching trade tasks:", error);
+        setIsTradeTasksLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -114,6 +141,7 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
       setNewItemText('');
       setNewItemPhotoCount(1);
       setNewItemEvidenceTag('');
+      setSelectedTaskText('');
       toast({ title: 'Success', description: 'Checklist item added.' });
     } catch (error) {
       console.error('Error adding item:', error);
@@ -231,13 +259,35 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
         </DialogHeader>
         <div className="py-4 space-y-4">
           <div className="flex flex-col sm:flex-row gap-2">
-            <Input
-              placeholder="e.g., Photo of front of property"
-              value={newItemText}
-              onChange={(e) => setNewItemText(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleAddItem()}
-              className="flex-grow"
-            />
+            <Select
+                value={selectedTaskText}
+                onValueChange={(value) => {
+                    setSelectedTaskText(value);
+                    const task = allTradeTasks.find(t => t.text === value);
+                    if (task) {
+                        setNewItemText(task.text);
+                        setNewItemPhotoCount(task.photoCount || 1);
+                        setNewItemEvidenceTag(task.evidenceTag || task.text);
+                    }
+                }}
+            >
+                <SelectTrigger className="flex-grow">
+                    <SelectValue placeholder="Select a pre-defined task..." />
+                </SelectTrigger>
+                <SelectContent>
+                    <ScrollArea className="h-64">
+                    {isTradeTasksLoading ? (
+                        <div className="p-4 text-center text-sm text-muted-foreground">Loading tasks...</div>
+                    ) : allTradeTasks.length > 0 ? (
+                        allTradeTasks.map(task => (
+                            <SelectItem key={task.text} value={task.text}>{task.text}</SelectItem>
+                        ))
+                    ) : (
+                        <div className="p-4 text-center text-sm text-muted-foreground">No pre-defined tasks found.</div>
+                    )}
+                    </ScrollArea>
+                </SelectContent>
+            </Select>
             <div className="flex items-center gap-2">
                 <Select
                     value={newItemPhotoCount.toString()}
