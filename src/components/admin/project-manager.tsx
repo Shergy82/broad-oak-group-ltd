@@ -582,12 +582,22 @@ export function ProjectManager({ userProfile, initialSearchTerm = '' }: ProjectM
         ? projects.filter(p => selectedDepartments.size === 0 || (p.department && selectedDepartments.has(p.department)))
         : projects;
 
-    return departmentFilteredProjects.filter(project =>
+    const searchedProjects = departmentFilteredProjects.filter(project =>
       project.address.toLowerCase().includes(searchTerm.toLowerCase()) ||
       project.eNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       project.council?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       project.manager?.toLowerCase().includes(searchTerm.toLowerCase())
     );
+    
+    const uniqueProjects = new Map<string, Project>();
+    for (const project of searchedProjects) {
+        const key = `${project.address.toLowerCase()}|${(project.eNumber || '').toLowerCase()}`;
+        if (!uniqueProjects.has(key)) {
+            uniqueProjects.set(key, project);
+        }
+    }
+
+    return Array.from(uniqueProjects.values());
   }, [projects, searchTerm, isOwner, selectedDepartments]);
 
   const handleManageFiles = (project: Project) => {
