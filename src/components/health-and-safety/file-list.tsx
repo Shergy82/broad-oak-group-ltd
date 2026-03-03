@@ -107,7 +107,6 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
   const handleFolderDragOver = (e: React.DragEvent, folderName: string) => {
     e.preventDefault();
     if (draggedItem) {
-        // Prevent dropping a folder into itself or a child of itself
         if (draggedItem.type === 'folder' && (draggedItem.data === folderName || folderName.startsWith(draggedItem.data + '/'))) {
             setDraggingOverFolder(null);
             e.dataTransfer.dropEffect = "none";
@@ -126,30 +125,49 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
 
   const handleDrop = async (e: React.DragEvent, targetFolderName: string) => {
     e.preventDefault();
+    e.stopPropagation();
     setDraggingOverFolder(null);
     if (!draggedItem || !isPrivilegedUser) return;
-    
-    // Prevent dropping a folder into itself
-    if(draggedItem.type === 'folder' && draggedItem.data === targetFolderName) return;
-    // Prevent dropping a file into its current location
-    if(draggedItem.type === 'file' && (draggedItem.data as HealthAndSafetyFile).folder === targetFolderName) return;
-    if(draggedItem.type === 'file' && !(draggedItem.data as HealthAndSafetyFile).folder && targetFolderName === 'uncategorized') return;
 
-    try {
-        if (draggedItem.type === 'file') {
-            const file = draggedItem.data as HealthAndSafetyFile;
-            toast({ title: 'Moving file...' });
+    const newParentFolder = targetFolderName === 'uncategorized' ? '' : targetFolderName;
+
+    if (draggedItem.type === 'file') {
+        const file = draggedItem.data as HealthAndSafetyFile;
+        if ((file.folder || '') === newParentFolder) {
+            setDraggedItem(null);
+            return;
+        }
+        
+        toast({ title: 'Moving file...' });
+        try {
             await updateDoc(doc(db, 'health_and_safety_files', file.id), {
-                folder: targetFolderName === 'uncategorized' ? deleteField() : targetFolderName
+                folder: newParentFolder || deleteField()
             });
             toast({ title: 'Success', description: 'File moved.' });
-        } else if (draggedItem.type === 'folder') {
-            const sourceFolderName = draggedItem.data as string;
-            const folderNameOnly = sourceFolderName.split('/').pop() || '';
-            const newBaseFolder = targetFolderName === 'uncategorized' ? folderNameOnly : `${targetFolderName}/${folderNameOnly}`;
-            
-            toast({ title: `Moving folder "${folderNameOnly}"...` });
+        } catch (error) {
+            console.error("Error moving file:", error);
+            toast({ variant: 'destructive', title: 'Error', description: 'Could not move the file.' });
+        } finally {
+            setDraggedItem(null);
+        }
+    } else if (draggedItem.type === 'folder') {
+        const sourceFolderName = draggedItem.data as string;
+        
+        if (newParentFolder.startsWith(sourceFolderName)) {
+            setDraggedItem(null);
+            return;
+        }
 
+        const folderNameOnly = sourceFolderName.split('/').pop() || sourceFolderName;
+        const newBaseName = newParentFolder ? `${newParentFolder}/${folderNameOnly}` : folderNameOnly;
+        
+        if (newBaseName === sourceFolderName) {
+             setDraggedItem(null);
+             return;
+        }
+
+        toast({ title: `Moving folder "${folderNameOnly}"...` });
+        try {
             const q = query(
                 collection(db, 'health_and_safety_files'),
                 where('folder', '>=', sourceFolderName),
@@ -157,31 +175,41 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
             );
             const snapshot = await getDocs(q);
 
-            if (snapshot.empty) {
-                setEmptyFolders(prev => {
-                    const newSet = new Set(prev.filter(f => f !== sourceFolderName));
-                    if (newBaseFolder) newSet.add(newBaseFolder);
-                    return Array.from(newSet);
+            const batch = writeBatch(db);
+            snapshot.docs.forEach(document => {
+                const fileData = document.data() as HealthAndSafetyFile;
+                const relativePath = fileData.folder!.substring(sourceFolderName.length);
+                const newPath = newBaseName + relativePath;
+                batch.update(document.ref, { folder: newPath });
+            });
+            await batch.commit();
+
+            setEmptyFolders(prev => {
+                const foldersToMove = prev.filter(f => f === sourceFolderName || f.startsWith(sourceFolderName + '/'));
+                const otherFolders = prev.filter(f => !foldersToMove.includes(f));
+                const movedFolders = foldersToMove.map(f => {
+                    const relativePath = f.substring(sourceFolderName.length);
+                    return newBaseName + relativePath;
                 });
-                toast({ title: 'Success', description: 'Empty folder moved.' });
-            } else {
-                const batch = writeBatch(db);
-                snapshot.docs.forEach(document => {
-                    const fileData = document.data() as HealthAndSafetyFile;
-                    const newPath = fileData.folder!.replace(sourceFolderName, newBaseFolder);
-                    batch.update(document.ref, { folder: newPath });
-                });
-                await batch.commit();
-                toast({ title: 'Success', description: 'Folder and its contents moved.' });
-            }
+                const finalFolders = Array.from(new Set([...otherFolders, ...movedFolders]));
+                 if (snapshot.empty && !foldersToMove.includes(sourceFolderName)) {
+                    const oldIndex = finalFolders.indexOf(sourceFolderName);
+                    if (oldIndex > -1) finalFolders.splice(oldIndex, 1);
+                    finalFolders.push(newBaseName);
+                }
+                return finalFolders;
+            });
+
+            toast({ title: 'Success', description: 'Folder and its contents moved.' });
+        } catch (error) {
+            console.error("Error moving folder:", error);
+            toast({ variant: 'destructive', title: 'Error', description: 'Could not move the folder.' });
+        } finally {
+            setDraggedItem(null);
         }
-    } catch (error) {
-        console.error("Error moving item:", error);
-        toast({ variant: 'destructive', title: 'Error', description: 'Could not move the item.' });
-    } finally {
-        setDraggedItem(null);
     }
   };
+
 
   const handleDeleteFile = async (file: HealthAndSafetyFile) => {
     try {
@@ -517,5 +545,7 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
     </>
   );
 }
+
+    
 
     
