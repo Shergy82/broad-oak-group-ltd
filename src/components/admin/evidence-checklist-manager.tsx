@@ -13,9 +13,7 @@ import { PlusCircle, Trash2, Camera, Tags } from 'lucide-react';
 import type { EvidenceChecklistItem, EvidenceChecklist, Project, Trade, TradeTask } from '@/types';
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from '@/components/ui/select';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Checkbox } from '../ui/checkbox';
 import { useAllUsers } from '@/hooks/use-all-users';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
@@ -38,35 +36,14 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
   const { toast } = useToast();
   const { userProfile } = useUserProfile();
   const { users: allUsers, loading: usersLoading } = useAllUsers();
-  const { selectedDepartments } = useDepartmentFilter();
-
+  
   const [allTrades, setAllTrades] = useState<Trade[]>([]);
   const [isTradesLoading, setIsTradesLoading] = useState(true);
-  const [selectedTradeIds, setSelectedTradeIds] = useState<Set<string>>(new Set());
 
-  const departmentFilteredTrades = useMemo(() => {
-    if (!userProfile) return [];
+  const { allTasksForDropdown } = useMemo(() => {
+    if (usersLoading) return { allTasksForDropdown: [] };
     
-    if (userProfile.role === 'owner') {
-        if (selectedDepartments.size === 0) {
-            return allTrades;
-        }
-        return allTrades.filter(trade => !trade.department || selectedDepartments.has(trade.department!));
-    }
-
-    // For other privileged users (admin/manager)
-    return allTrades.filter(trade => !trade.department || trade.department === userProfile.department);
-  }, [allTrades, userProfile, selectedDepartments]);
-
-
-  const { tradeTags, allTasksForDropdown } = useMemo(() => {
-    if (usersLoading) return { tradeTags: [], allTasksForDropdown: [] };
-    
-    const userNames = new Set(allUsers.map(u => u.name.trim().toLowerCase()));
-    
-    const tradeTags = departmentFilteredTrades.filter(trade => !userNames.has(trade.name.trim().toLowerCase()));
-    
-    const allTasks = departmentFilteredTrades.flatMap(trade => trade.tasks || []);
+    const allTasks = allTrades.flatMap(trade => trade.tasks || []);
     
     const taskMap = new Map<string, TradeTask>();
     allTasks.forEach(task => {
@@ -89,8 +66,8 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
     const uniqueTasks = Array.from(taskMap.values());
     const allTasksForDropdown = uniqueTasks.sort((a, b) => a.text.localeCompare(b.text));
     
-    return { tradeTags, allTasksForDropdown };
-  }, [departmentFilteredTrades, allUsers, usersLoading]);
+    return { allTasksForDropdown };
+  }, [allTrades, allUsers, usersLoading]);
 
   useEffect(() => {
     if (!open) return;
@@ -215,61 +192,6 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
     }
   };
 
-  const handleAddSelectedTrades = async () => {
-    const tradesToAdd = allTrades.filter(t => selectedTradeIds.has(t.id));
-    if (tradesToAdd.length === 0) {
-        toast({ title: 'No categories selected' });
-        return;
-    }
-
-    const allNewTasks = tradesToAdd.flatMap(trade => trade.tasks || []);
-    
-    if (allNewTasks.length === 0) {
-        toast({ title: 'No tasks to add', description: `The selected categories are empty.` });
-        return;
-    }
-    
-    const isProjectMode = !!projectId;
-
-    const currentItemTexts = new Set(items.map(i => i.text.trim().toLowerCase()));
-    const uniqueNewItems = allNewTasks.filter(task => !currentItemTexts.has(task.text.trim().toLowerCase()));
-    
-    if (uniqueNewItems.length < allNewTasks.length) {
-        toast({ title: 'Duplicates Skipped', description: `${allNewTasks.length - uniqueNewItems.length} task(s) were already in the checklist.` });
-    }
-    
-    if (uniqueNewItems.length === 0) {
-        toast({ title: 'All tasks from selected categories already exist' });
-        return;
-    }
-    
-    const newItemsWithIds = uniqueNewItems.map(item => ({ ...item, id: `${Date.now()}-${Math.random()}` }));
-
-    const docRef = isProjectMode
-        ? doc(db, 'projects', projectId!)
-        : doc(db, 'evidence_checklists', contractName!);
-
-    try {
-        if (isProjectMode) {
-            const updatedChecklist = [...items, ...newItemsWithIds];
-            await setDoc(docRef, { checklist: updatedChecklist }, { merge: true });
-        } else {
-            if (!contractName) return;
-            await setDoc(docRef, { 
-                contractName: contractName,
-                items: arrayUnion(...newItemsWithIds)
-            }, { merge: true });
-        }
-
-        toast({ title: 'Success', description: `${newItemsWithIds.length} task(s) added.` });
-        setSelectedTradeIds(new Set()); // Clear selection
-    } catch (e) {
-        console.error('Error adding all tasks from trade:', e);
-        toast({ variant: 'destructive', title: 'Error', description: 'Could not add tasks.' });
-    }
-  };
-
-
   const title = projectId ? 'Project-Specific Checklist' : `Evidence Checklist for "${contractName}"`;
   const description = projectId ? 'Manage the specific evidence items for this project. This will override the contract default.' : `Manage the default required evidence items for the "${contractName}" contract.`
 
@@ -283,7 +205,7 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <div className="py-4 space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 gap-6">
                 <div className="space-y-2">
                     <Label>Add a specific task</Label>
                     <Select
@@ -332,44 +254,6 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
                             <PlusCircle className="mr-2 h-4 w-4" /> Add
                         </Button>
                     </div>
-                </div>
-                 <div className="space-y-2">
-                    <Label>Add from categories</Label>
-                    <ScrollArea className="h-40 rounded-md border">
-                        <div className="p-2 space-y-1">
-                            {(isTradesLoading || usersLoading) ? (
-                                <div className="p-4 text-center text-sm text-muted-foreground">Loading...</div>
-                            ) : tradeTags.length > 0 ? (
-                                tradeTags.map(trade => (
-                                    <div key={trade.id} className="flex items-center p-2 rounded-md hover:bg-muted">
-                                        <Checkbox
-                                            id={`trade-${trade.id}`}
-                                            checked={selectedTradeIds.has(trade.id)}
-                                            onCheckedChange={(checked) => {
-                                                setSelectedTradeIds(prev => {
-                                                    const newSet = new Set(prev);
-                                                    if (checked) {
-                                                        newSet.add(trade.id);
-                                                    } else {
-                                                        newSet.delete(trade.id);
-                                                    }
-                                                    return newSet;
-                                                });
-                                            }}
-                                            className="mr-2"
-                                        />
-                                        <Label htmlFor={`trade-${trade.id}`} className="text-sm font-medium flex-grow cursor-pointer">{trade.name}</Label>
-                                    </div>
-                                ))
-                            ) : (
-                                <div className="p-4 text-center text-sm text-muted-foreground">No categories found.</div>
-                            )}
-                        </div>
-                    </ScrollArea>
-                    <Button size="sm" className="w-full" onClick={handleAddSelectedTrades} disabled={selectedTradeIds.size === 0}>
-                        <PlusCircle className="mr-2 h-4 w-4"/>
-                        Add Selected ({selectedTradeIds.size})
-                    </Button>
                 </div>
             </div>
           
