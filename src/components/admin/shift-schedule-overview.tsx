@@ -807,7 +807,9 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                                         { (selectedUserId === 'all' || activeTab === 'archive') && <TableCell>{userNameMap.get(shift.userId) || 'Unknown'}</TableCell> }
                                         <TableCell>
                                             <div className="font-medium whitespace-pre-wrap">{shift.task}</div>
-                                            <div className="text-xs text-muted-foreground whitespace-pre-wrap">{shift.address}</div>
+                                            <a href={`https://maps.google.com/?q=${encodeURIComponent(shift.address)}`} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:underline block whitespace-pre-wrap" onClick={(e) => e.stopPropagation()}>
+                                                {shift.address}
+                                            </a>
                                             {shift.eNumber && <div className="text-xs text-muted-foreground">{shift.eNumber}</div>}
                                         </TableCell>
                                         <TableCell className="text-xs text-muted-foreground">
@@ -888,7 +890,9 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                             <div className="flex justify-between items-start gap-2">
                                 <div>
                                     <CardTitle className="text-base">{shift.task}</CardTitle>
-                                    <CardDescription>{shift.address}</CardDescription>
+                                    <a href={`https://maps.google.com/?q=${encodeURIComponent(shift.address)}`} target="_blank" rel="noopener noreferrer" className="text-sm text-muted-foreground hover:underline" onClick={(e) => e.stopPropagation()}>
+                                      {shift.address}
+                                    </a>
                                 </div>
                                 <Badge
                                     variant={shift.type === 'am' ? 'default' : 'outline'}
