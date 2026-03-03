@@ -17,6 +17,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Checkbox } from '../ui/checkbox';
 import { useAllUsers } from '@/hooks/use-all-users';
+import { useUserProfile } from '@/hooks/use-user-profile';
+import { useDepartmentFilter } from '@/hooks/use-department-filter';
 
 interface EvidenceChecklistManagerProps {
   contractName?: string;
@@ -34,20 +36,37 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
   const [newItemPhotoCount, setNewItemPhotoCount] = useState(1);
   const [newItemEvidenceTag, setNewItemEvidenceTag] = useState('');
   const { toast } = useToast();
+  const { userProfile } = useUserProfile();
   const { users: allUsers, loading: usersLoading } = useAllUsers();
+  const { selectedDepartments } = useDepartmentFilter();
 
   const [allTrades, setAllTrades] = useState<Trade[]>([]);
   const [isTradesLoading, setIsTradesLoading] = useState(true);
   const [selectedTradeIds, setSelectedTradeIds] = useState<Set<string>>(new Set());
+
+  const departmentFilteredTrades = useMemo(() => {
+    if (!userProfile) return [];
+    
+    if (userProfile.role === 'owner') {
+        if (selectedDepartments.size === 0) {
+            return allTrades;
+        }
+        return allTrades.filter(trade => !trade.department || selectedDepartments.has(trade.department!));
+    }
+
+    // For other privileged users (admin/manager)
+    return allTrades.filter(trade => !trade.department || trade.department === userProfile.department);
+  }, [allTrades, userProfile, selectedDepartments]);
+
 
   const { tradeTags, allTasksForDropdown } = useMemo(() => {
     if (usersLoading) return { tradeTags: [], allTasksForDropdown: [] };
     
     const userNames = new Set(allUsers.map(u => u.name.trim().toLowerCase()));
     
-    const tradeTags = allTrades.filter(trade => !userNames.has(trade.name.trim().toLowerCase()));
+    const tradeTags = departmentFilteredTrades.filter(trade => !userNames.has(trade.name.trim().toLowerCase()));
     
-    const allTasks = allTrades.flatMap(trade => trade.tasks || []);
+    const allTasks = departmentFilteredTrades.flatMap(trade => trade.tasks || []);
     
     const taskMap = new Map<string, TradeTask>();
     allTasks.forEach(task => {
@@ -71,7 +90,7 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
     const allTasksForDropdown = uniqueTasks.sort((a, b) => a.text.localeCompare(b.text));
     
     return { tradeTags, allTasksForDropdown };
-  }, [allTrades, allUsers, usersLoading]);
+  }, [departmentFilteredTrades, allUsers, usersLoading]);
 
   useEffect(() => {
     if (!open) return;
