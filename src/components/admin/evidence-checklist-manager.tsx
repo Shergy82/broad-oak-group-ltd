@@ -30,9 +30,6 @@ interface EvidenceChecklistManagerProps {
 export function EvidenceChecklistManager({ contractName, projectId, open, onOpenChange, contractChecklist }: EvidenceChecklistManagerProps) {
   const [items, setItems] = useState<EvidenceChecklistItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [newItemText, setNewItemText] = useState('');
-  const [newItemPhotoCount, setNewItemPhotoCount] = useState(1);
-  const [newItemEvidenceTag, setNewItemEvidenceTag] = useState('');
   const { toast } = useToast();
   const { userProfile } = useUserProfile();
   const { users: allUsers, loading: usersLoading } = useAllUsers();
@@ -126,8 +123,14 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
     return () => unsubscribe();
   }, [contractName, projectId, open, toast, contractChecklist]);
 
-  const handleAddItem = async () => {
-    if (!newItemText.trim()) return;
+  const handleAddItem = async (value: string) => {
+    if (!value || !value.trim()) return;
+
+    const selectedTask = allTasksForDropdown.find(t => t.text === value);
+    if (!selectedTask) {
+        toast({ variant: 'destructive', title: 'Error', description: 'Selected task not found.' });
+        return;
+    }
 
     const docRef = projectId
       ? doc(db, 'projects', projectId)
@@ -137,30 +140,27 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
     
     const newItem: EvidenceChecklistItem = { 
         id: new Date().toISOString(), 
-        text: newItemText.trim(),
-        photoCount: newItemPhotoCount > 0 ? newItemPhotoCount : 1,
-        ...(newItemEvidenceTag.trim() && { evidenceTag: newItemEvidenceTag.trim() }),
+        text: selectedTask.text.trim(),
+        photoCount: (selectedTask.photoCount && selectedTask.photoCount > 0) ? selectedTask.photoCount : undefined,
+        ...(selectedTask.evidenceTag?.trim() && { evidenceTag: selectedTask.evidenceTag.trim() }),
     };
 
     const payload: any = {
       [fieldKey]: arrayUnion(newItem),
       updatedAt: serverTimestamp(),
     };
-
+    
     if (!projectId) {
       payload.contractName = contractName;
-    } else {
-      const currentItems = [...items, newItem];
-      payload[fieldKey] = currentItems;
     }
 
-
     try {
-      await setDoc(docRef, payload, { merge: true });
-      setNewItemText('');
-      setNewItemPhotoCount(1);
-      setNewItemEvidenceTag('');
-      toast({ title: 'Success', description: 'Checklist item added.' });
+      if (projectId) {
+        await updateDoc(docRef, payload);
+      } else {
+        await setDoc(docRef, payload, { merge: true });
+      }
+      toast({ title: 'Success', description: `Added "${newItem.text}" to checklist.` });
     } catch (error) {
       console.error('Error adding item:', error);
       toast({ variant: 'destructive', title: 'Error', description: 'Could not add item.' });
@@ -177,14 +177,19 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
         [fieldKey]: arrayRemove(itemToDelete)
     };
     
+    // For projects, we need to read the current state and write it back without the deleted item
+    // because arrayRemove doesn't work well if the exact object doesn't match in the DB.
     if (projectId) {
       const currentItems = items.filter(item => item.id !== itemToDelete.id);
       payload[fieldKey] = currentItems;
     }
 
-
     try {
-      await updateDoc(docRef, payload);
+      if (projectId) {
+        await updateDoc(docRef, payload);
+      } else {
+        await updateDoc(docRef, payload);
+      }
       toast({ title: 'Success', description: 'Checklist item removed.' });
     } catch (error) {
       console.error('Error deleting item:', error);
@@ -208,18 +213,9 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
             <div className="grid grid-cols-1 gap-6">
                 <div className="space-y-2">
                     <Label>Add a specific task</Label>
-                    <Select
-                        onValueChange={(value) => {
-                            const selectedTask = allTasksForDropdown.find(t => t.text === value);
-                            if (selectedTask) {
-                                setNewItemText(selectedTask.text);
-                                setNewItemPhotoCount(selectedTask.photoCount || 1);
-                                setNewItemEvidenceTag(selectedTask.evidenceTag || selectedTask.text);
-                            }
-                        }}
-                    >
+                    <Select onValueChange={(value) => handleAddItem(value)}>
                         <SelectTrigger className="flex-grow">
-                            <SelectValue placeholder="Select a pre-defined task..." />
+                            <SelectValue placeholder="Select a pre-defined task to add..." />
                         </SelectTrigger>
                         <SelectContent>
                             <ScrollArea className="h-64">
@@ -235,25 +231,6 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
                             </ScrollArea>
                         </SelectContent>
                     </Select>
-                    <div className="flex items-center gap-2 pt-2">
-                        <Select
-                            value={newItemPhotoCount.toString()}
-                            onValueChange={(value) => setNewItemPhotoCount(parseInt(value, 10) || 1)}
-                        >
-                            <SelectTrigger className="w-20">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {Array.from({ length: 20 }, (_, i) => i + 1).map(num => (
-                                    <SelectItem key={num} value={num.toString()}>{num}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                        <Label className="text-sm text-muted-foreground whitespace-nowrap">photo(s)</Label>
-                         <Button onClick={handleAddItem} className="ml-auto">
-                            <PlusCircle className="mr-2 h-4 w-4" /> Add
-                        </Button>
-                    </div>
                 </div>
             </div>
           
@@ -266,8 +243,8 @@ export function EvidenceChecklistManager({ contractName, projectId, open, onOpen
                   <div key={item.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
                     <span>
                         {item.text}
-                        {item.photoCount && item.photoCount > 1 && (
-                            <span className="text-xs text-muted-foreground ml-2">({item.photoCount} photos)</span>
+                        {item.photoCount && item.photoCount > 0 && (
+                            <span className="text-xs text-muted-foreground ml-2">({item.photoCount} photo{item.photoCount > 1 ? 's' : ''})</span>
                         )}
                     </span>
                     <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive/70" onClick={() => handleDeleteItem(item)}>
