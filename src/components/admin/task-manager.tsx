@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -6,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { PlusCircle, Trash2, Camera, Tags } from 'lucide-react';
+import { PlusCircle, Trash2, Camera, Tags, Copy } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
@@ -120,15 +121,13 @@ export function TaskManager() {
     if (!db) return;
 
     const photoRequired = newSubTaskPhotoRequired[tradeId] || false;
-    const evidenceTag = newSubTaskEvidenceTag[tradeId]?.trim() || '';
-    const photoCount = newSubTaskPhotoCount[tradeId] || 1;
+    const evidenceTag = newSubTaskEvidenceTag[tradeId]?.trim() || taskText;
+    const photoCount = newSubTaskPhotoCount[tradeId] ?? 6;
     const tradeDocRef = doc(db, 'trade_tasks', tradeId);
     
     const newTask: TradeTask = { text: taskText, photoRequired };
-    if (photoRequired && evidenceTag) {
+    if (photoRequired) {
         newTask.evidenceTag = evidenceTag;
-    }
-    if (photoRequired && photoCount > 0) {
         newTask.photoCount = photoCount;
     }
 
@@ -144,6 +143,39 @@ export function TaskManager() {
     } catch (error) {
       console.error('Error adding task: ', error);
       toast({ variant: 'destructive', title: 'Error', description: 'Could not add task.' });
+    }
+  };
+  
+  const handleDuplicateTask = async (tradeId: string, taskToCopy: TradeTask) => {
+    if (!db) return;
+
+    const newName = `${taskToCopy.text} (Copy)`;
+
+    const trade = trades.find(t => t.id === tradeId);
+    if (trade && trade.tasks.some(t => t.text === newName)) {
+      toast({
+        variant: 'destructive',
+        title: 'Duplicate exists',
+        description: `A task named "${newName}" already exists in this category.`,
+      });
+      return;
+    }
+
+    const newTask: TradeTask = {
+      ...taskToCopy,
+      text: newName,
+    };
+
+    const tradeDocRef = doc(db, 'trade_tasks', tradeId);
+
+    try {
+      await updateDoc(tradeDocRef, {
+        tasks: arrayUnion(newTask)
+      });
+      toast({ title: 'Success', description: `Task duplicated.` });
+    } catch (error) {
+      console.error('Error duplicating task: ', error);
+      toast({ variant: 'destructive', title: 'Error', description: 'Could not duplicate task.' });
     }
   };
 
@@ -230,7 +262,11 @@ export function TaskManager() {
                       <Input
                         placeholder="Add a new sub-task..."
                         value={newSubTaskText[trade.id] || ''}
-                        onChange={(e) => setNewSubTaskText({ ...newSubTaskText, [trade.id]: e.target.value })}
+                        onChange={(e) => {
+                            const text = e.target.value;
+                            setNewSubTaskText({ ...newSubTaskText, [trade.id]: text });
+                            setNewSubTaskEvidenceTag({ ...newSubTaskEvidenceTag, [trade.id]: text });
+                        }}
                         onKeyPress={(e) => e.key === 'Enter' && handleAddTask(trade.id)}
                       />
                       <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
@@ -247,7 +283,7 @@ export function TaskManager() {
                             <div className="flex-grow flex flex-col sm:flex-row gap-4 items-center">
                                 <div className="flex items-center gap-2">
                                     <Select
-                                        value={(newSubTaskPhotoCount[trade.id] || 1).toString()}
+                                        value={(newSubTaskPhotoCount[trade.id] ?? 6).toString()}
                                         onValueChange={(value) => setNewSubTaskPhotoCount({ ...newSubTaskPhotoCount, [trade.id]: parseInt(value, 10) || 1 })}
                                     >
                                         <SelectTrigger className="w-20 h-8">
@@ -285,29 +321,37 @@ export function TaskManager() {
                             key={index}
                             className="flex items-center justify-between p-2 bg-background rounded-md border"
                           >
-                            <div className="flex flex-col">
-                                <div className="flex items-center gap-2">
-                                  <span>{task.text}</span>
-                                  {task.photoRequired && <Camera className="h-4 w-4 text-muted-foreground" />}
-                                   {task.photoCount && task.photoCount > 1 && (
-                                    <span className="text-xs text-muted-foreground">({task.photoCount} photos)</span>
-                                  )}
-                                </div>
+                            <div className="flex items-center gap-3 flex-wrap">
+                                <span className="font-medium">{task.text}</span>
+                                {task.photoRequired && <Camera className="h-4 w-4 text-muted-foreground" title="Photo required" />}
+                                {task.photoCount && task.photoCount > 0 && (
+                                <span className="text-xs text-muted-foreground">({task.photoCount} photos)</span>
+                                )}
                                 {task.evidenceTag && (
-                                    <div className="flex items-center gap-1 mt-1">
+                                    <div className="flex items-center gap-1">
                                         <Tags className="h-3 w-3 text-muted-foreground" />
                                         <p className="text-xs text-muted-foreground font-mono bg-muted px-1.5 py-0.5 rounded">{task.evidenceTag}</p>
                                     </div>
                                 )}
                             </div>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-destructive/70 hover:text-destructive hover:bg-destructive/10"
-                              onClick={() => handleDeleteTask(trade.id, task)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            <div>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 text-muted-foreground"
+                                  onClick={() => handleDuplicateTask(trade.id, task)}
+                                >
+                                  <Copy className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 text-destructive/70 hover:text-destructive hover:bg-destructive/10"
+                                  onClick={() => handleDeleteTask(trade.id, task)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                            </div>
                           </li>
                         ))}
                       </ul>
