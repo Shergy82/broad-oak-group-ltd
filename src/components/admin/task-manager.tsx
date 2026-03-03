@@ -30,6 +30,8 @@ export function TaskManager() {
   const { toast } = useToast();
   const { userProfile } = useUserProfile();
   const { selectedDepartments } = useDepartmentFilter();
+  const isPrivilegedUser = userProfile && ['admin', 'owner', 'manager'].includes(userProfile.role);
+
 
   useEffect(() => {
     if (!db) {
@@ -98,6 +100,38 @@ export function TaskManager() {
     } catch (error) {
       console.error('Error adding trade: ', error);
       toast({ variant: 'destructive', title: 'Error', description: 'Could not add category. Check permissions.' });
+    }
+  };
+  
+  const handleDuplicateTrade = async (tradeToCopy: Trade) => {
+    if (!db) return;
+
+    const newName = `${tradeToCopy.name} (Copy)`;
+
+    if (trades.some(t => t.name === newName)) {
+      toast({
+        variant: 'destructive',
+        title: 'Duplicate exists',
+        description: `A category named "${newName}" already exists.`,
+      });
+      return;
+    }
+
+    const newTradePayload: { name: string; tasks: TradeTask[]; department?: string } = {
+      name: newName,
+      tasks: tradeToCopy.tasks || [],
+    };
+    
+    if (tradeToCopy.department) {
+        newTradePayload.department = tradeToCopy.department;
+    }
+
+    try {
+      await addDoc(collection(db, 'trade_tasks'), newTradePayload);
+      toast({ title: 'Success', description: `Category "${tradeToCopy.name}" duplicated.` });
+    } catch (error) {
+      console.error('Error duplicating trade: ', error);
+      toast({ variant: 'destructive', title: 'Error', description: 'Could not duplicate category.' });
     }
   };
 
@@ -241,19 +275,32 @@ export function TaskManager() {
                   <div className="flex w-full items-center justify-between">
                     <div className="flex items-center gap-2">
                         <span className="font-semibold text-lg">{trade.name}</span>
-                        {userProfile?.role === 'owner' && trade.department && <span className="text-sm font-normal text-muted-foreground">({trade.department})</span>}
+                        {isPrivilegedUser && trade.department && <span className="text-sm font-normal text-muted-foreground">({trade.department})</span>}
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-destructive/70 hover:text-destructive hover:bg-destructive/10"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteTrade(trade.id);
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDuplicateTrade(trade);
+                        }}
+                      >
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteTrade(trade.id);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 </AccordionTrigger>
                 <AccordionContent className="p-4 bg-muted/30 rounded-b-md">
@@ -373,3 +420,5 @@ export function TaskManager() {
     </Card>
   );
 }
+
+    
