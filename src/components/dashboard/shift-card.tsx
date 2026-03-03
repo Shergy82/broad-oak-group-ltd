@@ -2,6 +2,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import {
@@ -42,6 +43,7 @@ import {
   MapPin,
   Coins,
   Plus,
+  Briefcase,
 } from 'lucide-react';
 import { Spinner } from '@/components/shared/spinner';
 import type { Shift, ShiftStatus, UserProfile, TradeTask, Trade, MaterialPurchase } from '@/types';
@@ -797,6 +799,14 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
             <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
             <span>{shift.address}</span>
           </a>
+
+          <Button asChild variant="link" size="sm" className="p-0 h-auto justify-start text-xs">
+            <Link href={`/projects?address=${encodeURIComponent(shift.address)}`}>
+              <Briefcase className="mr-1.5 h-3 w-3" />
+              View Project Files
+            </Link>
+          </Button>
+          
           {shift.eNumber && <p className="text-xs text-muted-foreground">Number: {shift.eNumber}</p>}
           {shift.contract && <p className="text-xs text-muted-foreground">Contract: {shift.contract}</p>}
           {shift.manager && <p className="text-xs text-muted-foreground">Manager: {shift.manager}</p>}

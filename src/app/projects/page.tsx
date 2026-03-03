@@ -1,12 +1,12 @@
 
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, Suspense } from 'react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Project, Shift } from '@/types';
 import { useAuth } from '@/hooks/use-auth';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Spinner } from '@/components/shared/spinner';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -15,13 +15,16 @@ import { ProjectFiles } from '@/components/projects/project-files';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { ProjectManager } from '@/components/admin/project-manager';
 
-export default function ProjectsPage() {
+function ProjectsPageContent() {
   const { user, isLoading: isAuthLoading } = useAuth();
   const { userProfile, loading: isProfileLoading } = useUserProfile();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialSearchTerm = searchParams.get('address') || '';
+
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(initialSearchTerm);
   
   const [userShiftAddresses, setUserShiftAddresses] = useState<Set<string>>(new Set());
   const [loadingShifts, setLoadingShifts] = useState(true);
@@ -220,4 +223,12 @@ export default function ProjectsPage() {
       )}
     </main>
   );
+}
+
+export default function ProjectsPage() {
+    return (
+        <Suspense fallback={<main className="flex flex-1 flex-col items-center justify-center"><Spinner size="lg" /></main>}>
+            <ProjectsPageContent />
+        </Suspense>
+    );
 }
