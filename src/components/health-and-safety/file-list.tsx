@@ -350,7 +350,7 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
                                     <AlertDialogTrigger asChild><Button size="sm" variant="destructive"><FolderX className="mr-2 h-4 w-4" />Delete</Button></AlertDialogTrigger>
                                     <AlertDialogContent>
                                         <AlertDialogHeader><AlertDialogTitle>Delete Folder?</AlertDialogTitle><AlertDialogDescription>This will permanently delete the folder "{folderName}" and all files contained within it. This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
-                                        <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteFolder(folderNameToDelete)} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground" disabled={deletingFolder === folderName}>
+                                        <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteFolder(folderName)} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground" disabled={deletingFolder === folderName}>
                                             {deletingFolder === folderName ? <Spinner /> : 'Delete Folder'}
                                         </AlertDialogAction></AlertDialogFooter>
                                     </AlertDialogContent>
@@ -383,6 +383,10 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
         <DialogContent className="max-w-[90vw] h-[90vh] p-2 flex flex-col">
             <DialogHeader className="p-2 border-b flex-shrink-0">
                 <DialogTitle className="truncate">{viewingFile?.name}</DialogTitle>
+                 <DialogClose className="absolute right-2 top-2 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
+                    <X className="h-4 w-4" />
+                    <span className="sr-only">Close</span>
+                </DialogClose>
             </DialogHeader>
             <div className="flex-grow relative bg-muted/20">
                 {renderFileViewer()}
