@@ -345,7 +345,8 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
         if (cellText) {
             const upperCellText = cellText.toUpperCase();
             if (upperCellText.includes('SITE MANAGER')) {
-                manager = cellText.replace(/site manager\s*:?/i, '').trim();
+                const managerText = cellText.replace(/site manager\s*:?/i, '').trim();
+                manager = managerText.split('\n')[0].trim();
             } else if (upperCellText.includes('PROJECT MANAGER') || upperCellText.includes('TLO')) {
                 otherContacts.push(cellText);
             }
@@ -501,10 +502,10 @@ function pickBestAddressCandidate(cands: AddressCandidate[]): { text: string; ro
 function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, endRow: number): { address: string; addressRow: number; } | null {
   const candidatesA = collectAddressCandidates(ws, startRow, endRow, [1]);
   const bestA = pickBestAddressCandidate(candidatesA);
-  if (bestA) return { address: bestA.text, addressRow: bestA.row };
+  if (bestA) return { address: bestA.text, row: bestA.row };
   const candidatesAB = collectAddressCandidates(ws, startRow, endRow, [1, 2]);
   const bestAB = pickBestAddressCandidate(candidatesAB);
-  if (bestAB) return { address: bestAB.text, addressRow: bestAB.row };
+  if (bestAB) return { address: bestAB.text, row: bestAB.row };
   return null;
 }
 
@@ -902,9 +903,3 @@ const parseDate = (dateValue: any): Date | null => {
   }
   return null;
 };
-
-
-
-
-
-
