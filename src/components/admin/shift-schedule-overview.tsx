@@ -244,8 +244,6 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     thisWeekShifts,
     lastWeekShifts,
     nextWeekShifts,
-    week3Shifts,
-    week4Shifts,
     archiveShifts,
   } = useMemo(() => {
     // Filter shifts based on selected department(s). This is the master list for this view.
@@ -327,22 +325,6 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
         { weekStartsOn: 1 }
       )
     );
-
-    const shiftsWeek3 = finalFilteredShifts.filter(s =>
-      isSameWeek(
-        getCorrectedLocalDate(s.date),
-        addDays(today, 14),
-        { weekStartsOn: 1 }
-      )
-    );
-
-    const shiftsWeek4 = finalFilteredShifts.filter(s =>
-      isSameWeek(
-        getCorrectedLocalDate(s.date),
-        addDays(today, 21),
-        { weekStartsOn: 1 }
-      )
-    );
   
     const sixWeeksAgo = startOfWeek(subWeeks(today, 5), { weekStartsOn: 1 });
     const historicalShifts = finalFilteredShifts.filter(s => {
@@ -361,8 +343,6 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
       thisWeekShifts: shiftsThisWeek,
       lastWeekShifts: shiftsLastWeek,
       nextWeekShifts: shiftsNextWeek,
-      week3Shifts: shiftsWeek3,
-      week4Shifts: shiftsWeek4,
       archiveShifts: finalArchiveShifts
     };
   
@@ -795,6 +775,8 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
         return null;
     }
     
+    const sortedShifts = [...shiftsToRender].sort((a,b) => getCorrectedLocalDate(b.date).getTime() - getCorrectedLocalDate(a.date).getTime());
+
     return (
         <>
             {/* Desktop Table View */}
@@ -814,7 +796,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {shiftsToRender.map(shift => (
+                                {sortedShifts.map(shift => (
                                     <TableRow key={shift.id}>
                                         <TableCell className="font-medium">{format(getCorrectedLocalDate(shift.date), 'eeee, MMM d')}</TableCell>
                                         { (selectedUserId === 'all' || activeTab === 'archive') && <TableCell>{userNameMap.get(shift.userId) || 'Unknown'}</TableCell> }
@@ -897,7 +879,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
 
             {/* Mobile Card View */}
             <div className="space-y-4 md:hidden mt-4">
-                {shiftsToRender.map(shift => (
+                {sortedShifts.map(shift => (
                    <Card key={shift.id}>
                         <CardHeader>
                             <div className="flex justify-between items-start gap-2">
@@ -970,62 +952,48 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     );
   }
 
-  const renderWeekSchedule = (shiftsToRender: Shift[]) => {
-    if (loading || usersLoading) {
-      return (
-        <div className="border rounded-lg overflow-hidden mt-4">
-            <Skeleton className="h-48 w-full" />
-        </div>
-      );
-    }
-    
-    const sortShifts = (shiftsToSort: Shift[]) => {
-        return [...shiftsToSort].sort((a, b) => {
-            const dateA = getCorrectedLocalDate(a.date).getTime();
-            const dateB = getCorrectedLocalDate(b.date).getTime();
-            if (dateA !== dateB) return dateA - dateB;
-            
-            const nameA = userNameMap.get(a.userId) || '';
-            const nameB = userNameMap.get(b.userId) || '';
-            if (nameA !== nameB) return nameA.localeCompare(nameB);
-    
-            const typeOrder = { 'am': 1, 'pm': 2, 'all-day': 3 };
-            return typeOrder[a.type] - typeOrder[b.type];
-        });
+  const renderWeekSchedule = (shiftsByDay: { [key: string]: Shift[] }, period: string) => {
+    const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const hasShifts = Object.keys(shiftsByDay).length > 0;
+
+    if (loading) {
+        return (
+            <div className="space-y-4 mt-4">
+                <Skeleton className="h-24 w-full" />
+                <Skeleton className="h-24 w-full" />
+            </div>
+        )
     }
 
-    const activeShifts = sortShifts(shiftsToRender.filter(s => ['pending-confirmation', 'confirmed', 'on-site', 'rejected'].includes(s.status)));
-    const historicalShifts = sortShifts(shiftsToRender.filter(s => ['completed', 'incomplete'].includes(s.status)))
-      .sort((a,b) => getCorrectedLocalDate(b.date).getTime() - getCorrectedLocalDate(a.date).getTime());
-
-    if (activeShifts.length === 0 && historicalShifts.length === 0) {
-      return (
-        <div className="h-24 text-center flex items-center justify-center text-muted-foreground mt-4 border border-dashed rounded-lg">
-          No shifts scheduled for this period.
-        </div>
-      );
+    if (!hasShifts) {
+        return <div className="text-center text-muted-foreground p-8">No shifts scheduled for {period}.</div>
     }
 
     return (
-        <>
-            {activeShifts.length > 0 ? renderShiftList(activeShifts) : (
-                <div className="h-24 text-center flex items-center justify-center text-muted-foreground mt-4 border border-dashed rounded-lg">
-                    No active shifts scheduled for this period.
-                </div>
-            )}
-            
-            {historicalShifts.length > 0 && (
-                <div className="mt-8">
-                    <h3 className="text-xl md:text-2xl font-semibold tracking-tight mb-2 flex items-center">
-                        <History className="mr-3 h-6 w-6 text-muted-foreground" />
-                        Completed &amp; Incomplete
-                    </h3>
-                    {renderShiftList(historicalShifts)}
-                </div>
-            )}
-        </>
-    );
-  };
+        <div className="space-y-6 mt-4">
+            {daysOfWeek.map(day => {
+                const dayShifts = shiftsByDay[day];
+                if (!dayShifts || dayShifts.length === 0) return null;
+                
+                dayShifts.sort((a, b) => {
+                    const typeOrder = { 'am': 1, 'pm': 2, 'all-day': 3 };
+                    return typeOrder[a.type] - typeOrder[b.type];
+                });
+
+                return (
+                    <div key={day}>
+                        <h3 className="font-semibold text-lg mb-2">{day}</h3>
+                        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                            {dayShifts.map(shift => (
+                                <ShiftCard key={shift.id} shift={shift} userProfile={userProfile}/>
+                            ))}
+                        </div>
+                    </div>
+                )
+            })}
+        </div>
+    )
+  }
 
   const renderArchiveView = () => {
     if (loading || usersLoading) {
@@ -1036,20 +1004,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
       );
     }
 
-    const sortedShifts = [...archiveShifts].sort((a, b) => {
-        const dateA = getCorrectedLocalDate(a.date).getTime();
-        const dateB = getCorrectedLocalDate(b.date).getTime();
-        if (dateA !== dateB) return dateB - dateA; // Most recent first in archive
-        
-        const nameA = userNameMap.get(a.userId) || '';
-        const nameB = userNameMap.get(b.userId) || '';
-        if (nameA !== nameB) return nameA.localeCompare(nameB);
-
-        const typeOrder = { 'am': 1, 'pm': 2, 'all-day': 3 };
-        return typeOrder[a.type] - typeOrder[b.type];
-    });
-
-    if (sortedShifts.length === 0) {
+    if (archiveShifts.length === 0) {
       return (
         <div className="h-24 text-center flex items-center justify-center text-muted-foreground mt-4 border border-dashed rounded-lg">
           No archived shifts found for this user and week.
@@ -1057,7 +1012,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
       );
     }
 
-    return renderShiftList(sortedShifts);
+    return renderShiftList(archiveShifts);
   }
 
   const renderSiteView = () => (
@@ -1226,30 +1181,25 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                   <TabsTrigger value="today">Today</TabsTrigger>
                   <TabsTrigger value="this-week">This Week</TabsTrigger>
                 </TabsList>
-                <TabsList className="grid grid-cols-3">
+                <TabsList className="grid grid-cols-2">
                   <TabsTrigger value="next-week">Next Week</TabsTrigger>
-                  <TabsTrigger value="week-3">Week 3</TabsTrigger>
-                  <TabsTrigger value="week-4">Week 4</TabsTrigger>
+                  <TabsTrigger value="archive">
+                    <History className="mr-2 h-4 w-4" /> Archive
+                  </TabsTrigger>
                 </TabsList>
               </div>
 
               <TabsContent value="today" className="mt-4">
-                {renderWeekSchedule(todayShifts)}
+                {renderWeekSchedule(todayShifts, 'today')}
               </TabsContent>
               <TabsContent value="last-week" className="mt-4">
-                {renderWeekSchedule(lastWeekShifts)}
+                {renderShiftList(lastWeekShifts)}
               </TabsContent>
               <TabsContent value="this-week" className="mt-4">
-                {renderWeekSchedule(thisWeekShifts)}
+                {renderWeekSchedule(thisWeekShifts, 'this week')}
               </TabsContent>
               <TabsContent value="next-week" className="mt-4">
-                {renderWeekSchedule(nextWeekShifts)}
-              </TabsContent>
-              <TabsContent value="week-3" className="mt-4">
-                {renderWeekSchedule(week3Shifts)}
-              </TabsContent>
-              <TabsContent value="week-4" className="mt-4">
-                {renderWeekSchedule(week4Shifts)}
+                {renderWeekSchedule(nextWeekShifts, 'next week')}
               </TabsContent>
               <TabsContent value="archive" className="mt-4">
                   <div className="flex flex-col sm:flex-row gap-4 items-center bg-muted/50 p-4 rounded-lg">
