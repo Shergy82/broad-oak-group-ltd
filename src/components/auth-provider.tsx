@@ -9,11 +9,14 @@ import {
   where,
   orderBy,
   type DocumentData,
+  doc,
+  getDoc,
 } from 'firebase/firestore';
 import { usePathname, useRouter } from 'next/navigation';
 
 import { auth, isFirebaseConfigured, db } from '@/lib/firebase';
 import { Spinner } from '@/components/shared/spinner';
+import type { UserProfile } from '@/types';
 
 export type PendingAnnouncement = {
   id: string;
@@ -48,15 +51,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
 
-  async function loadPendingAnnouncements(u: User) {
-    // 1) Get all announcements (newest first)
-    const annSnap = await getDocs(
-      query(collection(db, 'announcements'), orderBy('createdAt', 'desc'))
-    );
+  async function loadPendingAnnouncements(u: User, profile: UserProfile | null) {
+    if (!db || !profile) return [];
 
-    if (annSnap.empty) return [];
+    const isOwner = profile.role === 'owner';
+    let annDocs: DocumentData[] = [];
 
-    // 2) Get ONLY this user's acknowledgements (much cheaper than reading whole collection)
+    try {
+      if (isOwner) {
+        const annSnap = await getDocs(
+          query(collection(db, 'announcements'), orderBy('createdAt', 'desc'))
+        );
+        annDocs = annSnap.docs;
+      } else {
+        const userDepartment = profile.department;
+        const queries = [
+          getDocs(query(collection(db, 'announcements'), where('department', '==', null))),
+        ];
+
+        if (userDepartment) {
+          queries.push(
+            getDocs(
+              query(
+                collection(db, 'announcements'),
+                where('department', '==', userDepartment)
+              )
+            )
+          );
+        }
+
+        const snapshots = await Promise.all(queries);
+        const docs = snapshots.flatMap((snap) => snap.docs);
+        const uniqueDocsMap = new Map<string, DocumentData>();
+        docs.forEach((doc) => uniqueDocsMap.set(doc.id, doc));
+
+        annDocs = Array.from(uniqueDocsMap.values());
+        annDocs.sort(
+          (a, b) =>
+            (b.data().createdAt?.toMillis() || 0) -
+            (a.data().createdAt?.toMillis() || 0)
+        );
+      }
+    } catch (e) {
+      console.error('Failed to query announcements:', e);
+      return []; // Return empty on error to not block UI
+    }
+
+    if (annDocs.length === 0) return [];
+
     const ackSnap = await getDocs(
       query(
         collection(db, 'announcementAcknowledgements'),
@@ -70,9 +112,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (data?.announcementId) acked.add(String(data.announcementId));
     });
 
-    // 3) Anything not in acked is pending
     const pending: PendingAnnouncement[] = [];
-    for (const docSnap of annSnap.docs) {
+    for (const docSnap of annDocs) {
       if (!acked.has(docSnap.id)) {
         const data = docSnap.data() as DocumentData;
         pending.push({
@@ -89,7 +130,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
-    if (!isFirebaseConfigured || !auth) {
+    if (!isFirebaseConfigured || !auth || !db) {
       setIsLoading(false);
       setCheckingAcks(false);
       return;
@@ -109,7 +150,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setCheckingAcks(true);
 
       try {
-        const pending = await loadPendingAnnouncements(u);
+        const userDocRef = doc(db, 'users', u.uid);
+        const userDocSnap = await getDoc(userDocRef);
+        const userProfile = userDocSnap.exists()
+          ? (userDocSnap.data() as UserProfile)
+          : null;
+
+        const pending = await loadPendingAnnouncements(u, userProfile);
 
         setPendingAnnouncements(pending);
         setHasPendingAnnouncements(pending.length > 0);

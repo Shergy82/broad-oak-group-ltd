@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { collection, onSnapshot, orderBy, query, deleteDoc, doc } from 'firebase/firestore';
+import { collection, onSnapshot, orderBy, query, deleteDoc, doc, getDocs, where } from 'firebase/firestore';
 import { format } from 'date-fns';
 import { PlusCircle, Edit, Trash2 } from 'lucide-react';
 
@@ -52,26 +52,51 @@ export default function AnnouncementsPage() {
   }, [user, isAuthLoading, router]);
 
   useEffect(() => {
-    if (!user) return;
-
-    const qy = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'));
-
-    const unsub = onSnapshot(
-      qy,
-      (snap) => {
-        const rows = snap.docs.map((d) => ({
-          id: d.id,
-          ...(d.data() as any),
-        })) as Announcement[];
-
-        setAnnouncements(rows);
+    if (!user || !userProfile) {
         setLoading(false);
-      },
-      () => setLoading(false)
-    );
+        return;
+    };
+    setLoading(true);
 
-    return () => unsub();
-  }, [user]);
+    async function loadAnnouncements() {
+        const isOwner = userProfile.role === 'owner';
+        let allAnnouncements: Announcement[] = [];
+
+        try {
+            if (isOwner) {
+                const qy = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'));
+                const snap = await getDocs(qy);
+                allAnnouncements = snap.docs.map(d => ({ id: d.id, ...d.data() } as Announcement));
+            } else {
+                const userDepartment = userProfile.department;
+                const globalQuery = getDocs(query(collection(db, 'announcements'), where('department', '==', null)));
+                const queries = [globalQuery];
+
+                if (userDepartment) {
+                    const deptQuery = getDocs(query(collection(db, 'announcements'), where('department', '==', userDepartment)));
+                    queries.push(deptQuery);
+                }
+                
+                const snapshots = await Promise.all(queries);
+                const docs = snapshots.flatMap(snap => snap.docs);
+                
+                const uniqueDocsMap = new Map<string, Announcement>();
+                docs.forEach(doc => uniqueDocsMap.set(doc.id, { id: doc.id, ...doc.data() } as Announcement));
+                
+                allAnnouncements = Array.from(uniqueDocsMap.values())
+                    .sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+            }
+            setAnnouncements(allAnnouncements);
+        } catch (err) {
+            console.error("Error fetching announcements:", err);
+            toast({ variant: 'destructive', title: 'Error', description: 'Could not load announcements.' });
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    loadAnnouncements();
+  }, [user, userProfile, toast]);
 
   useEffect(() => {
     async function load() {
