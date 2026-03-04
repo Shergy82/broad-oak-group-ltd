@@ -403,9 +403,9 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
   }, []);
 
   useEffect(() => {
-    if (userProfile?.trade && allTrades.length > 0) {
+    if (userProfile?.name && allTrades.length > 0) {
         const matchingTrade = allTrades.find(
-            (trade) => trade.name.toLowerCase() === userProfile.trade?.toLowerCase()
+            (trade) => trade.name.toLowerCase() === userProfile.name?.toLowerCase()
         );
 
         if (matchingTrade) {
