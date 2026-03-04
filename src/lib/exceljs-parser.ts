@@ -345,7 +345,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
         if (cellText) {
             const upperCellText = cellText.toUpperCase();
             if (upperCellText.includes('SITE MANAGER')) {
-                manager = cellText.replace(/site manager/i, '').replace(/\d/g, '').trim();
+                manager = cellText.replace(/site manager\s*:?/i, '').trim();
             } else if (upperCellText.includes('PROJECT MANAGER') || upperCellText.includes('TLO')) {
                 otherContacts.push(cellText);
             }
@@ -902,6 +902,7 @@ const parseDate = (dateValue: any): Date | null => {
   }
   return null;
 };
+
 
 
 
