@@ -325,7 +325,6 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
       eNumber = eNumMatchStart[1].trim().toUpperCase();
       siteAddress = rawSiteAddress.replace(eNumMatchStart[0], '').trim();
     } else {
-        // Fallback for number at the end, just in case
         const eNumMatchEnd = rawSiteAddress.match(/\b([BE]\d+\S*)$/i);
         if (eNumMatchEnd) {
             eNumber = eNumMatchEnd[0].toUpperCase();
@@ -339,20 +338,21 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
       continue;
     }
 
-    let manager = sheetName;
-    const notesArray: string[] = [];
-
+    let manager = '';
+    const otherContacts: string[] = [];
     for (let r = blockStart; r < addressRow; r++) {
         const cellText = getCellText(sheet.getCell(r, 1)).trim();
         if (cellText) {
-            if (cellText.toUpperCase().includes('SITE MANAGER')) {
-                manager = cellText.toUpperCase().replace('SITE MANAGER', '').replace(/\d/g, '').trim();
-            } else if (!cellText.toUpperCase().includes('JOB MANAGER')) {
-                notesArray.push(cellText);
+            const upperCellText = cellText.toUpperCase();
+            if (upperCellText.includes('SITE MANAGER')) {
+                manager = cellText.replace(/site manager/i, '').replace(/\d/g, '').trim();
+            } else if (upperCellText.includes('PROJECT MANAGER') || upperCellText.includes('TLO')) {
+                otherContacts.push(cellText);
             }
         }
     }
-    const notes = notesArray.join('\n');
+    const notes = otherContacts.join('\n');
+
 
     const dateCols = getDateColumns(sheet, used, dateRowIdx);
     if (dateCols.length === 0) {
@@ -902,6 +902,7 @@ const parseDate = (dateValue: any): Date | null => {
   }
   return null;
 };
+
 
 
 
