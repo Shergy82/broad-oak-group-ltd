@@ -157,6 +157,7 @@ export interface EvidenceChecklistItem {
     id: string;
     text: string;
     photoCount?: number;
+    evidenceTag?: string;
 }
 
 

@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
@@ -46,7 +47,7 @@ import {
   Briefcase,
 } from 'lucide-react';
 import { Spinner } from '@/components/shared/spinner';
-import type { Shift, ShiftStatus, UserProfile, TradeTask, Trade, MaterialPurchase } from '@/types';
+import type { Shift, ShiftStatus, UserProfile, TradeTask, Trade, MaterialPurchase, Project, EvidenceChecklist, EvidenceChecklistItem } from '@/types';
 import { useAuth } from '@/hooks/use-auth';
 import {
   Dialog,
@@ -322,6 +323,8 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
 
   const [isLoading, setIsLoading] = useState(false);
   const [isNoteDialogOpen, setIsNoteDialogOpen] = useState(false);
+  
+  const [rejectingTaskIndex, setRejectingTaskIndex] = useState<number | null>(null);
   const [isRejectNoteDialogOpen, setRejectNoteDialogOpen] = useState(false);
   const [rejectionNote, setRejectionNote] = useState('');
   const [note, setNote] = useState('');
@@ -335,6 +338,10 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
   const [purchases, setPurchases] = useState<MaterialPurchase[]>([]);
   const [isPurchaseLogOpen, setIsPurchaseLogOpen] = useState(false);
   const [purchaseLogMode, setPurchaseLogMode] = useState<'query' | 'add'>('query');
+
+  const [project, setProject] = useState<Project | null>(null);
+  const [contractChecklist, setContractChecklist] = useState<TradeTask[] | null>(null);
+
 
   const d = shift.date.toDate();
   const shiftDate = new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
@@ -357,11 +364,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
   const isHistorical = shift.status === 'completed' || shift.status === 'incomplete';
   const allTasksCompleted =
     tradeTasks.length === 0 ||
-    tradeTasks.every(
-      (_, index) =>
-        taskStatuses[index]?.status === 'completed' ||
-        taskStatuses[index]?.status === 'rejected'
-    );
+    tradeTasks.every((_, index) => !!taskStatuses[index]);
 
   // --- Purchase Logic ---
   useEffect(() => {
@@ -372,6 +375,80 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
     });
     return () => unsubscribe();
   }, [shift.id]);
+
+  // --- Task/Checklist Logic ---
+  useEffect(() => {
+    if (!shift.address) {
+        setProject(null);
+        return;
+    }
+    const projectsQuery = query(collection(db, "projects"), where("address", "==", shift.address));
+    const unsub = onSnapshot(projectsQuery, (snapshot) => {
+        if (!snapshot.empty) {
+            setProject({ id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as Project);
+        } else {
+            setProject(null);
+        }
+    });
+    return () => unsub();
+  }, [shift.address]);
+
+  useEffect(() => {
+    if (!project || !project.contract) {
+        setContractChecklist(null);
+        return;
+    }
+    const checklistDocRef = doc(db, 'evidence_checklists', project.contract);
+    const unsub = onSnapshot(checklistDocRef, (docSnap) => {
+        if (docSnap.exists()) {
+            const checklist = docSnap.data() as EvidenceChecklist;
+            const tasks: TradeTask[] = checklist.items.map(item => ({
+                text: item.text,
+                photoRequired: true, // Assuming all evidence items require a photo
+                photoCount: item.photoCount,
+                evidenceTag: item.text,
+            }));
+            setContractChecklist(tasks);
+        } else {
+            setContractChecklist(null);
+        }
+    });
+    return () => unsub();
+  }, [project]);
+
+  useEffect(() => {
+    let checklistToUse: EvidenceChecklistItem[] | undefined;
+    
+    // Determine which checklist has priority
+    if (project?.checklist) {
+      checklistToUse = project.checklist;
+    } else if (contractChecklist) {
+      // Convert contractChecklist (TradeTask[]) to EvidenceChecklistItem[] format
+      checklistToUse = contractChecklist.map(task => ({
+        id: task.text, // Assuming text is unique for ID purposes here
+        text: task.text,
+        photoCount: task.photoCount
+      }));
+    }
+
+    if (checklistToUse) {
+      const isShiftTaskInChecklist = checklistToUse.some(item => item.text.toLowerCase() === shift.task.toLowerCase());
+      
+      if (isShiftTaskInChecklist) {
+        const tasks: TradeTask[] = checklistToUse.map(item => ({
+          text: item.text,
+          photoRequired: true,
+          photoCount: item.photoCount,
+          evidenceTag: item.text,
+        }));
+        setTradeTasks(tasks);
+      } else {
+        setTradeTasks([]);
+      }
+    } else {
+      setTradeTasks([]);
+    }
+}, [project, contractChecklist, shift.task]);
 
   const handleDeletePurchase = async (purchaseId: string) => {
     try {
@@ -391,49 +468,6 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
     handleUpdateStatus('on-site');
   };
 
-
-  useEffect(() => {
-    async function fetchTasks() {
-      if (!userProfile || !db) return;
-
-      const potentialCategories = [
-        userProfile.name,
-        userProfile.trade,
-        userProfile.role,
-      ].filter(Boolean) as string[];
-
-      if (potentialCategories.length > 0) {
-        try {
-          const q = query(collection(db, 'trade_tasks'), where('name', 'in', potentialCategories));
-          const querySnapshot = await getDocs(q);
-          
-          if (!querySnapshot.empty) {
-            const matchingTasks = new Map<string, TradeTask[]>();
-            querySnapshot.forEach(doc => {
-              const tradeData = doc.data() as Trade;
-              matchingTasks.set(tradeData.name, tradeData.tasks || []);
-            });
-
-            for (const categoryName of potentialCategories) {
-              if (matchingTasks.has(categoryName)) {
-                setTradeTasks(matchingTasks.get(categoryName)!);
-                return; // Found tasks, exit
-              }
-            }
-          }
-          // No matching categories found
-          setTradeTasks([]);
-
-        } catch (e) {
-          console.error(`Failed to load tasks from Firestore`, e);
-          setTradeTasks([]);
-        }
-      } else {
-        setTradeTasks([]);
-      }
-    }
-    fetchTasks();
-  }, [userProfile]);
 
   useEffect(() => {
     if (tradeTasks.length > 0) {
@@ -981,7 +1015,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
+      
       <Dialog open={isRejectNoteDialogOpen} onOpenChange={setRejectNoteDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
