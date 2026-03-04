@@ -340,7 +340,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
   const [purchaseLogMode, setPurchaseLogMode] = useState<'query' | 'add'>('query');
 
   const [project, setProject] = useState<Project | null>(null);
-  const [contractChecklist, setContractChecklist] = useState<TradeTask[] | null>(null);
+  const [allTrades, setAllTrades] = useState<Trade[]>([]);
 
 
   const d = shift.date.toDate();
@@ -394,61 +394,30 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
   }, [shift.address]);
 
   useEffect(() => {
-    if (!project || !project.contract) {
-        setContractChecklist(null);
-        return;
-    }
-    const checklistDocRef = doc(db, 'evidence_checklists', project.contract);
-    const unsub = onSnapshot(checklistDocRef, (docSnap) => {
-        if (docSnap.exists()) {
-            const checklist = docSnap.data() as EvidenceChecklist;
-            const tasks: TradeTask[] = checklist.items.map(item => ({
-                text: item.text,
-                photoRequired: true, // Assuming all evidence items require a photo
-                photoCount: item.photoCount,
-                evidenceTag: item.text,
-            }));
-            setContractChecklist(tasks);
-        } else {
-            setContractChecklist(null);
-        }
+    const q = query(collection(db, 'trade_tasks'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+        const trades = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Trade));
+        setAllTrades(trades);
     });
-    return () => unsub();
-  }, [project]);
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
-    let checklistToUse: EvidenceChecklistItem[] | undefined;
-    
-    // Determine which checklist has priority
-    if (project?.checklist) {
-      checklistToUse = project.checklist;
-    } else if (contractChecklist) {
-      // Convert contractChecklist (TradeTask[]) to EvidenceChecklistItem[] format
-      checklistToUse = contractChecklist.map(task => ({
-        id: task.text, // Assuming text is unique for ID purposes here
-        text: task.text,
-        photoCount: task.photoCount
-      }));
-    }
+    if (userProfile?.trade && allTrades.length > 0) {
+        const matchingTrade = allTrades.find(
+            (trade) => trade.name.toLowerCase() === userProfile.trade?.toLowerCase()
+        );
 
-    if (checklistToUse) {
-      const isShiftTaskInChecklist = checklistToUse.some(item => item.text.toLowerCase() === shift.task.toLowerCase());
-      
-      if (isShiftTaskInChecklist) {
-        const tasks: TradeTask[] = checklistToUse.map(item => ({
-          text: item.text,
-          photoRequired: true,
-          photoCount: item.photoCount,
-          evidenceTag: item.text,
-        }));
-        setTradeTasks(tasks);
-      } else {
-        setTradeTasks([]);
-      }
+        if (matchingTrade) {
+            setTradeTasks(matchingTrade.tasks || []);
+        } else {
+            setTradeTasks([]);
+        }
     } else {
-      setTradeTasks([]);
+        setTradeTasks([]);
     }
-}, [project, contractChecklist, shift.task]);
+  }, [userProfile, allTrades]);
+
 
   const handleDeletePurchase = async (purchaseId: string) => {
     try {
@@ -549,18 +518,16 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
     try {
       if (!db || !storage || !userProfile) throw new Error('Services not ready');
 
-      const projectsQuery = query(collection(db, 'projects'), where('address', '==', shift.address));
-      const projectSnapshot = await getDocs(projectsQuery);
-
-      if (projectSnapshot.empty) {
+      if (!project) {
         toast({
           variant: 'destructive',
           title: 'Project Not Found',
-          description: `No project found with address: ${shift.address}`,
+          description: `No project found with address: ${shift.address}. Cannot upload photo.`,
         });
         throw new Error('Project not found');
       }
-      const projectId = projectSnapshot.docs[0].id;
+      
+      const projectId = project.id;
       
       const uploadPromises = filesToUpload.map(file => {
           const storagePath = `project_files/${projectId}/${Date.now()}-${file.name}`;
