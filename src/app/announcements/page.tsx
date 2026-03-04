@@ -147,7 +147,7 @@ export default function AnnouncementsPage() {
         ? announcements 
         : announcements.filter(a => !a.department || a.department === userProfile?.department);
 
-    if (!isPrivileged) return departmentFiltered.filter((a) => !ack[a.id]);
+    if (!isPrivileged) return departmentFiltered;
 
     if (!hideAcknowledged) return departmentFiltered;
     
@@ -182,9 +182,9 @@ export default function AnnouncementsPage() {
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : !hasAnnouncements ? (
           <p className="text-sm text-muted-foreground">
-            {isPrivileged && !hideAcknowledged
-              ? 'No announcements yet.'
-              : 'No unacknowledged announcements.'}
+            {isPrivileged && hideAcknowledged
+              ? 'No unacknowledged announcements.'
+              : 'No announcements yet.'}
           </p>
         ) : (
           <div className="space-y-4">
