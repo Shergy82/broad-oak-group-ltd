@@ -23,6 +23,8 @@ interface ShiftImporterProps {
   userProfile: UserProfile;
 }
 
+const LS_IMPORT_TYPE_KEY = 'shiftImport_importType_v1';
+
 export function ShiftImporter({ userProfile }: ShiftImporterProps) {
   const [importResults, setImportResults] = useState<{
     failedShifts: FailedShift[];
@@ -36,6 +38,26 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
   const { users: allUsers, loading: usersLoading } = useAllUsers();
 
   const isOwner = userProfile.role === 'owner';
+
+  useEffect(() => {
+    try {
+      const storedType = localStorage.getItem(LS_IMPORT_TYPE_KEY);
+      if (storedType === 'BUILD' || storedType === 'GAS') {
+        setImportType(storedType);
+      }
+    } catch (e) {
+      // Ignore localStorage errors on server or if disabled
+    }
+  }, []);
+
+  const handleImportTypeChange = (value: ImportType) => {
+    setImportType(value);
+    try {
+        localStorage.setItem(LS_IMPORT_TYPE_KEY, value);
+    } catch (e) {
+        console.error("Failed to save import type preference:", e);
+    }
+  };
 
   const availableDepartments = useMemo(() => {
     if (!isOwner) return [];
@@ -330,7 +352,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
         <div className="space-y-4">
             <div className="space-y-2">
                 <Label htmlFor="import-format-select">Select Import Format</Label>
-                <Select value={importType} onValueChange={(v) => setImportType(v as 'BUILD' | 'GAS')}>
+                <Select value={importType} onValueChange={(v) => handleImportTypeChange(v as 'BUILD' | 'GAS')}>
                     <SelectTrigger id="import-format-select">
                         <SelectValue placeholder="Select import format..." />
                     </SelectTrigger>
