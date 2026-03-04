@@ -248,46 +248,59 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     week4Shifts,
     archiveShifts,
   } = useMemo(() => {
-    // Determine the pool of users to display in the dropdown filter.
-    const relevantUsers = allUsers.filter(u => {
-        if (isOwner) {
-          // Owners see users from the departments they have selected in the filter.
-          if (selectedDepartments.size === 0) return true; // No filter means all users
-          return u.department && selectedDepartments.has(u.department);
-        }
-        if (userProfile.department) {
-          // Non-owners see users only from their own department.
-          return u.department === userProfile.department;
-        }
-        // Fallback for users with no department (they see only themselves).
-        return u.uid === userProfile.uid;
-      });
-
-    const usersForDropdownResult = [...relevantUsers].sort((a, b) => a.name.localeCompare(b.name));
-    
-    // Filter shifts based on selected department(s), not based on the user's home department.
+    // Filter shifts based on selected department(s). This is the master list for this view.
     let shiftsToShow: Shift[];
     if (isOwner) {
-      // For owners, filter all available shifts by the selected departments in the header.
       if (selectedDepartments.size > 0) {
         shiftsToShow = allShifts.filter(shift => shift.department && selectedDepartments.has(shift.department));
       } else {
-        // If owner has no department filter, show all shifts.
         shiftsToShow = allShifts;
       }
     } else {
-      // For non-owners, `allShifts` is already correctly pre-filtered by their department from the initial Firestore query.
+      // For non-owners, `allShifts` is already pre-filtered by their department from the initial query.
       shiftsToShow = allShifts;
     }
+
+    const today = startOfToday();
+
+    // Find all users who have current or future shifts in the visible set.
+    const userIdsWithCurrentShifts = new Set<string>();
+    shiftsToShow.forEach(shift => {
+      if (getCorrectedLocalDate(shift.date) >= today) {
+        userIdsWithCurrentShifts.add(shift.userId);
+      }
+    });
+
+    // Determine the base pool of users based on department membership.
+    const usersInSelectedDepartments = allUsers.filter(u => {
+      if (isOwner) {
+        if (selectedDepartments.size === 0) return true; // No filter means all users
+        return u.department && selectedDepartments.has(u.department);
+      }
+      if (userProfile.department) {
+        return u.department === userProfile.department;
+      }
+      return u.uid === userProfile.uid; // Fallback for users with no department
+    });
     
-    // Now, apply the secondary user filter from the dropdown.
+    // Combine department members with cross-department workers.
+    const combinedUsers = new Map<string, UserProfile>();
+    usersInSelectedDepartments.forEach(u => combinedUsers.set(u.uid, u));
+    userIdsWithCurrentShifts.forEach(uid => {
+      if (!combinedUsers.has(uid)) {
+        const crossDeptUser = allUsers.find(u => u.uid === uid);
+        if (crossDeptUser) {
+          combinedUsers.set(uid, crossDeptUser);
+        }
+      }
+    });
+
+    const usersForDropdownResult = Array.from(combinedUsers.values()).sort((a, b) => a.name.localeCompare(b.name));
+    
     const finalFilteredShifts = selectedUserId === 'all'
       ? shiftsToShow
       : shiftsToShow.filter(s => s.userId === selectedUserId);
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-  
     const shiftsToday = finalFilteredShifts.filter(s =>
       isToday(getCorrectedLocalDate(s.date))
     );
