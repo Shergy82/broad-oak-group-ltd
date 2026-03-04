@@ -621,7 +621,16 @@ export function ProjectManager({ userProfile, initialSearchTerm = '' }: ProjectM
         }
     }
 
-    return Array.from(uniqueProjects.values());
+    const uniqueProjectsArray = Array.from(uniqueProjects.values());
+    
+    // Sort by eNumber numerically
+    uniqueProjectsArray.sort((a, b) => {
+      const eNumberA = a.eNumber || '';
+      const eNumberB = b.eNumber || '';
+      return eNumberA.localeCompare(eNumberB, undefined, { numeric: true });
+    });
+
+    return uniqueProjectsArray;
   }, [projects, searchTerm, isOwner, selectedDepartments, userProfile.department]);
 
   const handleManageFiles = (project: Project) => {
@@ -951,3 +960,5 @@ export function ProjectManager({ userProfile, initialSearchTerm = '' }: ProjectM
     </div>
   );
 }
+
+    
