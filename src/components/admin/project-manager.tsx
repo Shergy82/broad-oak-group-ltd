@@ -623,11 +623,9 @@ export function ProjectManager({ userProfile, initialSearchTerm = '' }: ProjectM
 
     const uniqueProjectsArray = Array.from(uniqueProjects.values());
     
-    // Sort by eNumber numerically
+    // Sort by address numerically
     uniqueProjectsArray.sort((a, b) => {
-      const eNumberA = a.eNumber || '';
-      const eNumberB = b.eNumber || '';
-      return eNumberA.localeCompare(eNumberB, undefined, { numeric: true });
+      return a.address.localeCompare(b.address, undefined, { numeric: true });
     });
 
     return uniqueProjectsArray;
@@ -960,5 +958,3 @@ export function ProjectManager({ userProfile, initialSearchTerm = '' }: ProjectM
     </div>
   );
 }
-
-    
