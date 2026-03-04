@@ -75,7 +75,13 @@ export function ContractStatsDashboard() {
       const managerSet = new Set<string>();
       departmentFilteredShifts.forEach(shift => {
           if (shift.contract) contractSet.add(shift.contract);
-          if (shift.manager) managerSet.add(shift.manager);
+          if (shift.manager) {
+            // Strip out phone numbers for display
+            const managerNameOnly = shift.manager.replace(/\s*\d[\d\s-]*$/, '').trim();
+            if (managerNameOnly) {
+              managerSet.add(managerNameOnly);
+            }
+          }
       });
       return {
           availableContracts: Array.from(contractSet).sort(),
@@ -89,7 +95,10 @@ export function ContractStatsDashboard() {
     let filteredShifts = departmentFilteredShifts;
 
     if (selectedManager !== 'all') {
-        filteredShifts = filteredShifts.filter(shift => shift.manager === selectedManager);
+        filteredShifts = filteredShifts.filter(shift => {
+            const managerNameOnly = shift.manager?.replace(/\s*\d[\d\s-]*$/, '').trim();
+            return managerNameOnly === selectedManager;
+        });
     }
     if (selectedContract !== 'all') {
         filteredShifts = filteredShifts.filter(shift => shift.contract === selectedContract);
