@@ -106,45 +106,57 @@ export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(fileBuffer);
 
-  const sheet =
-    workbook.getWorksheet("UNITAS") ??
-    workbook.worksheets.find((ws) => ws.state !== "hidden") ??
-    workbook.worksheets[0];
+  const allParsed: ParsedGasShift[] = [];
+  const allFailures: ImportFailure[] = [];
 
-  if (!sheet) {
-    return { parsed: [], failures: [{ reason: "No worksheet found" }] };
+  const visibleWorksheets = workbook.worksheets.filter(ws => ws.state !== 'hidden');
+
+  if (visibleWorksheets.length === 0) {
+      return { parsed: [], failures: [{ reason: "No visible worksheets found in the file." }] };
   }
 
-  // --- ATTEMPT LIST VIEW PARSE FIRST ---
-  // Find first row with content
-  let headerRow: ExcelJS.Row | undefined;
-  let headerRowNumber: number = -1;
-  sheet.eachRow((row, rowNum) => {
-      if(!headerRow && row.hasValues) {
-          headerRow = row;
-          headerRowNumber = rowNum;
-      }
-  });
+  for (const sheet of visibleWorksheets) {
+    // --- ATTEMPT LIST VIEW PARSE FIRST ---
+    // Find first row with content
+    let headerRow: ExcelJS.Row | undefined;
+    let headerRowNumber: number = -1;
+    sheet.eachRow((row, rowNum) => {
+        if(!headerRow && row.hasValues) {
+            headerRow = row;
+            headerRowNumber = rowNum;
+        }
+    });
 
-  if (headerRow) {
-      const headers: string[] = [];
-      headerRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-        headers[colNumber - 1] = String(cell.value || '').trim().toLowerCase();
-      });
+    let sheetResult: ParseResult;
 
-      const dateIndex = headers.indexOf('date');
-      const userIndex = headers.indexOf('user') > -1 ? headers.indexOf('user') : headers.indexOf('operative');
-      const taskIndex = headers.indexOf('task');
-      const addressIndex = headers.indexOf('address');
+    if (headerRow) {
+        const headers: string[] = [];
+        headerRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+          headers[colNumber - 1] = String(cell.value || '').trim().toLowerCase();
+        });
+  
+        const dateIndex = headers.indexOf('date');
+        const userIndex = headers.indexOf('user') > -1 ? headers.indexOf('user') : headers.indexOf('operative');
+        const taskIndex = headers.indexOf('task');
+        const addressIndex = headers.indexOf('address');
+  
+        if (dateIndex > -1 && userIndex > -1 && taskIndex > -1 && addressIndex > -1) {
+            // It's a list view, parse it and return.
+            sheetResult = parseListView(sheet, headerRowNumber, headers, userMap);
+        } else {
+            // --- FALLBACK TO MATRIX VIEW PARSE ---
+            sheetResult = parseMatrixView(sheet, userMap);
+        }
+    } else {
+      // --- FALLBACK TO MATRIX VIEW PARSE ---
+      sheetResult = parseMatrixView(sheet, userMap);
+    }
 
-      if (dateIndex > -1 && userIndex > -1 && taskIndex > -1 && addressIndex > -1) {
-          // It's a list view, parse it and return.
-          return parseListView(sheet, headerRowNumber, headers, userMap);
-      }
+    allParsed.push(...sheetResult.parsed);
+    allFailures.push(...sheetResult.failures);
   }
 
-  // --- FALLBACK TO MATRIX VIEW PARSE ---
-  return parseMatrixView(sheet, userMap);
+  return { parsed: allParsed, failures: allFailures };
 }
 
 /* =========================
@@ -275,7 +287,7 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
 }
 
 
-async function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Promise<ParseResult> {
+function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): ParseResult {
   const sheetName = sheet.name;
   const failures: ImportFailure[] = [];
   const parsed: ParsedGasShift[] = [];
@@ -304,7 +316,7 @@ async function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]
       continue;
     }
     
-    const { address: rawSiteAddress, addressRow } = siteAddressResult;
+    const { address: rawSiteAddress, row: addressRow } = siteAddressResult;
 
     const eNumMatchStart = rawSiteAddress.match(/^\s*([BE]\d+\S*)\s+/i);
     let siteAddress = rawSiteAddress;
@@ -890,6 +902,7 @@ const parseDate = (dateValue: any): Date | null => {
   }
   return null;
 };
+
 
 
 
