@@ -143,9 +143,25 @@ function ProjectsPageContent() {
 
 
   const filteredProjects = useMemo(() => {
-    return projects.filter(project =>
+    const searchedProjects = projects.filter(project =>
       project.address.toLowerCase().includes(searchTerm.toLowerCase())
     );
+
+    const uniqueProjects = new Map<string, Project>();
+    for (const project of searchedProjects) {
+        const key = `${project.address.toLowerCase()}|${(project.eNumber || '').toLowerCase()}`;
+        if (!uniqueProjects.has(key)) {
+            uniqueProjects.set(key, project);
+        }
+    }
+    
+    const uniqueProjectsArray = Array.from(uniqueProjects.values());
+    
+    uniqueProjectsArray.sort((a, b) => {
+      return a.address.localeCompare(b.address, undefined, { numeric: true });
+    });
+
+    return uniqueProjectsArray;
   }, [projects, searchTerm]);
   
   const isLoadingPage = isAuthLoading || isProfileLoading || (loading && !isPrivilegedUser && loadingShifts);
