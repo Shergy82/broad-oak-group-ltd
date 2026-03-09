@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useCallback, useMemo } from 'react';
@@ -252,6 +253,12 @@ const parseBuildSheet = (
   sheetName: string,
   department: string
 ): { shifts: ParsedShift[]; failed: FailedShift[] } => {
+  const getLocalShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; task: string; }): string => {
+    const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
+    const normalizedDate = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    return `${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${normalizeText(shift.address)}-${normalizeText(shift.task)}`;
+  };
+  
   const data: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: null });
   if (data.length < 2) return { shifts: [], failed: [] };
 
@@ -314,78 +321,85 @@ const parseBuildSheet = (
             notes: '',
         });
     }
+  } else {
+    // --- ORIGINAL: MATRIX VIEW PARSER ---
+    const dateRowRaw = data[0];
+    const dateRow: (Date | null)[] = dateRowRaw.map(parseDate);
+    
+    let currentAddress = '';
+    let currentENumber = '';
+    let currentContract = '';
 
-    return { shifts: allShifts, failed: allFailed };
-  }
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      if (isRowEmpty(row)) continue;
 
-  // --- ORIGINAL: MATRIX VIEW PARSER ---
-  const dateRowRaw = data[0];
-  const dateRow: (Date | null)[] = dateRowRaw.map(parseDate);
-  
-  let currentAddress = '';
-  let currentENumber = '';
-  let currentContract = '';
-
-  for (let i = 1; i < data.length; i++) {
-    const row = data[i];
-    if (isRowEmpty(row)) continue;
-
-    const newAddressAndENumber = String(row[0] || '').trim();
-    if (newAddressAndENumber) {
-      const eNumMatch = newAddressAndENumber.match(/\b([BE]\d+\S*)$/i);
-      if (eNumMatch) {
-        currentENumber = eNumMatch[0].toUpperCase();
-        currentAddress = newAddressAndENumber.replace(eNumMatch[0], '').trim().replace(/,$/, '').trim();
-      } else {
-        currentAddress = newAddressAndENumber;
-        currentENumber = '';
-      }
-      currentContract = String(row[2] || '').trim() || currentContract;
-    }
-
-    if (!currentAddress) continue;
-
-    for (let c = 5; c < row.length; c++) {
-      const cellText = String(row[c] || '').trim();
-      const cellRef = XLSX.utils.encode_cell({ c: c, r: i });
-
-      if (cellText && /[a-zA-Z]/.test(cellText)) {
-        const date = dateRow[c];
-
-        if (!date) {
-          allFailed.push({ date: null, projectAddress: currentAddress, cellContent: cellText, reason: 'No date found for this column.', sheetName, cellRef });
-          continue;
+      const newAddressAndENumber = String(row[0] || '').trim();
+      if (newAddressAndENumber) {
+        const eNumMatch = newAddressAndENumber.match(/\b([BE]\d+\S*)$/i);
+        if (eNumMatch) {
+          currentENumber = eNumMatch[0].toUpperCase();
+          currentAddress = newAddressAndENumber.replace(eNumMatch[0], '').trim().replace(/,$/, '').trim();
+        } else {
+          currentAddress = newAddressAndENumber;
+          currentENumber = '';
         }
+        currentContract = String(row[2] || '').trim() || currentContract;
+      }
 
-        if (date < today) continue;
+      if (!currentAddress) continue;
 
-        const extraction = extractUsersAndTask(cellText, userMap);
-        
-        if (!extraction || extraction.users.length === 0) {
-            allFailed.push({ date, projectAddress: currentAddress, cellContent: cellText, reason: extraction?.reason || 'No users found.', sheetName, cellRef });
+      for (let c = 5; c < row.length; c++) {
+        const cellText = String(row[c] || '').trim();
+        const cellRef = XLSX.utils.encode_cell({ c: c, r: i });
+
+        if (cellText && /[a-zA-Z]/.test(cellText)) {
+          const date = dateRow[c];
+
+          if (!date) {
+            allFailed.push({ date: null, projectAddress: currentAddress, cellContent: cellText, reason: 'No date found for this column.', sheetName, cellRef });
             continue;
-        }
+          }
 
-        for (const user of extraction.users) {
-          allShifts.push({
-            date,
-            address: currentAddress,
-            eNumber: currentENumber,
-            task: extraction.task,
-            userId: user.uid,
-            userName: user.originalName,
-            type: extraction.type,
-            manager: sheetName,
-            contract: currentContract,
-            department,
-            notes: '',
-          });
+          if (date < today) continue;
+
+          const extraction = extractUsersAndTask(cellText, userMap);
+          
+          if (!extraction || extraction.users.length === 0) {
+              allFailed.push({ date, projectAddress: currentAddress, cellContent: cellText, reason: extraction?.reason || 'No users found.', sheetName, cellRef });
+              continue;
+          }
+
+          for (const user of extraction.users) {
+            allShifts.push({
+              date,
+              address: currentAddress,
+              eNumber: currentENumber,
+              task: extraction.task,
+              userId: user.uid,
+              userName: user.originalName,
+              type: extraction.type,
+              manager: sheetName,
+              contract: currentContract,
+              department,
+              notes: '',
+            });
+          }
         }
       }
     }
   }
 
-  return { shifts: allShifts, failed: allFailed };
+  const uniqueShiftsMap = new Map<string, ParsedShift>();
+  for (const shift of allShifts) {
+    const key = getLocalShiftKey(shift);
+    if (!uniqueShiftsMap.has(key)) {
+      uniqueShiftsMap.set(key, shift);
+    }
+  }
+  const uniqueShifts = Array.from(uniqueShiftsMap.values());
+
+  return { shifts: uniqueShifts, failed: allFailed };
 };
 
 
@@ -887,3 +901,4 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
     </div>
   );
 }
+
