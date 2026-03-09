@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useCallback, useMemo } from 'react';
@@ -72,7 +73,7 @@ export interface DryRunResult {
   failed: FailedShift[];
 }
 
-const normalizeText = (text: string) => (text || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+const normalizeText = (text: string) => (text || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
 
 const parseDate = (dateValue: any): Date | null => {
   if (!dateValue) return null;
