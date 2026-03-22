@@ -618,7 +618,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     
     const head = [['Date', 'Task', 'Operative']];
     const body = siteScheduleShifts.map(shift => [
-      format(getCorrectedLocalDate(shift.date), 'EEE, dd MMM yyyy'),
+      format(getCorrectedLocalDate(shift.date), 'eeee, MMM d, yyyy'),
       shift.task,
       userNameMap.get(shift.userId) || 'Unknown'
     ]);
@@ -779,7 +779,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
       );
     }
     
-    const sortedShifts = [...shiftsToRender].sort((a,b) => getCorrectedLocalDate(b.date).getTime() - getCorrectedLocalDate(a.date).getTime());
+    const sortedShifts = [...shiftsToRender].sort((a,b) => getCorrectedLocalDate(a.date).getTime() - getCorrectedLocalDate(b.date).getTime());
 
     return (
         <>
