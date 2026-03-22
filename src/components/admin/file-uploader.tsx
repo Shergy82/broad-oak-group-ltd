@@ -76,52 +76,63 @@ export interface DryRunResult {
 
 const normalizeText = (text: string) => (text || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
 
+const toDateOnlyUtc = (d: Date) =>
+  new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+
 const parseDateSafe = (dateValue: any): Date | null => {
-    if (!dateValue) return null;
+  if (!dateValue) return null;
 
-    if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
-        // This date object might be in local timezone, so we create a new one based on its UTC parts.
-        return new Date(Date.UTC(dateValue.getUTCFullYear(), dateValue.getUTCMonth(), dateValue.getUTCDate()));
+  if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
+    return new Date(Date.UTC(
+      dateValue.getFullYear(),
+      dateValue.getMonth(),
+      dateValue.getDate()
+    ));
+  }
+
+  if (typeof dateValue === 'number' && dateValue > 1) {
+    const excelEpoch = new Date(Math.round((dateValue - 25569) * 86400 * 1000));
+    if (!isNaN(excelEpoch.getTime())) {
+      return new Date(Date.UTC(
+        excelEpoch.getUTCFullYear(),
+        excelEpoch.getUTCMonth(),
+        excelEpoch.getUTCDate()
+      ));
+    }
+  }
+
+  if (typeof dateValue === 'string') {
+    const s = dateValue.trim();
+    if (!s) return null;
+
+    const parts = s.match(/^(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?$/);
+    if (parts) {
+      const day = parseInt(parts[1], 10);
+      const month = parseInt(parts[2], 10) - 1;
+      let year = parts[3] ? parseInt(parts[3], 10) : new Date().getFullYear();
+      if (year < 100) year += 2000;
+
+      const d = new Date(Date.UTC(year, month, day));
+      if (
+        d.getUTCFullYear() === year &&
+        d.getUTCMonth() === month &&
+        d.getUTCDate() === day
+      ) {
+        return d;
+      }
     }
 
-    if (typeof dateValue === 'number' && dateValue > 1) {
-        // Excel serial date number
-        const d = new Date((dateValue - 25569) * 86400 * 1000);
-        if (!isNaN(d.getTime())) {
-            // The result is already UTC
-            return d; 
-        }
+    const parsed = new Date(s);
+    if (!isNaN(parsed.getTime())) {
+      return new Date(Date.UTC(
+        parsed.getFullYear(),
+        parsed.getMonth(),
+        parsed.getDate()
+      ));
     }
+  }
 
-    if (typeof dateValue === 'string') {
-        const s = dateValue.trim();
-        if (!s) return null;
-
-        // Try to parse DD/MM/YYYY or similar
-        const parts = s.match(/^(\d{1,2})[./-](\d{1,2})(?:[./-]?(\d{2,4}))?$/);
-        if (parts) {
-            const day = parseInt(parts[1], 10);
-            const month = parseInt(parts[2], 10) - 1;
-            let year = parts[3] ? parseInt(parts[3], 10) : new Date().getUTCFullYear();
-            if (year < 100) year += 2000;
-            if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
-                const d = new Date(Date.UTC(year, month, day));
-                // Validate the created date
-                if (d.getUTCFullYear() === year && d.getUTCMonth() === month && d.getUTCDate() === day) {
-                    return d;
-                }
-            }
-        }
-        
-        // Fallback to JS Date constructor (which can be unreliable but is a last resort)
-        const parsed = new Date(s);
-        if (!isNaN(parsed.getTime())) {
-             // Re-construct using UTC to strip time and timezone
-             return new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate()));
-        }
-    }
-
-    return null;
+  return null;
 };
 
 
@@ -260,7 +271,7 @@ const parseBuildSheet = (
 ): { shifts: ParsedShift[]; failed: FailedShift[] } => {
   const getLocalShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; task: string; }): string => {
     const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
-    const normalizedDate = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const normalizedDate = toDateOnlyUtc(d);
     return `${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${normalizeText(shift.address)}-${normalizeText(shift.task)}`;
   };
   
@@ -498,8 +509,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
 
   const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; task: string; }): string => {
     const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
-    // ALWAYS use UTC methods to create the normalized date, preventing timezone shifts.
-    const normalizedDate = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    const normalizedDate = toDateOnlyUtc(d);
     return `${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${normalizeText(shift.address)}-${normalizeText(shift.task)}`;
   };
 
@@ -678,10 +688,10 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
               
               // Serialize data for the callable function
               const payload = {
-                toCreate: toCreate.map(s => ({ ...s, date: s.date.toISOString() })),
+                toCreate: toCreate.map(s => ({ ...s, date: toDateOnlyUtc(s.date).toISOString() })),
                 toUpdate: toUpdate.map(u => ({
                   id: u.old.id,
-                  new: { ...u.new, date: u.new.date.toISOString() }
+                  new: { ...u.new, date: toDateOnlyUtc(u.new.date).toISOString() }
                 })),
                 toDelete: toDelete.map(s => ({ id: s.id })),
                 department: finalImportDepartment
