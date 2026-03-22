@@ -82,10 +82,13 @@ const parseDate = (dateValue: any): Date | null => {
     return dateValue;
   }
   if (typeof dateValue === 'number' && dateValue > 1) {
-    const excelEpoch = new Date(1899, 11, 30);
-    const d = new Date(excelEpoch.getTime() + dateValue * 24 * 60 * 60 * 1000);
+    // Correct, timezone-safe conversion from Excel serial date
+    // 25569 is the number of days from 1900-01-01 to 1970-01-01 (JS epoch), including the Lotus 1-2-3 leap year bug
+    const utcDays = Math.floor(dateValue - 25569);
+    const d = new Date(utcDays * 86400 * 1000);
     if (!isNaN(d.getTime())) {
-      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+      // Create a new Date object from the UTC components to avoid timezone shift
+      return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
     }
   }
   if (typeof dateValue === 'string') {
@@ -901,4 +904,3 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
     </div>
   );
 }
-
