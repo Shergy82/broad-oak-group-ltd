@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useCallback, useMemo } from 'react';
@@ -495,8 +496,9 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
   };
 
   const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; task: string; }): string => {
-    const d = getCorrectedLocalDate(shift.date as any);
-    return `${d.toISOString().slice(0, 10)}-${shift.userId}-${normalizeText(shift.address)}-${normalizeText(shift.task)}`;
+    const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
+    const normalizedDate = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    return `${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${normalizeText(shift.address)}-${normalizeText(shift.task)}`;
   };
 
   const runImport = useCallback(
