@@ -587,7 +587,9 @@ function isWhiteLike(argb: string): boolean {
 
 function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
   const v = cell.value;
-  if (v instanceof Date && !isNaN(v.getTime())) return v;
+  if (v instanceof Date && !isNaN(v.getTime())) {
+    return new Date(Date.UTC(v.getFullYear(), v.getMonth(), v.getDate()));
+  }
   if (typeof v === "number") {
     if (v < 20000 || v > 60000) return null;
     const date = excelSerialToDate(v);

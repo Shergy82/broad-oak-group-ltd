@@ -2,7 +2,7 @@
 
 'use client';
 
-import React, { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { db, functions, httpsCallable } from '@/lib/firebase';
 import {
@@ -579,7 +579,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           } else { // BUILD
               const workbook = XLSX.read(data, {
                 type: 'array',
-                cellDates: true,
+                cellDates: false,
                 cellStyles: true,
               });
     
