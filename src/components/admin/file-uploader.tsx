@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import React, { useState, useCallback, useMemo } from 'react';
@@ -79,12 +80,15 @@ const parseDateSafe = (dateValue: any): Date | null => {
     if (!dateValue) return null;
 
     if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
-        return new Date(Date.UTC(dateValue.getFullYear(), dateValue.getMonth(), dateValue.getDate()));
+        // This date object might be in local timezone, so we create a new one based on its UTC parts.
+        return new Date(Date.UTC(dateValue.getUTCFullYear(), dateValue.getUTCMonth(), dateValue.getUTCDate()));
     }
 
     if (typeof dateValue === 'number' && dateValue > 1) {
+        // Excel serial date number
         const d = new Date((dateValue - 25569) * 86400 * 1000);
         if (!isNaN(d.getTime())) {
+            // The result is already UTC
             return d; 
         }
     }
@@ -93,6 +97,7 @@ const parseDateSafe = (dateValue: any): Date | null => {
         const s = dateValue.trim();
         if (!s) return null;
 
+        // Try to parse DD/MM/YYYY or similar
         const parts = s.match(/^(\d{1,2})[./-](\d{1,2})(?:[./-]?(\d{2,4}))?$/);
         if (parts) {
             const day = parseInt(parts[1], 10);
@@ -101,15 +106,18 @@ const parseDateSafe = (dateValue: any): Date | null => {
             if (year < 100) year += 2000;
             if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
                 const d = new Date(Date.UTC(year, month, day));
+                // Validate the created date
                 if (d.getUTCFullYear() === year && d.getUTCMonth() === month && d.getUTCDate() === day) {
                     return d;
                 }
             }
         }
         
+        // Fallback to JS Date constructor (which can be unreliable but is a last resort)
         const parsed = new Date(s);
         if (!isNaN(parsed.getTime())) {
-             return new Date(Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()));
+             // Re-construct using UTC to strip time and timezone
+             return new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate()));
         }
     }
 
@@ -193,7 +201,7 @@ const extractUsersAndTask = (
     };
   }
 
-  const nameChunks = namesPart.split(/,|\/|&|\b\s*and\s*\b/i).map(s => s.trim()).filter(Boolean);
+  const nameChunks = namesPart.split(/,|&|\/|\b\s*and\s*\b/i).map(s => s.trim()).filter(Boolean);
 
   if (nameChunks.length === 0) {
       return {
@@ -490,7 +498,8 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
 
   const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; task: string; }): string => {
     const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
-    const normalizedDate = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    // ALWAYS use UTC methods to create the normalized date, preventing timezone shifts.
+    const normalizedDate = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
     return `${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${normalizeText(shift.address)}-${normalizeText(shift.task)}`;
   };
 
