@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useCallback, useMemo } from 'react';
@@ -76,52 +74,54 @@ export interface DryRunResult {
 
 const normalizeText = (text: string) => (text || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
 
-const parseDate = (dateValue: any): Date | null => {
-  if (!dateValue) return null;
-  if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
-    return dateValue;
-  }
-  if (typeof dateValue === 'number' && dateValue > 1) {
-    // Correct, timezone-safe conversion from Excel serial date
-    // 25569 is the number of days from 1900-01-01 to 1970-01-01 (JS epoch), including the Lotus 1-2-3 leap year bug
-    const utcDays = Math.floor(dateValue - 25569);
-    const d = new Date(utcDays * 86400 * 1000);
-    if (!isNaN(d.getTime())) {
-      // Create a new Date object from the UTC components to avoid timezone shift
-      return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+const parseDateSafe = (dateValue: any): Date | null => {
+    if (!dateValue) return null;
+
+    if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
+        // Already a valid JS Date from XLSX parsing (as local timezone)
+        // Normalize to UTC midnight based on local date parts to prevent timezone shift
+        return new Date(Date.UTC(dateValue.getFullYear(), dateValue.getMonth(), dateValue.getDate()));
     }
-  }
-  if (typeof dateValue === 'string') {
-    let s = dateValue.trim();
-    if (!s) return null;
 
-    s = s.replace(/(\d+)(st|nd|rd|th)/g, '$1');
-
-    const parts = s.match(/^(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?$/);
-    if (parts) {
-      const day = parseInt(parts[1], 10);
-      const month = parseInt(parts[2], 10) - 1;
-      let year = parts[3] ? parseInt(parts[3], 10) : new Date().getFullYear();
-      if (year < 100) year += 2000;
-      if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
-        const d = new Date(Date.UTC(year, month, day));
-        if (d.getUTCFullYear() === year && d.getUTCMonth() === month && d.getUTCDate() === day) {
-          return d;
+    if (typeof dateValue === 'number' && dateValue > 1) {
+        // Excel serial date (days from 1900). This is timezone-agnostic.
+        // The formula (dateValue - 25569) * 86400 * 1000 converts it to UTC milliseconds since 1970 epoch.
+        const d = new Date((dateValue - 25569) * 86400 * 1000);
+        if (!isNaN(d.getTime())) {
+            return d; // This is already UTC midnight
         }
-      }
     }
-    const parsed = new Date(s);
-    if (!isNaN(parsed.getTime())) {
-      return new Date(Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()));
+
+    if (typeof dateValue === 'string') {
+        const s = dateValue.trim();
+        if (!s) return null;
+
+        // More robust date parsing for string formats
+        const parts = s.match(/^(\d{1,2})[./-](\d{1,2})(?:[./-]?(\d{2,4}))?$/);
+        if (parts) {
+            const day = parseInt(parts[1], 10);
+            const month = parseInt(parts[2], 10) - 1;
+            let year = parts[3] ? parseInt(parts[3], 10) : new Date().getUTCFullYear();
+            if (year < 100) year += 2000;
+            if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
+                const d = new Date(Date.UTC(year, month, day));
+                // Validate parsed date, e.g., 32/01/2024 is invalid
+                if (d.getUTCFullYear() === year && d.getUTCMonth() === month && d.getUTCDate() === day) {
+                    return d;
+                }
+            }
+        }
+        
+        // Final fallback: Let JS parse it (can be unreliable) and normalize to UTC
+        const parsed = new Date(s);
+        if (!isNaN(parsed.getTime())) {
+             return new Date(Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()));
+        }
     }
-  }
-  return null;
+
+    return null;
 };
 
-const isRowEmpty = (row: any[]): boolean => {
-  if (!row || row.length === 0) return true;
-  return row.every(cell => cell === null || cell === undefined || String(cell).trim() === '');
-};
 
 const findUsersInMap = (nameChunk: string, userMap: UserMapEntry[]): { users: UserMapEntry[]; reason?: string } => {
     const normalizedChunk = normalizeText(nameChunk);
@@ -283,11 +283,11 @@ const parseBuildSheet = (
     
     for (let i = 1; i < data.length; i++) {
         const row = data[i];
-        if (isRowEmpty(row)) continue;
+        if (!row || row.every((cell: any) => !cell)) continue;
 
         const cellRef = `A${i + 1}`;
         
-        const date = parseDate(row[dateIndex]);
+        const date = parseDateSafe(row[dateIndex]);
         const userNameRaw = String(row[operativeIndex] || '').trim();
         const task = String(row[taskIndex] || '').trim();
         const address = String(row[addressIndex] || '').trim();
@@ -327,7 +327,7 @@ const parseBuildSheet = (
   } else {
     // --- ORIGINAL: MATRIX VIEW PARSER ---
     const dateRowRaw = data[0];
-    const dateRow: (Date | null)[] = dateRowRaw.map(parseDate);
+    const dateRow: (Date | null)[] = dateRowRaw.map(parseDateSafe);
     
     let currentAddress = '';
     let currentENumber = '';
@@ -335,7 +335,7 @@ const parseBuildSheet = (
 
     for (let i = 1; i < data.length; i++) {
       const row = data[i];
-      if (isRowEmpty(row)) continue;
+      if (!row || row.every((cell: any) => !cell)) continue;
 
       const newAddressAndENumber = String(row[0] || '').trim();
       if (newAddressAndENumber) {
@@ -495,9 +495,8 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
   };
 
   const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; task: string; }): string => {
-    const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
-    const normalizedDate = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-    return `${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${normalizeText(shift.address)}-${normalizeText(shift.task)}`;
+    const d = getCorrectedLocalDate(shift.date as any);
+    return `${d.toISOString().slice(0, 10)}-${shift.userId}-${normalizeText(shift.address)}-${normalizeText(shift.task)}`;
   };
 
   const runImport = useCallback(
@@ -904,4 +903,3 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
     </div>
   );
 }
-
