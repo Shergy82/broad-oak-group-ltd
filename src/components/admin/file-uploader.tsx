@@ -263,16 +263,22 @@ const extractUsersAndTask = (
   };
 };
 
+const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; task: string; type: 'am' | 'pm' | 'all-day' }): string => {
+  const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
+  const normalizedDate = toDateOnlyUtc(d);
+  return `${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${normalizeText(shift.address)}-${normalizeText(shift.task)}-${shift.type}`;
+};
+
 const parseBuildSheet = (
   worksheet: XLSX.WorkSheet,
   userMap: UserMapEntry[],
   sheetName: string,
   department: string
 ): { shifts: ParsedShift[]; failed: FailedShift[] } => {
-  const getLocalShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; task: string; }): string => {
+  const getLocalShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; task: string; type: 'am' | 'pm' | 'all-day' }): string => {
     const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
     const normalizedDate = toDateOnlyUtc(d);
-    return `${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${normalizeText(shift.address)}-${normalizeText(shift.task)}`;
+    return `${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${normalizeText(shift.address)}-${normalizeText(shift.task)}-${shift.type}`;
   };
   
   const data: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: null });
@@ -505,12 +511,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
     } catch (e) {
       console.warn('Could not save sheet selection to localStorage', e);
     }
-  };
-
-  const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; task: string; }): string => {
-    const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
-    const normalizedDate = toDateOnlyUtc(d);
-    return `${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${normalizeText(shift.address)}-${normalizeText(shift.task)}`;
   };
 
   const runImport = useCallback(
@@ -925,5 +925,3 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
     </div>
   );
 }
-
-    
