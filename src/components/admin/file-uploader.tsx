@@ -2,7 +2,7 @@
 
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { db, functions, httpsCallable } from '@/lib/firebase';
 import {
@@ -579,7 +579,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           } else { // BUILD
               const workbook = XLSX.read(data, {
                 type: 'array',
-                cellDates: false,
+                cellDates: true,
                 cellStyles: true,
               });
     
@@ -600,6 +600,15 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
 
           const today = new Date();
           today.setUTCHours(0, 0, 0, 0);
+
+          const uniqueShiftsMap = new Map<string, ParsedShift>();
+          for (const shift of allShiftsFromExcel) {
+            const key = getShiftKey(shift as any);
+            if (!uniqueShiftsMap.has(key)) {
+              uniqueShiftsMap.set(key, shift);
+            }
+          }
+          allShiftsFromExcel = Array.from(uniqueShiftsMap.values());
 
           const futureShiftsFromExcel = allShiftsFromExcel.filter(s => s.date >= today);
           const pastShiftCount = allShiftsFromExcel.length - futureShiftsFromExcel.length;
@@ -686,7 +695,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
               
               const reconcileShiftsFn = httpsCallable(functions, 'reconcileShifts');
               
-              // Serialize data for the callable function
               const payload = {
                 toCreate: toCreate.map(s => ({ ...s, date: toDateOnlyUtc(s.date).toISOString() })),
                 toUpdate: toUpdate.map(u => ({
@@ -917,3 +925,5 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
     </div>
   );
 }
+
+    
