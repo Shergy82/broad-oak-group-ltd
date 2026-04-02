@@ -376,24 +376,38 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
             continue;
         }
 
+        // De-duplicate users found in the cell
+        const uniqueUsers = new Map<string, UserMapEntry>();
+        let cellFailed = false;
         for (const name of names) {
-          const { users: matchedUsers, reason } = findUsersInMap(name, userMap);
-          if (matchedUsers.length !== 1) {
-            failures.push({ reason: reason || `Could not match operative: "${name}"`, siteAddress, operativeNameRaw: name, sheetName, cellRef: cell.address });
-          } else {
+            const { users: matchedUsers, reason } = findUsersInMap(name, userMap);
+            if (matchedUsers.length !== 1) {
+                failures.push({ reason: reason || `Could not match operative: "${name}"`, siteAddress, operativeNameRaw: name, sheetName, cellRef: cell.address });
+                cellFailed = true;
+                break; 
+            }
+            if (!uniqueUsers.has(matchedUsers[0].uid)) {
+                uniqueUsers.set(matchedUsers[0].uid, matchedUsers[0]);
+            }
+        }
+
+        if (cellFailed) {
+            continue; // Skip this cell if any name in it failed
+        }
+        
+        for (const user of uniqueUsers.values()) {
             parsed.push({
               siteAddress,
               shiftDate: isoDate,
               task,
               type,
-              user: matchedUsers[0],
+              user: user,
               source: { sheetName, cellRef: cell.address },
               manager,
               notes,
               eNumber,
               contract: sheetName,
             });
-          }
         }
       }
     }
