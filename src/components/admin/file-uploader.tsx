@@ -263,10 +263,10 @@ const extractUsersAndTask = (
   };
 };
 
-const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; task: string; type: 'am' | 'pm' | 'all-day' }): string => {
+const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; type: 'am' | 'pm' | 'all-day' }): string => {
   const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
   const normalizedDate = toDateOnlyUtc(d);
-  return `${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${normalizeText(shift.address)}-${normalizeText(shift.task)}-${shift.type}`;
+  return `${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${normalizeText(shift.address)}-${shift.type}`;
 };
 
 const parseBuildSheet = (
@@ -275,10 +275,10 @@ const parseBuildSheet = (
   sheetName: string,
   department: string
 ): { shifts: ParsedShift[]; failed: FailedShift[] } => {
-  const getLocalShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; task: string; type: 'am' | 'pm' | 'all-day' }): string => {
+  const getLocalShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; type: 'am' | 'pm' | 'all-day' }): string => {
     const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
     const normalizedDate = toDateOnlyUtc(d);
-    return `${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${normalizeText(shift.address)}-${normalizeText(shift.task)}-${shift.type}`;
+    return `${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${normalizeText(shift.address)}-${shift.type}`;
   };
   
   const data: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: null });
@@ -641,7 +641,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           const existingShiftsMap = new Map<string, Shift>();
           existingShiftsSnapshot.forEach((doc) => {
             const shiftData = { id: doc.id, ...doc.data() } as Shift;
-            if (!shiftData.userId || !shiftData.date || !shiftData.address || !shiftData.task) return;
+            if (!shiftData.userId || !shiftData.date || !shiftData.address) return;
             existingShiftsMap.set(getShiftKey(shiftData as any), shiftData);
           });
 
@@ -664,7 +664,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             } else if (!protectedStatuses.includes(existingShift.status)) {
               const hasChanged =
                 (existingShift.task || '') !== (excelShift.task || '') ||
-                (existingShift.type || 'all-day') !== (excelShift.type || 'all-day') ||
                 (existingShift.eNumber || '') !== (excelShift.eNumber || '') ||
                 (existingShift.manager || '') !== (excelShift.manager || '') ||
                 (existingShift.notes || '') !== (excelShift.notes || '') ||
