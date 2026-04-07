@@ -323,6 +323,8 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
 
   const [isLoading, setIsLoading] = useState(false);
   const [isNoteDialogOpen, setIsNoteDialogOpen] = useState(false);
+  const [isCompleteNoteDialogOpen, setIsCompleteNoteDialogOpen] = useState(false);
+  const [completionNote, setCompletionNote] = useState('');
   
   const [rejectingTaskIndex, setRejectingTaskIndex] = useState<number | null>(null);
   const [isRejectNoteDialogOpen, setRejectNoteDialogOpen] = useState(false);
@@ -577,14 +579,14 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
     }
   };
 
-  const handleUpdateStatus = async (newStatus: ShiftStatus, notes?: string) => {
+  const handleUpdateStatus = async (newStatus: ShiftStatus, notes?: string): Promise<boolean> => {
     if (!isFirebaseConfigured || !db || !user) {
       toast({
         variant: 'destructive',
         title: 'Authentication Error',
         description: 'You must be logged in to update shifts.',
       });
-      return;
+      return false;
     }
 
     if (isExpired) {
@@ -593,7 +595,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
         title: 'Shift Expired',
         description: 'This shift is in the past and can no longer be updated.',
       });
-      return;
+      return false;
     }
 
     setIsLoading(true);
@@ -613,8 +615,11 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
         updatedAt: serverTimestamp(),
       };
 
-      if (notes) updateData.notes = notes;
-      else if (newStatus === 'confirmed') updateData.notes = deleteField();
+      if (notes) {
+        updateData.notes = notes;
+      } else if (newStatus === 'confirmed' || newStatus === 'completed') {
+        updateData.notes = deleteField();
+      }
 
       await updateDoc(shiftRef, updateData as any);
 
@@ -623,6 +628,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
         description: `Shift is now marked as ${newStatus}.`,
       });
       router.refresh();
+      return true;
     } catch (error: any) {
       let description = 'Could not update shift status.';
       if (error.code === 'permission-denied') {
@@ -633,14 +639,13 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
         title: 'Update Failed',
         description,
       });
+      return false;
     } finally {
       setIsLoading(false);
-      setIsNoteDialogOpen(false);
-      setNote('');
     }
   };
 
-  const handleIncompleteSubmit = () => {
+  const handleIncompleteSubmit = async () => {
     if (!note.trim()) {
       toast({
         variant: 'destructive',
@@ -649,7 +654,19 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
       });
       return;
     }
-    handleUpdateStatus('incomplete', note.trim());
+    const success = await handleUpdateStatus('incomplete', note.trim());
+    if (success) {
+      setIsNoteDialogOpen(false);
+      setNote('');
+    }
+  };
+
+  const handleCompleteSubmit = async () => {
+    const success = await handleUpdateStatus('completed', completionNote.trim());
+    if (success) {
+        setIsCompleteNoteDialogOpen(false);
+        setCompletionNote('');
+    }
   };
 
   const renderTaskList = () => {
@@ -877,7 +894,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
           {!isExpired && shift.status === 'on-site' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <Button
-                onClick={() => handleUpdateStatus('completed')}
+                onClick={() => setIsCompleteNoteDialogOpen(true)}
                 className="w-full bg-green-500 text-white hover:bg-green-600"
                 disabled={isLoading || !allTasksCompleted}
               >
@@ -973,11 +990,44 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsNoteDialogOpen(false)}>Cancel</Button>
             <Button
-              onClick={() => handleIncompleteSubmit()}
+              onClick={handleIncompleteSubmit}
               disabled={isLoading}
               className="bg-amber-600 hover:bg-amber-700"
             >
               {isLoading ? <Spinner /> : 'Submit Note'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      <Dialog open={isCompleteNoteDialogOpen} onOpenChange={setIsCompleteNoteDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Complete Shift</DialogTitle>
+            <DialogDescription>
+              You can add optional completion notes for this shift.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid w-full gap-1.5">
+              <Label htmlFor="completion-note">Completion Notes</Label>
+              <Textarea
+                placeholder="e.g., All tasks finished, client happy..."
+                id="completion-note"
+                value={completionNote}
+                onChange={(e) => setCompletionNote(e.target.value)}
+                rows={4}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsCompleteNoteDialogOpen(false)}>Cancel</Button>
+            <Button
+              onClick={handleCompleteSubmit}
+              disabled={isLoading}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {isLoading ? <Spinner /> : 'Submit & Complete'}
             </Button>
           </DialogFooter>
         </DialogContent>
