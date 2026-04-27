@@ -21,13 +21,31 @@ export const UserProfileContext = createContext<UserProfileContextType>({
 export function UserProfileProvider({ children }: { children: React.ReactNode }) {
     const { user, isLoading: isAuthLoading } = useAuth();
     const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+    const [isAppLocked, setIsAppLocked] = useState(false);
     const [isProfileLoading, setProfileLoading] = useState(true);
+    const [isSettingsLoading, setSettingsLoading] = useState(true);
     const router = useRouter();
     const pathname = usePathname();
 
     useEffect(() => {
+        if (!db) {
+            setSettingsLoading(false);
+            return;
+        }
+        const settingsDocRef = doc(db, "settings", "app_status");
+        const unsubscribe = onSnapshot(settingsDocRef, (docSnap) => {
+            setIsAppLocked(docSnap.exists() && docSnap.data().isLocked === true);
+            setSettingsLoading(false);
+        }, (error) => {
+            console.error("Error fetching app status:", error);
+            setIsAppLocked(false); // Default to unlocked on error
+            setSettingsLoading(false);
+        });
+        return () => unsubscribe();
+    }, []);
+
+    useEffect(() => {
         if (isAuthLoading) {
-            setProfileLoading(true);
             return;
         }
         
@@ -48,18 +66,6 @@ export function UserProfileProvider({ children }: { children: React.ReactNode })
                 if (doc.exists()) {
                     const profile = { uid: doc.id, ...doc.data() } as UserProfile;
                     setUserProfile(profile);
-
-                    const isAuthPage = pathname.startsWith('/login') || pathname.startsWith('/signup') || pathname.startsWith('/forgot-password');
-
-                    // Redirect pending users to a dedicated page
-                    if (profile.status === 'pending-approval' && pathname !== '/pending-approval' && !isAuthPage) {
-                        router.replace('/pending-approval');
-                    }
-                    // Redirect active users away from pending page
-                    if (profile.status === 'active' && pathname === '/pending-approval') {
-                        router.replace('/dashboard');
-                    }
-
                 } else {
                     setUserProfile(null);
                 }
@@ -75,9 +81,38 @@ export function UserProfileProvider({ children }: { children: React.ReactNode })
         // Cleanup subscription on unmount
         return () => unsubscribe();
 
-    }, [user, isAuthLoading, pathname, router]);
+    }, [user, isAuthLoading]);
 
-    const isLoading = isAuthLoading || isProfileLoading;
+    useEffect(() => {
+        if (isAuthLoading || isProfileLoading || isSettingsLoading) {
+            return;
+        }
+        
+        if (user && userProfile) {
+            const isOwner = userProfile.role === 'owner';
+            const onLockedPage = pathname === '/app-locked';
+            const isAuthPage = pathname.startsWith('/login') || pathname.startsWith('/signup') || pathname.startsWith('/forgot-password');
+
+            if (isAppLocked && !isOwner && !onLockedPage) {
+                router.replace('/app-locked');
+                return;
+            }
+
+            if (!isAppLocked && onLockedPage) {
+                router.replace('/dashboard');
+                return;
+            }
+            
+            if (userProfile.status === 'pending-approval' && pathname !== '/pending-approval' && !isAuthPage && !onLockedPage) {
+                router.replace('/pending-approval');
+            }
+            if (userProfile.status === 'active' && pathname === '/pending-approval') {
+                router.replace('/dashboard');
+            }
+        }
+    }, [user, userProfile, isAppLocked, isAuthLoading, isProfileLoading, isSettingsLoading, pathname, router]);
+
+    const isLoading = isAuthLoading || isProfileLoading || isSettingsLoading;
 
     return (
         <UserProfileContext.Provider value={{ userProfile, loading: isLoading }}>

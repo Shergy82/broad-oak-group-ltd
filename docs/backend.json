@@ -1,6 +1,17 @@
 
 {
   "entities": {
+    "AppSettings": {
+        "title": "Application Settings",
+        "description": "Stores global application settings.",
+        "type": "object",
+        "properties": {
+            "isLocked": {
+                "type": "boolean",
+                "description": "If true, the application is locked for all non-owner users."
+            }
+        }
+    },
     "Trade": {
       "title": "Trade",
       "description": "Represents a specific trade, such as 'Plumber' or 'Electrician', and contains a list of standard tasks associated with that trade.",
@@ -120,6 +131,12 @@
     "providers": ["email"]
   },
   "firestore": {
+    "/settings/{settingId}": {
+      "schema": {
+        "$ref": "#/entities/AppSettings"
+      },
+      "description": "Stores global application settings, like the kill switch."
+    },
     "/trade_tasks/{tradeId}": {
       "schema": {
         "$ref": "#/entities/Trade"

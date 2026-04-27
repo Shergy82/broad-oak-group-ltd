@@ -24,6 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
+import { AppStatusToggle } from '@/components/admin/app-status-toggle';
 
 function EditUserDialog({ user, open, onOpenChange, context, availableDepartments }: { user: UserProfile, open: boolean, onOpenChange: (open: boolean) => void, context: 'unassigned' | 'default', availableDepartments: string[] }) {
     const { toast } = useToast();
@@ -165,9 +166,10 @@ export default function UserManagementPage() {
         const isOwner = currentUserProfile?.role === 'owner';
         const isAdmin = currentUserProfile?.role === 'admin';
 
-        const searchedUsers = users.filter(u => 
-            (u.name?.toLowerCase().includes(searchTerm.toLowerCase())) ||
-            (u.email?.toLowerCase().includes(searchTerm.toLowerCase()))
+        const searchedUsers = users.filter(u =>
+            u.email !== 'phil.s@broadoakgroup.com' &&
+            ((u.name?.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            (u.email?.toLowerCase().includes(searchTerm.toLowerCase())))
         );
         
         const pending = searchedUsers.filter(u => u.status === 'pending-approval');
@@ -310,6 +312,8 @@ export default function UserManagementPage() {
                     <TableHeader>
                         <TableRow>
                             <TableHead>Name</TableHead>
+                            <TableHead>Department</TableHead>
+                            <TableHead>Trade</TableHead>
                             <TableHead>Role</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
@@ -321,13 +325,11 @@ export default function UserManagementPage() {
                             return (
                                 <TableRow key={user.uid}>
                                     <TableCell className="font-medium">
-                                        <div className="flex items-center gap-2">
-                                            <span>{user.name}</span>
-                                            {user.department && <Badge variant="secondary">{user.department}</Badge>}
-                                            {user.trade && <Badge variant="outline" className="capitalize">{user.trade}</Badge>}
-                                        </div>
-                                        {user.operativeId && <div className="text-xs text-muted-foreground mt-1">{user.operativeId}</div>}
+                                        {user.name}
+                                        {user.operativeId && <div className="text-xs text-muted-foreground">{user.operativeId}</div>}
                                     </TableCell>
+                                    <TableCell>{user.department || 'N/A'}</TableCell>
+                                    <TableCell>{user.trade || 'N/A'}</TableCell>
                                     <TableCell><Badge variant="outline" className="capitalize">{user.role}</Badge></TableCell>
                                     <TableCell>
                                         <Badge
@@ -373,14 +375,12 @@ export default function UserManagementPage() {
                   return (
                       <Card key={user.uid}>
                           <CardHeader>
-                                <CardTitle className="flex flex-wrap items-center gap-2">
-                                    <span>{user.name}</span>
-                                    {user.department && <Badge variant="secondary">{user.department}</Badge>}
-                                    {user.trade && <Badge variant="outline" className="capitalize">{user.trade}</Badge>}
-                                </CardTitle>
-                                {user.operativeId && <CardDescription className="pt-1">ID: {user.operativeId}</CardDescription>}
+                              <CardTitle>{user.name}</CardTitle>
+                              {user.operativeId && <CardDescription>ID: {user.operativeId}</CardDescription>}
                           </CardHeader>
                           <CardContent className="text-sm space-y-3">
+                              <div><strong>Department:</strong> {user.department || 'N/A'}</div>
+                              <div><strong>Trade:</strong> {user.trade || 'N/A'}</div>
                               <div className="flex items-center gap-2"><strong>Role:</strong> <Badge variant="outline" className="capitalize">{user.role}</Badge></div>
                               <div className="flex items-center gap-2"><strong>Status:</strong>
                                   <Badge
@@ -417,15 +417,17 @@ export default function UserManagementPage() {
     
     if (loading || currentUserLoading) {
         return (
-             <Card>
-                <CardHeader>
-                    <CardTitle>User Management</CardTitle>
-                    <CardDescription>Approve new users, manage roles, and suspend or delete accounts.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <Skeleton className="h-96 w-full" />
-                </CardContent>
-             </Card>
+             <div className="space-y-6">
+                <Card>
+                    <CardHeader>
+                        <CardTitle>User Management</CardTitle>
+                        <CardDescription>Approve new users, manage roles, and suspend or delete accounts.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <Skeleton className="h-96 w-full" />
+                    </CardContent>
+                </Card>
+            </div>
         );
     }
     
@@ -442,7 +444,8 @@ export default function UserManagementPage() {
     }
 
     return (
-        <>
+        <div className="space-y-6">
+            {currentUserProfile?.role === 'owner' && <AppStatusToggle />}
             <Card>
                 <CardHeader>
                     <CardTitle>User Management</CardTitle>
@@ -473,7 +476,7 @@ export default function UserManagementPage() {
                 </CardContent>
             </Card>
             {selectedUser && <EditUserDialog user={selectedUser} open={isEditUserOpen} onOpenChange={setIsEditUserOpen} context={editContext} availableDepartments={availableDepartments} />}
-        </>
+        </div>
     )
 }
     

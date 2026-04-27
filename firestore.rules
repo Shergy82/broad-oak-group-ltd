@@ -89,8 +89,9 @@ service cloud.firestore {
     }
 
     // ---- SETTINGS ----
-    match /settings/{id} {
-      allow read, write: if isOwner(request.auth.uid);
+    match /settings/{docId} {
+      allow read: if signedIn();
+      allow write: if isOwner(request.auth.uid);
     }
 
     // ---- TRADE TASKS ----
