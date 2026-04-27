@@ -51,6 +51,16 @@ const isMatch = (checklistText: string, fileTag: string | undefined): boolean =>
     return checklistWords.every(checklistWord => tagWords.includes(checklistWord));
 };
 
+const normalizeContractName = (name?: string): string => {
+  if (!name) return 'uncategorized';
+  return name
+    .toLowerCase()
+    .replace(/\b(cc|council|borough|city|ltd|limited|plc|group)\b/g, '') // remove common words
+    .replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, '') // remove punctuation
+    .replace(/\s+/g, ' ') // collapse whitespace
+    .trim();
+};
+
 
 interface EvidenceReportGeneratorProps {
   project: Project;
@@ -840,23 +850,42 @@ export function EvidenceDashboard() {
         return b.daysOpen - a.daysOpen;
     });
 
-    const groups: { [key: string]: typeof enrichedProjects } = {};
+    const groups = new Map<string, { displayName: string; projects: typeof enrichedProjects }>();
+
     enrichedProjects.forEach(project => {
-        const groupName = project.contract || 'Uncategorized';
-        if (!groups[groupName]) {
-            groups[groupName] = [];
+        const contract = project.contract || 'Uncategorized';
+        const normalizedKey = normalizeContractName(contract);
+
+        if (!groups.has(normalizedKey)) {
+            groups.set(normalizedKey, { displayName: contract, projects: [] });
         }
-        groups[groupName].push(project);
+        groups.get(normalizedKey)!.projects.push(project);
     });
-    
-    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
+
+    // Post-process to pick the best display name for each group
+    groups.forEach(group => {
+        if (group.projects.length === 0) return;
+
+        const nameCounts: Record<string, number> = {};
+        group.projects.forEach(p => {
+            const name = p.contract || 'Uncategorized';
+            nameCounts[name] = (nameCounts[name] || 0) + 1;
+        });
+
+        const mostCommonName = Object.keys(nameCounts).reduce((a, b) =>
+            nameCounts[a] > nameCounts[b] ? a : b
+        );
+        group.displayName = mostCommonName;
+    });
+
+    return Array.from(groups.values()).sort((a, b) => a.displayName.localeCompare(b.displayName));
   }, [relevantProjects, filesByProject, evidenceChecklists, loading]);
   
-  const visibleGroups = useMemo(() => groupedProjects.filter(([name]) => !hiddenContracts.has(name)), [groupedProjects, hiddenContracts]);
+  const visibleGroups = useMemo(() => groupedProjects.filter(group => !hiddenContracts.has(group.displayName)), [groupedProjects, hiddenContracts]);
   
   const hiddenContractsList = useMemo(() => {
     // Get all contract names that are relevant for the current view
-    const allRelevantContractNames = new Set(groupedProjects.map(([name]) => name));
+    const allRelevantContractNames = new Set(groupedProjects.map(g => g.displayName));
     
     // Filter the globally stored hidden contracts to only those that are relevant now
     return Array.from(hiddenContracts)
@@ -896,19 +925,19 @@ export function EvidenceDashboard() {
               </p>
             </div>
           ) : (
-            visibleGroups.map(([contractName, projectGroup]) => (
-              <div key={contractName}>
+            visibleGroups.map((group) => (
+              <div key={group.displayName}>
                 <div className="flex items-center gap-0.5 mb-4">
-                    <h2 className="text-xl font-semibold capitalize">{contractName}</h2>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditingChecklist(contractName)}>
+                    <h2 className="text-xl font-semibold capitalize">{group.displayName}</h2>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditingChecklist(group.displayName)}>
                         <Pencil className="h-4 w-4 text-muted-foreground" />
                     </Button>
-                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toggleContractVisibility(contractName)}>
+                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toggleContractVisibility(group.displayName)}>
                         <EyeOff className="h-4 w-4 text-muted-foreground" />
                     </Button>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                  {projectGroup.map(project => (
+                  {group.projects.map(project => (
                     <ProjectEvidenceCard 
                         key={project.id}
                         project={project}
