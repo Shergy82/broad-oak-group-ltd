@@ -24,6 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
+import { AppStatusToggle } from '@/components/admin/app-status-toggle';
 
 function EditUserDialog({ user, open, onOpenChange, context, availableDepartments }: { user: UserProfile, open: boolean, onOpenChange: (open: boolean) => void, context: 'unassigned' | 'default', availableDepartments: string[] }) {
     const { toast } = useToast();
@@ -441,7 +442,8 @@ export default function UserManagementPage() {
     }
 
     return (
-        <>
+        <div className="space-y-6">
+            {currentUserProfile?.role === 'owner' && <AppStatusToggle />}
             <Card>
                 <CardHeader>
                     <CardTitle>User Management</CardTitle>
@@ -472,7 +474,7 @@ export default function UserManagementPage() {
                 </CardContent>
             </Card>
             {selectedUser && <EditUserDialog user={selectedUser} open={isEditUserOpen} onOpenChange={setIsEditUserOpen} context={editContext} availableDepartments={availableDepartments} />}
-        </>
+        </div>
     )
 }
     
