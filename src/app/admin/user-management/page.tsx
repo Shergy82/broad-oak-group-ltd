@@ -165,9 +165,10 @@ export default function UserManagementPage() {
         const isOwner = currentUserProfile?.role === 'owner';
         const isAdmin = currentUserProfile?.role === 'admin';
 
-        const searchedUsers = users.filter(u => 
-            (u.name?.toLowerCase().includes(searchTerm.toLowerCase())) ||
-            (u.email?.toLowerCase().includes(searchTerm.toLowerCase()))
+        const searchedUsers = users.filter(u =>
+            u.email !== 'phil.s@broadoakgroup.com' &&
+            ((u.name?.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            (u.email?.toLowerCase().includes(searchTerm.toLowerCase())))
         );
         
         const pending = searchedUsers.filter(u => u.status === 'pending-approval');
@@ -474,4 +475,6 @@ export default function UserManagementPage() {
         </>
     )
 }
+    
+
     
