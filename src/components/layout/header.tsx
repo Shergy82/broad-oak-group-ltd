@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useRouter } from 'next/navigation';
@@ -63,8 +64,8 @@ function ShareDialog({ open, onOpenChange, availableDepartments }: { open: boole
   const { toast } = useToast();
 
   const shareableDepts = useMemo(() => {
-    return availableDepartments.filter(d => ['Build', 'Gas'].includes(d));
-  }, [availableDepartments]);
+    return ['Build', 'Gas'];
+  }, []);
 
   useEffect(() => {
     const storedPref = localStorage.getItem(SHARE_PREFERENCE_KEY);
