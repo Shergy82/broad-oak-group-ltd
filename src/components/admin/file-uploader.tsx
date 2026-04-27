@@ -275,12 +275,6 @@ const parseBuildSheet = (
   sheetName: string,
   department: string
 ): { shifts: ParsedShift[]; failed: FailedShift[] } => {
-  const getLocalShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; type: 'am' | 'pm' | 'all-day' }): string => {
-    const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
-    const normalizedDate = toDateOnlyUtc(d);
-    return `${normalizedDate.toISOString().slice(0, 10)}-${shift.userId}-${normalizeText(shift.address)}-${shift.type}`;
-  };
-  
   const data: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: null });
   if (data.length < 2) return { shifts: [], failed: [] };
 
@@ -412,16 +406,7 @@ const parseBuildSheet = (
     }
   }
 
-  const uniqueShiftsMap = new Map<string, ParsedShift>();
-  for (const shift of allShifts) {
-    const key = getLocalShiftKey(shift);
-    if (!uniqueShiftsMap.has(key)) {
-      uniqueShiftsMap.set(key, shift);
-    }
-  }
-  const uniqueShifts = Array.from(uniqueShiftsMap.values());
-
-  return { shifts: uniqueShifts, failed: allFailed };
+  return { shifts: allShifts, failed: allFailed };
 };
 
 
@@ -598,9 +583,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
               }
           }
 
-          const today = new Date();
-          today.setUTCHours(0, 0, 0, 0);
-
           const uniqueShiftsMap = new Map<string, ParsedShift>();
           for (const shift of allShiftsFromExcel) {
             const key = getShiftKey(shift as any);
@@ -609,6 +591,9 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             }
           }
           allShiftsFromExcel = Array.from(uniqueShiftsMap.values());
+
+          const today = new Date();
+          today.setUTCHours(0, 0, 0, 0);
 
           const futureShiftsFromExcel = allShiftsFromExcel.filter(s => s.date >= today);
           const pastShiftCount = allShiftsFromExcel.length - futureShiftsFromExcel.length;
