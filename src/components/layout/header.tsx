@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import { useRouter } from 'next/navigation';
@@ -20,7 +18,6 @@ import {
   Users,
   TrendingUp,
   HelpCircle,
-  Fingerprint,
   Building2,
   ListChecks,
   FileArchive,
@@ -305,13 +302,6 @@ export function Header() {
                             <Building2 className="mr-2" />
                             <span>Site Schedule</span>
                           </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onSelect={() => window.open('https://studio--studio-6303842196-5daf6.us-central1.hosted.app', '_blank')}
-                            className="cursor-pointer"
-                          >
-                            <Fingerprint className="mr-2" />
-                            <span>Digital Sign In/Out</span>
-                          </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => router.push('/announcements')} className="cursor-pointer">
                             <Megaphone className="mr-2" />
                             <span>Announcements</span>
@@ -344,13 +334,6 @@ export function Header() {
                       <DropdownMenuItem onClick={() => router.push('/site-schedule')} className="cursor-pointer">
                         <Building2 className="mr-2" />
                         <span>Site Schedule</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onSelect={() => window.open('https://studio--studio-6303842196-5daf6.us-central1.hosted.app', '_blank')}
-                        className="cursor-pointer"
-                      >
-                        <Fingerprint className="mr-2" />
-                        <span>Digital Sign In/Out</span>
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => router.push('/announcements')} className="cursor-pointer">
                         <Megaphone className="mr-2" />
