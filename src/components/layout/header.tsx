@@ -238,58 +238,94 @@ export function Header() {
                     <span className="sr-only">Toggle user menu</span>
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-64">
-                  {userProfile?.name && <DropdownMenuLabel>{userProfile.name}</DropdownMenuLabel>}
-                  {userProfile?.email && (
-                    <DropdownMenuLabel className="font-normal text-muted-foreground -mt-2 pb-2">
-                      {userProfile.email}
-                    </DropdownMenuLabel>
-                  )}
-                  <DropdownMenuSeparator />
-
-                  {isOwner && availableDepartments.length > 0 && (
-                    <>
-                      <DropdownMenuSub>
-                        <DropdownMenuSubTrigger>
-                          <SlidersHorizontal className="mr-2 h-4 w-4" />
-                          <span>Filter Departments</span>
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuPortal>
-                          <DropdownMenuSubContent>
-                            <DropdownMenuLabel>Visible Departments</DropdownMenuLabel>
-                            <DropdownMenuSeparator />
-                            {deptsLoading ? <DropdownMenuItem disabled>Loading...</DropdownMenuItem> :
-                              availableDepartments.map(dept => (
-                                <DropdownMenuCheckboxItem
-                                  key={dept}
-                                  checked={selectedDepartments.has(dept)}
-                                  onCheckedChange={() => toggleDepartment(dept)}
-                                  onSelect={(e) => e.preventDefault()}
-                                >
-                                  {dept}
-                                </DropdownMenuCheckboxItem>
-                              ))
-                            }
-                          </DropdownMenuSubContent>
-                        </DropdownMenuPortal>
-                      </DropdownMenuSub>
-                      <DropdownMenuSeparator />
-                    </>
-                  )}
+                <DropdownMenuContent align="end" className="w-64 p-0">
+                  <div className="p-2 border-b bg-muted/30">
+                    {userProfile?.name && <DropdownMenuLabel>{userProfile.name}</DropdownMenuLabel>}
+                    {userProfile?.email && (
+                      <DropdownMenuLabel className="font-normal text-muted-foreground -mt-2 pb-2">
+                        {userProfile.email}
+                      </DropdownMenuLabel>
+                    )}
+                  </div>
                   
-                  {isPrivilegedUser ? (
-                    <>
-                      <DropdownMenuItem onSelect={handleToggleUserMenu} className="cursor-pointer">
-                        <div className="flex w-full items-center justify-between">
-                          <div className="flex items-center">
-                            <User className="mr-2 h-4 w-4" />
-                            <span>User Menu</span>
-                          </div>
-                          <ChevronRight className={cn("h-4 w-4 transition-transform", !isUserMenuCollapsed && "rotate-90")} />
-                        </div>
-                      </DropdownMenuItem>
-                      {!isUserMenuCollapsed && (
-                        <div className="pl-4">
+                  <ScrollArea className="max-h-[80vh] overflow-y-auto p-1">
+                    <div className="space-y-1">
+                      {isOwner && availableDepartments.length > 0 && (
+                        <>
+                          <DropdownMenuSub>
+                            <DropdownMenuSubTrigger>
+                              <SlidersHorizontal className="mr-2 h-4 w-4" />
+                              <span>Filter Departments</span>
+                            </DropdownMenuSubTrigger>
+                            <DropdownMenuPortal>
+                              <DropdownMenuSubContent>
+                                <DropdownMenuLabel>Visible Departments</DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                {deptsLoading ? <DropdownMenuItem disabled>Loading...</DropdownMenuItem> :
+                                  availableDepartments.map(dept => (
+                                    <DropdownMenuCheckboxItem
+                                      key={dept}
+                                      checked={selectedDepartments.has(dept)}
+                                      onCheckedChange={() => toggleDepartment(dept)}
+                                      onSelect={(e) => e.preventDefault()}
+                                    >
+                                      {dept}
+                                    </DropdownMenuCheckboxItem>
+                                  ))
+                                }
+                              </DropdownMenuSubContent>
+                            </DropdownMenuPortal>
+                          </DropdownMenuSub>
+                          <DropdownMenuSeparator />
+                        </>
+                      )}
+                      
+                      {isPrivilegedUser ? (
+                        <>
+                          <DropdownMenuItem onSelect={handleToggleUserMenu} className="cursor-pointer">
+                            <div className="flex w-full items-center justify-between">
+                              <div className="flex items-center">
+                                <User className="mr-2 h-4 w-4" />
+                                <span>User Menu</span>
+                              </div>
+                              <ChevronRight className={cn("h-4 w-4 transition-transform", !isUserMenuCollapsed && "rotate-90")} />
+                            </div>
+                          </DropdownMenuItem>
+                          {!isUserMenuCollapsed && (
+                            <div className="pl-4">
+                              <DropdownMenuItem onClick={() => router.push('/dashboard')} className="cursor-pointer">
+                                <Calendar className="mr-2" />
+                                <span>Dashboard</span>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => router.push('/ai')} className="cursor-pointer">
+                                <Map className="mr-2" />
+                                <span>AI Assistant</span>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => router.push('/site-schedule')} className="cursor-pointer">
+                                <Building2 className="mr-2" />
+                                <span>Site Schedule</span>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => router.push('/announcements')} className="cursor-pointer">
+                                <Megaphone className="mr-2" />
+                                <span>Announcements</span>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => router.push('/stats')} className="cursor-pointer">
+                                <TrendingUp className="mr-2" />
+                                <span>Stats</span>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => router.push('/projects')} className="cursor-pointer">
+                                <Briefcase className="mr-2" />
+                                <span>Projects</span>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => router.push('/health-and-safety')} className="cursor-pointer">
+                                <HardHat className="mr-2" />
+                                <span>Health & Safety</span>
+                              </DropdownMenuItem>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <>
                           <DropdownMenuItem onClick={() => router.push('/dashboard')} className="cursor-pointer">
                             <Calendar className="mr-2" />
                             <span>Dashboard</span>
@@ -318,57 +354,23 @@ export function Header() {
                             <HardHat className="mr-2" />
                             <span>Health & Safety</span>
                           </DropdownMenuItem>
-                        </div>
+                        </>
                       )}
-                    </>
-                  ) : (
-                    <>
-                      <DropdownMenuItem onClick={() => router.push('/dashboard')} className="cursor-pointer">
-                        <Calendar className="mr-2" />
-                        <span>Dashboard</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => router.push('/ai')} className="cursor-pointer">
-                        <Map className="mr-2" />
-                        <span>AI Assistant</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => router.push('/site-schedule')} className="cursor-pointer">
-                        <Building2 className="mr-2" />
-                        <span>Site Schedule</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => router.push('/announcements')} className="cursor-pointer">
-                        <Megaphone className="mr-2" />
-                        <span>Announcements</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => router.push('/stats')} className="cursor-pointer">
-                        <TrendingUp className="mr-2" />
-                        <span>Stats</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => router.push('/projects')} className="cursor-pointer">
-                        <Briefcase className="mr-2" />
-                        <span>Projects</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => router.push('/health-and-safety')} className="cursor-pointer">
-                        <HardHat className="mr-2" />
-                        <span>Health & Safety</span>
-                      </DropdownMenuItem>
-                    </>
-                  )}
 
 
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => router.push('/help')} className="cursor-pointer">
-                    <HelpCircle className="mr-2" />
-                    <span>Help & Support</span>
-                  </DropdownMenuItem>
-
-                  {isPrivilegedUser && (
-                    <>
                       <DropdownMenuSeparator />
-                      <DropdownMenuLabel>Admin Area</DropdownMenuLabel>
-                      <ScrollArea className="max-h-[350px]">
+                      <DropdownMenuItem onClick={() => router.push('/help')} className="cursor-pointer">
+                        <HelpCircle className="mr-2" />
+                        <span>Help & Support</span>
+                      </DropdownMenuItem>
+
+                      {isPrivilegedUser && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuLabel>Admin Area</DropdownMenuLabel>
                           <DropdownMenuItem onClick={() => router.push('/admin/control-panel')} className="cursor-pointer">
-                          <Shield className="mr-2" />
-                          <span>Control Panel</span>
+                            <Shield className="mr-2" />
+                            <span>Control Panel</span>
                           </DropdownMenuItem>
                           {(isOwner || isAdmin) && (
                               <DropdownMenuItem onClick={() => router.push('/admin/user-management')} className="cursor-pointer">
@@ -380,20 +382,20 @@ export function Header() {
                               </DropdownMenuItem>
                           )}
                           <DropdownMenuItem onClick={() => router.push('/schedule')} className="cursor-pointer">
-                          <Users className="mr-2" />
-                          <span>Team Schedule</span>
+                            <Users className="mr-2" />
+                            <span>Team Schedule</span>
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => router.push('/admin/availability')} className="cursor-pointer">
-                          <Calendar className="mr-2" />
-                          <span>Availability</span>
+                            <Calendar className="mr-2" />
+                            <span>Availability</span>
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => router.push('/admin/staff-ai')} className="cursor-pointer">
-                          <Map className="mr-2" />
-                          <span>Mapping</span>
+                            <Map className="mr-2" />
+                            <span>Mapping</span>
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => router.push('/admin/contracts')} className="cursor-pointer">
-                          <Briefcase className="mr-2" />
-                          <span>Contracts</span>
+                            <Briefcase className="mr-2" />
+                            <span>Contracts</span>
                           </DropdownMenuItem>
                           {(isOwner || userProfile?.department === 'Build') && (
                               <DropdownMenuItem onClick={() => router.push('/admin/finance')} className="cursor-pointer">
@@ -402,29 +404,33 @@ export function Header() {
                               </DropdownMenuItem>
                           )}
                           <DropdownMenuItem onClick={() => router.push('/admin/performance')} className="cursor-pointer">
-                          <TrendingUp className="mr-2" />
-                          <span>Performance</span>
+                            <TrendingUp className="mr-2" />
+                            <span>Performance</span>
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => router.push('/admin/tasks')} className="cursor-pointer">
-                          <ListChecks className="mr-2" />
-                          <span>Tasks</span>
+                            <ListChecks className="mr-2" />
+                            <span>Tasks</span>
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => router.push('/admin/evidence')} className="cursor-pointer">
-                          <FileArchive className="mr-2" />
-                          <span>Evidence</span>
+                            <FileArchive className="mr-2" />
+                            <span>Evidence</span>
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={handleShareClick} className="cursor-pointer">
                             <Share2 className="mr-2 h-4 w-4" />
                             <span>Share Signup Link</span>
                           </DropdownMenuItem>
-                      </ScrollArea>
-                    </>
-                  )}
+                        </>
+                      )}
+                    </div>
+                  </ScrollArea>
+                  
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer">
-                    <LogOut className="mr-2" />
-                    <span>Logout</span>
-                  </DropdownMenuItem>
+                  <div className="p-1">
+                    <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer text-destructive focus:text-destructive focus:bg-destructive/10">
+                      <LogOut className="mr-2 h-4 w-4" />
+                      <span>Logout</span>
+                    </DropdownMenuItem>
+                  </div>
                 </DropdownMenuContent>
               </DropdownMenu>
             </>
