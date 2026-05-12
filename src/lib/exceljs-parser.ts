@@ -149,6 +149,7 @@ export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry
     let headerRowNumber = -1;
     let headerRow: ExcelJS.Row | undefined;
     
+    // Quick check to see if this is a List view vs a Matrix view
     sheet.eachRow((row, rowNum) => {
         if(!headerRow && row.hasValues) {
             headerRow = row;
@@ -259,30 +260,32 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
   const used = getUsedBounds(sheet);
   if (!used) return { parsed: [], failures: [{ reason: "Sheet appears empty", sheetName }] };
 
+  // 1. Identify Divider Rows (the "black lines")
   let dividerRows = findDividerRows(sheet, used);
   
-  // Implicit dividers at start and end of sheet range
+  // Implicit dividers at start and end
   if (!dividerRows.includes(used.startRow - 1)) dividerRows.unshift(used.startRow - 1);
   if (!dividerRows.includes(used.endRow + 1)) dividerRows.push(used.endRow + 1);
 
+  // 2. Iterate through each site block
   for (let i = 0; i < dividerRows.length - 1; i++) {
     const blockStart = dividerRows[i] + 1;
     const blockEnd = dividerRows[i + 1] - 1;
-    if (blockEnd <= blockStart) continue;
+    if (blockEnd < blockStart) continue;
 
-    // Check if the block is entirely empty (Column A blank for too many rows)
-    let emptyRowcount = 0;
-    for (let r = blockStart; r <= blockEnd; r++) {
-        if (!getCellText(sheet.getRow(r).getCell(1))) emptyRowcount++;
+    // "End of Data" logic: if Column A is empty for too many rows at the start of a block, stop the sheet.
+    let emptyStreak = 0;
+    for (let r = blockStart; r <= Math.min(blockStart + 15, blockEnd); r++) {
+        if (!getCellText(sheet.getRow(r).getCell(1))) emptyStreak++;
     }
-    // Hard stop if more than 20 rows in this block are empty in col A
-    if (emptyRowcount > 20 && (blockEnd - blockStart) > 20) break;
+    if (emptyStreak > 15) break;
 
+    // 3. Extract the address strictly for THIS block
     const siteAddressResult = extractSiteAddress(sheet, used, blockStart, blockEnd);
     if (!siteAddressResult) {
-      // Only report failure if we actually find shift-like text in this block
-      const hasShifts = detectAnyShiftTextInBlock(sheet, used, blockStart, blockEnd);
-      if (hasShifts) {
+      // Check if there's actually shift data here. If yes, it's a failure.
+      const hasPossibleShifts = detectAnyShiftTextInBlock(sheet, used, blockStart, blockEnd);
+      if (hasPossibleShifts) {
           failures.push({ reason: "Site address not found in job block.", sheetName, cellRef: `A${blockStart}:B${blockEnd}` });
       }
       continue;
@@ -293,15 +296,17 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
     const eNumber = eNumMatch ? eNumMatch[1].toUpperCase() : '';
     const siteAddress = eNumMatch ? rawSiteAddress.replace(eNumMatch[0], '').trim().replace(/,$/, '').trim() : rawSiteAddress;
 
+    // 4. Find the Date header row for THIS block
     const dateRowIdx = findDateRow(sheet, used, blockStart, blockEnd);
     if (!dateRowIdx) {
       failures.push({ reason: "Date header row not found in block.", sheetName, siteAddress, cellRef: `A${blockStart}:Z${blockEnd}`});
       continue;
     }
 
+    // 5. Gather Manager/Contact info from the top of the block
     let manager = '';
     const otherContacts: string[] = [];
-    for (let r = blockStart; r < addressRow; r++) {
+    for (let r = blockStart; r < dateRowIdx; r++) {
         const cellText = getCellText(sheet.getRow(r).getCell(1));
         if (cellText) {
             const upper = cellText.toUpperCase();
@@ -310,13 +315,15 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
         }
     }
 
+    // 6. Process Shift Grid for THIS block
     const dateCols = getDateColumns(sheet, used, dateRowIdx);
     for (const { col, isoDate } of dateCols) {
       for (let r = dateRowIdx + 1; r <= blockEnd; r++) {
-        if (dividerRows.includes(r)) break;
         const cell = sheet.getRow(r).getCell(col);
         const text = getCellText(cell);
-        if (!text || isNonShiftText(text)) continue;
+        
+        // Strict shift cell validation: must contain a hyphen and not be noise
+        if (!text || !text.includes('-') || isNonShiftText(text)) continue;
 
         const { task, names, type } = extractGasTaskAndNames(text);
         const uniqueUsers = new Map<string, UserMapEntry>();
@@ -325,7 +332,13 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
         for (const name of names) {
             const { users: matchedUsers, reason } = findUsersInMap(name, userMap);
             if (matchedUsers.length !== 1) {
-                failures.push({ reason: reason || `Could not match: "${name}"`, siteAddress, operativeNameRaw: name, sheetName, cellRef: cell.address });
+                failures.push({ 
+                    reason: reason || `Could not match operative: "${name}"`, 
+                    siteAddress, 
+                    operativeNameRaw: name, 
+                    sheetName, 
+                    cellRef: cell.address 
+                });
                 cellFailed = true;
                 break; 
             }
@@ -379,26 +392,30 @@ type UsedBounds = { startRow: number; endRow: number; startCol: number; endCol: 
 function findDividerRows(ws: ExcelJS.Worksheet, used: UsedBounds): number[] {
   const rows: number[] = [];
   for (let r = used.startRow; r <= used.endRow; r++) {
-    if (isDividerRow(ws, used, r)) rows.push(r);
+    if (isDividerRow(ws, r)) rows.push(r);
   }
   return rows.filter((row, idx) => idx === 0 || row !== rows[idx - 1] + 1);
 }
 
-function isDividerRow(ws: ExcelJS.Worksheet, used: UsedBounds, r: number): boolean {
-  let filledCount = 0;
-  let textCount = 0;
-  const checkLimit = Math.min(used.endCol, 10);
+function isDividerRow(ws: ExcelJS.Worksheet, r: number): boolean {
+  const row = ws.getRow(r);
+  let hasPatternFill = false;
+  let hasText = false;
   
-  for (let c = 1; c <= checkLimit; c++) {
-    const cell = ws.getRow(r).getCell(c);
-    if (getCellText(cell)) textCount++;
+  // Check the first few columns for a colored divider row
+  for (let c = 1; c <= 8; c++) {
+    const cell = row.getCell(c);
+    if (getCellText(cell)) {
+        hasText = true;
+        break;
+    }
     const fill = cell.fill as any;
-    if (fill?.type === "pattern" && fill.fgColor?.argb) {
-        const argb = String(fill.fgColor.argb).toUpperCase();
-        if (argb !== "FFFFFFFF" && !argb.startsWith("00")) filledCount++;
+    // Any pattern fill (solid background color) that isn't 'none' is a divider candidate
+    if (fill?.type === "pattern" && fill.pattern !== "none") {
+        hasPatternFill = true;
     }
   }
-  return textCount === 0 && filledCount >= 2;
+  return hasPatternFill && !hasText;
 }
 
 function detectAnyShiftTextInBlock(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, endRow: number): boolean {
@@ -412,22 +429,22 @@ function detectAnyShiftTextInBlock(ws: ExcelJS.Worksheet, used: UsedBounds, star
 }
 
 function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, endRow: number): { address: string; row: number; } | null {
-    const scoreAddress = (cell: ExcelJS.Cell) => {
-        const text = getCellText(cell);
-        if (!text) return 0;
+    const scoreAddress = (text: string) => {
+        if (!text || text.length < 5) return 0;
         let score = Math.min(text.length, 50);
         if (/\d/.test(text)) score += 10;
         if (/,|\n/.test(text)) score += 10;
-        if (/\b([A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i.test(text)) score += 20;
+        if (/\b([A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i.test(text)) score += 30; // High score for postcodes
         return score;
     };
 
     let best = { text: "", score: 0, row: 0 };
-    for (let r = startRow; r <= endRow; r++) {
+    // Usually in Column A or B near the start of the block
+    for (let r = startRow; r <= Math.min(startRow + 10, endRow); r++) {
         for (let c = 1; c <= 2; c++) {
-            const cell = ws.getRow(r).getCell(c);
-            const score = scoreAddress(cell);
-            if (score > best.score) best = { text: getCellText(cell), score, row: r };
+            const text = getCellText(ws.getRow(r).getCell(c));
+            const score = scoreAddress(text);
+            if (score > best.score) best = { text, score, row: r };
         }
     }
     return best.score >= 20 ? { address: normalizeWhitespace(best.text), row: best.row } : null;
@@ -439,6 +456,7 @@ function findDateRow(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, 
     for (let c = used.startCol; c <= used.endCol; c++) {
       if (parseExcelCellAsDate(ws.getRow(r).getCell(c))) count++;
     }
+    // Header row usually has many consecutive dates
     if (count >= 3) return r;
   }
   return null;
@@ -462,6 +480,7 @@ function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
   }
   const text = getCellText(cell);
   if (!text) return null;
+  // Handle strings like "1st May"
   const d = new Date(text.replace(/(\d+)(st|nd|rd|th)/g, '$1'));
   return (!isNaN(d.getTime()) && d.getUTCFullYear() > 2000) ? new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())) : null;
 }
@@ -477,9 +496,9 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
     else if (/^PM\b/i.test(raw)) { type = 'pm'; raw = raw.substring(2).trim(); }
 
     const lastHyphen = raw.lastIndexOf("-");
-    if (lastHyphen === -1) return { task: "Task not specified", names: raw.split(/[,&/]| and /i).map(s => s.trim()).filter(Boolean), type };
+    if (lastHyphen === -1) return { task: "Unspecified", names: raw.split(/[,&/]| and /i).map(s => s.trim()).filter(Boolean), type };
     return { 
-        task: raw.substring(0, lastHyphen).trim() || "Task not specified", 
+        task: raw.substring(0, lastHyphen).trim() || "Unspecified", 
         names: raw.substring(lastHyphen + 1).split(/[,&/]| and /i).map(s => s.trim()).filter(Boolean), 
         type 
     };
@@ -487,15 +506,14 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
 
 function isNonShiftText(text: string): boolean {
   const t = text.trim().toLowerCase();
-  const noise = ["job manager", "measures", "scheme", "pulse", "ignore", "ordered", "start date", "on live", "coole", "variation", "work type"];
+  const noise = ["job manager", "measures", "scheme", "pulse", "ignore", "ordered", "start date", "on live", "coole", "variation", "work type", "operative"];
   return noise.some(b => t.includes(b)) || /^\+?\d[\d\s-]{7,}$/.test(t);
 }
 
-/* ====================================================================================================
-   BUILD DEPARTMENT IMPORT (SHEETJS) - DO NOT MODIFY BELOW THIS LINE AS PER USER REQUEST
-   ==================================================================================================== */
+/* =========================
+   BUILD PARSER (SheetJS)
+   ========================= */
 
-// Full sheet parser for BUILD format
 export const parseBuildSheet = (
   worksheet: any, 
   userMap: UserMapEntry[],
