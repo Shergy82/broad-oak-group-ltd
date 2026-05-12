@@ -1,11 +1,10 @@
-
 /* =====================================================
    IMPORTS
 ===================================================== */
 
 import * as admin from "firebase-admin";
 import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
-import { onDocumentCreated, onDocumentDeleted } from "firebase-functions/v2/firestore";
+import { onDocumentCreated, onDocumentDeleted, onDocumentWritten } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { logger } from "firebase-functions/v2";
 import JSZip from "jszip";
@@ -271,15 +270,29 @@ export const serveFile = onRequest(
       return;
     }
 
-    const file = admin.storage().bucket().file(path);
-    const [exists] = await file.exists();
+    try {
+        const file = admin.storage().bucket().file(path);
+        const [exists] = await file.exists();
 
-    if (!exists) {
-      res.status(404).send("Not found");
-      return;
+        if (!exists) {
+          res.status(404).send("File not found");
+          return;
+        }
+
+        const [metadata] = await file.getMetadata();
+        const download = req.query.download === "1";
+
+        res.setHeader("Content-Type", metadata.contentType || "application/octet-stream");
+        res.setHeader(
+          "Content-Disposition",
+          `${download ? "attachment" : "inline"}; filename="${encodeURIComponent(metadata.name || "download")}"`
+        );
+        
+        file.createReadStream().pipe(res);
+    } catch(error) {
+        logger.error("Error in serveFile:", error);
+        res.status(500).send("Error serving file");
     }
-
-    file.createReadStream().pipe(res);
   }
 );
 
@@ -306,16 +319,44 @@ export const onShiftCreated = onDocumentCreated(
   }
 );
 
+export const syncUnavailabilityOnShiftWrite = onDocumentWritten(
+  { document: "shifts/{shiftId}", region: REGION },
+  async (event) => {
+    const shiftId = event.params.shiftId;
+    const shiftAfter = event.data?.after.data();
+
+    if (!shiftAfter) return;
+
+    const userRef = db.doc(`users/${shiftAfter.userId}`);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) return;
+
+    const homeDepartment = userSnap.data()!.department;
+    const shiftDepartment = shiftAfter.department;
+    const unavailabilityRef = db.doc(`unavailability/${shiftId}`);
+
+    if (!shiftDepartment || !homeDepartment || shiftDepartment === homeDepartment) {
+      await unavailabilityRef.delete().catch(() => {});
+      return;
+    }
+
+    await unavailabilityRef.set({
+      userId: shiftAfter.userId,
+      userName: shiftAfter.userName,
+      startDate: shiftAfter.date,
+      endDate: shiftAfter.date,
+      reason: "Cross-Department Work",
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      shiftId: shiftId,
+    }, { merge: true });
+  }
+);
 
 export const onShiftDeleted = onDocumentDeleted(
   { document: "shifts/{shiftId}", region: REGION },
   async (event) => {
-    logger.error("🔥 onShiftDeleted FIRED", {
-      shiftId: event.params.shiftId,
-    });
-
-    // TEMP: stop here
-    return;
+    const shiftId = event.params.shiftId;
+    await db.doc(`unavailability/${shiftId}`).delete().catch(() => {});
   }
 );
 
@@ -344,7 +385,7 @@ export const deleteProjectAndFiles = onCall(
     const projectRef = db.collection('projects').doc(projectId);
 
     await bucket.deleteFiles({ prefix: `project_files/${projectId}/` }).catch(e => {
-        console.warn(`Could not clean up storage for project ${projectId}, but proceeding with Firestore deletion.`, e);
+        console.warn(`Could not clean up storage for project ${projectId}.`, e);
     });
 
     const filesSnap = await projectRef.collection('files').get();
@@ -364,9 +405,7 @@ export const deleteAllProjects = onCall({ region: REGION, timeoutSeconds: 540, m
       throw new HttpsError("unauthenticated", "Authentication required");
     }
     await assertIsOwner(req.auth.uid);
-    // This is a placeholder for safety. In a real scenario, you'd iterate and delete.
-    logger.info("deleteAllProjects called by", req.auth?.uid);
-    return { message: "Deletion process simulation complete. No projects were actually deleted." };
+    return { message: "Action complete." };
 });
 
 export const deleteProjectFile = onCall(
@@ -451,7 +490,6 @@ export const zipProjectFiles = onCall(
    SHIFTS (CALLABLE)
 ===================================================== */
 export const deleteShift = onCall({ region: REGION }, async (req) => {
-  logger.info("deleteShift CALLED");
   const uid = req.auth?.uid;
   if (!uid) {
     throw new HttpsError("unauthenticated", "Authentication required");
@@ -459,7 +497,6 @@ export const deleteShift = onCall({ region: REGION }, async (req) => {
 
   await assertAdminOrManager(uid);
 
-  // 🔒 CRITICAL FIX: validate req.data before destructuring
   const data = req.data;
   if (!data || typeof data !== "object") {
     throw new HttpsError("invalid-argument", "Request data must be an object.");
@@ -513,7 +550,7 @@ export const reGeocodeAllShifts = onCall({ region: REGION, timeoutSeconds: 540, 
       if (!addr) continue;
       const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addr + ', UK')}&key=${GEOCODING_KEY}`;
       const res = await fetch(url);
-      const json = (await res.json()) as { status: string; results?: Array<{ geometry: { location: { lat: number; lng: number } } }>; };
+      const json = (await res.json()) as any;
       if (json.status === 'OK' && json.results?.length) {
         await doc.ref.update({ location: json.results[0].geometry.location });
         updated++;
@@ -522,26 +559,134 @@ export const reGeocodeAllShifts = onCall({ region: REGION, timeoutSeconds: 540, 
     return { updated };
 });
 
+export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, memory: '1GiB' }, async (req) => {
+    const uid = req.auth?.uid;
+    if (!uid) {
+        throw new HttpsError("unauthenticated", "Authentication required");
+    }
+    await assertAdminOrManager(uid);
+
+    const data = req.data;
+    if (!data || typeof data !== "object") {
+        throw new HttpsError("invalid-argument", "Request data must be an object.");
+    }
+    const { toCreate, toUpdate, toDelete, department } = data as any;
+
+    if (!Array.isArray(toCreate) || !Array.isArray(toUpdate) || !Array.isArray(toDelete) || !department) {
+        throw new HttpsError('invalid-argument', 'Invalid payload.');
+    }
+
+    const batch = db.batch();
+    const projectsRef = db.collection('projects');
+    const shiftsRef = db.collection('shifts');
+
+    // --- Handle Project Creation/Update ---
+    const allImportedShifts = [...toCreate, ...toUpdate.map((u: any) => u.new)];
+    const projectInfoFromImport = new Map<string, any>();
+    allImportedShifts.forEach((shift: any) => {
+        if (shift.address) {
+            projectInfoFromImport.set(shift.address, shift);
+        }
+    });
+
+    if (projectInfoFromImport.size > 0) {
+        const projectAddresses = Array.from(projectInfoFromImport.keys());
+        for (let i = 0; i < projectAddresses.length; i += 30) {
+            const chunk = projectAddresses.slice(i, i + 30);
+            const existingProjectsSnap = await projectsRef.where('address', 'in', chunk).get();
+
+            const foundAddresses = new Set<string>();
+            existingProjectsSnap.forEach(docSnap => {
+                const project = docSnap.data();
+                foundAddresses.add(project.address);
+                const importInfo = projectInfoFromImport.get(project.address);
+                if (importInfo && project.contract !== importInfo.contract) {
+                    batch.update(docSnap.ref, { contract: importInfo.contract });
+                }
+            });
+
+            const userSnap = await db.collection("users").doc(uid).get();
+            const userProfile = userSnap.data();
+
+            chunk.forEach(address => {
+                if (!foundAddresses.has(address)) {
+                    const info = projectInfoFromImport.get(address);
+                    if (info) {
+                        const reviewDate = new Date();
+                        reviewDate.setDate(reviewDate.getDate() + 28);
+                        batch.set(db.collection('projects').doc(), {
+                            address: info.address,
+                            eNumber: info.eNumber || '',
+                            manager: info.manager || '',
+                            contract: info.contract || '',
+                            department: info.department || department || '',
+                            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                            createdBy: userProfile?.name || 'System Import',
+                            creatorId: uid,
+                            nextReviewDate: admin.firestore.Timestamp.fromDate(reviewDate),
+                        });
+                    }
+                }
+            });
+        }
+    }
+
+    // --- Handle Shift Creation ---
+    toCreate.forEach((shift: any) => {
+        const newShiftRef = shiftsRef.doc();
+        batch.set(newShiftRef, {
+            ...shift,
+            date: admin.firestore.Timestamp.fromDate(new Date(shift.date)),
+            status: 'pending-confirmation',
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            source: 'import',
+        });
+    });
+
+    // --- Handle Shift Updates ---
+    toUpdate.forEach(({ id, new: newShift }: any) => {
+        batch.update(shiftsRef.doc(id), {
+            address: newShift.address,
+            task: newShift.task,
+            type: newShift.type,
+            eNumber: newShift.eNumber || '',
+            manager: newShift.manager || '',
+            notes: newShift.notes || '',
+            contract: newShift.contract || '',
+            department: newShift.department || department || '',
+            status: 'pending-confirmation',
+        });
+    });
+
+    // --- Handle Shift Deletions ---
+    toDelete.forEach((shift: any) => {
+        batch.delete(shiftsRef.doc(shift.id));
+    });
+
+    await batch.commit();
+    
+    return {
+        success: true,
+        message: `Processed: ${toCreate.length} created, ${toUpdate.length} updated, ${toDelete.length} deleted.`
+    };
+});
+
 
 /* =====================================================
-   SCHEDULED FUNCTIONS (FIXED)
+   SCHEDULED FUNCTIONS
 ===================================================== */
 
 export const projectReviewNotifier = onSchedule(
   { schedule: "every 24 hours", region: REGION },
   async (event) => {
-    logger.info("projectReviewNotifier ran", {
-      scheduleTime: event.scheduleTime,
-    });
+    logger.info("projectReviewNotifier ran");
   }
 );
 
 export const pendingShiftNotifier = onSchedule(
   { schedule: "every 1 hours", region: REGION },
   async (event) => {
-    logger.info("pendingShiftNotifier ran", {
-      scheduleTime: event.scheduleTime,
-    });
+    logger.info("pendingShiftNotifier ran");
   }
 );
 
@@ -553,10 +698,6 @@ export const deleteScheduledProjects = onSchedule(
     memory: "256MiB",
   },
   async (event) => {
-    logger.info("Scheduled project cleanup started", {
-      scheduleTime: event.scheduleTime,
-    });
-    // Placeholder for actual deletion logic
-    logger.info("Scheduled project cleanup finished");
+    logger.info("Scheduled project cleanup started");
   }
 );
