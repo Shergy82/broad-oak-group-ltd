@@ -343,7 +343,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
       }
     }
   }
-  return { parsed: allParsed, failures: allFailures };
+  return { parsed, failures };
 }
 
 /* =========================
@@ -472,7 +472,7 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
 
 function isNonShiftText(text: string): boolean {
   const t = text.trim().toLowerCase();
-  const noise = ["job manager", "measures", "scheme", "pulse", "ignore", "ordered", "start date", "on live", "coole"];
+  const noise = ["job manager", "measures", "scheme", "pulse", "ignore", "ordered", "start date", "on live", "coole", "variation", "work type"];
   return noise.some(b => t.includes(b)) || /^\+?\d[\d\s-]{7,}$/.test(t);
 }
 
