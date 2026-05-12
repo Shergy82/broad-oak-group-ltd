@@ -67,28 +67,39 @@ function normalizeText(text: string | null | undefined): string {
 
 /**
  * Robustly extracts the visible text from an ExcelJS cell.
- * Handles nulls, formulas, and rich text to prevent "toString" errors.
  */
 function getCellText(cell: ExcelJS.Cell | null | undefined): string {
   if (!cell) return "";
   const val = cell.value;
   if (val === null || val === undefined) return "";
   
-  if (typeof val === 'object') {
-    if ('richText' in val && Array.isArray(val.richText)) {
-      return val.richText.map(v => v.text || '').join('').trim();
-    }
-    if ('formula' in val) {
-      return String(val.result ?? '').trim();
-    }
+  // Unwrap formula results
+  if (typeof val === 'object' && 'result' in val) {
+    const res = val.result;
+    if (res === null || res === undefined) return "";
+    if (res instanceof Date) return res.toISOString();
+    return String(res).trim();
+  }
+
+  if (typeof val === 'object' && 'richText' in val && Array.isArray(val.richText)) {
+    return val.richText.map(v => v.text || '').join('').trim();
   }
   
-  // cell.text is a getter that can sometimes fail in edge cases
   try {
     return (cell.text || String(val)).trim();
   } catch (e) {
     return String(val || "").trim();
   }
+}
+
+/**
+ * Safely extracts the value from a cell, handling formulas.
+ */
+function getCellValue(cell: ExcelJS.Cell | null | undefined): any {
+  if (!cell) return null;
+  const v = cell.value;
+  if (v && typeof v === 'object' && 'result' in v) return v.result;
+  return v;
 }
 
 function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: UserMapEntry[]; reason?: string } {
@@ -248,10 +259,11 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
   const used = getUsedBounds(sheet);
   if (!used) return { parsed: [], failures: [{ reason: "Sheet appears empty", sheetName }] };
 
-  const dividerRows = findDividerRows(sheet, used);
-  if (dividerRows.length < 2) {
-    return { parsed: [], failures: [{ reason: "Matrix format (coloured dividers) not detected.", sheetName }] };
-  }
+  let dividerRows = findDividerRows(sheet, used);
+  
+  // Implicit dividers at start and end of sheet range
+  if (!dividerRows.includes(used.startRow - 1)) dividerRows.unshift(used.startRow - 1);
+  if (!dividerRows.includes(used.endRow + 1)) dividerRows.push(used.endRow + 1);
 
   for (let i = 0; i < dividerRows.length - 1; i++) {
     const blockStart = dividerRows[i] + 1;
@@ -260,7 +272,11 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
 
     const siteAddressResult = extractSiteAddress(sheet, used, blockStart, blockEnd);
     if (!siteAddressResult) {
-      failures.push({ reason: "Site address not found in block.", sheetName, cellRef: `A${blockStart}:B${blockEnd}` });
+      // Only fail if we actually see some data in the block
+      const hasData = sheet.getRows(blockStart, blockEnd - blockStart + 1)?.some(r => r.hasValues);
+      if (hasData) {
+          failures.push({ reason: "Site address not found in block.", sheetName, cellRef: `A${blockStart}:B${blockEnd}` });
+      }
       continue;
     }
     
@@ -271,14 +287,14 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
 
     const dateRowIdx = findDateRow(sheet, used, blockStart, blockEnd);
     if (!dateRowIdx) {
-      failures.push({ reason: "Date header row not found.", sheetName, siteAddress, cellRef: `A${blockStart}:Z${blockEnd}`});
+      failures.push({ reason: "Date header row not found in block.", sheetName, siteAddress, cellRef: `A${blockStart}:Z${blockEnd}`});
       continue;
     }
 
     let manager = '';
     const otherContacts: string[] = [];
     for (let r = blockStart; r < addressRow; r++) {
-        const cellText = getCellText(sheet.getCell(r, 1));
+        const cellText = getCellText(sheet.getRow(r).getCell(1));
         if (cellText) {
             const upper = cellText.toUpperCase();
             if (upper.includes('SITE MANAGER')) manager = cellText.replace(/site manager\s*:?/i, '').trim().split('\n')[0];
@@ -290,7 +306,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
     for (const { col, isoDate } of dateCols) {
       for (let r = dateRowIdx + 1; r <= blockEnd; r++) {
         if (dividerRows.includes(r)) break;
-        const cell = sheet.getCell(r, col);
+        const cell = sheet.getRow(r).getCell(col);
         const text = getCellText(cell);
         if (!text || isNonShiftText(text)) continue;
 
@@ -327,7 +343,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
       }
     }
   }
-  return { parsed, failures };
+  return { parsed: allParsed, failures: allFailures };
 }
 
 /* =========================
@@ -363,9 +379,12 @@ function findDividerRows(ws: ExcelJS.Worksheet, used: UsedBounds): number[] {
 function isDividerRow(ws: ExcelJS.Worksheet, used: UsedBounds, r: number): boolean {
   let filledCount = 0;
   let textCount = 0;
-  const totalCols = used.endCol - used.startCol + 1;
-  for (let c = used.startCol; c <= used.endCol; c++) {
-    const cell = ws.getCell(r, c);
+  // Divider rows in Gas sheets are often only colored in columns A-D or similar.
+  // We check the first 10 columns for consistent background fill and NO text.
+  const checkLimit = Math.min(used.endCol, 10);
+  
+  for (let c = 1; c <= checkLimit; c++) {
+    const cell = ws.getRow(r).getCell(c);
     if (getCellText(cell)) textCount++;
     const fill = cell.fill as any;
     if (fill?.type === "pattern" && fill.fgColor?.argb) {
@@ -373,7 +392,8 @@ function isDividerRow(ws: ExcelJS.Worksheet, used: UsedBounds, r: number): boole
         if (argb !== "FFFFFFFF" && argb !== "00000000" && !argb.startsWith("00")) filledCount++;
     }
   }
-  return textCount === 0 && (filledCount / totalCols) > 0.7;
+  // Detect divider if we have fill in at least 3 cells in first 10 columns and NO text.
+  return textCount === 0 && filledCount >= 3;
 }
 
 function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, endRow: number): { address: string; row: number; } | null {
@@ -390,7 +410,7 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
     let best = { text: "", score: 0, row: 0 };
     for (let r = startRow; r <= endRow; r++) {
         for (let c = 1; c <= 2; c++) {
-            const cell = ws.getCell(r, c);
+            const cell = ws.getRow(r).getCell(c);
             const score = scoreAddress(cell);
             if (score > best.score) best = { text: getCellText(cell), score, row: r };
         }
@@ -402,7 +422,7 @@ function findDateRow(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, 
   for (let r = startRow; r <= endRow; r++) {
     let count = 0;
     for (let c = used.startCol; c <= used.endCol; c++) {
-      if (parseExcelCellAsDate(ws.getCell(r, c))) count++;
+      if (parseExcelCellAsDate(ws.getRow(r).getCell(c))) count++;
     }
     if (count >= 3) return r;
   }
@@ -412,14 +432,14 @@ function findDateRow(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, 
 function getDateColumns(ws: ExcelJS.Worksheet, used: UsedBounds, dateRowIdx: number): Array<{ col: number; isoDate: string }> {
   const cols = [];
   for (let c = used.startCol; c <= used.endCol; c++) {
-    const dt = parseExcelCellAsDate(ws.getCell(dateRowIdx, c));
+    const dt = parseExcelCellAsDate(ws.getRow(dateRowIdx).getCell(c));
     if (dt) cols.push({ col: c, isoDate: toISODate(dt) });
   }
   return cols;
 }
 
 function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
-  const v = cell.value;
+  const v = getCellValue(cell);
   if (v instanceof Date && !isNaN(v.getTime())) return new Date(Date.UTC(v.getFullYear(), v.getMonth(), v.getDate()));
   if (typeof v === "number" && v > 20000 && v < 60000) {
     const d = new Date((v - 25569) * 86400 * 1000);
@@ -452,13 +472,8 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
 
 function isNonShiftText(text: string): boolean {
   const t = text.trim().toLowerCase();
-  return ["job manager", "measures", "scheme", "pulse", "ignore"].some(b => t.includes(b)) || /^\+?\d[\d\s-]{7,}$/.test(t);
-}
-
-function colToA1(col: number): string {
-  let n = col, s = "";
-  while (n > 0) { s = String.fromCharCode(65 + (n - 1) % 26) + s; n = Math.floor((n - 1) / 26); }
-  return s;
+  const noise = ["job manager", "measures", "scheme", "pulse", "ignore", "ordered", "start date", "on live", "coole"];
+  return noise.some(b => t.includes(b)) || /^\+?\d[\d\s-]{7,}$/.test(t);
 }
 
 /* ====================================================================================================
@@ -467,12 +482,12 @@ function colToA1(col: number): string {
 
 // Full sheet parser for BUILD format
 export const parseBuildSheet = (
-  worksheet: any, // Using 'any' for SheetJS worksheet type
+  worksheet: any, 
   userMap: UserMapEntry[],
   sheetName: string,
   department: string
 ): { shifts: any[], failed: ImportFailure[] } => {
-  const data: any[][] = worksheet; // SheetJS returns array of arrays
+  const data: any[][] = worksheet; 
   const allShifts: any[] = [];
   const allFailed: any[] = [];
 
@@ -483,7 +498,6 @@ export const parseBuildSheet = (
   const addressIndex = headers.indexOf('address');
 
   if ([dateIndex, userIndex, taskIndex, addressIndex].includes(-1)) {
-    // --- MATRIX VIEW PARSER ---
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
 
@@ -553,7 +567,6 @@ export const parseBuildSheet = (
       }
     }
   } else {
-    // --- LIST VIEW PARSER ---
     const operativeIndex = userIndex !== -1 ? userIndex : headers.indexOf('operative');
     const eNumberIndex = headers.findIndex(h => h.includes('number'));
     const contractIndex = headers.indexOf('contract');
