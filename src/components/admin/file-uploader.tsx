@@ -243,8 +243,10 @@ const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: s
   const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
   // CRITICAL: use UTC methods for stable keys across browser timezones
   const dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-  const normalizedType = String(shift.type || 'all-day').toLowerCase();
-  return `${dateStr}-${shift.userId}-${normalizeText(shift.address)}-${normalizedType}`;
+  
+  // NOTE: Removed normalizedType from key to allow updates when shift type (AM/PM) changes
+  // A shift is uniquely identified by DATE + USER + ADDRESS.
+  return `${dateStr}-${shift.userId}-${normalizeText(shift.address)}`;
 };
 
 const parseBuildSheet = (
@@ -578,7 +580,8 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
                 normalizeText(existingShift.eNumber || '') !== normalizeText(excelShift.eNumber || '') ||
                 normalizeText(existingShift.manager || '') !== normalizeText(excelShift.manager || '') ||
                 normalizeText(existingShift.notes || '') !== normalizeText(excelShift.notes || '') ||
-                normalizeText(existingShift.contract || '') !== normalizeText(excelShift.contract || '');
+                normalizeText(existingShift.contract || '') !== normalizeText(excelShift.contract || '') ||
+                existingShift.type !== excelShift.type; // Added type comparison for updates
 
               if (hasChanged) {
                 toUpdate.push({ old: existingShift, new: excelShift });
