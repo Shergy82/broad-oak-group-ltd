@@ -270,12 +270,20 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
     const blockEnd = dividerRows[i + 1] - 1;
     if (blockEnd <= blockStart) continue;
 
+    // Check if the block is entirely empty (Column A blank for too many rows)
+    let emptyRowcount = 0;
+    for (let r = blockStart; r <= blockEnd; r++) {
+        if (!getCellText(sheet.getRow(r).getCell(1))) emptyRowcount++;
+    }
+    // Hard stop if more than 20 rows in this block are empty in col A
+    if (emptyRowcount > 20 && (blockEnd - blockStart) > 20) break;
+
     const siteAddressResult = extractSiteAddress(sheet, used, blockStart, blockEnd);
     if (!siteAddressResult) {
-      // Only fail if we actually see some data in the block
-      const hasData = sheet.getRows(blockStart, blockEnd - blockStart + 1)?.some(r => r.hasValues);
-      if (hasData) {
-          failures.push({ reason: "Site address not found in block.", sheetName, cellRef: `A${blockStart}:B${blockEnd}` });
+      // Only report failure if we actually find shift-like text in this block
+      const hasShifts = detectAnyShiftTextInBlock(sheet, used, blockStart, blockEnd);
+      if (hasShifts) {
+          failures.push({ reason: "Site address not found in job block.", sheetName, cellRef: `A${blockStart}:B${blockEnd}` });
       }
       continue;
     }
@@ -379,8 +387,6 @@ function findDividerRows(ws: ExcelJS.Worksheet, used: UsedBounds): number[] {
 function isDividerRow(ws: ExcelJS.Worksheet, used: UsedBounds, r: number): boolean {
   let filledCount = 0;
   let textCount = 0;
-  // Divider rows in Gas sheets are often only colored in columns A-D or similar.
-  // We check the first 10 columns for consistent background fill and NO text.
   const checkLimit = Math.min(used.endCol, 10);
   
   for (let c = 1; c <= checkLimit; c++) {
@@ -389,11 +395,20 @@ function isDividerRow(ws: ExcelJS.Worksheet, used: UsedBounds, r: number): boole
     const fill = cell.fill as any;
     if (fill?.type === "pattern" && fill.fgColor?.argb) {
         const argb = String(fill.fgColor.argb).toUpperCase();
-        if (argb !== "FFFFFFFF" && argb !== "00000000" && !argb.startsWith("00")) filledCount++;
+        if (argb !== "FFFFFFFF" && !argb.startsWith("00")) filledCount++;
     }
   }
-  // Detect divider if we have fill in at least 3 cells in first 10 columns and NO text.
-  return textCount === 0 && filledCount >= 3;
+  return textCount === 0 && filledCount >= 2;
+}
+
+function detectAnyShiftTextInBlock(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, endRow: number): boolean {
+    for (let r = startRow; r <= endRow; r++) {
+        for (let c = used.startCol; c <= used.endCol; c++) {
+            const text = getCellText(ws.getRow(r).getCell(c));
+            if (text && text.includes('-') && !isNonShiftText(text)) return true;
+        }
+    }
+    return false;
 }
 
 function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, endRow: number): { address: string; row: number; } | null {
