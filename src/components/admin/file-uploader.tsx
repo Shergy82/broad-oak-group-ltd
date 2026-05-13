@@ -1,17 +1,14 @@
 'use client';
 
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { db, functions, httpsCallable } from '@/lib/firebase';
 import {
   collection,
-  writeBatch,
-  doc,
   getDocs,
   query,
   where,
   Timestamp,
-  serverTimestamp,
 } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
 import { Button } from '@/components/ui/button';
@@ -28,7 +25,7 @@ import {
   UploadCloud,
   FileIcon,
 } from 'lucide-react';
-import type { Shift, UserProfile, Project, ShiftStatus } from '@/types';
+import type { Shift, UserProfile, ShiftStatus } from '@/types';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
 import {
@@ -41,7 +38,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '../ui/scroll-area';
 import { cn, getCorrectedLocalDate } from '@/lib/utils';
-import { parseGasWorkbook, type ImportType, type ParsedGasShift } from '@/lib/exceljs-parser';
+import { parseGasWorkbook, parseBuildWorkbook, type ImportType, type ParsedGasShift } from '@/lib/exceljs-parser';
 
 
 export type ParsedShift = Omit<
@@ -82,9 +79,9 @@ const toDateOnlyUtc = (d: Date) =>
  */
 const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string }): string => {
   const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
+  const year = d.getUTCFullYear();
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
   const dateStr = `${year}-${month}-${day}`;
   
   return `${dateStr}-${shift.userId}-${normalizeText(shift.address)}`;
@@ -206,42 +203,38 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             return { uid: d.id, normalizedName: normalizeText(u.name), originalName: u.name, department: u.department };
           });
           
+          const finalImportDepartment = importType === 'GAS' ? 'Gas' : importDepartment;
+          
+          let result: { parsed: ParsedGasShift[], failures: FailedShift[] };
           if (importType === 'GAS') {
-              const { parsed, failures } = await parseGasWorkbook(Buffer.from(data), userMap);
-              for (const parsedShift of parsed) {
-                  allShiftsFromExcel.push({
-                      date: new Date(parsedShift.shiftDate),
-                      address: parsedShift.siteAddress,
-                      task: parsedShift.task,
-                      userId: parsedShift.user.uid,
-                      userName: parsedShift.user.originalName,
-                      type: parsedShift.type,
-                      manager: parsedShift.manager || '',
-                      contract: parsedShift.contract || parsedShift.source.sheetName || '',
-                      department: 'Gas',
-                      notes: parsedShift.notes || '',
-                      eNumber: parsedShift.eNumber || '',
-                  });
-              }
-              allFailedShifts.push(...failures.map(f => ({
-                  date: f.shiftDate ? new Date(f.shiftDate) : null,
-                  projectAddress: f.siteAddress || 'Unknown',
-                  cellContent: f.operativeNameRaw || '',
-                  reason: f.reason,
-                  sheetName: f.sheetName || 'Unknown Sheet',
-                  cellRef: f.cellRef || 'N/A'
-              })));
+              const res = await parseGasWorkbook(Buffer.from(data), userMap);
+              result = {
+                  parsed: res.parsed,
+                  failures: res.failures as FailedShift[]
+              };
           } else {
-              const workbook = XLSX.read(data, { type: 'array', cellDates: true });
-              // Simplified Build Logic
-              selectedSheets.forEach(sheetName => {
-                  const sheet = workbook.Sheets[sheetName];
-                  const rows = XLSX.utils.sheet_to_json(sheet) as any[];
-                  rows.forEach(row => {
-                      // Implementation details for Build would be here
-                  });
-              });
+              const res = await parseBuildWorkbook(Buffer.from(data), userMap, selectedSheets);
+              result = {
+                  parsed: res.parsed,
+                  failures: res.failures as FailedShift[]
+              };
           }
+
+          allShiftsFromExcel = result.parsed.map(p => ({
+              date: new Date(p.shiftDate),
+              address: p.siteAddress,
+              task: p.task,
+              userId: p.user.uid,
+              userName: p.user.originalName,
+              type: p.type,
+              manager: p.manager || '',
+              contract: p.contract || '',
+              department: finalImportDepartment,
+              notes: p.notes || '',
+              eNumber: p.eNumber || '',
+          }));
+          
+          allFailedShifts = result.failures;
 
           const uniqueShiftsMap = new Map<string, ParsedShift>();
           for (const shift of allShiftsFromExcel) {
@@ -256,8 +249,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           today.setHours(0, 0, 0, 0);
 
           allShiftsFromExcel = allShiftsFromExcel.filter(s => s.date >= today);
-          
-          const finalImportDepartment = importType === 'GAS' ? 'Gas' : importDepartment;
           
           const existingShiftsQuery = importType === 'GAS' 
             ? query(collection(firestore, 'shifts'))
@@ -282,7 +273,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           const toUpdate: { old: Shift; new: ParsedShift }[] = [];
           const toDelete: Shift[] = [];
           
-          // GAS ONLY: Extend protection to confirmed/on-site shifts to prevent "disappearing" issue
           const protectedStatuses: ShiftStatus[] = finalImportDepartment === 'Gas'
             ? ['completed', 'incomplete', 'rejected', 'confirmed', 'on-site']
             : ['completed', 'incomplete'];

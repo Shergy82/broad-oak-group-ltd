@@ -1,7 +1,6 @@
 /**
- * GAS IMPORT (colour-based divider rows)
+ * GAS & BUILD IMPORT (ExcelJS based)
  * - Uses ExcelJS for robust style and formula handling.
- * - BUILD import is handled by parseBuildSheet.
  */
 
 import ExcelJS from "exceljs";
@@ -23,6 +22,7 @@ export type ParsedGasShift = {
   notes?: string;
   eNumber?: string;
   contract?: string;
+  department?: string;
 };
 
 export type ImportFailure = {
@@ -113,6 +113,32 @@ function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: Us
     }
     
     return { users: [], reason: `No user found for name: "${nameChunk}".` };
+}
+
+function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
+  const v = getCellValue(cell);
+  if (v instanceof Date && !isNaN(v.getTime())) {
+    // Fix: Using UTC components to strip time/timezone artifacts that cause "day before" shifts
+    return new Date(Date.UTC(v.getUTCFullYear(), v.getUTCMonth(), v.getUTCDate()));
+  }
+  if (typeof v === "number" && v > 20000 && v < 60000) {
+    const d = new Date((v - 25569) * 86400 * 1000);
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  }
+  const text = getCellText(cell);
+  if (!text) return null;
+  const d = new Date(text.replace(/(\d+)(st|nd|rd|th)/g, '$1'));
+  return (!isNaN(d.getTime()) && d.getUTCFullYear() > 2000) ? new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())) : null;
+}
+
+function toISODate(dt: Date): string {
+  return dt.toISOString().split('T')[0];
+}
+
+function isNonShiftText(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  const noise = ["job manager", "measures", "scheme", "pulse", "ignore", "ordered", "start date", "on live", "coole", "variation", "work type", "operative", "site address", "task", "date", "name"];
+  return noise.some(b => t.includes(b)) || /^\+?\d[\d\s-]{7,}$/.test(t);
 }
 
 /* =========================
@@ -285,8 +311,6 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
     }
 
     const dateCols = getDateColumns(sheet, used, dateRowIdx);
-    
-    // Track unique user/date shifts within this block to prevent duplicates
     const seenShiftsInBlock = new Set<string>();
 
     for (const { col, isoDate } of dateCols) {
@@ -338,6 +362,98 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
     }
   }
   return { parsed, failures };
+}
+
+/* =========================
+   BUILD PARSER
+========================= */
+
+export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEntry[], selectedSheets: string[]): Promise<ParseResult> {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(fileBuffer);
+
+  const allParsed: ParsedGasShift[] = [];
+  const allFailures: ImportFailure[] = [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  for (const sheetName of selectedSheets) {
+    const sheet = workbook.getWorksheet(sheetName);
+    if (!sheet || sheet.state === 'hidden') continue;
+
+    // 1. Find the date row
+    let dateRowIdx = -1;
+    let dateCols: { col: number, isoDate: string }[] = [];
+    
+    for (let r = 1; r <= 15; r++) {
+        const row = sheet.getRow(r);
+        let count = 0;
+        const tempCols: { col: number, isoDate: string }[] = [];
+        row.eachCell((cell, colNumber) => {
+            const dt = parseExcelCellAsDate(cell);
+            if (dt) {
+                count++;
+                tempCols.push({ col: colNumber, isoDate: toISODate(dt) });
+            }
+        });
+        if (count >= 3) {
+            dateRowIdx = r;
+            dateCols = tempCols;
+            break;
+        }
+    }
+
+    if (dateRowIdx === -1) continue;
+
+    // 2. Process rows below date row
+    for (let r = dateRowIdx + 1; r <= sheet.rowCount; r++) {
+        const row = sheet.getRow(r);
+        const address = normalizeWhitespace(getCellText(row.getCell(1)));
+        const task = normalizeWhitespace(getCellText(row.getCell(2)));
+        const eNumber = normalizeWhitespace(getCellText(row.getCell(3)));
+        
+        if (!address || isNonShiftText(address)) continue;
+
+        for (const { col, isoDate } of dateCols) {
+            const colDate = new Date(isoDate);
+            if (colDate < today) continue;
+
+            const cell = row.getCell(col);
+            const cellText = getCellText(cell);
+            if (!cellText || isNonShiftText(cellText)) continue;
+
+            const names = cellText.split(/[,&/]| and /i).map(s => s.trim()).filter(Boolean);
+            
+            for (const name of names) {
+                const { users: matchedUsers, reason } = findUsersInMap(name, userMap);
+                if (matchedUsers.length !== 1) {
+                    allFailures.push({
+                        reason: reason || `Could not match operative: "${name}"`,
+                        siteAddress: address,
+                        shiftDate: isoDate,
+                        operativeNameRaw: name,
+                        sheetName: sheet.name,
+                        cellRef: cell.address
+                    });
+                    continue;
+                }
+
+                allParsed.push({
+                    siteAddress: address,
+                    shiftDate: isoDate,
+                    task: task || 'Unspecified',
+                    type: 'all-day',
+                    user: matchedUsers[0],
+                    source: { sheetName: sheet.name, cellRef: cell.address },
+                    eNumber,
+                    contract: sheet.name,
+                });
+            }
+        }
+    }
+  }
+
+  return { parsed: allParsed, failures: allFailures };
 }
 
 /* =========================
@@ -423,23 +539,6 @@ function getDateColumns(ws: ExcelJS.Worksheet, used: UsedBounds, dateRowIdx: num
   return cols;
 }
 
-function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
-  const v = getCellValue(cell);
-  if (v instanceof Date && !isNaN(v.getTime())) return new Date(Date.UTC(v.getFullYear(), v.getMonth(), v.getDate()));
-  if (typeof v === "number" && v > 20000 && v < 60000) {
-    const d = new Date((v - 25569) * 86400 * 1000);
-    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  }
-  const text = getCellText(cell);
-  if (!text) return null;
-  const d = new Date(text.replace(/(\d+)(st|nd|rd|th)/g, '$1'));
-  return (!isNaN(d.getTime()) && d.getUTCFullYear() > 2000) ? new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())) : null;
-}
-
-function toISODate(dt: Date): string {
-  return dt.toISOString().split('T')[0];
-}
-
 function extractGasTaskAndNames(text: string): { task: string; names: string[]; type: 'am' | 'pm' | 'all-day' } {
     let raw = normalizeWhitespace(text);
     let type: 'am' | 'pm' | 'all-day' = 'all-day';
@@ -452,10 +551,4 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
         names: raw.substring(lastHyphen + 1).split(/[,&/]| and /i).map(s => s.trim()).filter(Boolean), 
         type 
     };
-}
-
-function isNonShiftText(text: string): boolean {
-  const t = text.trim().toLowerCase();
-  const noise = ["job manager", "measures", "scheme", "pulse", "ignore", "ordered", "start date", "on live", "coole", "variation", "work type", "operative"];
-  return noise.some(b => t.includes(b)) || /^\+?\d[\d\s-]{7,}$/.test(t);
 }
