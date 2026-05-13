@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -326,10 +325,12 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
       )
     );
   
+    // 🔒 ARCHIVE LOGIC: Fetch work done in the last 6 weeks (including current week)
     const sixWeeksAgo = startOfWeek(subWeeks(today, 5), { weekStartsOn: 1 });
     const historicalShifts = finalFilteredShifts.filter(s => {
       const shiftDate = getCorrectedLocalDate(s.date);
-      return shiftDate >= sixWeeksAgo && shiftDate < startOfWeek(today, { weekStartsOn: 1 }) && ['completed', 'incomplete'].includes(s.status);
+      // Include current week so "w/c [current week]" doesn't show up empty.
+      return shiftDate >= sixWeeksAgo && shiftDate <= endOfWeek(today, { weekStartsOn: 1 }) && ['completed', 'incomplete', 'rejected'].includes(s.status);
     });
       
     const selectedArchiveDate = startOfWeek(subWeeks(today, parseInt(selectedArchiveWeek)), { weekStartsOn: 1 });
