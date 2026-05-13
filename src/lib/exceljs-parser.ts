@@ -97,7 +97,7 @@ function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: Us
     const normalizedChunk = normalizeText(nameChunk);
     if (!normalizedChunk) return { users: [], reason: 'Empty name provided.' };
 
-    // 1. Try Exact Match First (Works for single names if the database name is also single, or for companies)
+    // 1. Try Exact Match First
     let matches = userMap.filter(u => u.normalizedName === normalizedChunk);
     if (matches.length === 1) return { users: matches };
     if (matches.length > 1) return { users: [], reason: `Ambiguous name "${nameChunk}" matches multiple users exactly.` };
@@ -105,12 +105,11 @@ function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: Us
     const chunkParts = normalizedChunk.split(' ');
     
     // 2. STRICT CHECK: If only one name is provided (e.g. "KYLE"), and exact match failed, DO NOT partial match.
-    // This prevents "KYLE" matching "KYLE DANSON" by assumption.
     if (chunkParts.length < 2) {
         return { users: [], reason: `Single name "${nameChunk}" requires a full/exact match. No match found.` };
     }
 
-    // 3. Multi-word partial matching (Only for "KYLE DANSON" or "COMPANY LTD" style inputs)
+    // 3. Multi-word partial matching
     matches = userMap.filter(u => u.normalizedName.includes(normalizedChunk));
     if (matches.length === 1) return { users: matches };
     if (matches.length > 1) return { users: [], reason: `Ambiguous input "${nameChunk}" matches multiple users.` };
@@ -133,6 +132,7 @@ function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: Us
 function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
   const v = getCellValue(cell);
   if (v instanceof Date && !isNaN(v.getTime())) {
+    // 🔒 Build Fix: Use local getters to stay on the correct wall-clock date
     return new Date(Date.UTC(v.getFullYear(), v.getMonth(), v.getDate()));
   }
   if (typeof v === "number" && v > 20000 && v < 60000) {
@@ -276,22 +276,33 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
   const used = getUsedBounds(sheet);
   if (!used) return { parsed: [], failures: [] };
 
-  // dividerRows already stops at 15 empty Column A cells
+  // 1. 🔒 GAS FIX: Find date columns globally for the entire sheet first
+  let dateRowIdx = -1;
+  let dateCols: { col: number; isoDate: string }[] = [];
+  for (let r = used.startRow; r <= Math.min(used.endRow, 50); r++) {
+    const tempCols = getDateColumns(sheet, used, r, 6); // GAS shifts start from Column F (6)
+    if (tempCols.length >= 3) {
+      dateRowIdx = r;
+      dateCols = tempCols;
+      break;
+    }
+  }
+
+  if (dateRowIdx === -1) return { parsed: [], failures: [] };
+
+  // 2. Find dividers (black rows)
   let dividerRows = findDividerRows(sheet, used);
-  
   if (!dividerRows.includes(used.startRow - 1)) dividerRows.unshift(used.startRow - 1);
   if (!dividerRows.includes(used.endRow + 1)) dividerRows.push(used.endRow + 1);
 
+  // 3. Process each job block
   for (let i = 0; i < dividerRows.length - 1; i++) {
     const blockStart = dividerRows[i] + 1;
     const blockEnd = dividerRows[i + 1] - 1;
     if (blockEnd < blockStart) continue;
 
-    const dateRowIdx = findDateRow(sheet, used, blockStart, blockEnd);
-    if (!dateRowIdx) continue;
-
-    // 🔒 VERIFIED ADDRESS LOGIC (GAS): Scan from block end upwards to find the last cell in Column A with text.
-    const siteAddressResult = extractSiteAddress(sheet, used, blockStart, dateRowIdx - 1);
+    // 🔒 GAS Specific: The address is ALWAYS in the LAST cell with text in Column A before next divider.
+    const siteAddressResult = extractSiteAddress(sheet, used, blockStart, blockEnd);
     if (!siteAddressResult) continue;
     
     const { address: rawSiteAddress } = siteAddressResult;
@@ -301,7 +312,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
 
     let manager = '';
     const otherContacts: string[] = [];
-    for (let r = blockStart; r < dateRowIdx; r++) {
+    for (let r = blockStart; r <= blockEnd; r++) {
         const cellText = getCellText(sheet.getRow(r).getCell(1));
         if (cellText) {
             const upper = cellText.toUpperCase();
@@ -310,15 +321,14 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
         }
     }
 
-    // 🔒 GAS MATRIX: Shifts strictly start from Column F (index 6).
-    const dateCols = getDateColumns(sheet, used, dateRowIdx, 6);
     const seenShiftsInBlock = new Set<string>();
 
-    for (const { col, isoDate } of dateCols) {
-      for (let r = dateRowIdx + 1; r <= blockEnd; r++) {
-        const cell = sheet.getRow(r).getCell(col);
-        const text = getCellText(cell);
-        
+    for (let r = blockStart; r <= blockEnd; r++) {
+      if (r === dateRowIdx) continue; // Skip header row
+      
+      const row = sheet.getRow(r);
+      for (const { col, isoDate } of dateCols) {
+        const text = getCellText(row.getCell(col));
         if (!text || !text.includes('-') || isNonShiftText(text)) continue;
 
         const { task, names, type } = extractGasTaskAndNames(text);
@@ -332,7 +342,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
                     shiftDate: isoDate,
                     operativeNameRaw: name, 
                     sheetName, 
-                    cellRef: cell.address,
+                    cellRef: row.getCell(col).address,
                     cellContent: text
                 });
                 continue;
@@ -349,7 +359,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
                   task,
                   type,
                   user,
-                  source: { sheetName, cellRef: cell.address },
+                  source: { sheetName, cellRef: row.getCell(col).address },
                   manager,
                   notes: otherContacts.join('\n'),
                   eNumber,
@@ -389,7 +399,7 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
         const row = sheet.getRow(r);
         const tempCols: { col: number, isoDate: string }[] = [];
         row.eachCell((cell, colNumber) => {
-            // Build Matrix dates usually start later
+            // Build Matrix dates start from Column G (7)
             if (colNumber < 7) return;
 
             const dt = parseExcelCellAsDate(cell);
@@ -413,7 +423,6 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
         const blockEnd = dividerRows[i + 1] - 1;
         if (blockEnd < blockStart) continue;
 
-        // Build address logic differs from Gas
         const siteAddressResult = extractSiteAddress(sheet, used, blockStart, blockEnd, true);
         if (!siteAddressResult) continue;
 
@@ -536,12 +545,11 @@ function isDividerRow(ws: ExcelJS.Worksheet, r: number): boolean {
  */
 function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, endRow: number, isBuild = false): { address: string; row: number; } | null {
     if (isBuild) {
-        // Build address logic uses scoring (locked)
         const scoreAddress = (text: string) => {
             if (!text || text.length < 5) return 0;
             const upper = text.toUpperCase();
             const noise = ['MATERIALS', 'MANAGER', 'TLO', 'MEASURES', 'SCHEME', 'PULSE', 'WEEK COMM'];
-            if (noise.some(n => upper.includes(noise))) return -500;
+            if (noise.some(n => upper.includes(n))) return -500;
             let score = Math.min(text.length, 50);
             if (/\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) score += 2000;
             return score;
@@ -555,7 +563,6 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
         return best.score >= 20 ? { address: normalizeWhitespace(best.text), row: best.row } : null;
     }
 
-    // GAS Specific: Find the LAST cell in Column A with text, skipping noise.
     const noiseKeywords = [
         'SITE MANAGER', 'TECHNICAL MANAGER', 'MATERIALS ORDERING', 'TLO', 'MEASURES'
     ];
