@@ -195,11 +195,18 @@ function parseListView(sheet: ExcelJS.Worksheet, headerRowNumber: number, header
     const taskIndex = headers.indexOf('task');
     const addressIndex = headers.indexOf('address');
 
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+
     for (let rowNum = headerRowNumber + 1; rowNum <= sheet.rowCount; rowNum++) {
         const row = sheet.getRow(rowNum);
         if (!row || !row.hasValues) continue;
 
         const date = parseExcelCellAsDate(row.getCell(dateIndex + 1));
+        
+        // Skip past dates (Gas only)
+        if (date && date < today) continue;
+
         const userNameRaw = getCellText(row.getCell(userIndex + 1));
         const task = getCellText(row.getCell(taskIndex + 1));
         const address = getCellText(row.getCell(addressIndex + 1));
@@ -255,6 +262,9 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
   const sheetName = sheet.name;
   const failures: ImportFailure[] = [];
   const parsed: ParsedGasShift[] = [];
+
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
 
   const used = getUsedBounds(sheet);
   if (!used) return { parsed: [], failures: [{ reason: "Sheet appears empty", sheetName }] };
@@ -317,6 +327,10 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
     // 6. Process Shift Grid for THIS block
     const dateCols = getDateColumns(sheet, used, dateRowIdx);
     for (const { col, isoDate } of dateCols) {
+      // Filter past dates (Gas only)
+      const colDate = new Date(isoDate);
+      if (colDate < today) continue;
+
       for (let r = dateRowIdx + 1; r <= blockEnd; r++) {
         const cell = sheet.getRow(r).getCell(col);
         const text = getCellText(cell);
