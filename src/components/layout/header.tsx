@@ -23,7 +23,6 @@ import {
   FileArchive,
   Map,
   SlidersHorizontal,
-  PoundSterling,
   UserCog,
   Share2,
   ChevronRight,
@@ -397,12 +396,7 @@ export function Header() {
                             <Briefcase className="mr-2" />
                             <span>Contracts</span>
                           </DropdownMenuItem>
-                          {(isOwner || userProfile?.department === 'Build') && (
-                              <DropdownMenuItem onClick={() => router.push('/admin/finance')} className="cursor-pointer">
-                                  <PoundSterling className="mr-2 h-4 w-4" />
-                                  <span>Finance</span>
-                              </DropdownMenuItem>
-                          )}
+                          {/* Finance disabled - add back below if needed */}
                           <DropdownMenuItem onClick={() => router.push('/admin/performance')} className="cursor-pointer">
                             <TrendingUp className="mr-2" />
                             <span>Performance</span>
