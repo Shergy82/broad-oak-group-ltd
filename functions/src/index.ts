@@ -667,8 +667,10 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             notes: newShift.notes || '',
             contract: newShift.contract || '',
             department: newShift.department || department || '',
+            plannerName: newShift.plannerName || '',
         };
         
+        // GAS ONLY: Do not reset status to 'pending-confirmation' if already accepted/active
         if (department !== 'Gas') {
             updatePayload.status = 'pending-confirmation';
         }

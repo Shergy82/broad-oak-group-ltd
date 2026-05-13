@@ -26,6 +26,7 @@ export type ParsedGasShift = {
   eNumber?: string;
   contract?: string;
   department?: string;
+  plannerName?: string;
 };
 
 export type ImportFailure = {
@@ -99,6 +100,7 @@ function getCellValue(cell: ExcelJS.Cell | null | undefined): any {
 
 /**
  * 🔒 VERIFIED MATCHING LOGIC (GAS & BUILD)
+ * Includes "No Assumptions" rule for single names.
  */
 function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: UserMapEntry[]; reason?: string } {
     const normalizedChunk = normalizeText(nameChunk);
@@ -179,7 +181,7 @@ function isNonShiftText(text: string): boolean {
 }
 
 /* =========================
-   GAS PARSER
+   GAS PARSER (VERIFIED)
 ========================= */
 
 export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry[]): Promise<ParseResult> {
@@ -200,7 +202,7 @@ export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry
             headerRow = row;
             headerRowNumber = rowNum;
         }
-        if (rowNum > 20) return; // Only scan top for header
+        if (rowNum > 20) return; 
     });
 
     let sheetResult: ParseResult;
@@ -310,7 +312,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
     let dateCols: { col: number; isoDate: string }[] = [];
     for (let r = blockStart; r <= blockEnd; r++) {
         const tempCols = getDateColumns(sheet, used, r, 6); 
-        if (tempCols.length >= 1) { // Accept blocks with even 1 date
+        if (tempCols.length >= 1) { 
             dateRowIdx = r;
             dateCols = tempCols;
             break;
@@ -319,7 +321,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
 
     if (dateRowIdx === -1) continue;
 
-    // EXTRACT ADDRESS (LAST BOX LOGIC)
+    // 🔒 LAST BOX LOGIC
     const siteAddressResult = extractSiteAddress(sheet, used, blockStart, blockEnd);
     if (!siteAddressResult) continue;
     
@@ -393,7 +395,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
 }
 
 /* =========================
-   BUILD PARSER (LOCKED)
+   BUILD PARSER (VERIFIED)
 ========================= */
 
 export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEntry[], selectedSheets: string[]): Promise<ParseResult> {

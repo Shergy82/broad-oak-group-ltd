@@ -1,4 +1,4 @@
-import type { Timestamp } from 'firebase/firestore';
+import { type Timestamp } from 'firebase/firestore';
 
 /* =========================
    Shifts
@@ -26,6 +26,7 @@ export interface Shift {
   contract?: string;
   department?: string;
   notes?: string;
+  plannerName?: string;
   createdAt: Timestamp;
   confirmedAt?: Timestamp;
   source?: 'manual' | 'import';
@@ -175,7 +176,7 @@ export interface PerformanceMetric {
 
 /* =========================
    Unavailability
-   ========================= */
+   ======================== */
 
 export interface Unavailability {
   id: string;

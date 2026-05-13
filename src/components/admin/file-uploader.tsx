@@ -196,6 +196,8 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
       setIsUploading(true);
       setError(null);
 
+      const plannerName = file.name.replace(/\.[^/.]+$/, ""); // Identify planner by filename
+
       const reader = new FileReader();
       reader.onload = async (e) => {
         try {
@@ -240,6 +242,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
               department: finalImportDepartment,
               notes: p.notes || '',
               eNumber: p.eNumber || '',
+              plannerName: importType === 'GAS' ? plannerName : (p.plannerName || ''),
           }));
           
           allFailedShifts = result.failures;
@@ -263,7 +266,14 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           existingShiftsSnapshot.forEach((doc) => {
             const shiftData = { id: doc.id, ...doc.data() } as Shift;
             if (!shiftData.userId || !shiftData.date || !shiftData.address) return;
-            if (importType === 'GAS' && shiftData.department && shiftData.department !== 'Gas') return;
+            
+            // 🔒 GAS ONLY: Planner-aware isolation
+            if (importType === 'GAS') {
+                if (shiftData.department && shiftData.department !== 'Gas') return;
+                // Only manage shifts that belong to THIS specific planner (filename)
+                if (shiftData.plannerName !== plannerName) return;
+            }
+
             existingShiftsMap.set(getShiftKey(shiftData as any), shiftData);
           });
 
