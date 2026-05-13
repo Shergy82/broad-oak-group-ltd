@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -9,7 +8,7 @@ import { db, storage } from '@/lib/firebase';
 import type { Project, EvidenceChecklist, ProjectFile, UserProfile, EvidenceChecklistItem, Shift } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Building2, Search, Pencil, CheckCircle, XCircle, Download, Trash2, RotateCw, Camera, X, Undo2, ImageIcon, Eye, EyeOff } from 'lucide-react';
+import { Building2, Search, Pencil, CheckCircle, XCircle, Download, Trash2, RotateCw, Camera, X, Undo2, ImageIcon, Eye, EyeOff, Filter, FileText } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { EvidenceChecklistManager } from '@/components/admin/evidence-checklist-manager';
@@ -19,7 +18,7 @@ import { useUserProfile } from '@/hooks/use-user-profile';
 import { useToast } from '@/hooks/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { format, differenceInDays, differenceInHours, differenceInMinutes, isBefore } from 'date-fns';
-import { Dialog, DialogDescription, DialogHeader, DialogTitle, DialogContent, DialogClose } from '@/components/ui/dialog';
+import { Dialog, DialogDescription, DialogHeader, DialogTitle, DialogContent, DialogClose, DialogFooter } from '@/components/ui/dialog';
 import { MultiPhotoCamera } from '@/components/shared/multi-photo-camera';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
 import Image from 'next/image';
@@ -27,7 +26,9 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Badge } from '@/components/ui/badge';
 import { useAllUsers } from '@/hooks/use-all-users';
-
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 
 const isMatch = (checklistText: string, fileTag: string | undefined): boolean => {
     if (!fileTag || !checklistText) return false;
@@ -65,12 +66,56 @@ const normalizeContractName = (name?: string): string => {
 interface EvidenceReportGeneratorProps {
   project: Project;
   files: ProjectFile[];
-  onGenerated: () => void;
   userProfile: UserProfile | null;
+  onGenerated: () => void;
 }
 
-function EvidenceReportGenerator({ project, files, onGenerated, userProfile }: EvidenceReportGeneratorProps) {
+function EvidenceReportGenerator({ project, files, userProfile, onGenerated }: EvidenceReportGeneratorProps) {
+  const [isOpen, setIsOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  
+  // Customization State
+  const [reportTitle, setReportTitle] = useState('Evidence Report');
+  const [reportNotes, setReportNotes] = useState('');
+  const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
+  const [selectedUploaderIds, setSelectedUploaderIds] = useState<Set<string>>(new Set());
+
+  const availableTags = useMemo(() => {
+    const tags = new Set<string>();
+    files.forEach(f => { if (f.evidenceTag) tags.add(f.evidenceTag); });
+    return Array.from(tags).sort();
+  }, [files]);
+
+  const availableUploaders = useMemo(() => {
+    const uploaders = new Map<string, string>();
+    files.forEach(f => { uploaders.set(f.uploaderId, f.uploaderName); });
+    return Array.from(uploaders.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+  }, [files]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedTags(new Set(availableTags));
+      setSelectedUploaderIds(new Set(availableUploaders.map(u => u[0])));
+    }
+  }, [isOpen, availableTags, availableUploaders]);
+
+  const toggleTag = (tag: string) => {
+    setSelectedTags(prev => {
+        const next = new Set(prev);
+        if (next.has(tag)) next.delete(tag);
+        else next.add(tag);
+        return next;
+    });
+  };
+
+  const toggleUploader = (uid: string) => {
+    setSelectedUploaderIds(prev => {
+        const next = new Set(prev);
+        if (next.has(uid)) next.delete(uid);
+        else next.add(uid);
+        return next;
+    });
+  };
 
   const generatePdf = async () => {
     setIsGenerating(true);
@@ -119,7 +164,8 @@ function EvidenceReportGenerator({ project, files, onGenerated, userProfile }: E
     doc.setFontSize(32);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(15, 23, 42); // slate-900
-    doc.text('Evidence Report', pageWidth / 2, currentY, { align: 'center' });
+    const finalTitle = reportTitle.trim() || 'Evidence Report';
+    doc.text(finalTitle, pageWidth / 2, currentY, { align: 'center' });
     currentY += 20;
 
     doc.setFontSize(16);
@@ -134,6 +180,15 @@ function EvidenceReportGenerator({ project, files, onGenerated, userProfile }: E
     doc.setTextColor(100, 116, 139); // slate-500
     const detailText = `${project.contract || 'N/A Contract'} | ${project.eNumber || 'N/A Number'}`;
     doc.text(detailText, pageWidth / 2, currentY, { align: 'center' });
+    currentY += 20;
+
+    if (reportNotes.trim()) {
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'italic');
+        doc.setTextColor(51, 65, 85);
+        const noteLines = doc.splitTextToSize(`Notes: ${reportNotes.trim()}`, pageWidth - (pageMargin * 4));
+        doc.text(noteLines, pageWidth / 2, currentY, { align: 'center' });
+    }
 
     const generatedOnText = `Generated on: ${format(new Date(), 'PPP')}`;
     const generatedByText = userProfile ? `Generated by: ${userProfile.name}` : '';
@@ -147,7 +202,12 @@ function EvidenceReportGenerator({ project, files, onGenerated, userProfile }: E
     }
 
     // --- Photo Pages ---
-    const photos = files.filter(f => f.type?.startsWith('image/'));
+    const photos = files.filter(f => {
+        if (!f.type?.startsWith('image/')) return false;
+        if (f.evidenceTag && selectedTags.size > 0 && !selectedTags.has(f.evidenceTag)) return false;
+        if (selectedUploaderIds.size > 0 && !selectedUploaderIds.has(f.uploaderId)) return false;
+        return true;
+    });
 
     if (photos.length > 0) {
       const groupedPhotos = new Map<string, ProjectFile[]>();
@@ -171,27 +231,23 @@ function EvidenceReportGenerator({ project, files, onGenerated, userProfile }: E
       };
 
       for (const [tag, photosInGroup] of sortedGroups.entries()) {
-          // --- NEW PROFESSIONAL TITLE ---
           const titleHeight = 10;
           const titlePadding = 3;
           
-          addPageIfNeeded(titleHeight + (titlePadding * 2) + 12); // Add space for title block and margin
+          addPageIfNeeded(titleHeight + (titlePadding * 2) + 12);
           
-          // Background rectangle for the title
-          doc.setFillColor(15, 23, 42); // slate-900 (dark, professional)
+          doc.setFillColor(15, 23, 42);
           doc.rect(pageMargin, finalY, pageWidth - (pageMargin * 2), titleHeight + titlePadding, 'F');
           
-          // Title text
           doc.setFontSize(14);
           doc.setFont('helvetica', 'bold');
-          doc.setTextColor(255, 255, 255); // White text
+          doc.setTextColor(255, 255, 255);
           doc.text(tag, pageMargin + titlePadding, finalY + (titleHeight + titlePadding) / 2, { 
               align: 'left', 
               baseline: 'middle' 
           });
           
-          finalY += titleHeight + titlePadding + 12; // Move cursor down
-          // --- END NEW TITLE ---
+          finalY += titleHeight + titlePadding + 12;
 
           for (const photo of photosInGroup) {
               try {
@@ -209,7 +265,7 @@ function EvidenceReportGenerator({ project, files, onGenerated, userProfile }: E
                   const imgWidth = pageWidth - (pageMargin * 2);
                   const imgHeight = (imgProps.height * imgWidth) / imgProps.width;
                   
-                  const maxHeight = 110; // Max height per image to fit two
+                  const maxHeight = 110;
                   let renderHeight = imgHeight;
                   let renderWidth = imgWidth;
 
@@ -243,22 +299,86 @@ function EvidenceReportGenerator({ project, files, onGenerated, userProfile }: E
                 finalY += 10;
               }
           }
-           finalY += 10; // Space between groups
+           finalY += 10;
       }
     }
     
     doc.save(`evidence_${project.address.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
     setIsGenerating(false);
+    setIsOpen(false);
     onGenerated();
   };
 
   return (
-    <Button onClick={generatePdf} disabled={isGenerating} size="sm" className="w-full text-xs px-1 py-1 h-14 flex-col justify-center">
-      {isGenerating ? <Spinner /> : <>
+    <>
+    <Button onClick={() => setIsOpen(true)} size="sm" className="w-full text-xs px-1 py-1 h-14 flex-col justify-center">
         <Download className="h-4 w-4" />
         <span>Generate PDF</span>
-      </>}
     </Button>
+
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+        <DialogContent className="max-w-2xl">
+            <DialogHeader>
+                <DialogTitle>Configure Evidence Report</DialogTitle>
+                <DialogDescription>Select which photos to include and provide additional information for the cover page.</DialogDescription>
+            </DialogHeader>
+            <div className="py-4 space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                        <Label>Report Title</Label>
+                        <Input value={reportTitle} onChange={e => setReportTitle(e.target.value)} placeholder="e.g. Remedial Evidence Report" />
+                    </div>
+                    <div className="space-y-2">
+                        <Label>Report Notes (Optional)</Label>
+                        <Textarea value={reportNotes} onChange={e => setReportNotes(e.target.value)} placeholder="Extra context for the reader..." rows={2} />
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-3">
+                        <Label className="flex justify-between items-center">
+                            <span>Filter by Tag</span>
+                            <Button variant="link" size="sm" className="h-auto p-0" onClick={() => setSelectedTags(new Set(availableTags))}>Select All</Button>
+                        </Label>
+                        <ScrollArea className="h-32 border rounded-md p-2">
+                            <div className="space-y-2">
+                                {availableTags.map(tag => (
+                                    <div key={tag} className="flex items-center space-x-2">
+                                        <Checkbox id={`pdf-tag-${tag}`} checked={selectedTags.has(tag)} onCheckedChange={() => toggleTag(tag)} />
+                                        <Label htmlFor={`pdf-tag-${tag}`} className="text-xs">{tag}</Label>
+                                    </div>
+                                ))}
+                            </div>
+                        </ScrollArea>
+                    </div>
+
+                    <div className="space-y-3">
+                         <Label className="flex justify-between items-center">
+                            <span>Filter by Uploader</span>
+                            <Button variant="link" size="sm" className="h-auto p-0" onClick={() => setSelectedUploaderIds(new Set(availableUploaders.map(u => u[0])))}>Select All</Button>
+                        </Label>
+                        <ScrollArea className="h-32 border rounded-md p-2">
+                            <div className="space-y-2">
+                                {availableUploaders.map(([uid, name]) => (
+                                    <div key={uid} className="flex items-center space-x-2">
+                                        <Checkbox id={`pdf-up-${uid}`} checked={selectedUploaderIds.has(uid)} onCheckedChange={() => toggleUploader(uid)} />
+                                        <Label htmlFor={`pdf-up-${uid}`} className="text-xs">{name}</Label>
+                                    </div>
+                                ))}
+                            </div>
+                        </ScrollArea>
+                    </div>
+                </div>
+            </div>
+            <DialogFooter>
+                <Button variant="outline" onClick={() => setIsOpen(false)}>Cancel</Button>
+                <Button onClick={generatePdf} disabled={isGenerating || (selectedTags.size === 0 && selectedUploaderIds.size === 0)}>
+                    {isGenerating ? <Spinner /> : <><FileText className="mr-2 h-4 w-4" /> Create Report</>}
+                </Button>
+            </DialogFooter>
+        </DialogContent>
+    </Dialog>
+    </>
   );
 }
 
@@ -277,6 +397,10 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, onMarkAs
     const { toast } = useToast();
     const [isGalleryOpen, setIsGalleryOpen] = useState(false);
     const [viewingFile, setViewingFile] = useState<ProjectFile | null>(null);
+    
+    // Gallery Filtering
+    const [galleryTagFilter, setGalleryTagFilter] = useState<string>('all');
+    const [galleryUploaderFilter, setGalleryUploaderFilter] = useState<string>('all');
 
     const [isCameraOpen, setIsCameraOpen] = useState(false);
     const [selectedCameraItem, setSelectedCameraItem] = useState<{ text: string, count: number } | null>(null);
@@ -284,6 +408,26 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, onMarkAs
 
     const imageFiles = useMemo(() => files.filter(f => f.type?.startsWith('image/')), [files]);
     
+    const availableTags = useMemo(() => {
+        const tags = new Set<string>();
+        imageFiles.forEach(f => { if (f.evidenceTag) tags.add(f.evidenceTag); });
+        return Array.from(tags).sort();
+    }, [imageFiles]);
+
+    const availableUploaders = useMemo(() => {
+        const uploaders = new Map<string, string>();
+        imageFiles.forEach(f => { uploaders.set(f.uploaderId, f.uploaderName); });
+        return Array.from(uploaders.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+    }, [imageFiles]);
+
+    const filteredGalleryPhotos = useMemo(() => {
+        return imageFiles.filter(f => {
+            const matchesTag = galleryTagFilter === 'all' || f.evidenceTag === galleryTagFilter;
+            const matchesUploader = galleryUploaderFilter === 'all' || f.uploaderId === galleryUploaderFilter;
+            return matchesTag && matchesUploader;
+        });
+    }, [imageFiles, galleryTagFilter, galleryUploaderFilter]);
+
     const { evidenceState } = project;
 
     const activeChecklistItems = useMemo(() => {
@@ -497,7 +641,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, onMarkAs
 
                         {evidenceState === 'ready' && (
                             <div className="col-span-2 grid grid-cols-2 gap-2">
-                                <EvidenceReportGenerator project={project} files={files} onGenerated={() => onMarkAsComplete(project.id)} userProfile={userProfile} />
+                                <EvidenceReportGenerator project={project} files={files} userProfile={userProfile} onGenerated={() => onMarkAsComplete(project.id)}  />
                                 <Button variant="secondary" size="sm" className="text-xs px-1 py-1 h-14 w-full flex-col justify-center" onClick={() => onMarkAsComplete(project.id)}>
                                     <CheckCircle className="h-4 w-4" />
                                     <span>Mark Complete</span>
@@ -550,31 +694,66 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, onMarkAs
             )}
 
             <Dialog open={isGalleryOpen} onOpenChange={setIsGalleryOpen}>
-                <DialogContent className="max-w-6xl">
+                <DialogContent className="max-w-6xl h-[90vh] flex flex-col">
                     <DialogHeader>
                         <DialogTitle>Photos for: {project.address}</DialogTitle>
-                        <DialogDescription>{imageFiles.length} photo(s) found for this project.</DialogDescription>
+                        <DialogDescription>{imageFiles.length} total photo(s) found for this project.</DialogDescription>
                     </DialogHeader>
-                     {imageFiles.length > 0 ? (
-                        <ScrollArea className="h-[70vh] rounded-md border p-4">
+                    
+                    <div className="flex flex-col sm:flex-row gap-4 py-2 border-b">
+                        <div className="flex-1 space-y-1">
+                            <Label className="text-xs font-semibold flex items-center gap-1"><Filter className="h-3 w-3" /> Filter by Tag</Label>
+                            <Select value={galleryTagFilter} onValueChange={setGalleryTagFilter}>
+                                <SelectTrigger className="h-8 text-xs">
+                                    <SelectValue placeholder="All Tags" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All Tags</SelectItem>
+                                    {availableTags.map(tag => <SelectItem key={tag} value={tag}>{tag}</SelectItem>)}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="flex-1 space-y-1">
+                            <Label className="text-xs font-semibold flex items-center gap-1"><Filter className="h-3 w-3" /> Filter by Uploader</Label>
+                            <Select value={galleryUploaderFilter} onValueChange={setGalleryUploaderFilter}>
+                                <SelectTrigger className="h-8 text-xs">
+                                    <SelectValue placeholder="All Uploaders" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All Uploaders</SelectItem>
+                                    {availableUploaders.map(([uid, name]) => <SelectItem key={uid} value={uid}>{name}</SelectItem>)}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="flex items-end">
+                            <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setGalleryTagFilter('all'); setGalleryUploaderFilter('all'); }}>Reset</Button>
+                        </div>
+                    </div>
+
+                     {filteredGalleryPhotos.length > 0 ? (
+                        <ScrollArea className="flex-grow p-4">
                             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                                {imageFiles.map((photo) => (
-                                    <div key={photo.id} className="relative aspect-square group cursor-pointer rounded-md overflow-hidden" onClick={() => setViewingFile(photo)}>
+                                {filteredGalleryPhotos.map((photo) => (
+                                    <div key={photo.id} className="relative aspect-square group cursor-pointer rounded-md overflow-hidden bg-muted" onClick={() => setViewingFile(photo)}>
                                         <Image
                                             src={`/api/file?path=${encodeURIComponent(photo.fullPath)}`}
                                             alt={photo.name}
                                             fill
                                             className="object-cover transition-transform group-hover:scale-105"
                                         />
-                                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-2">
-                                            <span className="text-white text-xs text-left line-clamp-2">{photo.name}</span>
+                                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-2">
+                                            <span className="text-white text-[10px] font-bold truncate">{photo.evidenceTag || 'No Tag'}</span>
+                                            <span className="text-white/80 text-[10px] truncate">{photo.uploaderName}</span>
                                         </div>
                                     </div>
                                 ))}
                             </div>
                         </ScrollArea>
                     ) : (
-                        <p className="text-center text-muted-foreground py-10">No photos to display.</p>
+                        <div className="flex-grow flex flex-col items-center justify-center text-muted-foreground p-10">
+                            <ImageIcon className="h-10 w-10 opacity-20 mb-2" />
+                            <p>No photos match the selected filters.</p>
+                        </div>
                     )}
                 </DialogContent>
             </Dialog>
@@ -729,7 +908,6 @@ export function EvidenceDashboard() {
         setEvidenceChecklists(checklistsMap);
     });
 
-    // We can set loading to false here, as file fetching is secondary
     setLoading(false);
 
     return () => {
@@ -761,15 +939,12 @@ export function EvidenceDashboard() {
 
     let relevantProjectAddresses = new Set<string>();
     
-    // For non-owners, figure out which projects they should see.
     if (!isOwner) {
-        // 1. Projects in their own department
         projects.forEach(p => {
             if (p.department === userProfile.department) {
                 relevantProjectAddresses.add(p.address);
             }
         });
-        // 2. Projects they have shifts for (cross-department)
         allShifts.forEach(s => {
             if (s.userId === userProfile.uid && s.address) {
                 relevantProjectAddresses.add(s.address);
@@ -779,18 +954,15 @@ export function EvidenceDashboard() {
 
     const filtered = projects.filter(project => {
         if (isOwner) {
-             // Owners see projects based on the department filter
             if (selectedDepartments.size > 0) {
                 return project.department && selectedDepartments.has(project.department);
             }
-            return true; // Or all projects if no filter
+            return true; 
         } else {
-            // Non-owners see projects if the address is in their relevant set
             return relevantProjectAddresses.has(project.address);
         }
     });
     
-    // Final search term filter
     if (!searchTerm) return filtered;
     return filtered.filter(project =>
       project.address.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -862,7 +1034,6 @@ export function EvidenceDashboard() {
         groups.get(normalizedKey)!.projects.push(project);
     });
 
-    // Post-process to pick the best display name for each group
     groups.forEach(group => {
         if (group.projects.length === 0) return;
 
@@ -884,10 +1055,8 @@ export function EvidenceDashboard() {
   const visibleGroups = useMemo(() => groupedProjects.filter(group => !hiddenContracts.has(group.displayName)), [groupedProjects, hiddenContracts]);
   
   const hiddenContractsList = useMemo(() => {
-    // Get all contract names that are relevant for the current view
     const allRelevantContractNames = new Set(groupedProjects.map(g => g.displayName));
     
-    // Filter the globally stored hidden contracts to only those that are relevant now
     return Array.from(hiddenContracts)
         .filter(hiddenName => allRelevantContractNames.has(hiddenName))
         .sort();
