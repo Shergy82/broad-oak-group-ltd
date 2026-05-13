@@ -97,7 +97,6 @@ const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: s
   const day = String(d.getDate()).padStart(2, '0');
   const dateStr = `${year}-${month}-${day}`;
   
-  // 🔒 GRANULAR KEY: Includes Task and Type to prevent duplicates unless they are truly different jobs
   const taskPart = shift.task ? `-${normalizeText(shift.task)}` : '';
   const typePart = shift.type ? `-${shift.type}` : '';
 
@@ -205,7 +204,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
       setIsUploading(true);
       setError(null);
 
-      const plannerName = file.name.replace(/\.[^/.]+$/, ""); // Identify planner by filename
+      const plannerName = file.name.replace(/\.[^/.]+$/, "");
 
       const reader = new FileReader();
       reader.onload = async (e) => {
@@ -262,7 +261,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           
           allFailedShifts = result.failures;
 
-          // 🔒 DEDUPLICATE EXCEL DATA ITSELF
           const uniqueShiftsMap = new Map<string, ParsedShift>();
           for (const shift of allShiftsFromExcel) {
             const key = getShiftKey(shift as any);
@@ -283,10 +281,8 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             const shiftData = { id: doc.id, ...doc.data() } as Shift;
             if (!shiftData.userId || !shiftData.date || !shiftData.address) return;
             
-            // 🔒 GAS ONLY: Planner-aware isolation
             if (importType === 'GAS') {
                 if (shiftData.department && shiftData.department !== 'Gas') return;
-                // Only manage shifts that belong to THIS specific planner (filename)
                 if (shiftData.plannerName !== plannerName) return;
             }
 

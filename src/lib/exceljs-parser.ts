@@ -2,8 +2,11 @@
  * GAS & BUILD IMPORT (ExcelJS based)
  * - Uses ExcelJS for robust style and formula handling.
  * 
- * !!! VERIFIED BUILD IMPORT - DO NOT ALTER THE parseBuildWorkbook FUNCTION !!!
- * !!! VERIFIED GAS IMPORT - DO NOT ALTER THE parseGasWorkbook FUNCTION !!!
+ * !!! LOCKED BUILD DEPARTMENT LOGIC - VERIFIED BY USER !!!
+ * DO NOT MODIFY THE parseBuildWorkbook FUNCTION OR ITS HELPERS WITHOUT EXPLICIT INSTRUCTION.
+ * 
+ * !!! LOCKED GAS DEPARTMENT LOGIC - VERIFIED BY USER !!!
+ * DO NOT MODIFY THE parseGasWorkbook FUNCTION OR ITS HELPERS WITHOUT EXPLICIT INSTRUCTION.
  */
 
 import ExcelJS from "exceljs";
@@ -53,7 +56,7 @@ export type ParseResult = {
 };
 
 /* =========================
-   HELPERS
+   HELPERS (SHARED)
 ========================= */
 
 function normalizeWhitespace(s: string | null | undefined): string {
@@ -62,15 +65,14 @@ function normalizeWhitespace(s: string | null | undefined): string {
 }
 
 /**
- * 🔒 ROBUST NORMALIZATION
- * Ensures "Broad-Oak" matches "Broad Oak" and is case-insensitive.
+ * 🔒 ROBUST NORMALIZATION (SHARED)
  */
 function normalizeText(text: string | null | undefined): string {
   if (!text) return "";
   return String(text)
     .toLowerCase()
-    .replace(/[^a-z0-9]/g, " ") // Replace non-alphanumeric with space
-    .replace(/\s+/g, " ")       // Collapse multiple spaces
+    .replace(/[^a-z0-9]/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
@@ -105,14 +107,13 @@ function getCellValue(cell: ExcelJS.Cell | null | undefined): any {
 }
 
 /**
- * 🔒 VERIFIED MATCHING LOGIC (GAS & BUILD)
- * Includes "No Assumptions" rule for single names.
+ * 🔒 VERIFIED MATCHING LOGIC (SHARED)
  */
 function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: UserMapEntry[]; reason?: string } {
     const normalizedChunk = normalizeText(nameChunk);
     if (!normalizedChunk) return { users: [], reason: 'Empty name provided.' };
 
-    // 1. Try Exact Match First (Case Insensitive via normalization)
+    // 1. Try Exact Match First
     let matches = userMap.filter(u => u.normalizedName === normalizedChunk);
     if (matches.length === 1) return { users: matches };
     if (matches.length > 1) return { users: [], reason: `Ambiguous name "${nameChunk}" matches multiple users exactly.` };
@@ -121,8 +122,8 @@ function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: Us
     
     // 2. STRICT CHECK: If only one name is provided, DO NOT partial match individuals.
     if (chunkParts.length < 2) {
-        // If it matches exactly one company account by the first word, we allow it (e.g. "VULCAN" matching "Vulcan Facilities")
-        const companyMatches = userMap.filter(u => u.accountType === 'company' && u.normalizedName.startsWith(normalizedChunk));
+        // ALLOW single-word matches for COMPANIES only (e.g. "VULCAN" matching "Vulcan Facilities")
+        const companyMatches = userMap.filter(u => u.accountType === 'company' && u.normalizedName.includes(normalizedChunk));
         if (companyMatches.length === 1) return { users: companyMatches };
         
         return { users: [], reason: `Single name "${nameChunk}" requires a full/exact match for individuals. No match found.` };
@@ -178,8 +179,6 @@ function toISODate(dt: Date): string {
 
 function isNonShiftText(text: string): boolean {
   const t = text.trim().toLowerCase();
-  // Filter out cells that are clearly headers or informational rows, 
-  // but DON'T filter out descriptive task words like "pv", "wire", "loft" etc.
   const noise = [
     "job manager", "measures", "scheme", "pulse", "ignore", "ordered", 
     "start date", "on live", "coole", "variation", "work type", 
@@ -191,7 +190,7 @@ function isNonShiftText(text: string): boolean {
 }
 
 /* =========================
-   GAS PARSER (VERIFIED)
+   LOCKED GAS PARSER (VERIFIED)
 ========================= */
 
 export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry[]): Promise<ParseResult> {
@@ -204,39 +203,7 @@ export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry
   const visibleWorksheets = workbook.worksheets.filter(ws => ws.state !== 'hidden');
 
   for (const sheet of visibleWorksheets) {
-    let headerRowNumber = -1;
-    let headerRow: ExcelJS.Row | undefined;
-    
-    sheet.eachRow((row, rowNum) => {
-        if(!headerRow && row.hasValues) {
-            headerRow = row;
-            headerRowNumber = rowNum;
-        }
-        if (rowNum > 20) return; 
-    });
-
-    let sheetResult: ParseResult;
-
-    if (headerRow) {
-        const headers: string[] = [];
-        headerRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-          headers[colNumber - 1] = normalizeText(getCellText(cell));
-        });
-  
-        const dateIndex = headers.indexOf('date');
-        const userIndex = headers.indexOf('user') > -1 ? headers.indexOf('user') : headers.indexOf('operative');
-        const taskIndex = headers.indexOf('task');
-        const addressIndex = headers.indexOf('address');
-  
-        if (dateIndex > -1 && userIndex > -1 && taskIndex > -1 && addressIndex > -1) {
-            sheetResult = parseListView(sheet, headerRowNumber, headers, userMap);
-        } else {
-            sheetResult = parseMatrixView(sheet, userMap);
-        }
-    } else {
-      sheetResult = parseMatrixView(sheet, userMap);
-    }
-
+    const sheetResult = parseMatrixView(sheet, userMap);
     allParsed.push(...sheetResult.parsed);
     allFailures.push(...sheetResult.failures);
   }
@@ -248,56 +215,6 @@ export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry
     parsed: allParsed.filter(s => s.shiftDate >= today), 
     failures: allFailures.filter(f => !f.shiftDate || f.shiftDate >= today) 
   };
-}
-
-function parseListView(sheet: ExcelJS.Worksheet, headerRowNumber: number, headers: string[], userMap: UserMapEntry[]): ParseResult {
-    const parsed: ParsedGasShift[] = [];
-    const failures: ImportFailure[] = [];
-    const sheetName = sheet.name;
-    
-    const dateIndex = headers.indexOf('date');
-    const userIndex = headers.indexOf('user') > -1 ? headers.indexOf('user') : headers.indexOf('operative');
-    const taskIndex = headers.indexOf('task');
-    const addressIndex = headers.indexOf('address');
-
-    for (let rowNum = headerRowNumber + 1; rowNum <= sheet.rowCount; rowNum++) {
-        const row = sheet.getRow(rowNum);
-        if (!row || !row.hasValues) continue;
-
-        const date = parseExcelCellAsDate(row.getCell(dateIndex + 1));
-        const userNameRaw = getCellText(row.getCell(userIndex + 1));
-        const task = getCellText(row.getCell(taskIndex + 1));
-        const address = getCellText(row.getCell(addressIndex + 1));
-
-        if (!date || !userNameRaw || !task || !address) continue;
-
-        const { users: matchedUsers, reason } = findUsersInMap(userNameRaw, userMap);
-        if (matchedUsers.length !== 1) {
-            failures.push({
-                reason: reason || `Could not find a unique user for "${userNameRaw}"`,
-                siteAddress: address,
-                shiftDate: toISODate(date),
-                operativeNameRaw: userNameRaw,
-                sheetName,
-                cellRef: row.getCell(userIndex + 1).address,
-                cellContent: userNameRaw
-            });
-            continue;
-        }
-
-        parsed.push({
-          siteAddress: address,
-          shiftDate: toISODate(date),
-          task: task,
-          type: 'all-day',
-          user: matchedUsers[0],
-          source: { sheetName, cellRef: row.getCell(userIndex + 1).address },
-          notes: '',
-          department: 'Gas'
-        });
-    }
-
-    return { parsed, failures };
 }
 
 function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): ParseResult {
@@ -359,7 +276,6 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
       const row = sheet.getRow(r);
       for (const { col, isoDate } of dateCols) {
         const text = getCellText(row.getCell(col));
-        // Cell must contain a hyphen to be a valid shift (Task - Operative)
         if (!text || !text.includes('-') || isNonShiftText(text)) continue;
 
         const { task, names, type } = extractGasTaskAndNames(text);
@@ -380,7 +296,6 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
             }
             
             const user = matchedUsers[0];
-            // 🔒 GRANULAR DEDUPLICATION KEY
             const uniqueKey = `${isoDate}-${user.uid}-${normalizeText(siteAddress)}-${normalizeText(task)}-${type}`;
             
             if (!seenShiftsInBlock.has(uniqueKey)) {
@@ -407,7 +322,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
 }
 
 /* =========================
-   BUILD PARSER (VERIFIED)
+   LOCKED BUILD PARSER (VERIFIED)
 ========================= */
 
 export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEntry[], selectedSheets: string[]): Promise<ParseResult> {
@@ -427,10 +342,11 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
 
     let dateRowIdx = -1;
     let dateCols: { col: number, isoDate: string }[] = [];
-    for (let r = 1; r <= 20; r++) {
+    for (let r = 1; r <= 50; r++) {
         const row = sheet.getRow(r);
         const tempCols: { col: number, isoDate: string }[] = [];
         row.eachCell((cell, colNumber) => {
+            // BUILD Grid strictly starts from Column G (7) onwards
             if (colNumber < 7) return;
 
             const dt = parseExcelCellAsDate(cell);
@@ -492,7 +408,7 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
                     }
 
                     const user = matchedUsers[0];
-                    const uniqueKey = `${isoDate}-${user.uid}-${type}`;
+                    const uniqueKey = `${isoDate}-${user.uid}-${normalizeText(siteAddress)}-${normalizeText(task)}-${type}`;
                     
                     if (!seenShiftsInBlock.has(uniqueKey)) {
                         seenShiftsInBlock.add(uniqueKey);
@@ -633,7 +549,6 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
         names = raw.substring(lastHyphen + 1).split(/[,&/]| and /i).map(s => s.trim()).filter(Boolean);
     }
     
-    // 🔒 IN-CELL NAME DEDUPLICATION
     const uniqueNames = Array.from(new Set(names.map(n => n.toLowerCase()))).map(lowName => {
         return names.find(n => n.toLowerCase() === lowName)!;
     });
