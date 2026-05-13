@@ -1,4 +1,3 @@
-
 /**
  * GAS IMPORT (colour-based divider rows) — DROP-IN CODE
  * - Uses ExcelJS because SheetJS/xlsx usually does NOT preserve cell styles reliably.
@@ -736,13 +735,15 @@ const extractUsersAndTask = (
 const parseDate = (dateValue: any): Date | null => {
   if (!dateValue) return null;
   if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
-    return dateValue;
+    // FIX: return a UTC date matching the local wall clock to prevent one-day shifts
+    return new Date(Date.UTC(dateValue.getFullYear(), dateValue.getMonth(), dateValue.getDate()));
   }
   if (typeof dateValue === 'number' && dateValue > 1) {
     const excelEpoch = new Date(1899, 11, 30);
     const d = new Date(excelEpoch.getTime() + dateValue * 24 * 60 * 60 * 1000);
     if (!isNaN(d.getTime())) {
-      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+      // FIX: use local getters on the calculated Date to create a correct UTC midnight
+      return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
     }
   }
   if (typeof dateValue === 'string') {

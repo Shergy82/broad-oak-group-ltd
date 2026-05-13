@@ -81,20 +81,23 @@ const parseDateSafe = (dateValue: any): Date | null => {
   if (!dateValue) return null;
 
   if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
+    // FIX: Use local getters to capture the "digits" from Excel regardless of timezone
     return new Date(Date.UTC(
-      dateValue.getUTCFullYear(),
-      dateValue.getUTCMonth(),
-      dateValue.getUTCDate()
+      dateValue.getFullYear(),
+      dateValue.getMonth(),
+      dateValue.getDate()
     ));
   }
 
   if (typeof dateValue === 'number' && dateValue > 1) {
     const excelEpoch = new Date(Math.round((dateValue - 25569) * 86400 * 1000));
     if (!isNaN(excelEpoch.getTime())) {
+      // Numbers are calculated relative to UTC in ExcelJS/XLSX usually, 
+      // but we use local getters here to be safe and consistent with the Date object path
       return new Date(Date.UTC(
-        excelEpoch.getUTCFullYear(),
-        excelEpoch.getUTCMonth(),
-        excelEpoch.getUTCDate()
+        excelEpoch.getFullYear(),
+        excelEpoch.getMonth(),
+        excelEpoch.getDate()
       ));
     }
   }
@@ -103,13 +106,12 @@ const parseDateSafe = (dateValue: any): Date | null => {
     const s = dateValue.trim();
     if (!s) return null;
 
-    const parts = s.match(/^(\d{1,2})[./-](?:\d{1,2}|[a-zA-Z]{3,})[./-](?:\d{2,4})?$/);
     const parsed = new Date(s);
     if (!isNaN(parsed.getTime())) {
         return new Date(Date.UTC(
-            parsed.getUTCFullYear(),
-            parsed.getUTCMonth(),
-            parsed.getUTCDate()
+            parsed.getFullYear(),
+            parsed.getMonth(),
+            parsed.getDate()
         ));
     }
   }
@@ -241,11 +243,7 @@ const extractUsersAndTask = (
 
 const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; type: 'am' | 'pm' | 'all-day' }): string => {
   const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
-  // CRITICAL: use UTC methods for stable keys across browser timezones
   const dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-  
-  // NOTE: Removed normalizedType from key to allow updates when shift type (AM/PM) changes
-  // A shift is uniquely identified by DATE + USER + ADDRESS.
   return `${dateStr}-${shift.userId}-${normalizeText(shift.address)}`;
 };
 
@@ -581,7 +579,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
                 normalizeText(existingShift.manager || '') !== normalizeText(excelShift.manager || '') ||
                 normalizeText(existingShift.notes || '') !== normalizeText(excelShift.notes || '') ||
                 normalizeText(existingShift.contract || '') !== normalizeText(excelShift.contract || '') ||
-                existingShift.type !== excelShift.type; // Added type comparison for updates
+                existingShift.type !== excelShift.type; 
 
               if (hasChanged) {
                 toUpdate.push({ old: existingShift, new: excelShift });
@@ -589,7 +587,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             }
           }
 
-          // Use local midnight for comparison to avoid timezone cut-off issues
           const importTodayLocal = new Date();
           importTodayLocal.setHours(0, 0, 0, 0);
 
