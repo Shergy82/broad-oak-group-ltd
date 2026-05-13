@@ -645,7 +645,7 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
 
     // --- Handle Shift Updates ---
     toUpdate.forEach(({ id, new: newShift }: any) => {
-        batch.update(shiftsRef.doc(id), {
+        const updatePayload: any = {
             address: newShift.address,
             task: newShift.task,
             type: newShift.type,
@@ -654,8 +654,14 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             notes: newShift.notes || '',
             contract: newShift.contract || '',
             department: newShift.department || department || '',
-            status: 'pending-confirmation',
-        });
+        };
+        
+        // GAS ONLY: Do not reset status to 'pending-confirmation' if already accepted/active
+        if (department !== 'Gas') {
+            updatePayload.status = 'pending-confirmation';
+        }
+        
+        batch.update(shiftsRef.doc(id), updatePayload);
     });
 
     // --- Handle Shift Deletions ---
