@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -29,6 +28,7 @@ import { useAllUsers } from '@/hooks/use-all-users';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const isMatch = (checklistText: string, fileTag: string | undefined): boolean => {
     if (!fileTag || !checklistText) return false;
@@ -577,9 +577,9 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, onMarkAs
                                                     <div key={item.text} className={cn("flex items-center justify-between gap-2 text-xs", item.isComplete ? cn(textColorClass, "opacity-70") : cn("font-semibold", textColorClass))}>
                                                         <div className="flex items-center gap-2">
                                                             {item.isComplete ? (
-                                                                <CheckCircle className="h-3 w-3 opacity-90 shrink-0" />
+                                                                <CheckCircle className="h-3.5 w-3.5 opacity-90 shrink-0" />
                                                             ) : (
-                                                                <XCircle className="h-3 w-3 shrink-0" />
+                                                                <XCircle className="h-3.5 w-3.5 shrink-0" />
                                                             )}
                                                             <span className="truncate">{item.text} ({item.displayCount}/{item.photoCount})</span>
                                                         </div>
