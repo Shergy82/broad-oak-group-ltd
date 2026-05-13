@@ -250,10 +250,14 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
     
     setIsLoading(true);
     try {
+        // Fix 1-day offset: ensure date is local midnight converted to UTC
+        const now = new Date();
+        const correctedToday = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+
         await addDoc(collection(db, 'shifts'), {
             userId: testUser.uid,
             userName: testUser.name,
-            date: Timestamp.fromDate(new Date()),
+            date: Timestamp.fromDate(correctedToday),
             type: selectedShiftType,
             status: 'pending-confirmation',
             address: 'Test Shift Address',
