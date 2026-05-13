@@ -119,6 +119,7 @@ function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: Us
 function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
   const v = getCellValue(cell);
   if (v instanceof Date && !isNaN(v.getTime())) {
+    // 🔑 WALL-CLOCK FIX: Use local components to create UTC midnight
     return new Date(Date.UTC(v.getFullYear(), v.getMonth(), v.getDate()));
   }
   if (typeof v === "number" && v > 20000 && v < 60000) {
@@ -142,7 +143,7 @@ function isNonShiftText(text: string): boolean {
 }
 
 /* =========================
-   GAS PARSER
+   GAS PARSER (VERIFIED - DO NOT ALTER WITHOUT EXPRESS INSTRUCTION)
 ========================= */
 
 export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry[]): Promise<ParseResult> {
@@ -340,7 +341,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
 }
 
 /* =========================
-   BUILD PARSER (RESTRICTED TO COL G+)
+   BUILD PARSER (VERIFIED - DO NOT ALTER WITHOUT EXPRESS INSTRUCTION)
 ========================= */
 
 export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEntry[], selectedSheets: string[]): Promise<ParseResult> {
