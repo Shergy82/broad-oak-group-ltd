@@ -1,16 +1,7 @@
 /**
- * GAS IMPORT (colour-based divider rows) — DROP-IN CODE
- * - Uses ExcelJS because SheetJS/xlsx usually does NOT preserve cell styles reliably.
- * - BUILD import is untouched: you route to it exactly as you do today.
- *
- * Install:
- *   npm i exceljs
- *
- * Notes:
- * - Divider rows have NO text; they are detected only by a consistent non-white fill across the row.
- * - Site blocks are between divider rows.
- * - Site address is the biggest filled cell with text in column A (fallback A–B).
- * - Date header row is detected by finding a row with >=3 date-like cells across adjacent columns.
+ * GAS IMPORT (colour-based divider rows)
+ * - Uses ExcelJS for robust style and formula handling.
+ * - BUILD import is handled by parseBuildSheet.
  */
 
 import ExcelJS from "exceljs";
@@ -56,7 +47,7 @@ export type ParseResult = {
 
 function normalizeWhitespace(s: string | null | undefined): string {
   if (!s) return "";
-  return String(s).replace(/[ \t]+/g, " ").replace(/\s*\n\s*/g, "\n").trim();
+  return String(s).replace(/[ \t]+/g, " ").replace(/\s*\n\s*/g, " ").trim();
 }
 
 function normalizeText(text: string | null | undefined): string {
@@ -64,15 +55,11 @@ function normalizeText(text: string | null | undefined): string {
   return String(text).toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
 }
 
-/**
- * Robustly extracts the visible text from an ExcelJS cell.
- */
 function getCellText(cell: ExcelJS.Cell | null | undefined): string {
   if (!cell) return "";
   const val = cell.value;
   if (val === null || val === undefined) return "";
   
-  // Unwrap formula results
   if (typeof val === 'object' && 'result' in val) {
     const res = val.result;
     if (res === null || res === undefined) return "";
@@ -91,9 +78,6 @@ function getCellText(cell: ExcelJS.Cell | null | undefined): string {
   }
 }
 
-/**
- * Safely extracts the value from a cell, handling formulas.
- */
 function getCellValue(cell: ExcelJS.Cell | null | undefined): any {
   if (!cell) return null;
   const v = cell.value;
@@ -148,7 +132,6 @@ export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry
     let headerRowNumber = -1;
     let headerRow: ExcelJS.Row | undefined;
     
-    // Quick check to see if this is a List view vs a Matrix view
     sheet.eachRow((row, rowNum) => {
         if(!headerRow && row.hasValues) {
             headerRow = row;
@@ -196,15 +179,13 @@ function parseListView(sheet: ExcelJS.Worksheet, headerRowNumber: number, header
     const addressIndex = headers.indexOf('address');
 
     const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
 
     for (let rowNum = headerRowNumber + 1; rowNum <= sheet.rowCount; rowNum++) {
         const row = sheet.getRow(rowNum);
         if (!row || !row.hasValues) continue;
 
         const date = parseExcelCellAsDate(row.getCell(dateIndex + 1));
-        
-        // Skip past dates (Gas only)
         if (date && date < today) continue;
 
         const userNameRaw = getCellText(row.getCell(userIndex + 1));
@@ -213,29 +194,26 @@ function parseListView(sheet: ExcelJS.Worksheet, headerRowNumber: number, header
 
         if (!date || !userNameRaw || !task || !address) {
             if (userNameRaw || task || address) {
-                failures.push({
-                    reason: 'Missing required data (Date, User, Task, or Address).',
-                    siteAddress: address,
-                    sheetName,
-                    cellRef: `Row ${rowNum}`
-                });
+                const failureDate = date ? toISODate(date) : undefined;
+                if (!date || (date >= today)) {
+                    failures.push({
+                        reason: 'Missing required data (Date, User, Task, or Address).',
+                        siteAddress: address,
+                        shiftDate: failureDate,
+                        sheetName,
+                        cellRef: `Row ${rowNum}`
+                    });
+                }
             }
             continue;
-        }
-
-        const eNumMatchStart = address.match(/^\s*([BE]\d+\S*)\s+/i);
-        let finalAddress = address;
-        let eNumber = '';
-        if (eNumMatchStart) {
-          eNumber = eNumMatchStart[1].trim().toUpperCase();
-          finalAddress = address.replace(eNumMatchStart[0], '').trim();
         }
 
         const { users: matchedUsers, reason } = findUsersInMap(userNameRaw, userMap);
         if (matchedUsers.length !== 1) {
             failures.push({
                 reason: reason || `Could not find a unique user for "${userNameRaw}"`,
-                siteAddress: finalAddress,
+                siteAddress: address,
+                shiftDate: toISODate(date),
                 operativeNameRaw: userNameRaw,
                 sheetName,
                 cellRef: row.getCell(userIndex + 1).address
@@ -244,8 +222,7 @@ function parseListView(sheet: ExcelJS.Worksheet, headerRowNumber: number, header
         }
 
         parsed.push({
-          siteAddress: finalAddress,
-          eNumber: eNumber,
+          siteAddress: address,
           shiftDate: toISODate(date),
           task: task,
           type: 'all-day',
@@ -264,55 +241,38 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
   const parsed: ParsedGasShift[] = [];
 
   const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
 
   const used = getUsedBounds(sheet);
-  if (!used) return { parsed: [], failures: [{ reason: "Sheet appears empty", sheetName }] };
+  if (!used) return { parsed: [], failures: [] };
 
-  // 1. Identify Divider Rows (the "black lines")
   let dividerRows = findDividerRows(sheet, used);
   
-  // Implicit dividers at start and end
   if (!dividerRows.includes(used.startRow - 1)) dividerRows.unshift(used.startRow - 1);
   if (!dividerRows.includes(used.endRow + 1)) dividerRows.push(used.endRow + 1);
 
-  // 2. Iterate through each site block
   for (let i = 0; i < dividerRows.length - 1; i++) {
     const blockStart = dividerRows[i] + 1;
     const blockEnd = dividerRows[i + 1] - 1;
     if (blockEnd < blockStart) continue;
 
-    // "End of Data" logic: if Column A is empty for too many rows at the start of a block, stop the sheet.
     let emptyStreak = 0;
     for (let r = blockStart; r <= Math.min(blockStart + 15, blockEnd); r++) {
         if (!getCellText(sheet.getRow(r).getCell(1))) emptyStreak++;
     }
     if (emptyStreak > 15) break;
 
-    // 3. Extract the address strictly for THIS block
     const siteAddressResult = extractSiteAddress(sheet, used, blockStart, blockEnd);
-    if (!siteAddressResult) {
-      // Check if there's actually shift data here. If yes, it's a failure.
-      const hasPossibleShifts = detectAnyShiftTextInBlock(sheet, used, blockStart, blockEnd);
-      if (hasPossibleShifts) {
-          failures.push({ reason: "Site address not found in job block.", sheetName, cellRef: `A${blockStart}:B${blockEnd}` });
-      }
-      continue;
-    }
+    if (!siteAddressResult) continue;
     
-    const { address: rawSiteAddress, row: addressRow } = siteAddressResult;
+    const { address: rawSiteAddress } = siteAddressResult;
     const eNumMatch = rawSiteAddress.match(/\b([BE]\d+\S*)\b/i);
     const eNumber = eNumMatch ? eNumMatch[1].toUpperCase() : '';
     const siteAddress = eNumMatch ? rawSiteAddress.replace(eNumMatch[0], '').trim().replace(/,$/, '').trim() : rawSiteAddress;
 
-    // 4. Find the Date header row for THIS block
     const dateRowIdx = findDateRow(sheet, used, blockStart, blockEnd);
-    if (!dateRowIdx) {
-      failures.push({ reason: "Date header row not found in block.", sheetName, siteAddress, cellRef: `A${blockStart}:Z${blockEnd}`});
-      continue;
-    }
+    if (!dateRowIdx) continue;
 
-    // 5. Gather Manager/Contact info from the top of the block
     let manager = '';
     const otherContacts: string[] = [];
     for (let r = blockStart; r < dateRowIdx; r++) {
@@ -324,10 +284,12 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
         }
     }
 
-    // 6. Process Shift Grid for THIS block
     const dateCols = getDateColumns(sheet, used, dateRowIdx);
+    
+    // Track unique user/date shifts within this block to prevent duplicates
+    const seenShiftsInBlock = new Set<string>();
+
     for (const { col, isoDate } of dateCols) {
-      // Filter past dates (Gas only)
       const colDate = new Date(isoDate);
       if (colDate < today) continue;
 
@@ -335,44 +297,42 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
         const cell = sheet.getRow(r).getCell(col);
         const text = getCellText(cell);
         
-        // Strict shift cell validation: must contain a hyphen and not be noise
         if (!text || !text.includes('-') || isNonShiftText(text)) continue;
 
         const { task, names, type } = extractGasTaskAndNames(text);
-        const uniqueUsers = new Map<string, UserMapEntry>();
-        let cellFailed = false;
-
+        
         for (const name of names) {
             const { users: matchedUsers, reason } = findUsersInMap(name, userMap);
             if (matchedUsers.length !== 1) {
                 failures.push({ 
                     reason: reason || `Could not match operative: "${name}"`, 
                     siteAddress, 
+                    shiftDate: isoDate,
                     operativeNameRaw: name, 
                     sheetName, 
                     cellRef: cell.address 
                 });
-                cellFailed = true;
-                break; 
+                continue;
             }
-            uniqueUsers.set(matchedUsers[0].uid, matchedUsers[0]);
-        }
-
-        if (cellFailed) continue;
-        
-        for (const user of uniqueUsers.values()) {
-            parsed.push({
-              siteAddress,
-              shiftDate: isoDate,
-              task,
-              type,
-              user,
-              source: { sheetName, cellRef: cell.address },
-              manager,
-              notes: otherContacts.join('\n'),
-              eNumber,
-              contract: sheetName,
-            });
+            
+            const user = matchedUsers[0];
+            const uniqueKey = `${isoDate}-${user.uid}-${type}`;
+            
+            if (!seenShiftsInBlock.has(uniqueKey)) {
+                seenShiftsInBlock.add(uniqueKey);
+                parsed.push({
+                  siteAddress,
+                  shiftDate: isoDate,
+                  task,
+                  type,
+                  user,
+                  source: { sheetName, cellRef: cell.address },
+                  manager,
+                  notes: otherContacts.join('\n'),
+                  eNumber,
+                  contract: sheetName,
+                });
+            }
         }
       }
     }
@@ -381,7 +341,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
 }
 
 /* =========================
-   GAS HELPERS (ExcelJS specific)
+   GAS HELPERS
 ========================= */
 
 function getUsedBounds(ws: ExcelJS.Worksheet): UsedBounds | null {
@@ -414,31 +374,13 @@ function isDividerRow(ws: ExcelJS.Worksheet, r: number): boolean {
   const row = ws.getRow(r);
   let hasPatternFill = false;
   let hasText = false;
-  
-  // Check the first few columns for a colored divider row
   for (let c = 1; c <= 8; c++) {
     const cell = row.getCell(c);
-    if (getCellText(cell)) {
-        hasText = true;
-        break;
-    }
+    if (getCellText(cell)) { hasText = true; break; }
     const fill = cell.fill as any;
-    // Any pattern fill (solid background color) that isn't 'none' is a divider candidate
-    if (fill?.type === "pattern" && fill.pattern !== "none") {
-        hasPatternFill = true;
-    }
+    if (fill?.type === "pattern" && fill.pattern !== "none") hasPatternFill = true;
   }
   return hasPatternFill && !hasText;
-}
-
-function detectAnyShiftTextInBlock(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, endRow: number): boolean {
-    for (let r = startRow; r <= endRow; r++) {
-        for (let c = used.startCol; c <= used.endCol; c++) {
-            const text = getCellText(ws.getRow(r).getCell(c));
-            if (text && text.includes('-') && !isNonShiftText(text)) return true;
-        }
-    }
-    return false;
 }
 
 function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, endRow: number): { address: string; row: number; } | null {
@@ -447,12 +389,10 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
         let score = Math.min(text.length, 50);
         if (/\d/.test(text)) score += 10;
         if (/,|\n/.test(text)) score += 10;
-        if (/\b([A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i.test(text)) score += 30; // High score for postcodes
+        if (/\b([A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i.test(text)) score += 30;
         return score;
     };
-
     let best = { text: "", score: 0, row: 0 };
-    // Usually in Column A or B near the start of the block
     for (let r = startRow; r <= Math.min(startRow + 10, endRow); r++) {
         for (let c = 1; c <= 2; c++) {
             const text = getCellText(ws.getRow(r).getCell(c));
@@ -469,7 +409,6 @@ function findDateRow(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, 
     for (let c = used.startCol; c <= used.endCol; c++) {
       if (parseExcelCellAsDate(ws.getRow(r).getCell(c))) count++;
     }
-    // Header row usually has many consecutive dates
     if (count >= 3) return r;
   }
   return null;
@@ -493,7 +432,6 @@ function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
   }
   const text = getCellText(cell);
   if (!text) return null;
-  // Handle strings like "1st May"
   const d = new Date(text.replace(/(\d+)(st|nd|rd|th)/g, '$1'));
   return (!isNaN(d.getTime()) && d.getUTCFullYear() > 2000) ? new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())) : null;
 }
@@ -507,7 +445,6 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
     let type: 'am' | 'pm' | 'all-day' = 'all-day';
     if (/^AM\b/i.test(raw)) { type = 'am'; raw = raw.substring(2).trim(); }
     else if (/^PM\b/i.test(raw)) { type = 'pm'; raw = raw.substring(2).trim(); }
-
     const lastHyphen = raw.lastIndexOf("-");
     if (lastHyphen === -1) return { task: "Unspecified", names: raw.split(/[,&/]| and /i).map(s => s.trim()).filter(Boolean), type };
     return { 
@@ -522,267 +459,3 @@ function isNonShiftText(text: string): boolean {
   const noise = ["job manager", "measures", "scheme", "pulse", "ignore", "ordered", "start date", "on live", "coole", "variation", "work type", "operative"];
   return noise.some(b => t.includes(b)) || /^\+?\d[\d\s-]{7,}$/.test(t);
 }
-
-/* =========================
-   BUILD PARSER (SheetJS)
-   ========================= */
-
-export const parseBuildSheet = (
-  worksheet: any, 
-  userMap: UserMapEntry[],
-  sheetName: string,
-  department: string
-): { shifts: any[], failed: ImportFailure[] } => {
-  const data: any[][] = worksheet; 
-  const allShifts: any[] = [];
-  const allFailed: any[] = [];
-
-  const headers = data[0].map((h: any) => String(h || '').trim().toLowerCase());
-  const dateIndex = headers.indexOf('date');
-  const userIndex = headers.indexOf('user');
-  const taskIndex = headers.indexOf('task');
-  const addressIndex = headers.indexOf('address');
-
-  if ([dateIndex, userIndex, taskIndex, addressIndex].includes(-1)) {
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
-
-    const dateRowRaw = data[0];
-    const dateRow: (Date | null)[] = dateRowRaw.map((cell: any) => parseDate(cell));
-    
-    let currentAddress = '';
-    let currentENumber = '';
-    let currentContract = '';
-    
-    for (let i = 1; i < data.length; i++) {
-      const row = data[i];
-      if (!row || row.every(cell => !cell)) {
-          continue;
-      }
-
-      const newAddressAndENumber = String(row[0] || '').trim();
-      if (newAddressAndENumber) {
-        const eNumMatch = newAddressAndENumber.match(/\b([BE]\d+\S*)$/i);
-        if (eNumMatch) {
-          currentENumber = eNumMatch[0].toUpperCase();
-          currentAddress = newAddressAndENumber.replace(eNumMatch[0], '').trim().replace(/,$/, '').trim();
-        } else {
-          currentAddress = newAddressAndENumber;
-          currentENumber = '';
-        }
-        currentContract = String(row[2] || '').trim() || currentContract;
-      }
-
-      if (!currentAddress) continue;
-      
-      const shiftDateCells = dateRow.slice(5);
-
-      for (let c = 0; c < shiftDateCells.length; c++) {
-          const date = shiftDateCells[c];
-          const cellText = String(row[c + 5] || '').trim();
-          if (!date || !cellText || !/[a-zA-Z]/.test(cellText)) continue;
-
-          if (date < today) continue;
-          
-          const extraction = extractUsersAndTask(cellText, userMap);
-          if (!extraction || extraction.users.length === 0) {
-              allFailed.push({
-                  reason: extraction?.reason || 'No valid user found in cell.',
-                  siteAddress: currentAddress,
-                  sheetName,
-                  cellRef: `Col ${c + 6}, Row ${i + 1}`,
-              });
-              continue;
-          }
-
-          extraction.users.forEach(user => {
-              allShifts.push({
-                  date,
-                  address: currentAddress,
-                  eNumber: currentENumber,
-                  task: extraction.task,
-                  userId: user.uid,
-                  userName: user.originalName,
-                  type: extraction.type,
-                  manager: sheetName,
-                  contract: currentContract,
-                  department,
-                  notes: '',
-              });
-          });
-      }
-    }
-  } else {
-    const operativeIndex = userIndex !== -1 ? userIndex : headers.indexOf('operative');
-    const eNumberIndex = headers.findIndex(h => h.includes('number'));
-    const contractIndex = headers.indexOf('contract');
-    const managerIndex = headers.indexOf('manager');
-
-    for (let i = 1; i < data.length; i++) {
-        const row = data[i];
-        if (!row || row.every((cell: any) => !cell)) continue;
-
-        const date = parseDate(row[dateIndex]);
-        const userNameRaw = String(row[operativeIndex] || '').trim();
-        const task = String(row[taskIndex] || '').trim();
-        const address = String(row[addressIndex] || '').trim();
-
-        if (!date || !userNameRaw || !task || !address) continue;
-
-        const { users: matchedUsers, reason } = findUsersInMap(userNameRaw, userMap);
-        if (matchedUsers.length !== 1) {
-            allFailed.push({ reason: reason || 'No unique user found', siteAddress: address, operativeNameRaw: userNameRaw, sheetName, cellRef: `Row ${i + 1}` });
-            continue;
-        }
-
-        allShifts.push({
-            date,
-            address,
-            eNumber: eNumberIndex !== -1 ? String(row[eNumberIndex] || '') : '',
-            task,
-            userId: matchedUsers[0].uid,
-            userName: matchedUsers[0].originalName,
-            type: 'all-day',
-            manager: managerIndex !== -1 ? String(row[managerIndex] || sheetName) : sheetName,
-            contract: contractIndex !== -1 ? String(row[contractIndex] || '') : '',
-            department,
-            notes: '',
-        });
-    }
-  }
-
-  return { shifts: allShifts, failed: allFailed };
-};
-
-const extractUsersAndTask = (
-  text: string,
-  userMap: UserMapEntry[]
-): { users: UserMapEntry[]; task: string; type: 'am' | 'pm' | 'all-day', reason?: string } | null => {
-  if (!text || typeof text !== 'string') return null;
-
-  let raw = text.trim();
-  if (!raw) return null;
-
-  let shiftType: 'am' | 'pm' | 'all-day' = 'all-day';
-
-  if (/^AM\b/i.test(raw)) {
-    shiftType = 'am';
-    raw = raw.substring(2).trim();
-  } else if (/^PM\b/i.test(raw)) {
-    shiftType = 'pm';
-    raw = raw.substring(2).trim();
-  }
-
-  const lastHyphenIndex = raw.lastIndexOf('-');
-  if (lastHyphenIndex === -1) {
-    return {
-      users: [],
-      task: raw,
-      type: shiftType,
-      reason: 'No " - " separator found to distinguish task from names.',
-    };
-  }
-
-  const taskPart = raw.substring(0, lastHyphenIndex).trim();
-  const namesPart = raw.substring(lastHyphenIndex + 1).trim();
-
-  if (!namesPart) {
-    return {
-      users: [],
-      task: taskPart,
-      type: shiftType,
-      reason: 'No names found after the " - " separator.',
-    };
-  }
-
-  const nameChunks = namesPart.split(/,|&|\/|\b\s*and\s*\b/i).map(s => s.trim()).filter(Boolean);
-
-  if (nameChunks.length === 0) {
-      return {
-          users: [],
-          task: taskPart,
-          type: shiftType,
-          reason: `No valid names found in cell part: "${namesPart}"`
-      };
-  }
-
-  const allMatchedUsers: UserMapEntry[] = [];
-  let failureReason: string | null = null;
-  
-  for (const chunk of nameChunks) {
-      const result = findUsersInMap(chunk, userMap);
-      if (result.users.length === 1) {
-          if (!allMatchedUsers.some(u => u.uid === result.users[0].uid)) {
-              allMatchedUsers.push(result.users[0]);
-          }
-      } else {
-          failureReason = result.reason || `Failed to match user for "${chunk}".`;
-          break;
-      }
-  }
-
-  if (failureReason) {
-    return {
-      users: [],
-      task: taskPart,
-      type: shiftType,
-      reason: failureReason,
-    };
-  }
-  
-  if (allMatchedUsers.length === 0) {
-      return {
-          users: [],
-          task: taskPart,
-          type: shiftType,
-          reason: `Could not identify any valid users from "${namesPart}".`
-      }
-  }
-  
-  return {
-    users: allMatchedUsers,
-    task: taskPart,
-    type: shiftType,
-  };
-};
-
-const parseDate = (dateValue: any): Date | null => {
-  if (!dateValue) return null;
-  if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
-    // FIX: return a UTC date matching the local wall clock to prevent one-day shifts
-    return new Date(Date.UTC(dateValue.getFullYear(), dateValue.getMonth(), dateValue.getDate()));
-  }
-  if (typeof dateValue === 'number' && dateValue > 1) {
-    const excelEpoch = new Date(1899, 11, 30);
-    const d = new Date(excelEpoch.getTime() + dateValue * 24 * 60 * 60 * 1000);
-    if (!isNaN(d.getTime())) {
-      // FIX: use local getters on the calculated Date to create a correct UTC midnight
-      return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-    }
-  }
-  if (typeof dateValue === 'string') {
-    let s = dateValue.trim();
-    if (!s) return null;
-
-    s = s.replace(/(\d+)(st|nd|rd|th)/g, '$1');
-
-    const parts = s.match(/^(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?$/);
-    if (parts) {
-      const day = parseInt(parts[1], 10);
-      const month = parseInt(parts[2], 10) - 1;
-      let year = parts[3] ? parseInt(parts[3], 10) : new Date().getFullYear();
-      if (year < 100) year += 2000;
-      if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
-        const d = new Date(Date.UTC(year, month, day));
-        if (d.getUTCFullYear() === year && d.getUTCMonth() === month && d.getUTCDate() === day) {
-          return d;
-        }
-      }
-    }
-    const parsed = new Date(s);
-    if (!isNaN(parsed.getTime())) {
-      return new Date(Date.UTC(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()));
-    }
-  }
-  return null;
-};
