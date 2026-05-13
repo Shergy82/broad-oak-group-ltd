@@ -509,19 +509,20 @@ function isDividerRow(ws: ExcelJS.Worksheet, r: number): boolean {
 
 /**
  * 🔒 VERIFIED ADDRESS LOGIC (GAS)
- * Refined to ignore manager/materials notes and focus on postal addresses.
+ * Refined to ignore manager/materials/measure notes and focus on postal addresses.
  */
 function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, endRow: number): { address: string; row: number; } | null {
     const scoreAddress = (text: string) => {
         if (!text || text.length < 5) return 0;
         
         const upper = text.toUpperCase();
-        // 1. Explicit Exclusions for Gas Department Matrix
-        if (upper.includes('MATERIALS ORDERING')) return -100;
-        if (upper.includes('TECHNICAL MANAGER')) return -100;
-        if (upper.includes('SITE MANAGER')) return -100;
-        if (upper.includes('PROJECT MANAGER')) return -100;
-        if (upper.includes('TLO')) return -100;
+        // 1. Explicit Exclusions for Noise Rows (Managers, Ordering, Measures, etc.)
+        const noiseKeywords = [
+            'MATERIALS ORDERING', 'TECHNICAL MANAGER', 'SITE MANAGER', 
+            'PROJECT MANAGER', 'TLO', 'MEASURES', 'SCHEME', 'PULSE', 
+            'PULCE', 'WEEK COMM'
+        ];
+        if (noiseKeywords.some(keyword => upper.includes(keyword))) return -100;
 
         let score = Math.min(text.length, 50);
         
@@ -534,6 +535,9 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
         
         // 4. Penalize rows that look like phone numbers only
         if (/^\+?[\d\s-]{10,}$/.test(text.replace(/[()]/g, '').trim())) score -= 50;
+
+        // 5. Penalize rows that look like dates
+        if (/\d{1,2}\/\d{1,2}\/\d{2,4}/.test(text)) score -= 50;
 
         return score;
     };
@@ -563,7 +567,9 @@ function findDateRow(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, 
 
 function getDateColumns(ws: ExcelJS.Worksheet, used: UsedBounds, dateRowIdx: number): Array<{ col: number; isoDate: string }> {
   const cols = [];
-  for (let c = used.startCol; c <= used.endCol; c++) {
+  // Matrix format: Shifts/Dates strictly start from Column F (index 6) onwards.
+  const startCol = Math.max(used.startCol, 6);
+  for (let c = startCol; c <= used.endCol; c++) {
     const dt = parseExcelCellAsDate(ws.getRow(dateRowIdx).getCell(c));
     if (dt) cols.push({ col: c, isoDate: toISODate(dt) });
   }
