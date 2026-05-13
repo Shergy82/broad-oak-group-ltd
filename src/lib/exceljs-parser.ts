@@ -276,32 +276,32 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
   const used = getUsedBounds(sheet);
   if (!used) return { parsed: [], failures: [] };
 
-  // 1. 🔒 GAS FIX: Find date columns globally for the entire sheet first
-  let dateRowIdx = -1;
-  let dateCols: { col: number; isoDate: string }[] = [];
-  for (let r = used.startRow; r <= Math.min(used.endRow, 50); r++) {
-    const tempCols = getDateColumns(sheet, used, r, 6); // GAS shifts start from Column F (6)
-    if (tempCols.length >= 3) {
-      dateRowIdx = r;
-      dateCols = tempCols;
-      break;
-    }
-  }
-
-  if (dateRowIdx === -1) return { parsed: [], failures: [] };
-
-  // 2. Find dividers (black rows)
+  // 1. Find dividers (black rows)
   let dividerRows = findDividerRows(sheet, used);
   if (!dividerRows.includes(used.startRow - 1)) dividerRows.unshift(used.startRow - 1);
   if (!dividerRows.includes(used.endRow + 1)) dividerRows.push(used.endRow + 1);
 
-  // 3. Process each job block
+  // 2. Process each job block
   for (let i = 0; i < dividerRows.length - 1; i++) {
     const blockStart = dividerRows[i] + 1;
     const blockEnd = dividerRows[i + 1] - 1;
     if (blockEnd < blockStart) continue;
 
-    // 🔒 GAS Specific: The address is ALWAYS in the LAST cell with text in Column A before next divider.
+    // 🔒 GAS FIX: Dates are across EACH individual block. Find the date row within this specific block.
+    let dateRowIdx = -1;
+    let dateCols: { col: number; isoDate: string }[] = [];
+    for (let r = blockStart; r <= blockEnd; r++) {
+        const tempCols = getDateColumns(sheet, used, r, 6); // Gas shifts start from Col F (6)
+        if (tempCols.length >= 3) {
+            dateRowIdx = r;
+            dateCols = tempCols;
+            break;
+        }
+    }
+
+    if (dateRowIdx === -1) continue;
+
+    // 🔒 GAS Specific: The address is ALWAYS in the LAST box in Column A within this block.
     const siteAddressResult = extractSiteAddress(sheet, used, blockStart, blockEnd);
     if (!siteAddressResult) continue;
     
@@ -563,14 +563,17 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
         return best.score >= 20 ? { address: normalizeWhitespace(best.text), row: best.row } : null;
     }
 
+    // 🔒 GAS MATRIX LOGIC: Scan from bottom-up within the block.
+    // The address is the LAST non-empty cell in Column A that isn't a management header.
     const noiseKeywords = [
-        'SITE MANAGER', 'TECHNICAL MANAGER', 'MATERIALS ORDERING', 'TLO', 'MEASURES'
+        'SITE MANAGER', 'TECHNICAL MANAGER', 'MATERIALS ORDERING', 'TLO', 'MEASURES', 'PROJECT MANAGER'
     ];
 
     for (let r = endRow; r >= startRow; r--) {
         const text = getCellText(ws.getRow(r).getCell(1));
         if (text) {
             const upper = text.toUpperCase();
+            // Stricter check for management text to ensure we skip the titles and get the actual data
             if (!noiseKeywords.some(kw => upper.includes(kw)) && text.length > 3) {
                 return { address: normalizeWhitespace(text), row: r };
             }
