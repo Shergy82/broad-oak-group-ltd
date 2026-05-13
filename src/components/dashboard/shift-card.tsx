@@ -1,8 +1,6 @@
-
-
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
@@ -13,13 +11,9 @@ import {
   collection,
   query,
   where,
-  getDocs,
   addDoc,
   serverTimestamp,
   onSnapshot,
-  deleteDoc,
-  Timestamp,
-  orderBy,
 } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { db, isFirebaseConfigured, storage } from '@/lib/firebase';
@@ -42,12 +36,10 @@ import {
   Camera,
   Undo,
   MapPin,
-  Coins,
-  Plus,
   Briefcase,
 } from 'lucide-react';
 import { Spinner } from '@/components/shared/spinner';
-import type { Shift, ShiftStatus, UserProfile, TradeTask, Trade, MaterialPurchase, Project, EvidenceChecklist, EvidenceChecklistItem } from '@/types';
+import type { Shift, ShiftStatus, UserProfile, TradeTask, Trade, Project } from '@/types';
 import { useAuth } from '@/hooks/use-auth';
 import {
   Dialog,
@@ -72,176 +64,6 @@ import {
 } from '../ui/alert-dialog';
 import { Checkbox } from '../ui/checkbox';
 import { MultiPhotoCamera } from '../shared/multi-photo-camera';
-import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
-import { Input } from '../ui/input';
-import { Table, TableBody, TableCell, TableHeader, TableRow } from '../ui/table';
-
-interface PurchaseLogDialogProps {
-    open: boolean;
-    onOpenChange: (open: boolean) => void;
-    onConfirm: () => void;
-    mode: 'query' | 'add';
-    shift: Shift;
-    userProfile: UserProfile | null;
-}
-
-function PurchaseLogDialog({ open, onOpenChange, onConfirm, mode, shift, userProfile }: PurchaseLogDialogProps) {
-  const [didBuy, setDidBuy] = useState<'no' | 'yes'>(mode === 'add' ? 'yes' : 'no');
-  const [purchases, setPurchases] = useState<MaterialPurchase[]>([]);
-  const [supplier, setSupplier] = useState('');
-  const [amount, setAmount] = useState('');
-  const [loading, setLoading] = useState(false);
-  const { toast } = useToast();
-
-  useEffect(() => {
-    if (open) {
-      setDidBuy(mode === 'add' ? 'yes' : 'no');
-      setSupplier('');
-      setAmount('');
-    }
-  }, [open, mode]);
-
-  useEffect(() => {
-    if (!open || !shift.id) return;
-
-    setLoading(true);
-    const purchasesQuery = query(collection(db, `shifts/${shift.id}/materialPurchases`));
-    const unsubscribe = onSnapshot(purchasesQuery, (snapshot) => {
-        const fetchedPurchases = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as MaterialPurchase));
-        setPurchases(fetchedPurchases);
-        if (mode === 'query' && fetchedPurchases.length > 0) {
-            setDidBuy('yes');
-        }
-        setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, [open, shift.id, mode]);
-
-
-  const handleAddPurchase = async (): Promise<boolean> => {
-    if (!supplier.trim() || !amount.trim() || !userProfile) {
-        toast({ variant: 'destructive', title: "Missing Information", description: "Please enter supplier and amount." });
-        return false;
-    }
-    try {
-        await addDoc(collection(db, `shifts/${shift.id}/materialPurchases`), {
-            shiftId: shift.id,
-            userId: userProfile.uid,
-            userName: userProfile.name,
-            supplier: supplier.trim(),
-            amount: parseFloat(amount),
-            purchasedAt: serverTimestamp(),
-            department: shift.department || '',
-        });
-        toast({ title: 'Purchase Added' });
-        setSupplier('');
-        setAmount('');
-        return true;
-    } catch (e) {
-        console.error("Error adding purchase:", e);
-        toast({ variant: 'destructive', title: "Error", description: "Could not log purchase." });
-        return false;
-    }
-  };
-
-  const handleDeletePurchase = async (id: string) => {
-    try {
-        await deleteDoc(doc(db, `shifts/${shift.id}/materialPurchases`, id));
-        toast({ title: 'Purchase Removed' });
-    } catch(e) {
-        console.error("Error deleting purchase:", e);
-        toast({ variant: 'destructive', title: "Error", description: "Could not remove purchase." });
-    }
-  };
-  
-  const handleConfirmClick = async () => {
-    if (didBuy === 'yes' && supplier.trim() && amount.trim()) {
-        const success = await handleAddPurchase();
-        if (!success) {
-            return; // Don't proceed if adding the final item fails
-        }
-    }
-    if (mode === 'query') {
-      onConfirm();
-    }
-    onOpenChange(false);
-  };
-  
-  const totalAmount = purchases.reduce((sum, p) => sum + p.amount, 0).toFixed(2);
-
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent>
-            <DialogHeader>
-                <DialogTitle>Log Material Purchases</DialogTitle>
-                <DialogDescription>
-                    {mode === 'query' ? 'Before you go on-site, please log any materials you purchased for this shift.' : 'Add any additional purchases for this shift.'}
-                </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-                {mode === 'query' && (
-                    <RadioGroup value={didBuy} onValueChange={(value) => setDidBuy(value as 'yes' | 'no')} className="flex items-center space-x-4">
-                        <Label>Did you buy any materials for this shift?</Label>
-                        <div className="flex items-center space-x-2"><RadioGroupItem value="no" id="mat-no" /><Label htmlFor="mat-no">No</Label></div>
-                        <div className="flex items-center space-x-2"><RadioGroupItem value="yes" id="mat-yes" /><Label htmlFor="mat-yes">Yes</Label></div>
-                    </RadioGroup>
-                )}
-
-                {didBuy === 'yes' && (
-                    <div className="space-y-4 pt-4 border-t">
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-end">
-                            <div className="col-span-3 sm:col-span-2 grid grid-cols-2 gap-2">
-                                <div className="space-y-1">
-                                    <Label htmlFor="supplier">Supplier</Label>
-                                    <Input id="supplier" value={supplier} onChange={e => setSupplier(e.target.value)} placeholder="e.g., Screwfix" />
-                                </div>
-                                <div className="space-y-1">
-                                    <Label htmlFor="amount">Amount (£)</Label>
-                                    <Input id="amount" type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} placeholder="e.g., 25.50" />
-                                </div>
-                            </div>
-                            <Button onClick={handleAddPurchase} className="w-full sm:w-auto"><Plus className="mr-2 h-4 w-4" /> Add Purchase</Button>
-                        </div>
-
-                        {loading ? <Spinner /> : purchases.length > 0 && (
-                            <div className="space-y-2">
-                                <Label>Logged Purchases</Label>
-                                <div className="border rounded-md max-h-48 overflow-y-auto">
-                                <Table>
-                                    <TableBody>
-                                        {purchases.map(p => (
-                                            <TableRow key={p.id}>
-                                                <TableCell className="font-medium">{p.supplier}</TableCell>
-                                                <TableCell className="text-right font-mono">£{p.amount.toFixed(2)}</TableCell>
-                                                <TableCell className="text-right w-10 p-1">
-                                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive/70" onClick={() => handleDeletePurchase(p.id)}><Trash2 className="h-4 w-4" /></Button>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
-                                        <TableRow className="font-bold bg-muted/50">
-                                            <TableCell>Total</TableCell>
-                                            <TableCell className="text-right font-mono">£{totalAmount}</TableCell>
-                                            <TableCell></TableCell>
-                                        </TableRow>
-                                    </TableBody>
-                                </Table>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                )}
-            </div>
-            <DialogFooter>
-                <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                <Button onClick={handleConfirmClick}>Confirm</Button>
-            </DialogFooter>
-        </DialogContent>
-    </Dialog>
-  );
-}
-
 
 interface ShiftCardProps {
   shift: Shift;
@@ -337,10 +159,6 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [selectedCameraTask, setSelectedCameraTask] = useState<{task: TradeTask, index: number} | null>(null);
 
-  const [purchases, setPurchases] = useState<MaterialPurchase[]>([]);
-  const [isPurchaseLogOpen, setIsPurchaseLogOpen] = useState(false);
-  const [purchaseLogMode, setPurchaseLogMode] = useState<'query' | 'add'>('query');
-
   const [project, setProject] = useState<Project | null>(null);
   const [allTrades, setAllTrades] = useState<Trade[]>([]);
 
@@ -367,16 +185,6 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
   const allTasksCompleted =
     tradeTasks.length === 0 ||
     tradeTasks.every((_, index) => !!taskStatuses[index]);
-
-  // --- Purchase Logic ---
-  useEffect(() => {
-    if (!shift.id) return;
-    const purchasesQuery = query(collection(db, `shifts/${shift.id}/materialPurchases`), orderBy('purchasedAt', 'asc'));
-    const unsubscribe = onSnapshot(purchasesQuery, (snapshot) => {
-        setPurchases(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as MaterialPurchase)));
-    });
-    return () => unsubscribe();
-  }, [shift.id]);
 
   // --- Task/Checklist Logic ---
   useEffect(() => {
@@ -419,25 +227,6 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
         setTradeTasks([]);
     }
   }, [userProfile, allTrades]);
-
-
-  const handleDeletePurchase = async (purchaseId: string) => {
-    try {
-        await deleteDoc(doc(db, `shifts/${shift.id}/materialPurchases`, purchaseId));
-        toast({ title: 'Purchase removed.' });
-    } catch(e) {
-        toast({ variant: 'destructive', title: 'Could not remove purchase' });
-    }
-  };
-
-  const handleLogPurchaseClick = () => {
-    setPurchaseLogMode('add');
-    setIsPurchaseLogOpen(true);
-  };
-  
-  const handleConfirmPurchasesAndGoOnSite = () => {
-    handleUpdateStatus('on-site');
-  };
 
 
   useEffect(() => {
@@ -744,59 +533,6 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
       </div>
     );
   };
-  
-  const renderPurchaseLog = () => {
-    // Show for confirmed shifts onwards
-    if (!['confirmed', 'on-site', 'completed', 'incomplete'].includes(shift.status)) {
-        return null;
-    }
-
-    // Don't show for past shifts that were never closed out.
-    if (isExpired) {
-        return null;
-    }
-
-    const totalAmount = purchases.reduce((sum, p) => sum + p.amount, 0).toFixed(2);
-
-    return (
-        <div className="mt-4 p-4 border-t">
-             <div className="flex justify-between items-center mb-3">
-                <h4 className="font-semibold text-sm flex items-center gap-2 text-muted-foreground">
-                  <Coins /> Logged Purchases
-                </h4>
-                <Button size="sm" className="bg-teal-500 hover:bg-teal-600 text-white" onClick={handleLogPurchaseClick}>
-                    <Plus className="mr-2 h-4 w-4" /> Add
-                </Button>
-             </div>
-             {purchases.length > 0 ? (
-                 <div className="border rounded-md max-h-48 overflow-y-auto">
-                    <Table>
-                        <TableBody>
-                            {purchases.map(p => (
-                                <TableRow key={p.id}>
-                                    <TableCell className="font-medium">{p.supplier}</TableCell>
-                                    <TableCell className="text-right font-mono">£{p.amount.toFixed(2)}</TableCell>
-                                    <TableCell className="text-right p-1 w-10">
-                                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive/70" onClick={() => handleDeletePurchase(p.id)}><Trash2 className="h-4 w-4" /></Button>
-                                    </TableCell>
-                                </TableRow>
-                            ))}
-                             <TableRow className="font-bold bg-muted/50">
-                                <TableCell>Total</TableCell>
-                                <TableCell className="text-right font-mono">£{totalAmount}</TableCell>
-                                <TableCell></TableCell>
-                            </TableRow>
-                        </TableBody>
-                    </Table>
-                 </div>
-             ) : (
-                <div className="text-sm text-muted-foreground text-center p-4 border rounded-md border-dashed">
-                    No materials have been logged for this shift yet.
-                </div>
-             )}
-        </div>
-    )
-  }
 
   return (
     <>
@@ -863,7 +599,6 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
               <p className="text-sm font-semibold text-muted-foreground">This shift is in the past.</p>
             </div>
           )}
-          {renderPurchaseLog()}
           {renderTaskList()}
         </CardContent>
 
@@ -880,10 +615,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
 
           {!isExpired && shift.status === 'confirmed' && (
             <Button
-              onClick={() => {
-                setPurchaseLogMode('query');
-                setIsPurchaseLogOpen(true);
-              }}
+              onClick={() => handleUpdateStatus('on-site')}
               className="w-full bg-teal-500 text-white hover:bg-teal-600"
               disabled={isLoading}
             >
@@ -947,15 +679,6 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
           )}
         </CardFooter>
       </Card>
-
-      <PurchaseLogDialog
-        open={isPurchaseLogOpen}
-        onOpenChange={setIsPurchaseLogOpen}
-        onConfirm={handleConfirmPurchasesAndGoOnSite}
-        mode={purchaseLogMode}
-        shift={shift}
-        userProfile={userProfile}
-      />
 
       {selectedCameraTask && (
         <MultiPhotoCamera
