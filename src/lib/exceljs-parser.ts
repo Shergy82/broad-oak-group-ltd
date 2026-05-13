@@ -140,7 +140,6 @@ function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: Us
 
 /**
  * 🔒 TIMEZONE-STABLE DATE PARSING
- * Uses local getters to ensure midnight dates stay on the correct day.
  */
 function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
   const v = getCellValue(cell);
@@ -369,7 +368,8 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
             }
             
             const user = matchedUsers[0];
-            const uniqueKey = `${isoDate}-${user.uid}-${type}`;
+            // 🔒 GRANULAR DEDUPLICATION KEY
+            const uniqueKey = `${isoDate}-${user.uid}-${normalizeText(siteAddress)}-${normalizeText(task)}-${type}`;
             
             if (!seenShiftsInBlock.has(uniqueKey)) {
                 seenShiftsInBlock.add(uniqueKey);
@@ -609,10 +609,22 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
     if (/^AM\b/i.test(raw)) { type = 'am'; raw = raw.substring(2).trim(); }
     else if (/^PM\b/i.test(raw)) { type = 'pm'; raw = raw.substring(2).trim(); }
     const lastHyphen = raw.lastIndexOf("-");
-    if (lastHyphen === -1) return { task: "Unspecified", names: raw.split(/[,&/]| and /i).map(s => s.trim()).filter(Boolean), type };
-    return { 
-        task: raw.substring(0, lastHyphen).trim() || "Unspecified", 
-        names: raw.substring(lastHyphen + 1).split(/[,&/]| and /i).map(s => s.trim()).filter(Boolean), 
-        type 
-    };
+    
+    let task: string;
+    let names: string[];
+
+    if (lastHyphen === -1) {
+        task = "Unspecified";
+        names = raw.split(/[,&/]| and /i).map(s => s.trim()).filter(Boolean);
+    } else {
+        task = raw.substring(0, lastHyphen).trim() || "Unspecified";
+        names = raw.substring(lastHyphen + 1).split(/[,&/]| and /i).map(s => s.trim()).filter(Boolean);
+    }
+    
+    // 🔒 IN-CELL NAME DEDUPLICATION
+    const uniqueNames = Array.from(new Set(names.map(n => n.toLowerCase()))).map(lowName => {
+        return names.find(n => n.toLowerCase() === lowName)!;
+    });
+
+    return { task, names: uniqueNames, type };
 }

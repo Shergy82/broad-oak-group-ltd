@@ -83,16 +83,19 @@ function normalizeText(text: string | null | undefined): string {
 
 /**
  * 🔒 TIMEZONE-STABLE KEY GENERATION
- * Uses local wall-clock getters to match the Excel parser.
  */
-const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string }): string => {
+const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; task?: string; type?: string }): string => {
   const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   const dateStr = `${year}-${month}-${day}`;
   
-  return `${dateStr}-${shift.userId}-${normalizeText(shift.address)}`;
+  // 🔒 GRANULAR KEY: Includes Task and Type to prevent duplicates unless they are truly different jobs
+  const taskPart = shift.task ? `-${normalizeText(shift.task)}` : '';
+  const typePart = shift.type ? `-${shift.type}` : '';
+
+  return `${dateStr}-${shift.userId}-${normalizeText(shift.address)}${taskPart}${typePart}`;
 };
 
 
@@ -247,6 +250,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           
           allFailedShifts = result.failures;
 
+          // 🔒 DEDUPLICATE EXCEL DATA ITSELF
           const uniqueShiftsMap = new Map<string, ParsedShift>();
           for (const shift of allShiftsFromExcel) {
             const key = getShiftKey(shift as any);
