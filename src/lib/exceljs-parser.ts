@@ -119,7 +119,6 @@ function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: Us
 function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
   const v = getCellValue(cell);
   if (v instanceof Date && !isNaN(v.getTime())) {
-    // FIXED: Use local getters to ensure "18/05/2026" remains "18/05/2026" in UTC storage
     return new Date(Date.UTC(v.getFullYear(), v.getMonth(), v.getDate()));
   }
   if (typeof v === "number" && v > 20000 && v < 60000) {
@@ -138,12 +137,12 @@ function toISODate(dt: Date): string {
 
 function isNonShiftText(text: string): boolean {
   const t = text.trim().toLowerCase();
-  const noise = ["job manager", "measures", "scheme", "pulse", "ignore", "ordered", "start date", "on live", "coole", "variation", "work type", "operative", "site address", "task", "date", "name", "week comm", "asbestos present"];
+  const noise = ["job manager", "measures", "scheme", "pulse", "ignore", "ordered", "start date", "on live", "coole", "variation", "work type", "operative", "site address", "task", "date", "name", "week comm", "asbestos present", "bedroom", "bathroom", "waiting on", "scaffolding", "cc", "council"];
   return noise.some(b => t.includes(b)) || /^\+?\d[\d\s-]{7,}$/.test(t);
 }
 
 /* =========================
-   GAS PARSER (Preserved)
+   GAS PARSER
 ========================= */
 
 export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry[]): Promise<ParseResult> {
@@ -341,7 +340,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
 }
 
 /* =========================
-   BUILD PARSER (NEW MATRIX ENGINE)
+   BUILD PARSER (RESTRICTED TO COL G+)
 ========================= */
 
 export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEntry[], selectedSheets: string[]): Promise<ParseResult> {
@@ -359,22 +358,30 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
     const used = getUsedBounds(sheet);
     if (!used) continue;
 
-    // 1. Find Date Header Row (Header is common to whole sheet usually)
+    // 1. Find Date Header Row
+    // We strictly look for dates in Column G (7) onwards as per user requirement.
     let dateRowIdx = -1;
     let dateCols: { col: number, isoDate: string }[] = [];
     for (let r = 1; r <= 20; r++) {
         const row = sheet.getRow(r);
         const tempCols: { col: number, isoDate: string }[] = [];
         row.eachCell((cell, colNumber) => {
+            // IGNORE COLUMNS A-F (1-6) FOR DATES
+            if (colNumber < 7) return;
+
             const dt = parseExcelCellAsDate(cell);
             if (dt && dt.getFullYear() > 2020) tempCols.push({ col: colNumber, isoDate: toISODate(dt) });
         });
-        if (tempCols.length >= 3) { dateRowIdx = r; dateCols = tempCols; break; }
+        if (tempCols.length >= 2) { 
+            dateRowIdx = r; 
+            dateCols = tempCols; 
+            break; 
+        }
     }
 
     if (dateRowIdx === -1) continue;
 
-    // 2. Identify Job Blocks via dividers
+    // 2. Identify Job Blocks
     let dividerRows = findDividerRows(sheet, used);
     if (!dividerRows.includes(dateRowIdx)) dividerRows.unshift(dateRowIdx);
     if (!dividerRows.includes(used.endRow + 1)) dividerRows.push(used.endRow + 1);
@@ -384,7 +391,7 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
         const blockEnd = dividerRows[i + 1] - 1;
         if (blockEnd < blockStart) continue;
 
-        // 3. Extract Block Details (Site Address from Column A)
+        // 3. Extract Block Details
         const siteAddressResult = extractSiteAddress(sheet, used, blockStart, blockEnd);
         if (!siteAddressResult) continue;
 
@@ -395,7 +402,7 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
 
         const seenShiftsInBlock = new Set<string>();
 
-        // 4. Process Grid within Block
+        // 4. Process Shift Grid (RESTRICTED TO COL G+)
         for (let r = blockStart; r <= blockEnd; r++) {
             const row = sheet.getRow(r);
             for (const { col, isoDate } of dateCols) {
@@ -404,7 +411,8 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
                 const cell = row.getCell(col);
                 const cellText = getCellText(cell);
                 
-                if (!cellText || cellText.trim() === "" || isNonShiftText(cellText)) continue;
+                // Only process cells with content and hyphens (Task - Name pattern)
+                if (!cellText || !cellText.includes('-') || isNonShiftText(cellText)) continue;
 
                 const { task, names, type } = extractGasTaskAndNames(cellText);
                 
@@ -450,7 +458,7 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
 }
 
 /* =========================
-   GENERIC UTILS (Used by both)
+   GENERIC UTILS
 ========================= */
 
 function getUsedBounds(ws: ExcelJS.Worksheet): UsedBounds | null {
