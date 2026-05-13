@@ -32,6 +32,7 @@ export type ImportFailure = {
   operativeNameRaw?: string;
   sheetName?: string;
   cellRef?: string;
+  cellContent?: string;
 };
 
 type UserMapEntry = { uid: string; normalizedName: string; originalName: string, department?: string };
@@ -118,7 +119,6 @@ function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: Us
 function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
   const v = getCellValue(cell);
   if (v instanceof Date && !isNaN(v.getTime())) {
-    // Fix: Using UTC components to strip time/timezone artifacts that cause "day before" shifts
     return new Date(Date.UTC(v.getUTCFullYear(), v.getUTCMonth(), v.getUTCDate()));
   }
   if (typeof v === "number" && v > 20000 && v < 60000) {
@@ -137,7 +137,7 @@ function toISODate(dt: Date): string {
 
 function isNonShiftText(text: string): boolean {
   const t = text.trim().toLowerCase();
-  const noise = ["job manager", "measures", "scheme", "pulse", "ignore", "ordered", "start date", "on live", "coole", "variation", "work type", "operative", "site address", "task", "date", "name"];
+  const noise = ["job manager", "measures", "scheme", "pulse", "ignore", "ordered", "start date", "on live", "coole", "variation", "work type", "operative", "site address", "task", "date", "name", "week comm"];
   return noise.some(b => t.includes(b)) || /^\+?\d[\d\s-]{7,}$/.test(t);
 }
 
@@ -242,7 +242,8 @@ function parseListView(sheet: ExcelJS.Worksheet, headerRowNumber: number, header
                 shiftDate: toISODate(date),
                 operativeNameRaw: userNameRaw,
                 sheetName,
-                cellRef: row.getCell(userIndex + 1).address
+                cellRef: row.getCell(userIndex + 1).address,
+                cellContent: userNameRaw
             });
             continue;
         }
@@ -334,7 +335,8 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
                     shiftDate: isoDate,
                     operativeNameRaw: name, 
                     sheetName, 
-                    cellRef: cell.address 
+                    cellRef: cell.address,
+                    cellContent: text
                 });
                 continue;
             }
@@ -385,7 +387,7 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
     let dateRowIdx = -1;
     let dateCols: { col: number, isoDate: string }[] = [];
     
-    for (let r = 1; r <= 15; r++) {
+    for (let r = 1; r <= 25; r++) {
         const row = sheet.getRow(r);
         let count = 0;
         const tempCols: { col: number, isoDate: string }[] = [];
@@ -406,13 +408,23 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
     if (dateRowIdx === -1) continue;
 
     // 2. Process rows below date row
+    let emptyRowStreak = 0;
     for (let r = dateRowIdx + 1; r <= sheet.rowCount; r++) {
         const row = sheet.getRow(r);
-        const address = normalizeWhitespace(getCellText(row.getCell(1)));
-        const task = normalizeWhitespace(getCellText(row.getCell(2)));
-        const eNumber = normalizeWhitespace(getCellText(row.getCell(3)));
+        const rawAddress = getCellText(row.getCell(1));
+        const rawTask = normalizeWhitespace(getCellText(row.getCell(2)));
+        const rawENumber = normalizeWhitespace(getCellText(row.getCell(3)));
         
-        if (!address || isNonShiftText(address)) continue;
+        if (!rawAddress || isNonShiftText(rawAddress)) {
+            emptyRowStreak++;
+            if (emptyRowStreak > 15) break; // Hard stop
+            continue;
+        }
+        emptyRowStreak = 0;
+
+        const address = normalizeWhitespace(rawAddress);
+        const task = rawTask || 'Unspecified';
+        const eNumber = rawENumber || '';
 
         for (const { col, isoDate } of dateCols) {
             const colDate = new Date(isoDate);
@@ -420,7 +432,7 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
 
             const cell = row.getCell(col);
             const cellText = getCellText(cell);
-            if (!cellText || isNonShiftText(cellText)) continue;
+            if (!cellText || cellText.trim() === "" || isNonShiftText(cellText)) continue;
 
             const names = cellText.split(/[,&/]| and /i).map(s => s.trim()).filter(Boolean);
             
@@ -433,7 +445,8 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
                         shiftDate: isoDate,
                         operativeNameRaw: name,
                         sheetName: sheet.name,
-                        cellRef: cell.address
+                        cellRef: cell.address,
+                        cellContent: cellText
                     });
                     continue;
                 }
@@ -441,11 +454,11 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
                 allParsed.push({
                     siteAddress: address,
                     shiftDate: isoDate,
-                    task: task || 'Unspecified',
+                    task: task,
                     type: 'all-day',
                     user: matchedUsers[0],
                     source: { sheetName: sheet.name, cellRef: cell.address },
-                    eNumber,
+                    eNumber: eNumber,
                     contract: sheet.name,
                 });
             }
