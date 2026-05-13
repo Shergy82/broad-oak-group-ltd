@@ -71,25 +71,25 @@ export interface DryRunResult {
 
 /**
  * 🔒 ROBUST NORMALIZATION
- * Ensures "Broad-Oak" matches "Broad Oak" and is case-insensitive.
  */
 function normalizeText(text: string | null | undefined): string {
   if (!text) return "";
   return String(text)
     .toLowerCase()
-    .replace(/[^a-z0-9]/g, " ") // Replace non-alphanumeric with space
-    .replace(/\s+/g, " ")       // Collapse multiple spaces
+    .replace(/[^a-z0-9]/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
 /**
- * Creates a unique key for a shift based on User, Date, and Address.
+ * 🔒 TIMEZONE-STABLE KEY GENERATION
+ * Uses local wall-clock getters to match the Excel parser.
  */
 const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string }): string => {
   const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
-  const year = d.getUTCFullYear();
-  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(d.getUTCDate()).padStart(2, '0');
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
   const dateStr = `${year}-${month}-${day}`;
   
   return `${dateStr}-${shift.userId}-${normalizeText(shift.address)}`;
@@ -253,9 +253,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           }
           allShiftsFromExcel = Array.from(uniqueShiftsMap.values());
 
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
-          
           const existingShiftsQuery = importType === 'GAS' 
             ? query(collection(firestore, 'shifts'))
             : query(collection(firestore, 'shifts'), where('department', '==', finalImportDepartment));

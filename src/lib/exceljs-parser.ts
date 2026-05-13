@@ -99,20 +99,19 @@ function getCellValue(cell: ExcelJS.Cell | null | undefined): any {
 
 /**
  * 🔒 VERIFIED MATCHING LOGIC (GAS & BUILD)
- * Requirement: Case-insensitive and robust against minor punctuation variations.
  */
 function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: UserMapEntry[]; reason?: string } {
     const normalizedChunk = normalizeText(nameChunk);
     if (!normalizedChunk) return { users: [], reason: 'Empty name provided.' };
 
-    // 1. Try Exact Match First
+    // 1. Try Exact Match First (Case Insensitive via normalization)
     let matches = userMap.filter(u => u.normalizedName === normalizedChunk);
     if (matches.length === 1) return { users: matches };
     if (matches.length > 1) return { users: [], reason: `Ambiguous name "${nameChunk}" matches multiple users exactly.` };
 
     const chunkParts = normalizedChunk.split(' ');
     
-    // 2. STRICT CHECK: If only one name is provided (e.g. "KYLE"), and exact match failed, DO NOT partial match.
+    // 2. STRICT CHECK: If only one name is provided, DO NOT partial match.
     if (chunkParts.length < 2) {
         return { users: [], reason: `Single name "${nameChunk}" requires a full/exact match. No match found.` };
     }
@@ -137,23 +136,33 @@ function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: Us
     return { users: [], reason: `No user found for name: "${nameChunk}".` };
 }
 
+/**
+ * 🔒 TIMEZONE-STABLE DATE PARSING
+ * Uses local getters to ensure midnight dates stay on the correct day.
+ */
 function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
   const v = getCellValue(cell);
   if (v instanceof Date && !isNaN(v.getTime())) {
-    return new Date(Date.UTC(v.getFullYear(), v.getMonth(), v.getDate()));
+    return new Date(v.getFullYear(), v.getMonth(), v.getDate());
   }
   if (typeof v === "number" && v > 20000 && v < 60000) {
     const d = new Date((v - 25569) * 86400 * 1000);
-    return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
   }
   const text = getCellText(cell);
   if (!text) return null;
   const d = new Date(text.replace(/(\d+)(st|nd|rd|th)/g, '$1'));
-  return (!isNaN(d.getTime()) && d.getFullYear() > 2000) ? new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())) : null;
+  return (!isNaN(d.getTime()) && d.getFullYear() > 2000) ? new Date(d.getFullYear(), d.getMonth(), d.getDate()) : null;
 }
 
+/**
+ * 🔒 STABLE ISO CONVERSION
+ */
 function toISODate(dt: Date): string {
-  return dt.toISOString().split('T')[0];
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const d = String(dt.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 function isNonShiftText(text: string): boolean {
@@ -170,7 +179,7 @@ function isNonShiftText(text: string): boolean {
 }
 
 /* =========================
-   GAS PARSER (VERIFIED - DO NOT ALTER parseGasWorkbook)
+   GAS PARSER
 ========================= */
 
 export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry[]): Promise<ParseResult> {
@@ -191,6 +200,7 @@ export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry
             headerRow = row;
             headerRowNumber = rowNum;
         }
+        if (rowNum > 20) return; // Only scan top for header
     });
 
     let sheetResult: ParseResult;
@@ -219,7 +229,9 @@ export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry
     allFailures.push(...sheetResult.failures);
   }
 
-  const today = toISODate(new Date());
+  const now = new Date();
+  const today = toISODate(now);
+  
   return { 
     parsed: allParsed.filter(s => s.shiftDate >= today), 
     failures: allFailures.filter(f => !f.shiftDate || f.shiftDate >= today) 
@@ -269,6 +281,7 @@ function parseListView(sheet: ExcelJS.Worksheet, headerRowNumber: number, header
           user: matchedUsers[0],
           source: { sheetName, cellRef: row.getCell(userIndex + 1).address },
           notes: '',
+          department: 'Gas'
         });
     }
 
@@ -292,11 +305,12 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
     const blockEnd = dividerRows[i + 1] - 1;
     if (blockEnd < blockStart) continue;
 
+    // FIND DATE HEADER WITHIN BLOCK
     let dateRowIdx = -1;
     let dateCols: { col: number; isoDate: string }[] = [];
     for (let r = blockStart; r <= blockEnd; r++) {
         const tempCols = getDateColumns(sheet, used, r, 6); 
-        if (tempCols.length >= 3) {
+        if (tempCols.length >= 1) { // Accept blocks with even 1 date
             dateRowIdx = r;
             dateCols = tempCols;
             break;
@@ -305,6 +319,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
 
     if (dateRowIdx === -1) continue;
 
+    // EXTRACT ADDRESS (LAST BOX LOGIC)
     const siteAddressResult = extractSiteAddress(sheet, used, blockStart, blockEnd);
     if (!siteAddressResult) continue;
     
@@ -378,7 +393,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
 }
 
 /* =========================
-   BUILD PARSER (VERIFIED - DO NOT ALTER parseBuildWorkbook)
+   BUILD PARSER (LOCKED)
 ========================= */
 
 export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEntry[], selectedSheets: string[]): Promise<ParseResult> {
@@ -559,15 +574,16 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
         return best.score >= 20 ? { address: normalizeWhitespace(best.text), row: best.row } : null;
     }
 
+    // 🔒 GAS LAST BOX LOGIC
     const noiseKeywords = [
-        'SITE MANAGER', 'TECHNICAL MANAGER', 'MATERIALS ORDERING', 'TLO', 'MEASURES', 'PROJECT MANAGER'
+        'SITE MANAGER', 'TECHNICAL MANAGER', 'MATERIALS ORDERING', 'TLO', 'MEASURES', 'PROJECT MANAGER', 'MEASURE'
     ];
 
     for (let r = endRow; r >= startRow; r--) {
         const text = getCellText(ws.getRow(r).getCell(1));
-        if (text) {
+        if (text && text.length > 2) {
             const upper = text.toUpperCase();
-            if (!noiseKeywords.some(kw => upper.includes(kw)) && text.length > 3) {
+            if (!noiseKeywords.some(kw => upper.includes(kw))) {
                 return { address: normalizeWhitespace(text), row: r };
             }
         }
