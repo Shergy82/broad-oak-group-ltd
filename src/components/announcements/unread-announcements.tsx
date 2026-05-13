@@ -16,7 +16,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
 import { Spinner } from '@/components/shared/spinner';
-import { Check, X } from 'lucide-react';
+import { Check, X, FileText, Download } from 'lucide-react';
 import { writeBatch, doc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
@@ -76,7 +76,7 @@ export function UnreadAnnouncements({ announcements, user, onClose }: UnreadAnno
 
   return (
     <Dialog open={isOpen} onOpenChange={handleDialogClose}>
-      <DialogContent className="max-w-lg" onInteractOutside={(e) => e.preventDefault()}>
+      <DialogContent className="max-w-2xl" onInteractOutside={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle>New Announcements</DialogTitle>
           <DialogDescription>
@@ -85,14 +85,41 @@ export function UnreadAnnouncements({ announcements, user, onClose }: UnreadAnno
         </DialogHeader>
 
         <ScrollArea className="max-h-[60vh] my-4 rounded-md border p-4">
-          <div className="space-y-6">
+          <div className="space-y-8">
             {announcements.map(announcement => (
-              <div key={announcement.id} className="p-4 rounded-lg bg-muted/50">
-                <h3 className="font-semibold">{announcement.title}</h3>
-                <p className="text-xs text-muted-foreground mb-2">
-                  Posted by {announcement.authorName} on {announcement.createdAt?.toDate() ? format(announcement.createdAt.toDate(), 'PPP') : '...'}
-                </p>
-                <p className="whitespace-pre-wrap text-sm">{announcement.content}</p>
+              <div key={announcement.id} className="p-4 rounded-lg bg-muted/50 space-y-4">
+                <div>
+                    <h3 className="font-bold text-lg">{announcement.title}</h3>
+                    <p className="text-xs text-muted-foreground">
+                    Posted by {announcement.authorName} on {announcement.createdAt?.toDate() ? format(announcement.createdAt.toDate(), 'PPP') : '...'}
+                    </p>
+                </div>
+                
+                <p className="whitespace-pre-wrap text-sm leading-relaxed">{announcement.content}</p>
+                
+                {announcement.fileUrl && (
+                    <div className="overflow-hidden rounded-lg border bg-background">
+                        {announcement.fileType?.startsWith('image/') ? (
+                            <img 
+                                src={announcement.fileUrl} 
+                                alt={announcement.fileName || 'Announcement Image'} 
+                                className="w-full h-auto max-h-[400px] object-contain block mx-auto bg-black/5"
+                            />
+                        ) : (
+                            <div className="p-3 flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <FileText className="h-6 w-6 text-primary/70" />
+                                    <span className="text-sm font-medium truncate max-w-[250px]">{announcement.fileName}</span>
+                                </div>
+                                <Button variant="ghost" size="sm" asChild>
+                                    <a href={announcement.fileUrl} target="_blank" rel="noopener noreferrer">
+                                        <Download className="h-4 w-4" />
+                                    </a>
+                                </Button>
+                            </div>
+                        )}
+                    </div>
+                )}
               </div>
             ))}
           </div>

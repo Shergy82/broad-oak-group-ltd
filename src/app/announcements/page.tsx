@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { collection, onSnapshot, orderBy, query, deleteDoc, doc, getDocs, where } from 'firebase/firestore';
 import { format } from 'date-fns';
-import { PlusCircle, Edit, Trash2 } from 'lucide-react';
+import { PlusCircle, Edit, Trash2, FileText, Download } from 'lucide-react';
 
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/hooks/use-auth';
@@ -192,7 +192,7 @@ export default function AnnouncementsPage() {
               <div key={a.id} className="rounded-lg border p-4 bg-background space-y-3">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <h2 className="font-semibold">{a.title}</h2>
+                    <h2 className="font-semibold text-lg">{a.title}</h2>
                     <p className="text-xs text-muted-foreground">
                       Posted by {a.authorName || '—'}{' '}
                       {a.createdAt?.toDate ? `on ${format(a.createdAt.toDate(), 'PPP')}` : ''}
@@ -241,7 +241,40 @@ export default function AnnouncementsPage() {
                   </div>
                 </div>
 
-                <div className="whitespace-pre-wrap text-sm">{a.content}</div>
+                <div className="whitespace-pre-wrap text-sm leading-relaxed">{a.content}</div>
+
+                {a.fileUrl && (
+                    <div className="mt-4 overflow-hidden rounded-lg border bg-muted/20">
+                        {a.fileType?.startsWith('image/') ? (
+                            <img 
+                                src={a.fileUrl} 
+                                alt={a.fileName || 'Announcement Image'} 
+                                className="w-full h-auto max-h-[600px] object-contain block mx-auto bg-black/5"
+                            />
+                        ) : a.fileType === 'application/pdf' ? (
+                            <iframe 
+                                src={`${a.fileUrl}#toolbar=0`} 
+                                className="w-full h-[500px] border-0"
+                                title={a.fileName || 'PDF Document'}
+                            />
+                        ) : (
+                            <div className="p-4 flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <FileText className="h-8 w-8 text-primary/70" />
+                                    <div>
+                                        <p className="text-sm font-medium">{a.fileName}</p>
+                                        <p className="text-xs text-muted-foreground">Document Attachment</p>
+                                    </div>
+                                </div>
+                                <Button variant="outline" size="sm" asChild>
+                                    <a href={a.fileUrl} target="_blank" rel="noopener noreferrer">
+                                        <Download className="mr-2 h-4 w-4" /> Download
+                                    </a>
+                                </Button>
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {isPrivileged && (
                   <div className="pt-2">

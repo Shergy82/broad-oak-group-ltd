@@ -124,6 +124,10 @@ export interface Announcement {
   department?: string;
   createdAt: Timestamp;
   updatedAt?: Timestamp;
+  fileUrl?: string;
+  fileType?: string;
+  fileName?: string;
+  fileStoragePath?: string;
 }
 
 export interface Acknowledgement {
