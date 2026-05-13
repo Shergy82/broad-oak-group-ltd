@@ -119,7 +119,7 @@ function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: Us
 function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
   const v = getCellValue(cell);
   if (v instanceof Date && !isNaN(v.getTime())) {
-    // FIX: Use local getters to avoid BST/Timezone offset (e.g., 18th becoming 17th)
+    // FIXED: Use local getters to ensure "18/05/2026" remains "18/05/2026" in UTC storage
     return new Date(Date.UTC(v.getFullYear(), v.getMonth(), v.getDate()));
   }
   if (typeof v === "number" && v > 20000 && v < 60000) {
@@ -138,12 +138,12 @@ function toISODate(dt: Date): string {
 
 function isNonShiftText(text: string): boolean {
   const t = text.trim().toLowerCase();
-  const noise = ["job manager", "measures", "scheme", "pulse", "ignore", "ordered", "start date", "on live", "coole", "variation", "work type", "operative", "site address", "task", "date", "name", "week comm"];
+  const noise = ["job manager", "measures", "scheme", "pulse", "ignore", "ordered", "start date", "on live", "coole", "variation", "work type", "operative", "site address", "task", "date", "name", "week comm", "asbestos present"];
   return noise.some(b => t.includes(b)) || /^\+?\d[\d\s-]{7,}$/.test(t);
 }
 
 /* =========================
-   GAS PARSER (Rules preserved)
+   GAS PARSER (Preserved)
 ========================= */
 
 export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry[]): Promise<ParseResult> {
@@ -192,7 +192,6 @@ export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry
     allFailures.push(...sheetResult.failures);
   }
 
-  // Filter out past dates for Gas
   const today = toISODate(new Date());
   return { 
     parsed: allParsed.filter(s => s.shiftDate >= today), 
@@ -342,7 +341,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
 }
 
 /* =========================
-   BUILD PARSER (NEW & ROBUST)
+   BUILD PARSER (NEW MATRIX ENGINE)
 ========================= */
 
 export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEntry[], selectedSheets: string[]): Promise<ParseResult> {
@@ -357,93 +356,91 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
     const sheet = workbook.getWorksheet(sheetName);
     if (!sheet || sheet.state === 'hidden') continue;
 
-    // 1. Find the date row (Header)
+    const used = getUsedBounds(sheet);
+    if (!used) continue;
+
+    // 1. Find Date Header Row (Header is common to whole sheet usually)
     let dateRowIdx = -1;
     let dateCols: { col: number, isoDate: string }[] = [];
-    
-    for (let r = 1; r <= 30; r++) {
+    for (let r = 1; r <= 20; r++) {
         const row = sheet.getRow(r);
         const tempCols: { col: number, isoDate: string }[] = [];
         row.eachCell((cell, colNumber) => {
             const dt = parseExcelCellAsDate(cell);
-            // Only accept dates that are reasonable (e.g., year > 2020)
-            if (dt && dt.getFullYear() > 2020) {
-                tempCols.push({ col: colNumber, isoDate: toISODate(dt) });
-            }
+            if (dt && dt.getFullYear() > 2020) tempCols.push({ col: colNumber, isoDate: toISODate(dt) });
         });
-        if (tempCols.length >= 3) {
-            dateRowIdx = r;
-            dateCols = tempCols;
-            break;
-        }
+        if (tempCols.length >= 3) { dateRowIdx = r; dateCols = tempCols; break; }
     }
 
     if (dateRowIdx === -1) continue;
 
-    // 2. Process rows below date row
-    let emptyRowStreak = 0;
-    for (let r = dateRowIdx + 1; r <= sheet.rowCount; r++) {
-        const row = sheet.getRow(r);
-        const rawAddress = getCellText(row.getCell(1));
-        const rawTask = getCellText(row.getCell(2));
-        const rawENumber = getCellText(row.getCell(3));
-        
-        // REPEAT BLANK CELL DETECTION: Stop if Column A is empty for 15 rows
-        if (!rawAddress || rawAddress.trim() === "" || isNonShiftText(rawAddress)) {
-            emptyRowStreak++;
-            if (emptyRowStreak >= 15) break; 
-            continue;
-        }
-        emptyRowStreak = 0;
+    // 2. Identify Job Blocks via dividers
+    let dividerRows = findDividerRows(sheet, used);
+    if (!dividerRows.includes(dateRowIdx)) dividerRows.unshift(dateRowIdx);
+    if (!dividerRows.includes(used.endRow + 1)) dividerRows.push(used.endRow + 1);
 
-        const address = normalizeWhitespace(rawAddress);
-        const task = normalizeWhitespace(rawTask) || 'Unspecified';
-        
-        // Determine E Number: check column C, or look inside address string
-        let eNumber = normalizeWhitespace(rawENumber);
-        if (!eNumber) {
-            const eNumMatch = address.match(/\b([BE]\d+\S*)\b/i);
-            if (eNumMatch) eNumber = eNumMatch[1].toUpperCase();
-        }
+    for (let i = 0; i < dividerRows.length - 1; i++) {
+        const blockStart = dividerRows[i] + 1;
+        const blockEnd = dividerRows[i + 1] - 1;
+        if (blockEnd < blockStart) continue;
 
-        for (const { col, isoDate } of dateCols) {
-            // FILTER: Skip past dates
-            if (isoDate < today) continue;
+        // 3. Extract Block Details (Site Address from Column A)
+        const siteAddressResult = extractSiteAddress(sheet, used, blockStart, blockEnd);
+        if (!siteAddressResult) continue;
 
-            const cell = row.getCell(col);
-            const cellText = getCellText(cell);
-            
-            // Only process if cell contains text
-            if (!cellText || cellText.trim() === "" || isNonShiftText(cellText)) continue;
+        const { address: rawSiteAddress } = siteAddressResult;
+        const eNumMatch = rawSiteAddress.match(/\b([BE]\d+\S*)\b/i);
+        const eNumber = eNumMatch ? eNumMatch[1].toUpperCase() : '';
+        const siteAddress = eNumMatch ? rawSiteAddress.replace(eNumMatch[0], '').trim().replace(/,$/, '').trim() : rawSiteAddress;
 
-            // Split multiple names in one cell
-            const names = cellText.split(/[,&/]| and /i).map(s => s.trim()).filter(Boolean);
-            
-            for (const name of names) {
-                const { users: matchedUsers, reason } = findUsersInMap(name, userMap);
-                if (matchedUsers.length !== 1) {
-                    allFailures.push({
-                        reason: reason || `Could not match operative: "${name}"`,
-                        siteAddress: address,
-                        shiftDate: isoDate,
-                        operativeNameRaw: name,
-                        sheetName: sheet.name,
-                        cellRef: cell.address,
-                        cellContent: cellText
-                    });
-                    continue;
+        const seenShiftsInBlock = new Set<string>();
+
+        // 4. Process Grid within Block
+        for (let r = blockStart; r <= blockEnd; r++) {
+            const row = sheet.getRow(r);
+            for (const { col, isoDate } of dateCols) {
+                if (isoDate < today) continue;
+
+                const cell = row.getCell(col);
+                const cellText = getCellText(cell);
+                
+                if (!cellText || cellText.trim() === "" || isNonShiftText(cellText)) continue;
+
+                const { task, names, type } = extractGasTaskAndNames(cellText);
+                
+                for (const name of names) {
+                    const { users: matchedUsers, reason } = findUsersInMap(name, userMap);
+                    if (matchedUsers.length !== 1) {
+                        allFailures.push({
+                            reason: reason || `Could not match operative: "${name}"`,
+                            siteAddress,
+                            shiftDate: isoDate,
+                            operativeNameRaw: name,
+                            sheetName: sheet.name,
+                            cellRef: cell.address,
+                            cellContent: cellText
+                        });
+                        continue;
+                    }
+
+                    const user = matchedUsers[0];
+                    const uniqueKey = `${isoDate}-${user.uid}-${type}`;
+                    
+                    if (!seenShiftsInBlock.has(uniqueKey)) {
+                        seenShiftsInBlock.add(uniqueKey);
+                        allParsed.push({
+                            siteAddress,
+                            shiftDate: isoDate,
+                            task,
+                            type,
+                            user,
+                            source: { sheetName: sheet.name, cellRef: cell.address },
+                            eNumber,
+                            contract: sheetName,
+                            department: 'Build'
+                        });
+                    }
                 }
-
-                allParsed.push({
-                    siteAddress: address,
-                    shiftDate: isoDate,
-                    task: task,
-                    type: 'all-day',
-                    user: matchedUsers[0],
-                    source: { sheetName: sheet.name, cellRef: cell.address },
-                    eNumber: eNumber,
-                    contract: sheet.name,
-                });
             }
         }
     }
@@ -453,7 +450,7 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
 }
 
 /* =========================
-   GENERIC HELPERS
+   GENERIC UTILS (Used by both)
 ========================= */
 
 function getUsedBounds(ws: ExcelJS.Worksheet): UsedBounds | null {
