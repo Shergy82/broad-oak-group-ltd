@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
@@ -25,6 +23,7 @@ import { cn } from '@/lib/utils';
 import type { Shift, UserProfile, Project } from '@/types';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '@/components/ui/label';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 const formSchema = z.object({
   userId: z.string().min(1, 'An operative must be selected.'),
@@ -79,21 +78,16 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
   }, [users, watchedDepartment]);
 
   const sortedProjects = useMemo(() => {
-    // This function attempts to get a "base" address, excluding extra details like eNumbers
-    // that might be tacked onto the end of the address string in some cases.
     const getBaseAddress = (address: string): string => {
-        // A simple heuristic: find the first occurrence of a B/E number pattern and trim the string there.
         const match = address.match(/\s+\b[BE]\d/);
         if (match && match.index) {
             return address.substring(0, match.index).trim();
         }
-        // If no match, return the original trimmed address.
         return address.trim();
     };
 
     const projectsByBaseAddress = new Map<string, Project[]>();
 
-    // Group all projects by their normalized "base" address.
     projects.forEach(p => {
         const baseAddress = getBaseAddress(p.address).toLowerCase();
         if (!projectsByBaseAddress.has(baseAddress)) {
@@ -104,21 +98,13 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
 
     const result: Project[] = [];
 
-    // For each group of projects with the same base address, select which ones to display.
     projectsByBaseAddress.forEach((group) => {
         if (group.length <= 1) {
-            // If there's only one project for this base address, add it directly.
             result.push(...group);
         } else {
-            // If there are multiple projects for the same base address, we need to deduplicate.
-            // We'll keep one project for each unique E/B number.
             const uniqueENumbers = new Map<string, Project>();
             group.forEach(project => {
-                // Use the eNumber from its own field first, and normalize it.
                 const key = (project.eNumber || '').trim().toLowerCase();
-                
-                // If we haven't seen this eNumber (or lack of eNumber) before for this base address, add it.
-                // We keep the first one we encounter.
                 if (!uniqueENumbers.has(key)) {
                     uniqueENumbers.set(key, project);
                 }
@@ -127,7 +113,6 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
         }
     });
     
-    // Finally, sort the filtered, unique list for display.
     return result.sort((a, b) => {
         const getAddressNumber = (address: string) => {
             const match = address.match(/^(\d+)/);
@@ -143,13 +128,8 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
             }
         }
         
-        if (numA !== null && numB === null) {
-            return -1; // addresses with numbers come first
-        }
-        
-        if (numA === null && numB !== null) {
-            return 1; // addresses without numbers come after
-        }
+        if (numA !== null && numB === null) return -1;
+        if (numA === null && numB !== null) return 1;
 
         return a.address.localeCompare(b.address, undefined, { numeric: true });
     });
@@ -158,14 +138,13 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
 
   const getCorrectedLocalDate = (date: { toDate: () => Date }) => {
     const d = date.toDate();
-    // Use UTC date parts to create a local date object to avoid timezone issues when comparing.
     return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
   };
 
   useEffect(() => {
     if (open) {
       if (shift) {
-        setManualAddress(true); // Default to manual for editing to show existing text
+        setManualAddress(true);
         form.reset({
           userId: shift.userId,
           date: getCorrectedLocalDate(shift.date),
@@ -177,7 +156,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
           notes: shift.notes || '',
         });
       } else {
-        setManualAddress(false); // Default to dropdown for new shifts
+        setManualAddress(false);
         form.reset({
           userId: '',
           date: new Date(),
@@ -204,12 +183,11 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
     }
 
     const selectedDate = values.date;
-    // Correct for timezone offset by creating a UTC date from the local date parts
     const correctedDate = new Date(Date.UTC(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate()));
 
     const dataToSave: Partial<Shift> & { date: Timestamp } = {
       ...values,
-      userName: selectedUser.name, // Add userName to the shift data
+      userName: selectedUser.name,
       date: Timestamp.fromDate(correctedDate),
       eNumber: values.eNumber || '',
       notes: values.notes || '',
@@ -233,7 +211,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
       onOpenChange(false);
     } catch (error) {
       console.error('Error saving shift:', error);
-      toast({ variant: 'destructive', title: 'Error', description: 'Could not save shift. Check Firestore rules.' });
+      toast({ variant: 'destructive', title: 'Error', description: 'Could not save shift.' });
     } finally {
       setIsLoading(false);
     }
@@ -244,6 +222,7 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
     
     const selectedUserId = form.getValues('userId');
     const selectedShiftType = form.getValues('type');
+    const selectedDept = form.getValues('department');
 
     if (!selectedUserId) {
         toast({
@@ -253,13 +232,19 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
         });
         return;
     }
-    const testUser = users.find(u => u.uid === selectedUserId);
-    if (!testUser) {
+
+    if (!selectedDept) {
         toast({
             variant: 'destructive',
-            title: 'User Not Found',
-            description: "The selected user could not be found."
+            title: 'No Department Selected',
+            description: "Please select a department before creating a test shift."
         });
+        return;
+    }
+
+    const testUser = users.find(u => u.uid === selectedUserId);
+    if (!testUser) {
+        toast({ variant: 'destructive', title: 'User Not Found' });
         return;
     }
     
@@ -274,20 +259,17 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
             address: 'Test Shift Address',
             task: 'This is a test shift for notification.',
             eNumber: 'B-TEST',
+            department: selectedDept,
             createdAt: serverTimestamp(),
         });
         toast({
             title: 'Test Shift Created',
-            description: `A test shift has been created for ${testUser.name} to trigger a notification.`,
+            description: `A test shift has been created for ${testUser.name} (${selectedDept}).`,
         });
         onOpenChange(false);
     } catch (error) {
         console.error('Error creating test shift:', error);
-        toast({
-            variant: 'destructive',
-            title: 'Error',
-            description: 'Could not create the test shift. Check Firestore rules and function logs.',
-        });
+        toast({ variant: 'destructive', title: 'Error', description: 'Could not create the test shift.' });
     } finally {
         setIsLoading(false);
     }
@@ -296,236 +278,241 @@ export function ShiftFormDialog({ open, onOpenChange, users, shift, userProfile,
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
+      <DialogContent className="max-w-md max-h-[90vh] flex flex-col p-0">
+        <DialogHeader className="p-6 pb-2">
           <DialogTitle>{isEditing ? 'Edit' : 'Create'} Shift</DialogTitle>
           <DialogDescription>
             {isEditing ? 'Update the details for this shift.' : 'Fill out the form to add a new shift to the schedule.'}
           </DialogDescription>
         </DialogHeader>
+        
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4 py-4">
-             {isOwner && (
-              <FormField
-                control={form.control}
-                name="department"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Department</FormLabel>
-                    <Select onValueChange={(value) => {
-                      field.onChange(value);
-                      form.setValue('userId', '');
-                    }} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a department" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {availableDepartments.map(dept => (
-                          <SelectItem key={dept} value={dept}>{dept}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
-            
-            <FormField
-              control={form.control}
-              name="userId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Operative</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value} disabled={!watchedDepartment}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder={watchedDepartment ? "Select an operative" : "Select a department first"} />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {departmentFilteredUsers.map(user => (
-                        <SelectItem key={user.uid} value={user.uid}>{user.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="date"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-col">
-                      <FormLabel>Date</FormLabel>
-                      <Popover open={isDatePickerOpen} onOpenChange={setDatePickerOpen} modal={true}>
-                        <PopoverTrigger asChild>
+          <form onSubmit={form.handleSubmit(handleSubmit)} className="flex flex-col flex-1 overflow-hidden">
+            <ScrollArea className="flex-1 px-6">
+              <div className="space-y-4 py-4">
+                {isOwner && (
+                  <FormField
+                    control={form.control}
+                    name="department"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Department</FormLabel>
+                        <Select onValueChange={(value) => {
+                          field.onChange(value);
+                          form.setValue('userId', '');
+                        }} value={field.value}>
                           <FormControl>
-                            <Button
-                              variant={"outline"}
-                              className={cn(
-                                "pl-3 text-left font-normal",
-                                !field.value && "text-muted-foreground"
-                              )}
-                            >
-                              {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
-                              <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                            </Button>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select a department" />
+                            </SelectTrigger>
                           </FormControl>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                          <Calendar
-                            mode="single"
-                            selected={field.value}
-                            onSelect={(date) => {
-                                if (date) field.onChange(date);
-                                setDatePickerOpen(false);
-                            }}
-                            initialFocus
-                          />
-                        </PopoverContent>
-                      </Popover>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
+                          <SelectContent>
+                            {availableDepartments.map(dept => (
+                              <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+                
                 <FormField
                   control={form.control}
-                  name="type"
+                  name="userId"
                   render={({ field }) => (
-                    <FormItem className="space-y-3">
-                      <FormLabel>Shift Type</FormLabel>
-                      <FormControl>
-                        <RadioGroup
-                          onValueChange={field.onChange}
-                          defaultValue={field.value}
-                          className="flex items-center space-x-4 pt-1"
-                        >
-                          <FormItem className="flex items-center space-x-2 space-y-0">
-                            <FormControl><RadioGroupItem value="am" /></FormControl>
-                            <FormLabel className="font-normal">AM</FormLabel>
-                          </FormItem>
-                          <FormItem className="flex items-center space-x-2 space-y-0">
-                            <FormControl><RadioGroupItem value="pm" /></FormControl>
-                            <FormLabel className="font-normal">PM</FormLabel>
-                          </FormItem>
-                          <FormItem className="flex items-center space-x-2 space-y-0">
-                            <FormControl><RadioGroupItem value="all-day" /></FormControl>
-                            <FormLabel className="font-normal">All Day</FormLabel>
-                          </FormItem>
-                        </RadioGroup>
-                      </FormControl>
+                    <FormItem>
+                      <FormLabel>Operative</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value} disabled={!watchedDepartment}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder={watchedDepartment ? "Select an operative" : "Select a department first"} />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {departmentFilteredUsers.map(user => (
+                            <SelectItem key={user.uid} value={user.uid}>{user.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-            </div>
-            
-            <div className="flex items-center space-x-2">
-                <Checkbox
-                    id="manual-address-toggle"
-                    checked={manualAddress}
-                    onCheckedChange={(checked) => {
-                        setManualAddress(!!checked);
-                        if (!checked) { // when switching back to dropdown
-                            form.setValue('address', '');
-                            form.setValue('eNumber', '');
-                        }
-                    }}
-                />
-                <Label htmlFor="manual-address-toggle" className="text-sm font-normal">Enter address manually</Label>
-            </div>
 
-            <FormField
-              control={form.control}
-              name="address"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Address</FormLabel>
-                  {manualAddress ? (
-                     <FormControl>
-                        <Input placeholder="123 Main Street..." {...field} />
-                    </FormControl>
-                  ) : (
-                    <Select 
-                        onValueChange={(projectId) => {
-                            const selectedProject = sortedProjects.find(p => p.id === projectId);
-                            if (selectedProject) {
-                                form.setValue('address', selectedProject.address);
-                                form.setValue('eNumber', selectedProject.eNumber || '');
-                                field.onChange(selectedProject.address);
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="date"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-col">
+                          <FormLabel>Date</FormLabel>
+                          <Popover open={isDatePickerOpen} onOpenChange={setDatePickerOpen} modal={true}>
+                            <PopoverTrigger asChild>
+                              <FormControl>
+                                <Button
+                                  variant={"outline"}
+                                  className={cn(
+                                    "pl-3 text-left font-normal",
+                                    !field.value && "text-muted-foreground"
+                                  )}
+                                >
+                                  {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
+                                  <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                </Button>
+                              </FormControl>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="start">
+                              <Calendar
+                                mode="single"
+                                selected={field.value}
+                                onSelect={(date) => {
+                                    if (date) field.onChange(date);
+                                    setDatePickerOpen(false);
+                                }}
+                                initialFocus
+                              />
+                            </PopoverContent>
+                          </Popover>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="type"
+                      render={({ field }) => (
+                        <FormItem className="space-y-3">
+                          <FormLabel>Shift Type</FormLabel>
+                          <FormControl>
+                            <RadioGroup
+                              onValueChange={field.onChange}
+                              defaultValue={field.value}
+                              className="flex items-center space-x-4 pt-1"
+                            >
+                              <FormItem className="flex items-center space-x-2 space-y-0">
+                                <FormControl><RadioGroupItem value="am" /></FormControl>
+                                <FormLabel className="font-normal">AM</FormLabel>
+                              </FormItem>
+                              <FormItem className="flex items-center space-x-2 space-y-0">
+                                <FormControl><RadioGroupItem value="pm" /></FormControl>
+                                <FormLabel className="font-normal">PM</FormLabel>
+                              </FormItem>
+                              <FormItem className="flex items-center space-x-2 space-y-0">
+                                <FormControl><RadioGroupItem value="all-day" /></FormControl>
+                                <FormLabel className="font-normal">All Day</FormLabel>
+                              </FormItem>
+                            </RadioGroup>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                </div>
+                
+                <div className="flex items-center space-x-2">
+                    <Checkbox
+                        id="manual-address-toggle"
+                        checked={manualAddress}
+                        onCheckedChange={(checked) => {
+                            setManualAddress(!!checked);
+                            if (!checked) {
+                                form.setValue('address', '');
+                                form.setValue('eNumber', '');
                             }
                         }}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a project address" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {sortedProjects.map(p => (
-                          <SelectItem key={p.id} value={p.id}>{p.address}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            
-            <FormField
-              control={form.control}
-              name="task"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Task Description</FormLabel>
-                  <FormControl>
-                    <Textarea placeholder="e.g., First fix electrics" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-             <FormField
-              control={form.control}
-              name="notes"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Notes (Optional)</FormLabel>
-                  <FormControl>
-                    <Textarea placeholder="Additional information, e.g., TLO contact" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            
-            <FormField
-              control={form.control}
-              name="eNumber"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Number (Optional)</FormLabel>
-                  <FormControl>
-                    <Input 
-                        placeholder="E... or B..." 
-                        {...field}
-                        disabled={!manualAddress && !!form.getValues('address')}
                     />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+                    <Label htmlFor="manual-address-toggle" className="text-sm font-normal">Enter address manually</Label>
+                </div>
 
-            <DialogFooter className="sm:justify-between">
+                <FormField
+                  control={form.control}
+                  name="address"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Address</FormLabel>
+                      {manualAddress ? (
+                        <FormControl>
+                            <Input placeholder="123 Main Street..." {...field} />
+                        </FormControl>
+                      ) : (
+                        <Select 
+                            onValueChange={(projectId) => {
+                                const selectedProject = sortedProjects.find(p => p.id === projectId);
+                                if (selectedProject) {
+                                    form.setValue('address', selectedProject.address);
+                                    form.setValue('eNumber', selectedProject.eNumber || '');
+                                    field.onChange(selectedProject.address);
+                                }
+                            }}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select a project address" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {sortedProjects.map(p => (
+                              <SelectItem key={p.id} value={p.id}>{p.address}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                
+                <FormField
+                  control={form.control}
+                  name="task"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Task Description</FormLabel>
+                      <FormControl>
+                        <Textarea placeholder="e.g., First fix electrics" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="notes"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Notes (Optional)</FormLabel>
+                      <FormControl>
+                        <Textarea placeholder="Additional information..." {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                
+                <FormField
+                  control={form.control}
+                  name="eNumber"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Number (Optional)</FormLabel>
+                      <FormControl>
+                        <Input 
+                            placeholder="E... or B..." 
+                            {...field}
+                            disabled={!manualAddress && !!form.getValues('address')}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </ScrollArea>
+
+            <DialogFooter className="p-6 pt-2 sm:justify-between gap-2 border-t bg-muted/20">
               {isOwner && !isEditing && (
                 <Button type="button" variant="secondary" onClick={handleCreateTestShift} disabled={isLoading}>
                     <Bug className="mr-2 h-4 w-4" /> Create Test Shift

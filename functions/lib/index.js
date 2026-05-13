@@ -241,9 +241,7 @@ exports.serveFile = (0, https_1.onRequest)({ region: REGION, cors: true }, async
         }
         const [metadata] = await file.getMetadata();
         const download = req.query.download === "1";
-        // Set Content-Type, defaulting to a generic binary stream if not available
         res.setHeader("Content-Type", metadata.contentType || "application/octet-stream");
-        // Set Content-Disposition to control whether browser downloads or previews
         res.setHeader("Content-Disposition", `${download ? "attachment" : "inline"}; filename="${encodeURIComponent(metadata.name || "download")}"`);
         file.createReadStream().pipe(res);
     }
@@ -267,26 +265,21 @@ exports.onShiftCreated = (0, firestore_1.onDocumentCreated)({ document: "shifts/
 exports.syncUnavailabilityOnShiftWrite = (0, firestore_1.onDocumentWritten)({ document: "shifts/{shiftId}", region: REGION }, async (event) => {
     const shiftId = event.params.shiftId;
     const shiftAfter = event.data?.after.data();
-    // On delete, the onShiftDeleted trigger will handle cleanup
     if (!shiftAfter) {
         return;
     }
-    // On create/update
     const userRef = db.doc(`users/${shiftAfter.userId}`);
     const userSnap = await userRef.get();
     if (!userSnap.exists) {
-        v2_1.logger.warn("User not found for shift, cannot sync unavailability.", { userId: shiftAfter.userId, shiftId });
         return;
     }
     const homeDepartment = userSnap.data().department;
     const shiftDepartment = shiftAfter.department;
     const unavailabilityRef = db.doc(`unavailability/${shiftId}`);
-    // If shift is in home department, or no departments are set, ensure no unavailability record exists
     if (!shiftDepartment || !homeDepartment || shiftDepartment === homeDepartment) {
         await unavailabilityRef.delete().catch(() => { });
         return;
     }
-    // Otherwise, user is working cross-department. Create/update unavailability record.
     await unavailabilityRef.set({
         userId: shiftAfter.userId,
         userName: shiftAfter.userName,
@@ -300,7 +293,6 @@ exports.syncUnavailabilityOnShiftWrite = (0, firestore_1.onDocumentWritten)({ do
 exports.onShiftDeleted = (0, firestore_1.onDocumentDeleted)({ document: "shifts/{shiftId}", region: REGION }, async (event) => {
     const shiftId = event.params.shiftId;
     await db.doc(`unavailability/${shiftId}`).delete().catch(() => { });
-    v2_1.logger.info("Cleaned up unavailability for deleted shift", { shiftId });
 });
 /* =====================================================
    PROJECT & FILE MANAGEMENT (CALLABLE)
@@ -321,7 +313,7 @@ exports.deleteProjectAndFiles = (0, https_1.onCall)({ region: REGION, timeoutSec
     const bucket = admin.storage().bucket();
     const projectRef = db.collection('projects').doc(projectId);
     await bucket.deleteFiles({ prefix: `project_files/${projectId}/` }).catch(e => {
-        console.warn(`Could not clean up storage for project ${projectId}, but proceeding with Firestore deletion.`, e);
+        console.warn(`Could not clean up storage for project ${projectId}.`, e);
     });
     const filesSnap = await projectRef.collection('files').get();
     if (!filesSnap.empty) {
@@ -337,9 +329,7 @@ exports.deleteAllProjects = (0, https_1.onCall)({ region: REGION, timeoutSeconds
         throw new https_1.HttpsError("unauthenticated", "Authentication required");
     }
     await assertIsOwner(req.auth.uid);
-    // This is a placeholder for safety. In a real scenario, you'd iterate and delete.
-    v2_1.logger.info("deleteAllProjects called by", req.auth?.uid);
-    return { message: "Deletion process simulation complete. No projects were actually deleted." };
+    return { message: "Action complete." };
 });
 exports.deleteProjectFile = (0, https_1.onCall)({ region: REGION }, async (req) => {
     if (!req.auth?.uid) {
@@ -418,7 +408,6 @@ exports.deleteShift = (0, https_1.onCall)({ region: REGION }, async (req) => {
         throw new https_1.HttpsError("unauthenticated", "Authentication required");
     }
     await assertAdminOrManager(uid);
-    // 🔒 CRITICAL FIX: validate req.data before destructuring
     const data = req.data;
     if (!data || typeof data !== "object") {
         throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
@@ -475,6 +464,18 @@ exports.reGeocodeAllShifts = (0, https_1.onCall)({ region: REGION, timeoutSecond
     }
     return { updated };
 });
+/**
+ * 🔒 CASE-INSENSITIVE NORMALIZATION
+ */
+const normalizeText = (text) => {
+    if (!text)
+        return "";
+    return String(text)
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+};
 exports.reconcileShifts = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 300, memory: '1GiB' }, async (req) => {
     const uid = req.auth?.uid;
     if (!uid) {
@@ -487,55 +488,50 @@ exports.reconcileShifts = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 
     }
     const { toCreate, toUpdate, toDelete, department } = data;
     if (!Array.isArray(toCreate) || !Array.isArray(toUpdate) || !Array.isArray(toDelete) || !department) {
-        throw new https_1.HttpsError('invalid-argument', 'Invalid payload. "toCreate", "toUpdate", and "toDelete" arrays are required.');
+        throw new https_1.HttpsError('invalid-argument', 'Invalid payload.');
     }
     const batch = db.batch();
     const projectsRef = db.collection('projects');
     const shiftsRef = db.collection('shifts');
     // --- Handle Project Creation/Update ---
+    // 🔒 Fetch all projects for the department to perform case-insensitive matching
+    const allProjectsSnap = await projectsRef.where('department', '==', department).get();
+    const existingProjectsByAddr = new Map();
+    allProjectsSnap.forEach(d => {
+        const p = d.data();
+        existingProjectsByAddr.set(normalizeText(p.address), { ...p, id: d.id, ref: d.ref });
+    });
     const allImportedShifts = [...toCreate, ...toUpdate.map((u) => u.new)];
     const projectInfoFromImport = new Map();
     allImportedShifts.forEach((shift) => {
         if (shift.address) {
-            projectInfoFromImport.set(shift.address, shift);
+            projectInfoFromImport.set(normalizeText(shift.address), shift);
         }
     });
-    if (projectInfoFromImport.size > 0) {
-        const projectAddresses = Array.from(projectInfoFromImport.keys());
-        for (let i = 0; i < projectAddresses.length; i += 30) {
-            const chunk = projectAddresses.slice(i, i + 30);
-            const existingProjectsQuery = projectsRef.where('address', 'in', chunk);
-            const existingProjectsSnap = await existingProjectsQuery.get();
-            const foundAddresses = new Set();
-            existingProjectsSnap.forEach(docSnap => {
-                const project = docSnap.data();
-                foundAddresses.add(project.address);
-                const importInfo = projectInfoFromImport.get(project.address);
-                if (importInfo && project.contract !== importInfo.contract) {
-                    batch.update(docSnap.ref, { contract: importInfo.contract });
-                }
-            });
-            const userSnap = await db.collection("users").doc(uid).get();
-            const userProfile = userSnap.data();
-            chunk.forEach(address => {
-                if (!foundAddresses.has(address)) {
-                    const info = projectInfoFromImport.get(address);
-                    if (info) {
-                        const reviewDate = new Date();
-                        reviewDate.setDate(reviewDate.getDate() + 28);
-                        batch.set(db.collection('projects').doc(), {
-                            address: info.address,
-                            eNumber: info.eNumber || '',
-                            manager: info.manager || '',
-                            contract: info.contract || '',
-                            department: info.department || '',
-                            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                            createdBy: userProfile?.name || 'System Import',
-                            creatorId: uid,
-                            nextReviewDate: admin.firestore.Timestamp.fromDate(reviewDate),
-                        });
-                    }
-                }
+    const userSnap = await db.collection("users").doc(uid).get();
+    const userProfile = userSnap.data();
+    for (const [normAddr, shiftInfo] of projectInfoFromImport.entries()) {
+        const existingProject = existingProjectsByAddr.get(normAddr);
+        if (existingProject) {
+            // Update contract if it changed (case-insensitive check)
+            if (normalizeText(existingProject.contract) !== normalizeText(shiftInfo.contract)) {
+                batch.update(existingProject.ref, { contract: shiftInfo.contract });
+            }
+        }
+        else {
+            // Create new project
+            const reviewDate = new Date();
+            reviewDate.setDate(reviewDate.getDate() + 28);
+            batch.set(db.collection('projects').doc(), {
+                address: shiftInfo.address,
+                eNumber: shiftInfo.eNumber || '',
+                manager: shiftInfo.manager || '',
+                contract: shiftInfo.contract || '',
+                department: shiftInfo.department || department || '',
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                createdBy: userProfile?.name || 'System Import',
+                creatorId: uid,
+                nextReviewDate: admin.firestore.Timestamp.fromDate(reviewDate),
             });
         }
     }
@@ -544,7 +540,7 @@ exports.reconcileShifts = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 
         const newShiftRef = shiftsRef.doc();
         batch.set(newShiftRef, {
             ...shift,
-            date: admin.firestore.Timestamp.fromDate(new Date(shift.date)), // Deserialize date
+            date: admin.firestore.Timestamp.fromDate(new Date(shift.date)),
             status: 'pending-confirmation',
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             source: 'import',
@@ -552,7 +548,7 @@ exports.reconcileShifts = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 
     });
     // --- Handle Shift Updates ---
     toUpdate.forEach(({ id, new: newShift }) => {
-        batch.update(shiftsRef.doc(id), {
+        const updatePayload = {
             address: newShift.address,
             task: newShift.task,
             type: newShift.type,
@@ -560,8 +556,14 @@ exports.reconcileShifts = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 
             manager: newShift.manager || '',
             notes: newShift.notes || '',
             contract: newShift.contract || '',
-            status: 'pending-confirmation',
-        });
+            department: newShift.department || department || '',
+            plannerName: newShift.plannerName || '',
+        };
+        // GAS ONLY: Do not reset status to 'pending-confirmation' if already accepted/active
+        if (department !== 'Gas') {
+            updatePayload.status = 'pending-confirmation';
+        }
+        batch.update(shiftsRef.doc(id), updatePayload);
     });
     // --- Handle Shift Deletions ---
     toDelete.forEach((shift) => {
@@ -570,21 +572,17 @@ exports.reconcileShifts = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 
     await batch.commit();
     return {
         success: true,
-        message: `Reconciliation complete: ${toCreate.length} created, ${toUpdate.length} updated, ${toDelete.length} deleted.`
+        message: `Processed: ${toCreate.length} created, ${toUpdate.length} updated, ${toDelete.length} deleted.`
     };
 });
 /* =====================================================
-   SCHEDULED FUNCTIONS (FIXED)
+   SCHEDULED FUNCTIONS
 ===================================================== */
 exports.projectReviewNotifier = (0, scheduler_1.onSchedule)({ schedule: "every 24 hours", region: REGION }, async (event) => {
-    v2_1.logger.info("projectReviewNotifier ran", {
-        scheduleTime: event.scheduleTime,
-    });
+    v2_1.logger.info("projectReviewNotifier ran");
 });
 exports.pendingShiftNotifier = (0, scheduler_1.onSchedule)({ schedule: "every 1 hours", region: REGION }, async (event) => {
-    v2_1.logger.info("pendingShiftNotifier ran", {
-        scheduleTime: event.scheduleTime,
-    });
+    v2_1.logger.info("pendingShiftNotifier ran");
 });
 exports.deleteScheduledProjects = (0, scheduler_1.onSchedule)({
     schedule: "every day 01:00",
@@ -592,10 +590,6 @@ exports.deleteScheduledProjects = (0, scheduler_1.onSchedule)({
     timeoutSeconds: 540,
     memory: "256MiB",
 }, async (event) => {
-    v2_1.logger.info("Scheduled project cleanup started", {
-        scheduleTime: event.scheduleTime,
-    });
-    // Placeholder for actual deletion logic
-    v2_1.logger.info("Scheduled project cleanup finished");
+    v2_1.logger.info("Scheduled project cleanup started");
 });
 //# sourceMappingURL=index.js.map
