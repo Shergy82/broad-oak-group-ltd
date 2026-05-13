@@ -51,7 +51,13 @@ export type ParsedShift = Omit<
   eNumber?: string;
 };
 
-type UserMapEntry = { uid: string; normalizedName: string; originalName: string, department?: string };
+type UserMapEntry = { 
+  uid: string; 
+  normalizedName: string; 
+  originalName: string; 
+  department?: string;
+  accountType?: 'individual' | 'company';
+};
 
 export interface FailedShift {
   date: Date | null;
@@ -213,7 +219,13 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           const usersSnapshot = await getDocs(collection(firestore, 'users'));
           const userMap: UserMapEntry[] = usersSnapshot.docs.map((d) => {
             const u = d.data() as UserProfile;
-            return { uid: d.id, normalizedName: normalizeText(u.name), originalName: u.name, department: u.department };
+            return { 
+                uid: d.id, 
+                normalizedName: normalizeText(u.name), 
+                originalName: u.name, 
+                department: u.department,
+                accountType: u.accountType
+            };
           });
           
           const finalImportDepartment = importType === 'GAS' ? 'Gas' : importDepartment;

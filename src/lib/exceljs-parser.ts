@@ -39,7 +39,13 @@ export type ImportFailure = {
   cellContent?: string;
 };
 
-type UserMapEntry = { uid: string; normalizedName: string; originalName: string, department?: string };
+type UserMapEntry = { 
+  uid: string; 
+  normalizedName: string; 
+  originalName: string; 
+  department?: string;
+  accountType?: 'individual' | 'company';
+};
 
 export type ParseResult = {
   parsed: ParsedGasShift[];
@@ -113,9 +119,13 @@ function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: Us
 
     const chunkParts = normalizedChunk.split(' ');
     
-    // 2. STRICT CHECK: If only one name is provided, DO NOT partial match.
+    // 2. STRICT CHECK: If only one name is provided, DO NOT partial match individuals.
     if (chunkParts.length < 2) {
-        return { users: [], reason: `Single name "${nameChunk}" requires a full/exact match. No match found.` };
+        // If it matches exactly one company account by the first word, we allow it (e.g. "VULCAN" matching "Vulcan Facilities")
+        const companyMatches = userMap.filter(u => u.accountType === 'company' && u.normalizedName.startsWith(normalizedChunk));
+        if (companyMatches.length === 1) return { users: companyMatches };
+        
+        return { users: [], reason: `Single name "${nameChunk}" requires a full/exact match for individuals. No match found.` };
     }
 
     // 3. Multi-word partial matching
@@ -168,13 +178,14 @@ function toISODate(dt: Date): string {
 
 function isNonShiftText(text: string): boolean {
   const t = text.trim().toLowerCase();
+  // Filter out cells that are clearly headers or informational rows, 
+  // but DON'T filter out descriptive task words like "pv", "wire", "loft" etc.
   const noise = [
     "job manager", "measures", "scheme", "pulse", "ignore", "ordered", 
     "start date", "on live", "coole", "variation", "work type", 
     "operative", "site address", "task", "date", "name", "week comm", 
     "asbestos present", "bedroom", "bathroom", "waiting on", "scaffolding", 
-    "cc", "council", "manager", "ordering", "loft", "300mm", "insulation",
-    "pv wire", "invertor", "hatch", "board from"
+    "cc", "council", "manager", "ordering"
   ];
   return noise.some(b => t.includes(b)) || /^\+?\d[\d\s-]{7,}$/.test(t);
 }
@@ -348,6 +359,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
       const row = sheet.getRow(r);
       for (const { col, isoDate } of dateCols) {
         const text = getCellText(row.getCell(col));
+        // Cell must contain a hyphen to be a valid shift (Task - Operative)
         if (!text || !text.includes('-') || isNonShiftText(text)) continue;
 
         const { task, names, type } = extractGasTaskAndNames(text);
