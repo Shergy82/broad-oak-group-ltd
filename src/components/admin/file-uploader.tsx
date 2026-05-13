@@ -71,11 +71,9 @@ export interface DryRunResult {
 
 const normalizeText = (text: string) => (text || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
 
-const toDateOnlyUtc = (d: Date) =>
-  new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-
 /**
  * Creates a unique key for a shift based on User, Date, and Address.
+ * Removing 'type' from key so that AM/PM changes are updates, not delete/recreate.
  */
 const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string }): string => {
   const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
@@ -236,6 +234,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           
           allFailedShifts = result.failures;
 
+          // Internal Deduplication: One shift per user, per day, per site.
           const uniqueShiftsMap = new Map<string, ParsedShift>();
           for (const shift of allShiftsFromExcel) {
             const key = getShiftKey(shift as any);
@@ -247,8 +246,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
 
           const today = new Date();
           today.setHours(0, 0, 0, 0);
-
-          allShiftsFromExcel = allShiftsFromExcel.filter(s => s.date >= today);
           
           const existingShiftsQuery = importType === 'GAS' 
             ? query(collection(firestore, 'shifts'))
@@ -260,6 +257,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           existingShiftsSnapshot.forEach((doc) => {
             const shiftData = { id: doc.id, ...doc.data() } as Shift;
             if (!shiftData.userId || !shiftData.date || !shiftData.address) return;
+            // For Gas, we only care about shifts that are either in the Gas department or have no department
             if (importType === 'GAS' && shiftData.department && shiftData.department !== 'Gas') return;
             existingShiftsMap.set(getShiftKey(shiftData as any), shiftData);
           });
@@ -273,6 +271,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           const toUpdate: { old: Shift; new: ParsedShift }[] = [];
           const toDelete: Shift[] = [];
           
+          // Shifts with these statuses are "locked" and won't be deleted or reset to pending
           const protectedStatuses: ShiftStatus[] = finalImportDepartment === 'Gas'
             ? ['completed', 'incomplete', 'rejected', 'confirmed', 'on-site']
             : ['completed', 'incomplete'];
@@ -300,6 +299,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           importTodayLocal.setHours(0, 0, 0, 0);
 
           for (const [key, existingShift] of existingShiftsMap.entries()) {
+            // Delete if missing from Excel, not manual, not protected, and in the future/today
             if (!excelShiftsMap.has(key) && !protectedStatuses.includes(existingShift.status) && existingShift.source !== 'manual') {
               const shiftDate = getCorrectedLocalDate(existingShift.date as any);
               if (shiftDate >= importTodayLocal) {
@@ -313,10 +313,10 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
               if (!functions) throw new Error("Functions service not initialized.");
               const reconcileShiftsFn = httpsCallable(functions, 'reconcileShifts');
               const payload = {
-                toCreate: toCreate.map(s => ({ ...s, date: toDateOnlyUtc(s.date).toISOString() })),
+                toCreate: toCreate.map(s => ({ ...s, date: s.date.toISOString() })),
                 toUpdate: toUpdate.map(u => ({
                   id: u.old.id,
-                  new: { ...u.new, date: toDateOnlyUtc(u.new.date).toISOString() }
+                  new: { ...u.new, date: u.new.date.toISOString() }
                 })),
                 toDelete: toDelete.map(s => ({ id: s.id })),
                 department: finalImportDepartment
@@ -458,3 +458,4 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
     </div>
   );
 }
+

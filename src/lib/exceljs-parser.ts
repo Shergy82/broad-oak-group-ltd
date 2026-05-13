@@ -119,16 +119,17 @@ function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: Us
 function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
   const v = getCellValue(cell);
   if (v instanceof Date && !isNaN(v.getTime())) {
-    return new Date(Date.UTC(v.getUTCFullYear(), v.getUTCMonth(), v.getUTCDate()));
+    // FIX: Use local getters to avoid BST/Timezone offset (e.g., 18th becoming 17th)
+    return new Date(Date.UTC(v.getFullYear(), v.getMonth(), v.getDate()));
   }
   if (typeof v === "number" && v > 20000 && v < 60000) {
     const d = new Date((v - 25569) * 86400 * 1000);
-    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
   }
   const text = getCellText(cell);
   if (!text) return null;
   const d = new Date(text.replace(/(\d+)(st|nd|rd|th)/g, '$1'));
-  return (!isNaN(d.getTime()) && d.getUTCFullYear() > 2000) ? new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())) : null;
+  return (!isNaN(d.getTime()) && d.getFullYear() > 2000) ? new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())) : null;
 }
 
 function toISODate(dt: Date): string {
@@ -142,7 +143,7 @@ function isNonShiftText(text: string): boolean {
 }
 
 /* =========================
-   GAS PARSER
+   GAS PARSER (Rules preserved)
 ========================= */
 
 export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry[]): Promise<ParseResult> {
@@ -191,7 +192,12 @@ export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry
     allFailures.push(...sheetResult.failures);
   }
 
-  return { parsed: allParsed, failures: allFailures };
+  // Filter out past dates for Gas
+  const today = toISODate(new Date());
+  return { 
+    parsed: allParsed.filter(s => s.shiftDate >= today), 
+    failures: allFailures.filter(f => !f.shiftDate || f.shiftDate >= today) 
+  };
 }
 
 function parseListView(sheet: ExcelJS.Worksheet, headerRowNumber: number, headers: string[], userMap: UserMapEntry[]): ParseResult {
@@ -204,35 +210,16 @@ function parseListView(sheet: ExcelJS.Worksheet, headerRowNumber: number, header
     const taskIndex = headers.indexOf('task');
     const addressIndex = headers.indexOf('address');
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
     for (let rowNum = headerRowNumber + 1; rowNum <= sheet.rowCount; rowNum++) {
         const row = sheet.getRow(rowNum);
         if (!row || !row.hasValues) continue;
 
         const date = parseExcelCellAsDate(row.getCell(dateIndex + 1));
-        if (date && date < today) continue;
-
         const userNameRaw = getCellText(row.getCell(userIndex + 1));
         const task = getCellText(row.getCell(taskIndex + 1));
         const address = getCellText(row.getCell(addressIndex + 1));
 
-        if (!date || !userNameRaw || !task || !address) {
-            if (userNameRaw || task || address) {
-                const failureDate = date ? toISODate(date) : undefined;
-                if (!date || (date >= today)) {
-                    failures.push({
-                        reason: 'Missing required data (Date, User, Task, or Address).',
-                        siteAddress: address,
-                        shiftDate: failureDate,
-                        sheetName,
-                        cellRef: `Row ${rowNum}`
-                    });
-                }
-            }
-            continue;
-        }
+        if (!date || !userNameRaw || !task || !address) continue;
 
         const { users: matchedUsers, reason } = findUsersInMap(userNameRaw, userMap);
         if (matchedUsers.length !== 1) {
@@ -267,9 +254,6 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
   const failures: ImportFailure[] = [];
   const parsed: ParsedGasShift[] = [];
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
   const used = getUsedBounds(sheet);
   if (!used) return { parsed: [], failures: [] };
 
@@ -282,12 +266,6 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
     const blockStart = dividerRows[i] + 1;
     const blockEnd = dividerRows[i + 1] - 1;
     if (blockEnd < blockStart) continue;
-
-    let emptyStreak = 0;
-    for (let r = blockStart; r <= Math.min(blockStart + 15, blockEnd); r++) {
-        if (!getCellText(sheet.getRow(r).getCell(1))) emptyStreak++;
-    }
-    if (emptyStreak > 15) break;
 
     const siteAddressResult = extractSiteAddress(sheet, used, blockStart, blockEnd);
     if (!siteAddressResult) continue;
@@ -315,9 +293,6 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
     const seenShiftsInBlock = new Set<string>();
 
     for (const { col, isoDate } of dateCols) {
-      const colDate = new Date(isoDate);
-      if (colDate < today) continue;
-
       for (let r = dateRowIdx + 1; r <= blockEnd; r++) {
         const cell = sheet.getRow(r).getCell(col);
         const text = getCellText(cell);
@@ -367,7 +342,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
 }
 
 /* =========================
-   BUILD PARSER
+   BUILD PARSER (NEW & ROBUST)
 ========================= */
 
 export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEntry[], selectedSheets: string[]): Promise<ParseResult> {
@@ -376,29 +351,27 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
 
   const allParsed: ParsedGasShift[] = [];
   const allFailures: ImportFailure[] = [];
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = toISODate(new Date());
 
   for (const sheetName of selectedSheets) {
     const sheet = workbook.getWorksheet(sheetName);
     if (!sheet || sheet.state === 'hidden') continue;
 
-    // 1. Find the date row
+    // 1. Find the date row (Header)
     let dateRowIdx = -1;
     let dateCols: { col: number, isoDate: string }[] = [];
     
-    for (let r = 1; r <= 25; r++) {
+    for (let r = 1; r <= 30; r++) {
         const row = sheet.getRow(r);
-        let count = 0;
         const tempCols: { col: number, isoDate: string }[] = [];
         row.eachCell((cell, colNumber) => {
             const dt = parseExcelCellAsDate(cell);
-            if (dt) {
-                count++;
+            // Only accept dates that are reasonable (e.g., year > 2020)
+            if (dt && dt.getFullYear() > 2020) {
                 tempCols.push({ col: colNumber, isoDate: toISODate(dt) });
             }
         });
-        if (count >= 3) {
+        if (tempCols.length >= 3) {
             dateRowIdx = r;
             dateCols = tempCols;
             break;
@@ -412,28 +385,38 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
     for (let r = dateRowIdx + 1; r <= sheet.rowCount; r++) {
         const row = sheet.getRow(r);
         const rawAddress = getCellText(row.getCell(1));
-        const rawTask = normalizeWhitespace(getCellText(row.getCell(2)));
-        const rawENumber = normalizeWhitespace(getCellText(row.getCell(3)));
+        const rawTask = getCellText(row.getCell(2));
+        const rawENumber = getCellText(row.getCell(3));
         
-        if (!rawAddress || isNonShiftText(rawAddress)) {
+        // REPEAT BLANK CELL DETECTION: Stop if Column A is empty for 15 rows
+        if (!rawAddress || rawAddress.trim() === "" || isNonShiftText(rawAddress)) {
             emptyRowStreak++;
-            if (emptyRowStreak > 15) break; // Hard stop
+            if (emptyRowStreak >= 15) break; 
             continue;
         }
         emptyRowStreak = 0;
 
         const address = normalizeWhitespace(rawAddress);
-        const task = rawTask || 'Unspecified';
-        const eNumber = rawENumber || '';
+        const task = normalizeWhitespace(rawTask) || 'Unspecified';
+        
+        // Determine E Number: check column C, or look inside address string
+        let eNumber = normalizeWhitespace(rawENumber);
+        if (!eNumber) {
+            const eNumMatch = address.match(/\b([BE]\d+\S*)\b/i);
+            if (eNumMatch) eNumber = eNumMatch[1].toUpperCase();
+        }
 
         for (const { col, isoDate } of dateCols) {
-            const colDate = new Date(isoDate);
-            if (colDate < today) continue;
+            // FILTER: Skip past dates
+            if (isoDate < today) continue;
 
             const cell = row.getCell(col);
             const cellText = getCellText(cell);
+            
+            // Only process if cell contains text
             if (!cellText || cellText.trim() === "" || isNonShiftText(cellText)) continue;
 
+            // Split multiple names in one cell
             const names = cellText.split(/[,&/]| and /i).map(s => s.trim()).filter(Boolean);
             
             for (const name of names) {
@@ -470,7 +453,7 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
 }
 
 /* =========================
-   GAS HELPERS
+   GENERIC HELPERS
 ========================= */
 
 function getUsedBounds(ws: ExcelJS.Worksheet): UsedBounds | null {
