@@ -151,7 +151,14 @@ function toISODate(dt: Date): string {
 
 function isNonShiftText(text: string): boolean {
   const t = text.trim().toLowerCase();
-  const noise = ["job manager", "measures", "scheme", "pulse", "ignore", "ordered", "start date", "on live", "coole", "variation", "work type", "operative", "site address", "task", "date", "name", "week comm", "asbestos present", "bedroom", "bathroom", "waiting on", "scaffolding", "cc", "council", "manager", "ordering"];
+  const noise = [
+    "job manager", "measures", "scheme", "pulse", "ignore", "ordered", 
+    "start date", "on live", "coole", "variation", "work type", 
+    "operative", "site address", "task", "date", "name", "week comm", 
+    "asbestos present", "bedroom", "bathroom", "waiting on", "scaffolding", 
+    "cc", "council", "manager", "ordering", "loft", "300mm", "insulation",
+    "pv wire", "invertor", "hatch", "board from"
+  ];
   return noise.some(b => t.includes(b)) || /^\+?\d[\d\s-]{7,}$/.test(t);
 }
 
@@ -269,6 +276,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
   const used = getUsedBounds(sheet);
   if (!used) return { parsed: [], failures: [] };
 
+  // dividerRows already stops at 15 empty Column A cells
   let dividerRows = findDividerRows(sheet, used);
   
   if (!dividerRows.includes(used.startRow - 1)) dividerRows.unshift(used.startRow - 1);
@@ -279,16 +287,18 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
     const blockEnd = dividerRows[i + 1] - 1;
     if (blockEnd < blockStart) continue;
 
-    const siteAddressResult = extractSiteAddress(sheet, used, blockStart, blockEnd);
+    const dateRowIdx = findDateRow(sheet, used, blockStart, blockEnd);
+    if (!dateRowIdx) continue;
+
+    // 🔒 CRITICAL FIX (GAS): Site address is strictly sought ABOVE the date header row
+    // This prevents picking up measures/notes like "LOFT" which are typically below headers.
+    const siteAddressResult = extractSiteAddress(sheet, used, blockStart, dateRowIdx - 1);
     if (!siteAddressResult) continue;
     
     const { address: rawSiteAddress } = siteAddressResult;
     const eNumMatch = rawSiteAddress.match(/\b([BE]\d+\S*)\b/i);
     const eNumber = eNumMatch ? eNumMatch[1].toUpperCase() : '';
     const siteAddress = eNumMatch ? rawSiteAddress.replace(eNumMatch[0], '').trim().replace(/,$/, '').trim() : rawSiteAddress;
-
-    const dateRowIdx = findDateRow(sheet, used, blockStart, blockEnd);
-    if (!dateRowIdx) continue;
 
     let manager = '';
     const otherContacts: string[] = [];
@@ -488,8 +498,17 @@ type UsedBounds = { startRow: number; endRow: number; startCol: number; endCol: 
 
 function findDividerRows(ws: ExcelJS.Worksheet, used: UsedBounds): number[] {
   const rows: number[] = [];
+  let emptyCount = 0;
   for (let r = used.startRow; r <= used.endRow; r++) {
-    if (isDividerRow(ws, r)) rows.push(r);
+    const row = ws.getRow(r);
+    const colA = getCellText(row.getCell(1));
+    
+    // Stop processing if 15 consecutive rows have no address data in Col A
+    if (!colA) emptyCount++;
+    else emptyCount = 0;
+    if (emptyCount >= 15) break;
+
+    if (isDividerRow(ws, r) || !row.hasValues) rows.push(r);
   }
   return rows.filter((row, idx) => idx === 0 || row !== rows[idx - 1] + 1);
 }
@@ -520,31 +539,33 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
         const noiseKeywords = [
             'MATERIALS ORDERING', 'TECHNICAL MANAGER', 'SITE MANAGER', 
             'PROJECT MANAGER', 'TLO', 'MEASURES', 'SCHEME', 'PULSE', 
-            'PULCE', 'WEEK COMM'
+            'PULCE', 'WEEK COMM', 'LOFT', '300MM', 'INSULATION', 'PV WIRE',
+            'INVERTOR', 'HATCH', 'ATTIC', 'BOARD FROM'
         ];
-        if (noiseKeywords.some(keyword => upper.includes(keyword))) return -100;
+        if (noiseKeywords.some(keyword => upper.includes(keyword))) return -500;
 
         let score = Math.min(text.length, 50);
         
-        // 2. Look for UK Postcode (Strongest signal)
-        if (/\b([A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i.test(text)) score += 100;
+        // 2. Look for UK Postcode (Strongest signal) - High boost
+        if (/\b([Gg][Ii][Rr] 0[Aa]{2})|((([A-Za-z][0-9]{1,2})|(([A-Za-z][A-Ha-hJ-Yj-y][0-9]{1,2})|(([A-Za-z][0-9][A-Za-z])|([A-Za-z][A-Ha-hJ-Yj-y][0-9][A-Za-z]?))))\s?[0-9][A-Za-z]{2})\b/i.test(text)) {
+            score += 2000;
+        }
         
         // 3. Regular Address Indicators
-        if (/\d/.test(text)) score += 10;
-        if (/,|\n/.test(text)) score += 15;
+        if (/\d/.test(text)) score += 20;
+        if (/,/.test(text)) score += 30;
         
         // 4. Penalize rows that look like phone numbers only
-        if (/^\+?[\d\s-]{10,}$/.test(text.replace(/[()]/g, '').trim())) score -= 50;
+        if (/^\+?[\d\s-]{10,}$/.test(text.replace(/[()]/g, '').trim())) score -= 200;
 
         // 5. Penalize rows that look like dates
-        if (/\d{1,2}\/\d{1,2}\/\d{2,4}/.test(text)) score -= 50;
+        if (/\d{1,2}\/\d{1,2}\/\d{2,4}/.test(text)) score -= 200;
 
         return score;
     };
 
     let best = { text: "", score: -Infinity, row: 0 };
-    // Check first 15 rows of the block in columns 1 and 2
-    for (let r = startRow; r <= Math.min(startRow + 15, endRow); r++) {
+    for (let r = startRow; r <= endRow; r++) {
         for (let c = 1; c <= 2; c++) {
             const text = getCellText(ws.getRow(r).getCell(c));
             const score = scoreAddress(text);
