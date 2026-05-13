@@ -388,7 +388,7 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
                 const cell = row.getCell(col);
                 const cellText = getCellText(cell);
                 
-                if (!cellText || !cellText.includes('-') || isNonShiftText(cellText)) continue;
+                if (!cellText || isNonShiftText(cellText)) continue;
 
                 const { task, names, type } = extractGasTaskAndNames(cellText);
                 
@@ -541,12 +541,15 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
     let task: string;
     let names: string[];
 
+    // 🔒 IMPROVED SPLITTING FOR MULTI-NAME CELLS (e.g. Philip & John)
+    const splitRegex = /[,&\/\+\\]| and /i;
+
     if (lastHyphen === -1) {
         task = "Unspecified";
-        names = raw.split(/[,&/]| and /i).map(s => s.trim()).filter(Boolean);
+        names = raw.split(splitRegex).map(s => s.trim()).filter(Boolean);
     } else {
         task = raw.substring(0, lastHyphen).trim() || "Unspecified";
-        names = raw.substring(lastHyphen + 1).split(/[,&/]| and /i).map(s => s.trim()).filter(Boolean);
+        names = raw.substring(lastHyphen + 1).split(splitRegex).map(s => s.trim()).filter(Boolean);
     }
     
     const uniqueNames = Array.from(new Set(names.map(n => n.toLowerCase()))).map(lowName => {
