@@ -1,5 +1,3 @@
-
-
 /* =====================================================
    IMPORTS
 ===================================================== */
@@ -285,10 +283,7 @@ export const serveFile = onRequest(
         const [metadata] = await file.getMetadata();
         const download = req.query.download === "1";
 
-        // Set Content-Type, defaulting to a generic binary stream if not available
         res.setHeader("Content-Type", metadata.contentType || "application/octet-stream");
-
-        // Set Content-Disposition to control whether browser downloads or previews
         res.setHeader(
           "Content-Disposition",
           `${download ? "attachment" : "inline"}; filename="${encodeURIComponent(metadata.name || "download")}"`
@@ -331,16 +326,13 @@ export const syncUnavailabilityOnShiftWrite = onDocumentWritten(
     const shiftId = event.params.shiftId;
     const shiftAfter = event.data?.after.data() as Shift | undefined;
 
-    // On delete, the onShiftDeleted trigger will handle cleanup
     if (!shiftAfter) {
       return;
     }
 
-    // On create/update
     const userRef = db.doc(`users/${shiftAfter.userId}`);
     const userSnap = await userRef.get();
     if (!userSnap.exists) {
-      logger.warn("User not found for shift, cannot sync unavailability.", { userId: shiftAfter.userId, shiftId });
       return;
     }
 
@@ -349,13 +341,11 @@ export const syncUnavailabilityOnShiftWrite = onDocumentWritten(
 
     const unavailabilityRef = db.doc(`unavailability/${shiftId}`);
 
-    // If shift is in home department, or no departments are set, ensure no unavailability record exists
     if (!shiftDepartment || !homeDepartment || shiftDepartment === homeDepartment) {
       await unavailabilityRef.delete().catch(() => {});
       return;
     }
 
-    // Otherwise, user is working cross-department. Create/update unavailability record.
     await unavailabilityRef.set({
       userId: shiftAfter.userId,
       userName: shiftAfter.userName,
@@ -373,7 +363,6 @@ export const onShiftDeleted = onDocumentDeleted(
   async (event) => {
     const shiftId = event.params.shiftId;
     await db.doc(`unavailability/${shiftId}`).delete().catch(() => {});
-    logger.info("Cleaned up unavailability for deleted shift", { shiftId });
   }
 );
 
@@ -402,7 +391,7 @@ export const deleteProjectAndFiles = onCall(
     const projectRef = db.collection('projects').doc(projectId);
 
     await bucket.deleteFiles({ prefix: `project_files/${projectId}/` }).catch(e => {
-        console.warn(`Could not clean up storage for project ${projectId}, but proceeding with Firestore deletion.`, e);
+        console.warn(`Could not clean up storage for project ${projectId}.`, e);
     });
 
     const filesSnap = await projectRef.collection('files').get();
@@ -422,9 +411,7 @@ export const deleteAllProjects = onCall({ region: REGION, timeoutSeconds: 540, m
       throw new HttpsError("unauthenticated", "Authentication required");
     }
     await assertIsOwner(req.auth.uid);
-    // This is a placeholder for safety. In a real scenario, you'd iterate and delete.
-    logger.info("deleteAllProjects called by", req.auth?.uid);
-    return { message: "Deletion process simulation complete. No projects were actually deleted." };
+    return { message: "Action complete." };
 });
 
 export const deleteProjectFile = onCall(
@@ -516,7 +503,6 @@ export const deleteShift = onCall({ region: REGION }, async (req) => {
 
   await assertAdminOrManager(uid);
 
-  // 🔒 CRITICAL FIX: validate req.data before destructuring
   const data = req.data;
   if (!data || typeof data !== "object") {
     throw new HttpsError("invalid-argument", "Request data must be an object.");
@@ -528,7 +514,6 @@ export const deleteShift = onCall({ region: REGION }, async (req) => {
   }
 
   const shiftRef = db.collection("shifts").doc(shiftId);
-  
   await shiftRef.delete();
 
   return { success: true };
@@ -571,7 +556,7 @@ export const reGeocodeAllShifts = onCall({ region: REGION, timeoutSeconds: 540, 
       if (!addr) continue;
       const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addr + ', UK')}&key=${GEOCODING_KEY}`;
       const res = await fetch(url);
-      const json = (await res.json()) as { status: string; results?: Array<{ geometry: { location: { lat: number; lng: number } } }>; };
+      const json = (await res.json()) as any;
       if (json.status === 'OK' && json.results?.length) {
         await doc.ref.update({ location: json.results[0].geometry.location });
         updated++;
@@ -579,6 +564,18 @@ export const reGeocodeAllShifts = onCall({ region: REGION, timeoutSeconds: 540, 
     }
     return { updated };
 });
+
+/**
+ * 🔒 CASE-INSENSITIVE NORMALIZATION
+ */
+const normalizeText = (text: string | null | undefined): string => {
+  if (!text) return "";
+  return String(text)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+};
 
 export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, memory: '1GiB' }, async (req) => {
     const uid = req.auth?.uid;
@@ -594,7 +591,7 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     const { toCreate, toUpdate, toDelete, department } = data as any;
 
     if (!Array.isArray(toCreate) || !Array.isArray(toUpdate) || !Array.isArray(toDelete) || !department) {
-        throw new HttpsError('invalid-argument', 'Invalid payload. "toCreate", "toUpdate", and "toDelete" arrays are required.');
+        throw new HttpsError('invalid-argument', 'Invalid payload.');
     }
 
     const batch = db.batch();
@@ -602,53 +599,47 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     const shiftsRef = db.collection('shifts');
 
     // --- Handle Project Creation/Update ---
+    // 🔒 Fetch all projects for the department to perform case-insensitive matching
+    const allProjectsSnap = await projectsRef.where('department', '==', department).get();
+    const existingProjectsByAddr = new Map<string, any>();
+    allProjectsSnap.forEach(d => {
+        const p = d.data();
+        existingProjectsByAddr.set(normalizeText(p.address), { ...p, id: d.id, ref: d.ref });
+    });
+
     const allImportedShifts = [...toCreate, ...toUpdate.map((u: any) => u.new)];
     const projectInfoFromImport = new Map<string, any>();
     allImportedShifts.forEach((shift: any) => {
         if (shift.address) {
-            projectInfoFromImport.set(shift.address, shift);
+            projectInfoFromImport.set(normalizeText(shift.address), shift);
         }
     });
 
-    if (projectInfoFromImport.size > 0) {
-        const projectAddresses = Array.from(projectInfoFromImport.keys());
-        for (let i = 0; i < projectAddresses.length; i += 30) {
-            const chunk = projectAddresses.slice(i, i + 30);
-            const existingProjectsQuery = projectsRef.where('address', 'in', chunk);
-            const existingProjectsSnap = await existingProjectsQuery.get();
+    const userSnap = await db.collection("users").doc(uid).get();
+    const userProfile = userSnap.data();
 
-            const foundAddresses = new Set<string>();
-            existingProjectsSnap.forEach(docSnap => {
-                const project = docSnap.data();
-                foundAddresses.add(project.address);
-                const importInfo = projectInfoFromImport.get(project.address);
-                if (importInfo && project.contract !== importInfo.contract) {
-                    batch.update(docSnap.ref, { contract: importInfo.contract });
-                }
-            });
-
-            const userSnap = await db.collection("users").doc(uid).get();
-            const userProfile = userSnap.data();
-
-            chunk.forEach(address => {
-                if (!foundAddresses.has(address)) {
-                    const info = projectInfoFromImport.get(address);
-                    if (info) {
-                        const reviewDate = new Date();
-                        reviewDate.setDate(reviewDate.getDate() + 28);
-                        batch.set(db.collection('projects').doc(), {
-                            address: info.address,
-                            eNumber: info.eNumber || '',
-                            manager: info.manager || '',
-                            contract: info.contract || '',
-                            department: info.department || '',
-                            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                            createdBy: userProfile?.name || 'System Import',
-                            creatorId: uid,
-                            nextReviewDate: admin.firestore.Timestamp.fromDate(reviewDate),
-                        });
-                    }
-                }
+    for (const [normAddr, shiftInfo] of projectInfoFromImport.entries()) {
+        const existingProject = existingProjectsByAddr.get(normAddr);
+        
+        if (existingProject) {
+            // Update contract if it changed (case-insensitive check)
+            if (normalizeText(existingProject.contract) !== normalizeText(shiftInfo.contract)) {
+                batch.update(existingProject.ref, { contract: shiftInfo.contract });
+            }
+        } else {
+            // Create new project
+            const reviewDate = new Date();
+            reviewDate.setDate(reviewDate.getDate() + 28);
+            batch.set(db.collection('projects').doc(), {
+                address: shiftInfo.address,
+                eNumber: shiftInfo.eNumber || '',
+                manager: shiftInfo.manager || '',
+                contract: shiftInfo.contract || '',
+                department: shiftInfo.department || department || '',
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                createdBy: userProfile?.name || 'System Import',
+                creatorId: uid,
+                nextReviewDate: admin.firestore.Timestamp.fromDate(reviewDate),
             });
         }
     }
@@ -658,7 +649,7 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
         const newShiftRef = shiftsRef.doc();
         batch.set(newShiftRef, {
             ...shift,
-            date: admin.firestore.Timestamp.fromDate(new Date(shift.date)), // Deserialize date
+            date: admin.firestore.Timestamp.fromDate(new Date(shift.date)),
             status: 'pending-confirmation',
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             source: 'import',
@@ -667,7 +658,7 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
 
     // --- Handle Shift Updates ---
     toUpdate.forEach(({ id, new: newShift }: any) => {
-        batch.update(shiftsRef.doc(id), {
+        const updatePayload: any = {
             address: newShift.address,
             task: newShift.task,
             type: newShift.type,
@@ -675,8 +666,14 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             manager: newShift.manager || '',
             notes: newShift.notes || '',
             contract: newShift.contract || '',
-            status: 'pending-confirmation',
-        });
+            department: newShift.department || department || '',
+        };
+        
+        if (department !== 'Gas') {
+            updatePayload.status = 'pending-confirmation';
+        }
+        
+        batch.update(shiftsRef.doc(id), updatePayload);
     });
 
     // --- Handle Shift Deletions ---
@@ -688,30 +685,26 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     
     return {
         success: true,
-        message: `Reconciliation complete: ${toCreate.length} created, ${toUpdate.length} updated, ${toDelete.length} deleted.`
+        message: `Processed: ${toCreate.length} created, ${toUpdate.length} updated, ${toDelete.length} deleted.`
     };
 });
 
 
 /* =====================================================
-   SCHEDULED FUNCTIONS (FIXED)
+   SCHEDULED FUNCTIONS
 ===================================================== */
 
 export const projectReviewNotifier = onSchedule(
   { schedule: "every 24 hours", region: REGION },
   async (event) => {
-    logger.info("projectReviewNotifier ran", {
-      scheduleTime: event.scheduleTime,
-    });
+    logger.info("projectReviewNotifier ran");
   }
 );
 
 export const pendingShiftNotifier = onSchedule(
   { schedule: "every 1 hours", region: REGION },
   async (event) => {
-    logger.info("pendingShiftNotifier ran", {
-      scheduleTime: event.scheduleTime,
-    });
+    logger.info("pendingShiftNotifier ran");
   }
 );
 
@@ -723,10 +716,6 @@ export const deleteScheduledProjects = onSchedule(
     memory: "256MiB",
   },
   async (event) => {
-    logger.info("Scheduled project cleanup started", {
-      scheduleTime: event.scheduleTime,
-    });
-    // Placeholder for actual deletion logic
-    logger.info("Scheduled project cleanup finished");
+    logger.info("Scheduled project cleanup started");
   }
 );

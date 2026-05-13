@@ -69,11 +69,21 @@ export interface DryRunResult {
   failed: FailedShift[];
 }
 
-const normalizeText = (text: string) => (text || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+/**
+ * 🔒 ROBUST NORMALIZATION
+ * Ensures "Broad-Oak" matches "Broad Oak" and is case-insensitive.
+ */
+function normalizeText(text: string | null | undefined): string {
+  if (!text) return "";
+  return String(text)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, " ") // Replace non-alphanumeric with space
+    .replace(/\s+/g, " ")       // Collapse multiple spaces
+    .trim();
+}
 
 /**
  * Creates a unique key for a shift based on User, Date, and Address.
- * Removing 'type' from key so that AM/PM changes are updates, not delete/recreate.
  */
 const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string }): string => {
   const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
@@ -234,7 +244,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           
           allFailedShifts = result.failures;
 
-          // Internal Deduplication: One shift per user, per day, per site.
           const uniqueShiftsMap = new Map<string, ParsedShift>();
           for (const shift of allShiftsFromExcel) {
             const key = getShiftKey(shift as any);
@@ -257,7 +266,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           existingShiftsSnapshot.forEach((doc) => {
             const shiftData = { id: doc.id, ...doc.data() } as Shift;
             if (!shiftData.userId || !shiftData.date || !shiftData.address) return;
-            // For Gas, we only care about shifts that are either in the Gas department or have no department
             if (importType === 'GAS' && shiftData.department && shiftData.department !== 'Gas') return;
             existingShiftsMap.set(getShiftKey(shiftData as any), shiftData);
           });
@@ -271,7 +279,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           const toUpdate: { old: Shift; new: ParsedShift }[] = [];
           const toDelete: Shift[] = [];
           
-          // Shifts with these statuses are "locked" and won't be deleted or reset to pending
           const protectedStatuses: ShiftStatus[] = finalImportDepartment === 'Gas'
             ? ['completed', 'incomplete', 'rejected', 'confirmed', 'on-site']
             : ['completed', 'incomplete'];
@@ -299,7 +306,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           importTodayLocal.setHours(0, 0, 0, 0);
 
           for (const [key, existingShift] of existingShiftsMap.entries()) {
-            // Delete if missing from Excel, not manual, not protected, and in the future/today
             if (!excelShiftsMap.has(key) && !protectedStatuses.includes(existingShift.status) && existingShift.source !== 'manual') {
               const shiftDate = getCorrectedLocalDate(existingShift.date as any);
               if (shiftDate >= importTodayLocal) {
@@ -458,4 +464,3 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
     </div>
   );
 }
-

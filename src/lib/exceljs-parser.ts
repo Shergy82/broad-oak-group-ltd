@@ -54,9 +54,17 @@ function normalizeWhitespace(s: string | null | undefined): string {
   return String(s).replace(/[ \t]+/g, " ").replace(/\s*\n\s*/g, " ").trim();
 }
 
+/**
+ * 🔒 ROBUST NORMALIZATION
+ * Ensures "Broad-Oak" matches "Broad Oak" and is case-insensitive.
+ */
 function normalizeText(text: string | null | undefined): string {
   if (!text) return "";
-  return String(text).toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+  return String(text)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, " ") // Replace non-alphanumeric with space
+    .replace(/\s+/g, " ")       // Collapse multiple spaces
+    .trim();
 }
 
 function getCellText(cell: ExcelJS.Cell | null | undefined): string {
@@ -91,7 +99,7 @@ function getCellValue(cell: ExcelJS.Cell | null | undefined): any {
 
 /**
  * 🔒 VERIFIED MATCHING LOGIC (GAS & BUILD)
- * Requirement: Do not "assume" identities from single names.
+ * Requirement: Case-insensitive and robust against minor punctuation variations.
  */
 function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: UserMapEntry[]; reason?: string } {
     const normalizedChunk = normalizeText(nameChunk);
@@ -132,7 +140,6 @@ function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: Us
 function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
   const v = getCellValue(cell);
   if (v instanceof Date && !isNaN(v.getTime())) {
-    // 🔒 Build Fix: Use local getters to stay on the correct wall-clock date
     return new Date(Date.UTC(v.getFullYear(), v.getMonth(), v.getDate()));
   }
   if (typeof v === "number" && v > 20000 && v < 60000) {
@@ -276,22 +283,19 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
   const used = getUsedBounds(sheet);
   if (!used) return { parsed: [], failures: [] };
 
-  // 1. Find dividers (black rows)
   let dividerRows = findDividerRows(sheet, used);
   if (!dividerRows.includes(used.startRow - 1)) dividerRows.unshift(used.startRow - 1);
   if (!dividerRows.includes(used.endRow + 1)) dividerRows.push(used.endRow + 1);
 
-  // 2. Process each job block
   for (let i = 0; i < dividerRows.length - 1; i++) {
     const blockStart = dividerRows[i] + 1;
     const blockEnd = dividerRows[i + 1] - 1;
     if (blockEnd < blockStart) continue;
 
-    // 🔒 GAS FIX: Dates are across EACH individual block. Find the date row within this specific block.
     let dateRowIdx = -1;
     let dateCols: { col: number; isoDate: string }[] = [];
     for (let r = blockStart; r <= blockEnd; r++) {
-        const tempCols = getDateColumns(sheet, used, r, 6); // Gas shifts start from Col F (6)
+        const tempCols = getDateColumns(sheet, used, r, 6); 
         if (tempCols.length >= 3) {
             dateRowIdx = r;
             dateCols = tempCols;
@@ -301,7 +305,6 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
 
     if (dateRowIdx === -1) continue;
 
-    // 🔒 GAS Specific: The address is ALWAYS in the LAST box in Column A within this block.
     const siteAddressResult = extractSiteAddress(sheet, used, blockStart, blockEnd);
     if (!siteAddressResult) continue;
     
@@ -324,7 +327,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
     const seenShiftsInBlock = new Set<string>();
 
     for (let r = blockStart; r <= blockEnd; r++) {
-      if (r === dateRowIdx) continue; // Skip header row
+      if (r === dateRowIdx) continue; 
       
       const row = sheet.getRow(r);
       for (const { col, isoDate } of dateCols) {
@@ -399,7 +402,6 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
         const row = sheet.getRow(r);
         const tempCols: { col: number, isoDate: string }[] = [];
         row.eachCell((cell, colNumber) => {
-            // Build Matrix dates start from Column G (7)
             if (colNumber < 7) return;
 
             const dt = parseExcelCellAsDate(cell);
@@ -515,7 +517,6 @@ function findDividerRows(ws: ExcelJS.Worksheet, used: UsedBounds): number[] {
     const row = ws.getRow(r);
     const colA = getCellText(row.getCell(1));
     
-    // Stop processing if 15 consecutive rows have no address data in Col A
     if (!colA) emptyCount++;
     else emptyCount = 0;
     if (emptyCount >= 15) break;
@@ -538,11 +539,6 @@ function isDividerRow(ws: ExcelJS.Worksheet, r: number): boolean {
   return hasPatternFill && !hasText;
 }
 
-/**
- * 🔒 VERIFIED ADDRESS LOGIC (GAS)
- * As per instructions: The address is ALWAYS in the LAST box in Column A 
- * before the next dividing line. Management labels are ignored.
- */
 function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, endRow: number, isBuild = false): { address: string; row: number; } | null {
     if (isBuild) {
         const scoreAddress = (text: string) => {
@@ -563,8 +559,6 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
         return best.score >= 20 ? { address: normalizeWhitespace(best.text), row: best.row } : null;
     }
 
-    // 🔒 GAS MATRIX LOGIC: Scan from bottom-up within the block.
-    // The address is the LAST non-empty cell in Column A that isn't a management header.
     const noiseKeywords = [
         'SITE MANAGER', 'TECHNICAL MANAGER', 'MATERIALS ORDERING', 'TLO', 'MEASURES', 'PROJECT MANAGER'
     ];
@@ -573,24 +567,12 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
         const text = getCellText(ws.getRow(r).getCell(1));
         if (text) {
             const upper = text.toUpperCase();
-            // Stricter check for management text to ensure we skip the titles and get the actual data
             if (!noiseKeywords.some(kw => upper.includes(kw)) && text.length > 3) {
                 return { address: normalizeWhitespace(text), row: r };
             }
         }
     }
     return null;
-}
-
-function findDateRow(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, endRow: number): number | null {
-  for (let r = startRow; r <= endRow; r++) {
-    let count = 0;
-    for (let c = used.startCol; c <= used.endCol; c++) {
-      if (parseExcelCellAsDate(ws.getRow(r).getCell(c))) count++;
-    }
-    if (count >= 3) return r;
-  }
-  return null;
 }
 
 function getDateColumns(ws: ExcelJS.Worksheet, used: UsedBounds, dateRowIdx: number, matrixStartCol = 6): Array<{ col: number; isoDate: string }> {
