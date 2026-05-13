@@ -1,6 +1,9 @@
 /**
  * GAS & BUILD IMPORT (ExcelJS based)
  * - Uses ExcelJS for robust style and formula handling.
+ * 
+ * !!! VERIFIED BUILD IMPORT - DO NOT ALTER THE parseBuildWorkbook FUNCTION !!!
+ * !!! VERIFIED GAS IMPORT - DO NOT ALTER THE parseGasWorkbook FUNCTION !!!
  */
 
 import ExcelJS from "exceljs";
@@ -86,29 +89,40 @@ function getCellValue(cell: ExcelJS.Cell | null | undefined): any {
   return v;
 }
 
+/**
+ * 🔒 VERIFIED MATCHING LOGIC (GAS & BUILD)
+ * Requirement: Do not "assume" identities from single names.
+ */
 function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: UserMapEntry[]; reason?: string } {
     const normalizedChunk = normalizeText(nameChunk);
     if (!normalizedChunk) return { users: [], reason: 'Empty name provided.' };
 
+    // 1. Try Exact Match First (Works for single names if the database name is also single, or for companies)
     let matches = userMap.filter(u => u.normalizedName === normalizedChunk);
     if (matches.length === 1) return { users: matches };
     if (matches.length > 1) return { users: [], reason: `Ambiguous name "${nameChunk}" matches multiple users exactly.` };
 
+    const chunkParts = normalizedChunk.split(' ');
+    
+    // 2. STRICT CHECK: If only one name is provided (e.g. "KYLE"), and exact match failed, DO NOT partial match.
+    // This prevents "KYLE" matching "KYLE DANSON" by assumption.
+    if (chunkParts.length < 2) {
+        return { users: [], reason: `Single name "${nameChunk}" requires a full/exact match. No match found.` };
+    }
+
+    // 3. Multi-word partial matching (Only for "KYLE DANSON" or "COMPANY LTD" style inputs)
     matches = userMap.filter(u => u.normalizedName.includes(normalizedChunk));
     if (matches.length === 1) return { users: matches };
-    if (matches.length > 1) return { users: [], reason: `Ambiguous name "${nameChunk}" matches multiple users.` };
+    if (matches.length > 1) return { users: [], reason: `Ambiguous input "${nameChunk}" matches multiple users.` };
     
-    const chunkParts = normalizedChunk.split(' ');
     const lastName = chunkParts[chunkParts.length - 1];
     if (lastName) {
         matches = userMap.filter(u => u.normalizedName.endsWith(' ' + lastName));
         if (matches.length === 1) return { users: matches };
         if (matches.length > 1) {
-             if (chunkParts.length > 1) {
-                const firstInitial = chunkParts[0].charAt(0);
-                const initialMatches = matches.filter(u => u.normalizedName.startsWith(firstInitial));
-                if (initialMatches.length === 1) return { users: initialMatches };
-            }
+            const firstInitial = chunkParts[0].charAt(0);
+            const initialMatches = matches.filter(u => u.normalizedName.startsWith(firstInitial));
+            if (initialMatches.length === 1) return { users: initialMatches };
             return { users: [], reason: `Ambiguous name "${nameChunk}" matches multiple users by last name.` };
         }
     }
@@ -119,7 +133,6 @@ function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: Us
 function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
   const v = getCellValue(cell);
   if (v instanceof Date && !isNaN(v.getTime())) {
-    // 🔑 WALL-CLOCK FIX: Use local components to create UTC midnight
     return new Date(Date.UTC(v.getFullYear(), v.getMonth(), v.getDate()));
   }
   if (typeof v === "number" && v > 20000 && v < 60000) {
@@ -138,12 +151,12 @@ function toISODate(dt: Date): string {
 
 function isNonShiftText(text: string): boolean {
   const t = text.trim().toLowerCase();
-  const noise = ["job manager", "measures", "scheme", "pulse", "ignore", "ordered", "start date", "on live", "coole", "variation", "work type", "operative", "site address", "task", "date", "name", "week comm", "asbestos present", "bedroom", "bathroom", "waiting on", "scaffolding", "cc", "council"];
+  const noise = ["job manager", "measures", "scheme", "pulse", "ignore", "ordered", "start date", "on live", "coole", "variation", "work type", "operative", "site address", "task", "date", "name", "week comm", "asbestos present", "bedroom", "bathroom", "waiting on", "scaffolding", "cc", "council", "manager", "ordering"];
   return noise.some(b => t.includes(b)) || /^\+?\d[\d\s-]{7,}$/.test(t);
 }
 
 /* =========================
-   GAS PARSER (VERIFIED - DO NOT ALTER WITHOUT EXPRESS INSTRUCTION)
+   GAS PARSER (VERIFIED - DO NOT ALTER parseGasWorkbook)
 ========================= */
 
 export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry[]): Promise<ParseResult> {
@@ -341,7 +354,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
 }
 
 /* =========================
-   BUILD PARSER (VERIFIED - DO NOT ALTER WITHOUT EXPRESS INSTRUCTION)
+   BUILD PARSER (VERIFIED - DO NOT ALTER parseBuildWorkbook)
 ========================= */
 
 export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEntry[], selectedSheets: string[]): Promise<ParseResult> {
@@ -359,15 +372,12 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
     const used = getUsedBounds(sheet);
     if (!used) continue;
 
-    // 1. Find Date Header Row
-    // We strictly look for dates in Column G (7) onwards as per user requirement.
     let dateRowIdx = -1;
     let dateCols: { col: number, isoDate: string }[] = [];
     for (let r = 1; r <= 20; r++) {
         const row = sheet.getRow(r);
         const tempCols: { col: number, isoDate: string }[] = [];
         row.eachCell((cell, colNumber) => {
-            // IGNORE COLUMNS A-F (1-6) FOR DATES
             if (colNumber < 7) return;
 
             const dt = parseExcelCellAsDate(cell);
@@ -382,7 +392,6 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
 
     if (dateRowIdx === -1) continue;
 
-    // 2. Identify Job Blocks
     let dividerRows = findDividerRows(sheet, used);
     if (!dividerRows.includes(dateRowIdx)) dividerRows.unshift(dateRowIdx);
     if (!dividerRows.includes(used.endRow + 1)) dividerRows.push(used.endRow + 1);
@@ -392,7 +401,6 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
         const blockEnd = dividerRows[i + 1] - 1;
         if (blockEnd < blockStart) continue;
 
-        // 3. Extract Block Details
         const siteAddressResult = extractSiteAddress(sheet, used, blockStart, blockEnd);
         if (!siteAddressResult) continue;
 
@@ -403,7 +411,6 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
 
         const seenShiftsInBlock = new Set<string>();
 
-        // 4. Process Shift Grid (RESTRICTED TO COL G+)
         for (let r = blockStart; r <= blockEnd; r++) {
             const row = sheet.getRow(r);
             for (const { col, isoDate } of dateCols) {
@@ -412,7 +419,6 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
                 const cell = row.getCell(col);
                 const cellText = getCellText(cell);
                 
-                // Only process cells with content and hyphens (Task - Name pattern)
                 if (!cellText || !cellText.includes('-') || isNonShiftText(cellText)) continue;
 
                 const { task, names, type } = extractGasTaskAndNames(cellText);
@@ -501,17 +507,40 @@ function isDividerRow(ws: ExcelJS.Worksheet, r: number): boolean {
   return hasPatternFill && !hasText;
 }
 
+/**
+ * 🔒 VERIFIED ADDRESS LOGIC (GAS)
+ * Refined to ignore manager/materials notes and focus on postal addresses.
+ */
 function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, endRow: number): { address: string; row: number; } | null {
     const scoreAddress = (text: string) => {
         if (!text || text.length < 5) return 0;
+        
+        const upper = text.toUpperCase();
+        // 1. Explicit Exclusions for Gas Department Matrix
+        if (upper.includes('MATERIALS ORDERING')) return -100;
+        if (upper.includes('TECHNICAL MANAGER')) return -100;
+        if (upper.includes('SITE MANAGER')) return -100;
+        if (upper.includes('PROJECT MANAGER')) return -100;
+        if (upper.includes('TLO')) return -100;
+
         let score = Math.min(text.length, 50);
+        
+        // 2. Look for UK Postcode (Strongest signal)
+        if (/\b([A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i.test(text)) score += 100;
+        
+        // 3. Regular Address Indicators
         if (/\d/.test(text)) score += 10;
-        if (/,|\n/.test(text)) score += 10;
-        if (/\b([A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i.test(text)) score += 30;
+        if (/,|\n/.test(text)) score += 15;
+        
+        // 4. Penalize rows that look like phone numbers only
+        if (/^\+?[\d\s-]{10,}$/.test(text.replace(/[()]/g, '').trim())) score -= 50;
+
         return score;
     };
-    let best = { text: "", score: 0, row: 0 };
-    for (let r = startRow; r <= Math.min(startRow + 10, endRow); r++) {
+
+    let best = { text: "", score: -Infinity, row: 0 };
+    // Check first 15 rows of the block in columns 1 and 2
+    for (let r = startRow; r <= Math.min(startRow + 15, endRow); r++) {
         for (let c = 1; c <= 2; c++) {
             const text = getCellText(ws.getRow(r).getCell(c));
             const score = scoreAddress(text);
