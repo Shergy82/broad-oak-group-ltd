@@ -290,8 +290,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
     const dateRowIdx = findDateRow(sheet, used, blockStart, blockEnd);
     if (!dateRowIdx) continue;
 
-    // 🔒 CRITICAL FIX (GAS): Site address is strictly sought ABOVE the date header row
-    // This prevents picking up measures/notes like "LOFT" which are typically below headers.
+    // 🔒 VERIFIED ADDRESS LOGIC (GAS): Scan from block end upwards to find the last cell in Column A with text.
     const siteAddressResult = extractSiteAddress(sheet, used, blockStart, dateRowIdx - 1);
     if (!siteAddressResult) continue;
     
@@ -311,7 +310,8 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
         }
     }
 
-    const dateCols = getDateColumns(sheet, used, dateRowIdx);
+    // 🔒 GAS MATRIX: Shifts strictly start from Column F (index 6).
+    const dateCols = getDateColumns(sheet, used, dateRowIdx, 6);
     const seenShiftsInBlock = new Set<string>();
 
     for (const { col, isoDate } of dateCols) {
@@ -354,6 +354,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
                   notes: otherContacts.join('\n'),
                   eNumber,
                   contract: sheetName,
+                  department: 'Gas'
                 });
             }
         }
@@ -388,6 +389,7 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
         const row = sheet.getRow(r);
         const tempCols: { col: number, isoDate: string }[] = [];
         row.eachCell((cell, colNumber) => {
+            // Build Matrix dates usually start later
             if (colNumber < 7) return;
 
             const dt = parseExcelCellAsDate(cell);
@@ -411,7 +413,8 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
         const blockEnd = dividerRows[i + 1] - 1;
         if (blockEnd < blockStart) continue;
 
-        const siteAddressResult = extractSiteAddress(sheet, used, blockStart, blockEnd);
+        // Build address logic differs from Gas
+        const siteAddressResult = extractSiteAddress(sheet, used, blockStart, blockEnd, true);
         if (!siteAddressResult) continue;
 
         const { address: rawSiteAddress } = siteAddressResult;
@@ -528,51 +531,45 @@ function isDividerRow(ws: ExcelJS.Worksheet, r: number): boolean {
 
 /**
  * 🔒 VERIFIED ADDRESS LOGIC (GAS)
- * Refined to ignore manager/materials/measure notes and focus on postal addresses.
+ * As per instructions: The address is ALWAYS in the LAST box in Column A 
+ * before the next dividing line. Management labels are ignored.
  */
-function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, endRow: number): { address: string; row: number; } | null {
-    const scoreAddress = (text: string) => {
-        if (!text || text.length < 5) return 0;
-        
-        const upper = text.toUpperCase();
-        // 1. Explicit Exclusions for Noise Rows (Managers, Ordering, Measures, etc.)
-        const noiseKeywords = [
-            'MATERIALS ORDERING', 'TECHNICAL MANAGER', 'SITE MANAGER', 
-            'PROJECT MANAGER', 'TLO', 'MEASURES', 'SCHEME', 'PULSE', 
-            'PULCE', 'WEEK COMM', 'LOFT', '300MM', 'INSULATION', 'PV WIRE',
-            'INVERTOR', 'HATCH', 'ATTIC', 'BOARD FROM'
-        ];
-        if (noiseKeywords.some(keyword => upper.includes(keyword))) return -500;
-
-        let score = Math.min(text.length, 50);
-        
-        // 2. Look for UK Postcode (Strongest signal) - High boost
-        if (/\b([Gg][Ii][Rr] 0[Aa]{2})|((([A-Za-z][0-9]{1,2})|(([A-Za-z][A-Ha-hJ-Yj-y][0-9]{1,2})|(([A-Za-z][0-9][A-Za-z])|([A-Za-z][A-Ha-hJ-Yj-y][0-9][A-Za-z]?))))\s?[0-9][A-Za-z]{2})\b/i.test(text)) {
-            score += 2000;
-        }
-        
-        // 3. Regular Address Indicators
-        if (/\d/.test(text)) score += 20;
-        if (/,/.test(text)) score += 30;
-        
-        // 4. Penalize rows that look like phone numbers only
-        if (/^\+?[\d\s-]{10,}$/.test(text.replace(/[()]/g, '').trim())) score -= 200;
-
-        // 5. Penalize rows that look like dates
-        if (/\d{1,2}\/\d{1,2}\/\d{2,4}/.test(text)) score -= 200;
-
-        return score;
-    };
-
-    let best = { text: "", score: -Infinity, row: 0 };
-    for (let r = startRow; r <= endRow; r++) {
-        for (let c = 1; c <= 2; c++) {
-            const text = getCellText(ws.getRow(r).getCell(c));
+function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, endRow: number, isBuild = false): { address: string; row: number; } | null {
+    if (isBuild) {
+        // Build address logic uses scoring (locked)
+        const scoreAddress = (text: string) => {
+            if (!text || text.length < 5) return 0;
+            const upper = text.toUpperCase();
+            const noise = ['MATERIALS', 'MANAGER', 'TLO', 'MEASURES', 'SCHEME', 'PULSE', 'WEEK COMM'];
+            if (noise.some(n => upper.includes(noise))) return -500;
+            let score = Math.min(text.length, 50);
+            if (/\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) score += 2000;
+            return score;
+        };
+        let best = { text: "", score: -Infinity, row: 0 };
+        for (let r = startRow; r <= endRow; r++) {
+            const text = getCellText(ws.getRow(r).getCell(1));
             const score = scoreAddress(text);
             if (score > best.score) best = { text, score, row: r };
         }
+        return best.score >= 20 ? { address: normalizeWhitespace(best.text), row: best.row } : null;
     }
-    return best.score >= 20 ? { address: normalizeWhitespace(best.text), row: best.row } : null;
+
+    // GAS Specific: Find the LAST cell in Column A with text, skipping noise.
+    const noiseKeywords = [
+        'SITE MANAGER', 'TECHNICAL MANAGER', 'MATERIALS ORDERING', 'TLO', 'MEASURES'
+    ];
+
+    for (let r = endRow; r >= startRow; r--) {
+        const text = getCellText(ws.getRow(r).getCell(1));
+        if (text) {
+            const upper = text.toUpperCase();
+            if (!noiseKeywords.some(kw => upper.includes(kw)) && text.length > 3) {
+                return { address: normalizeWhitespace(text), row: r };
+            }
+        }
+    }
+    return null;
 }
 
 function findDateRow(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, endRow: number): number | null {
@@ -586,10 +583,9 @@ function findDateRow(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, 
   return null;
 }
 
-function getDateColumns(ws: ExcelJS.Worksheet, used: UsedBounds, dateRowIdx: number): Array<{ col: number; isoDate: string }> {
+function getDateColumns(ws: ExcelJS.Worksheet, used: UsedBounds, dateRowIdx: number, matrixStartCol = 6): Array<{ col: number; isoDate: string }> {
   const cols = [];
-  // Matrix format: Shifts/Dates strictly start from Column F (index 6) onwards.
-  const startCol = Math.max(used.startCol, 6);
+  const startCol = Math.max(used.startCol, matrixStartCol);
   for (let c = startCol; c <= used.endCol; c++) {
     const dt = parseExcelCellAsDate(ws.getRow(dateRowIdx).getCell(c));
     if (dt) cols.push({ col: c, isoDate: toISODate(dt) });
