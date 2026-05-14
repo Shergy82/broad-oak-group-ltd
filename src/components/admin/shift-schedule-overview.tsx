@@ -42,25 +42,6 @@ import {
 } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import {
-  Terminal,
-  MessageSquareText,
-  PlusCircle,
-  Edit,
-  Trash2,
-  Download,
-  History,
-  Trash,
-  Building,
-  BarChart2,
-  HardHat,
-  ThumbsDown,
-  CircleEllipsis,
-  Calendar,
-  Users,
-  ChevronRight,
-} from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -100,8 +81,22 @@ import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/shared/spinner';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
 import { useAllUsers } from '@/hooks/use-all-users';
-import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  MessageSquareText,
+  PlusCircle,
+  Edit,
+  Trash2,
+  Download,
+  History,
+  Building,
+  BarChart2,
+  HardHat,
+  ThumbsDown,
+  Users,
+  ChevronRight,
+  Calendar as CalendarIcon,
+} from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { cn } from '@/lib/utils';
@@ -189,7 +184,6 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
   const [error, setError] = useState<string | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [selectedShift, setSelectedShift] = useState<Shift | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string>('all');
   const [selectedArchiveWeek, setSelectedArchiveWeek] = useState<string>('0');
   const [activeTab, setActiveTab] = useState('today');
@@ -247,6 +241,21 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     const d = date.toDate();
     return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
   };
+
+  /**
+   * 🔒 CENTRAL SHIFT FILTER
+   * Respects user role, assigned department, and Owner's department filter.
+   */
+  const shiftsForCurrentView = useMemo(() => {
+    if (isOwner) {
+      if (selectedDepartments.size > 0) {
+        return allShifts.filter(shift => shift.department && selectedDepartments.has(shift.department));
+      }
+      return allShifts;
+    }
+    // For non-owners, allShifts is already restricted by the Firestore query.
+    return allShifts;
+  }, [allShifts, isOwner, selectedDepartments]);
   
   const {
     usersForDropdown,
@@ -256,21 +265,10 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     nextWeekShifts,
     archiveShifts,
   } = useMemo(() => {
-    let shiftsToShow: Shift[];
-    if (isOwner) {
-      if (selectedDepartments.size > 0) {
-        shiftsToShow = allShifts.filter(shift => shift.department && selectedDepartments.has(shift.department));
-      } else {
-        shiftsToShow = allShifts;
-      }
-    } else {
-      shiftsToShow = allShifts;
-    }
-
     const today = startOfToday();
 
     const userIdsWithCurrentShifts = new Set<string>();
-    shiftsToShow.forEach(shift => {
+    shiftsForCurrentView.forEach(shift => {
       if (getCorrectedLocalDate(shift.date) >= today) {
         userIdsWithCurrentShifts.add(shift.userId);
       }
@@ -299,8 +297,8 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     const usersForDropdownResult = Array.from(combinedUsers.values()).sort((a, b) => a.name.localeCompare(b.name));
     
     const finalFilteredShifts = selectedUserId === 'all'
-      ? shiftsToShow
-      : shiftsToShow.filter(s => s.userId === selectedUserId);
+      ? shiftsForCurrentView
+      : shiftsForCurrentView.filter(s => s.userId === selectedUserId);
 
     const shiftsToday = finalFilteredShifts.filter(s =>
       isToday(getCorrectedLocalDate(s.date))
@@ -349,7 +347,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
       archiveShifts: finalArchiveShifts
     };
   
-  }, [allShifts, allUsers, isOwner, selectedDepartments, selectedUserId, userProfile.department, userProfile.uid, selectedArchiveWeek]);
+  }, [shiftsForCurrentView, allUsers, isOwner, selectedDepartments, selectedUserId, userProfile.department, userProfile.uid, selectedArchiveWeek]);
 
   const userNameMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -372,10 +370,11 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
   
   /**
    * 🔒 COLLATED SITE ADDRESSES
+   * Only uses shifts visible to the current department filter.
    */
   const uniqueSiteAddresses = useMemo(() => {
     const addressMap = new Map<string, string>();
-    allShifts.forEach(shift => {
+    shiftsForCurrentView.forEach(shift => {
         if(shift.address) {
             const key = normalizeAddress(shift.address);
             if (!addressMap.has(key)) {
@@ -392,13 +391,13 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
         }
     });
     return Array.from(addressMap.values()).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  }, [allShifts]);
+  }, [shiftsForCurrentView]);
 
   const siteScheduleShifts = useMemo(() => {
     if (!selectedSiteAddress) return [];
     
     const targetKey = normalizeAddress(selectedSiteAddress);
-    const siteShifts = allShifts.filter(s => normalizeAddress(s.address) === targetKey);
+    const siteShifts = shiftsForCurrentView.filter(s => normalizeAddress(s.address) === targetKey);
     
     let filteredByDate = siteShifts;
 
@@ -412,7 +411,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     }
     
     return filteredByDate.sort((a,b) => getCorrectedLocalDate(a.date).getTime() - getCorrectedLocalDate(b.date).getTime());
-  }, [selectedSiteAddress, allShifts, siteTimeFrame]);
+  }, [selectedSiteAddress, shiftsForCurrentView, siteTimeFrame]);
 
 
   const handleAddShift = () => {
@@ -471,8 +470,8 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     let finalY = 35;
     const today = new Date();
 
-    const allThisWeekShifts = allShifts.filter(s => isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 }));
-    const allNextWeekShifts = allShifts.filter(s => {
+    const allThisWeekShifts = shiftsForCurrentView.filter(s => isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 }));
+    const allNextWeekShifts = shiftsForCurrentView.filter(s => {
         const shiftDate = getCorrectedLocalDate(s.date);
         const startOfNextWeek = addDays(today, 7);
         return isSameWeek(shiftDate, startOfNextWeek, { weekStartsOn: 1 });
@@ -624,9 +623,9 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     const { default: autoTable } = await import('jspdf-autotable');
 
     const today = startOfToday();
-    const todayShifts = allShifts.filter(s => isSameDay(getCorrectedLocalDate(s.date), today));
+    const currentTodayShifts = shiftsForCurrentView.filter(s => isSameDay(getCorrectedLocalDate(s.date), today));
 
-    if (todayShifts.length === 0) {
+    if (currentTodayShifts.length === 0) {
       toast({ title: 'No shifts scheduled for today.' });
       return;
     }
@@ -642,7 +641,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
 
     let finalY = 35;
     const shiftsByUser = new Map<string, Shift[]>();
-    todayShifts.forEach(shift => {
+    currentTodayShifts.forEach(shift => {
         if (!shiftsByUser.has(shift.userId)) shiftsByUser.set(shift.userId, []);
         shiftsByUser.get(shift.userId)!.push(shift);
     });
