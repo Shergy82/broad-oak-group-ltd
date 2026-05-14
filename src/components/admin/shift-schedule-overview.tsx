@@ -101,6 +101,7 @@ import { Spinner } from '@/components/shared/spinner';
 import { useDepartmentFilter } from '@/hooks/use-department-filter';
 import { useAllUsers } from '@/hooks/use-all-users';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { cn } from '@/lib/utils';
