@@ -8,6 +8,7 @@ import {
   doc,
   where,
   getDocs,
+  updateDoc,
 } from 'firebase/firestore';
 import { db, functions, httpsCallable } from '@/lib/firebase';
 import type { Shift, UserProfile, Project } from '@/types';
@@ -58,6 +59,7 @@ import {
   CircleEllipsis,
   Calendar,
   Users,
+  ChevronRight,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -823,7 +825,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                           <SelectContent>{archiveWeekOptions.map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
                       </Select>
                   </div>
-                  {renderArchiveView()}
+                  {renderShiftList(archiveShifts)}
               </TabsContent>
             </Tabs>
           )}
