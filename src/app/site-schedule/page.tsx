@@ -18,6 +18,18 @@ import type { Shift } from '@/types';
 
 if (!db) throw new Error('Firestore db not initialized');
 
+/**
+ * 🔒 ROBUST NORMALIZATION
+ */
+const normalizeAddress = (addr: string | null | undefined): string => {
+  if (!addr) return "";
+  return String(addr)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
 type SiteRow = {
   key: string;
   address: string;
@@ -86,8 +98,6 @@ export default function SiteSchedulePage() {
 
     setLoadingData(true);
 
-    // Keep showing sites until the day after last shift:
-    // We filter out shifts whose end is BEFORE yesterday.
     const startOfYesterday = new Date();
     startOfYesterday.setHours(0, 0, 0, 0);
     startOfYesterday.setDate(startOfYesterday.getDate() - 1);
@@ -125,7 +135,7 @@ export default function SiteSchedulePage() {
 
     for (const s of allShifts as any[]) {
       const address = getAddress(s);
-      const key = address.trim().toLowerCase();
+      const key = normalizeAddress(address); // Collated Key
       const endMs = getEndMs(s) ?? 0;
 
       if (!map.has(key)) {
@@ -134,11 +144,15 @@ export default function SiteSchedulePage() {
 
       const row = map.get(key)!;
       row.lastShiftEnd = Math.max(row.lastShiftEnd, endMs);
+      
+      // Update representative address if it's more "complete"
+      if (address.includes(',') && !row.address.includes(',')) {
+          row.address = address;
+      }
 
       for (const op of getOperatives(s)) row.operatives.add(op);
     }
 
-    // Apply "until the day after last shift" at site level too
     const cutoffMs = Date.now() - 24 * 60 * 60 * 1000;
 
     return Array.from(map.entries())

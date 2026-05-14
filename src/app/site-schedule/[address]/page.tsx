@@ -11,6 +11,18 @@ import type { Shift } from '@/types';
 
 if (!db) throw new Error('Firestore db not initialized');
 
+/**
+ * 🔒 ROBUST NORMALIZATION
+ */
+const normalizeAddress = (addr: string | null | undefined): string => {
+  if (!addr) return "";
+  return String(addr)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
 function getCorrectedLocalDate(date: { toDate: () => Date }): Date {
   const d = date.toDate();
   return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
@@ -42,16 +54,20 @@ export default function SiteScheduleAddressPage() {
     startOfYesterday.setDate(startOfYesterday.getDate() - 1);
     const yesterday = Timestamp.fromDate(startOfYesterday);
 
+    const targetKey = normalizeAddress(address);
+
+    // Because Firestore doesn't support normalized search, we fetch by date and filter in memory
     const q = query(
       collection(db, 'shifts'),
-      where('address', '==', address),
       where('date', '>=', yesterday)
     );
 
     const unsub = onSnapshot(
       q,
       (snap) => {
-        setShifts(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Shift)));
+        const allShifts = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Shift));
+        const filtered = allShifts.filter(s => normalizeAddress(s.address) === targetKey);
+        setShifts(filtered);
         setLoading(false);
       },
       (err) => {
