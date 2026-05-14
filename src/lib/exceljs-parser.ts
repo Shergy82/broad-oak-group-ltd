@@ -183,7 +183,7 @@ function isNonShiftText(text: string): boolean {
     "job manager", "measures", "scheme", "pulse", "ignore", "ordered", 
     "start date", "on live", "coole", "variation", "work type", 
     "operative", "site address", "task", "date", "name", "week comm", 
-    "asbestos present", "bedroom", "bathroom", "waiting on", "scaffolding", 
+    "asbestos present", "waiting on", "scaffolding", 
     "cc", "council", "manager", "ordering"
   ];
   return noise.some(b => t.includes(b)) || /^\+?\d[\d\s-]{7,}$/.test(t);
