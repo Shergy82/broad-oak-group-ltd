@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
@@ -275,7 +274,9 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {dryRun.toUpdate.map((u,i) => (
+                                    {[...dryRun.toUpdate]
+                                      .sort((a, b) => a.new.date.getTime() - b.new.date.getTime())
+                                      .map((u,i) => (
                                         <TableRow key={i}>
                                             <TableCell>{format(u.new.date, 'PPP')}</TableCell>
                                             <TableCell>{u.new.userName}</TableCell>
@@ -295,7 +296,18 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                          <ScrollArea className="h-72">
                             <Table>
                                 <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Task</TableHead><TableHead>Address</TableHead></TableRow></TableHeader>
-                                <TableBody>{dryRun.toDelete.map((s,i) => <TableRow key={i}><TableCell>{format(s.date.toDate(), 'PPP')}</TableCell><TableCell>{s.userName}</TableCell><TableCell>{s.task}</TableCell><TableCell>{s.address}</TableCell></TableRow>)}</TableBody>
+                                <TableBody>
+                                  {[...dryRun.toDelete]
+                                    .sort((a, b) => a.date.toDate().getTime() - b.date.toDate().getTime())
+                                    .map((s,i) => (
+                                      <TableRow key={i}>
+                                        <TableCell>{format(s.date.toDate(), 'PPP')}</TableCell>
+                                        <TableCell>{s.userName}</TableCell>
+                                        <TableCell>{s.task}</TableCell>
+                                        <TableCell>{s.address}</TableCell>
+                                      </TableRow>
+                                    ))}
+                                </TableBody>
                             </Table>
                         </ScrollArea>
                     </CardContent>

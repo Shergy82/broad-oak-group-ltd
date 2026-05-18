@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -300,32 +301,24 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
       ? shiftsForCurrentView
       : shiftsForCurrentView.filter(s => s.userId === selectedUserId);
 
-    const shiftsToday = finalFilteredShifts.filter(s =>
-      isToday(getCorrectedLocalDate(s.date))
-    );
+    const shiftsToday = finalFilteredShifts
+      .filter(s => isToday(getCorrectedLocalDate(s.date)))
+      .sort((a, b) => getCorrectedLocalDate(a.date).getTime() - getCorrectedLocalDate(b.date).getTime());
 
-    const shiftsThisWeek = finalFilteredShifts.filter(s =>
-        isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 })
-    );
+    const shiftsThisWeek = finalFilteredShifts
+        .filter(s => isSameWeek(getCorrectedLocalDate(s.date), today, { weekStartsOn: 1 }))
+        .sort((a, b) => getCorrectedLocalDate(a.date).getTime() - getCorrectedLocalDate(b.date).getTime());
 
     const startOfLastWeek = startOfWeek(subDays(today, 7), {
       weekStartsOn: 1,
     });
-    const shiftsLastWeek = finalFilteredShifts.filter(s =>
-      isSameWeek(
-        getCorrectedLocalDate(s.date),
-        startOfLastWeek,
-        { weekStartsOn: 1 }
-      )
-    );
+    const shiftsLastWeek = finalFilteredShifts
+      .filter(s => isSameWeek(getCorrectedLocalDate(s.date), startOfLastWeek, { weekStartsOn: 1 }))
+      .sort((a, b) => getCorrectedLocalDate(a.date).getTime() - getCorrectedLocalDate(b.date).getTime());
 
-    const shiftsNextWeek = finalFilteredShifts.filter(s =>
-      isSameWeek(
-        getCorrectedLocalDate(s.date),
-        addDays(today, 7),
-        { weekStartsOn: 1 }
-      )
-    );
+    const shiftsNextWeek = finalFilteredShifts
+      .filter(s => isSameWeek(getCorrectedLocalDate(s.date), addDays(today, 7), { weekStartsOn: 1 }))
+      .sort((a, b) => getCorrectedLocalDate(a.date).getTime() - getCorrectedLocalDate(b.date).getTime());
   
     const sixWeeksAgo = startOfWeek(subWeeks(today, 5), { weekStartsOn: 1 });
     const historicalShifts = finalFilteredShifts.filter(s => {
@@ -334,9 +327,9 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
     });
       
     const selectedArchiveDate = startOfWeek(subWeeks(today, parseInt(selectedArchiveWeek)), { weekStartsOn: 1 });
-    const finalArchiveShifts = historicalShifts.filter(s =>
-      isSameWeek(getCorrectedLocalDate(s.date), selectedArchiveDate, { weekStartsOn: 1 })
-    );
+    const finalArchiveShifts = historicalShifts
+      .filter(s => isSameWeek(getCorrectedLocalDate(s.date), selectedArchiveDate, { weekStartsOn: 1 }))
+      .sort((a, b) => getCorrectedLocalDate(a.date).getTime() - getCorrectedLocalDate(b.date).getTime());
   
     return {
       usersForDropdown: usersForDropdownResult,

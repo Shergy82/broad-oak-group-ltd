@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
@@ -155,8 +156,9 @@ export default function Dashboard({
     );
 
     const groupByDay = (weekShifts: Shift[]) => {
+      const sortedWeekShifts = [...weekShifts].sort((a, b) => getCorrectedLocalDate(a.date).getTime() - getCorrectedLocalDate(b.date).getTime());
       const grouped: { [key: string]: Shift[] } = {};
-      weekShifts.forEach((shift) => {
+      sortedWeekShifts.forEach((shift) => {
         const dayName = format(
           getCorrectedLocalDate(shift.date),
           'eeee'
@@ -167,9 +169,9 @@ export default function Dashboard({
       return grouped;
     };
     
-    const shiftsToday = visibleShifts.filter((s) =>
-      isToday(getCorrectedLocalDate(s.date))
-    );
+    const shiftsToday = visibleShifts
+      .filter((s) => isToday(getCorrectedLocalDate(s.date)))
+      .sort((a, b) => getCorrectedLocalDate(a.date).getTime() - getCorrectedLocalDate(b.date).getTime());
 
     const todayAm = shiftsToday.filter((s) => s.type === 'am');
     const todayPm = shiftsToday.filter((s) => s.type === 'pm');
