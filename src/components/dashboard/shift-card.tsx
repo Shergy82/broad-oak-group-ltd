@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -687,6 +688,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
             requiredCount={selectedCameraTask.task.photoCount || 1}
             onUploadComplete={handlePhotoUpload}
             taskName={selectedCameraTask.task.text}
+            siteAddress={shift.address}
         />
       )}
 

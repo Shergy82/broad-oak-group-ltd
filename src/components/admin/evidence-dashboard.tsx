@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -860,6 +861,7 @@ function ProjectEvidenceCard({ project, checklist, files, loadingFiles, onMarkAs
                     requiredCount={selectedCameraItem.count}
                     onUploadComplete={handleUploadFromCamera}
                     taskName={selectedCameraItem.text}
+                    siteAddress={project.address}
                 />
             )}
 

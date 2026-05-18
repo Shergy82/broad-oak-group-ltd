@@ -22,9 +22,10 @@ interface MultiPhotoCameraProps {
     requiredCount: number;
     onUploadComplete: (files: File[]) => void;
     taskName: string;
+    siteAddress?: string;
 }
 
-export function MultiPhotoCamera({ open, onOpenChange, requiredCount, onUploadComplete, taskName }: MultiPhotoCameraProps) {
+export function MultiPhotoCamera({ open, onOpenChange, requiredCount, onUploadComplete, taskName, siteAddress }: MultiPhotoCameraProps) {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [photos, setPhotos] = useState<string[]>([]);
     const [blobs, setBlobs] = useState<Blob[]>([]);
@@ -138,6 +139,12 @@ export function MultiPhotoCamera({ open, onOpenChange, requiredCount, onUploadCo
                     lines.push(`Lat: ${location.coords.latitude.toFixed(5)}, Lon: ${location.coords.longitude.toFixed(5)}`);
                 }
                 lines.push(timestamp);
+                
+                // Add first line of address if provided
+                if (siteAddress) {
+                    const firstLine = siteAddress.split(',')[0].trim();
+                    lines.push(firstLine);
+                }
                 
                 // Draw lines from bottom up
                 for (let i = 0; i < lines.length; i++) {
