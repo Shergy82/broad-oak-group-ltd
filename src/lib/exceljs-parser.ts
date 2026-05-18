@@ -421,7 +421,8 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
                             source: { sheetName: sheet.name, cellRef: cell.address },
                             eNumber,
                             contract: sheetName,
-                            department: 'Build'
+                            department: 'Build',
+                            manager: sheetName
                         });
                     }
                 }
