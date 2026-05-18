@@ -96,6 +96,7 @@ import {
   Users,
   ChevronRight,
   Calendar as CalendarIcon,
+  MapPin,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -716,16 +717,18 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                                     <TableCell className="text-right">{getStatusBadge(shift)}</TableCell>
                                     {isOwner && (
                                         <TableCell className="text-right">
-                                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEditShift(shift)}><Edit className="h-4 w-4" /></Button>
-                                            {isPhil && (
-                                                <AlertDialog>
-                                                    <AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/70"><Trash2 className="h-4 w-4" /></Button></AlertDialogTrigger>
-                                                    <AlertDialogContent>
-                                                        <AlertDialogHeader><AlertDialogTitle>Delete Shift?</AlertDialogTitle><AlertDialogDescription>This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
-                                                        <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteShift(shift)} className="bg-destructive">Delete</AlertDialogAction></AlertDialogFooter>
-                                                    </AlertDialogContent>
-                                                </AlertDialog>
-                                            )}
+                                            <div className="flex justify-end gap-1">
+                                                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEditShift(shift)}><Edit className="h-4 w-4" /></Button>
+                                                {isPhil && (
+                                                    <AlertDialog>
+                                                        <AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/70"><Trash2 className="h-4 w-4" /></Button></AlertDialogTrigger>
+                                                        <AlertDialogContent>
+                                                            <AlertDialogHeader><AlertDialogTitle>Delete Shift?</AlertDialogTitle><AlertDialogDescription>This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
+                                                            <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteShift(shift)} className="bg-destructive">Delete</AlertDialogAction></AlertDialogFooter>
+                                                        </AlertDialogContent>
+                                                    </AlertDialog>
+                                                )}
+                                            </div>
                                         </TableCell>
                                     )}
                                 </TableRow>
@@ -737,13 +740,52 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
             <div className="space-y-4 md:hidden mt-4">
                 {sortedShifts.map(shift => (
                    <Card key={shift.id}>
-                        <CardHeader>
+                        <CardHeader className="p-4 pb-2">
                             <div className="flex justify-between items-start gap-2">
-                                <div><CardTitle className="text-base">{shift.task}</CardTitle><p className="text-sm text-muted-foreground">{shift.address}</p></div>
-                                <Badge variant={shift.type === 'am' ? 'default' : 'outline'} className="capitalize text-xs">{shift.type.toUpperCase()}</Badge>
+                                <div className="flex-1">
+                                    <CardTitle className="text-base leading-tight">{shift.task}</CardTitle>
+                                    <p className="text-sm text-muted-foreground mt-1 flex items-start gap-1">
+                                        <MapPin className="h-3 w-3 shrink-0 mt-0.5" />
+                                        {shift.address}
+                                    </p>
+                                    {shift.eNumber && <p className="text-xs text-muted-foreground mt-1 font-semibold">No: {shift.eNumber}</p>}
+                                </div>
+                                <Badge variant={shift.type === 'am' ? 'default' : 'outline'} className="capitalize text-[10px] h-5 px-1.5 whitespace-nowrap">
+                                    {shift.type === 'all-day' ? 'All Day' : shift.type.toUpperCase()}
+                                </Badge>
                             </div>
                         </CardHeader>
-                        <CardFooter className="p-2 bg-muted/30 flex justify-between items-center">{getStatusBadge(shift)}</CardFooter>
+                        <CardFooter className="p-2 border-t bg-muted/30 flex justify-between items-center">
+                            <div className="flex-1">
+                                {getStatusBadge(shift)}
+                            </div>
+                            {isOwner && (
+                                <div className="flex items-center gap-1">
+                                    <Button variant="outline" size="sm" className="h-8 text-xs px-2" onClick={() => handleEditShift(shift)}>
+                                        <Edit className="h-3 w-3 mr-1" /> Edit
+                                    </Button>
+                                    {isPhil && (
+                                        <AlertDialog>
+                                            <AlertDialogTrigger asChild>
+                                                <Button variant="destructive" size="sm" className="h-8 text-xs px-2">
+                                                    <Trash2 className="h-3 w-3 mr-1" /> Delete
+                                                </Button>
+                                            </AlertDialogTrigger>
+                                            <AlertDialogContent>
+                                                <AlertDialogHeader>
+                                                    <AlertDialogTitle>Delete Shift?</AlertDialogTitle>
+                                                    <AlertDialogDescription>Are you sure you want to permanently delete this shift? This action cannot be undone.</AlertDialogDescription>
+                                                </AlertDialogHeader>
+                                                <AlertDialogFooter>
+                                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                    <AlertDialogAction onClick={() => handleDeleteShift(shift)} className="bg-destructive">Delete</AlertDialogAction>
+                                                </AlertDialogFooter>
+                                            </AlertDialogContent>
+                                        </AlertDialog>
+                                    )}
+                                </div>
+                            )}
+                        </CardFooter>
                    </Card>
                 ))}
             </div>
@@ -787,7 +829,11 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
             <div className="mt-4 space-y-4">
                 <Select onValueChange={setSelectedSiteAddress} value={selectedSiteAddress}>
                     <SelectTrigger className="w-full sm:w-[400px]"><SelectValue placeholder="Select a site address..." /></SelectTrigger>
-                    <SelectContent><ScrollArea className="h-80">{uniqueSiteAddresses.map(address => <SelectItem key={normalizeAddress(address)} value={address}>{address}</SelectItem>)}</ScrollArea></SelectContent>
+                    <SelectContent>
+                        <ScrollArea className="h-80">
+                            {uniqueSiteAddresses.map(address => <SelectItem key={normalizeAddress(address)} value={address}>{address}</SelectItem>)}
+                        </ScrollArea>
+                    </SelectContent>
                 </Select>
                 {selectedSiteAddress && (
                     <div className="space-y-4">
