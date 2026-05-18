@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -443,7 +441,7 @@ export default function UserManagementPage() {
 
     return (
         <div className="space-y-6">
-            {currentUserProfile?.role === 'owner' && <AppStatusToggle />}
+            {currentUserProfile?.email === 'phil.s@broadoakgroup.com' && <AppStatusToggle />}
             <Card>
                 <CardHeader>
                     <CardTitle>User Management</CardTitle>
@@ -477,6 +475,3 @@ export default function UserManagementPage() {
         </div>
     )
 }
-    
-
-    

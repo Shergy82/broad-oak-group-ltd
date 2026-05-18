@@ -1,4 +1,3 @@
-
 'use client';
 
 import { createContext, useState, useEffect } from 'react';
@@ -89,11 +88,11 @@ export function UserProfileProvider({ children }: { children: React.ReactNode })
         }
         
         if (user && userProfile) {
-            const isOwner = userProfile.role === 'owner';
+            const isPhil = userProfile.email === 'phil.s@broadoakgroup.com';
             const onLockedPage = pathname === '/app-locked';
             const isAuthPage = pathname.startsWith('/login') || pathname.startsWith('/signup') || pathname.startsWith('/forgot-password');
 
-            if (isAppLocked && !isOwner && !onLockedPage) {
+            if (isAppLocked && !isPhil && !onLockedPage) {
                 router.replace('/app-locked');
                 return;
             }

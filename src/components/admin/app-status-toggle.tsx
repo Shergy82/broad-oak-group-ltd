@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -21,7 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Button } from '../ui/button';
+import { useUserProfile } from '@/hooks/use-user-profile';
 
 const APP_STATUS_DOC_ID = 'app_status';
 
@@ -31,6 +30,7 @@ export function AppStatusToggle() {
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [targetState, setTargetState] = useState(false);
   const { toast } = useToast();
+  const { userProfile } = useUserProfile();
 
   useEffect(() => {
     const docRef = doc(db, 'settings', APP_STATUS_DOC_ID);
@@ -54,6 +54,10 @@ export function AppStatusToggle() {
 
     return () => unsubscribe();
   }, [toast]);
+
+  if (userProfile?.email !== 'phil.s@broadoakgroup.com') {
+      return null;
+  }
 
   const handleToggleAttempt = (checked: boolean) => {
     setTargetState(checked);
@@ -89,7 +93,7 @@ export function AppStatusToggle() {
         <CardHeader>
           <CardTitle>Application Kill Switch</CardTitle>
           <CardDescription>
-            This master switch will immediately lock or unlock the application for all non-owner users.
+            This master switch will immediately lock or unlock the application for everyone except Phil Shergold.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -105,7 +109,7 @@ export function AppStatusToggle() {
                     Lock Application
                   </Label>
                   <p className="text-sm text-muted-foreground">
-                    When turned on, only users with the 'owner' role can access the application.
+                    When turned on, only Phil Shergold can access the application.
                   </p>
                 </div>
                 <Switch
@@ -120,7 +124,7 @@ export function AppStatusToggle() {
                 <AlertTitle>{isLocked ? 'Application is LOCKED' : 'Application is UNLOCKED'}</AlertTitle>
                 <AlertDescription>
                   {isLocked
-                    ? 'All non-owner users will be blocked from accessing the app.'
+                    ? 'Everyone except Phil Shergold will be blocked from accessing the app.'
                     : 'All users can access the app normally.'}
                 </AlertDescription>
               </Alert>
