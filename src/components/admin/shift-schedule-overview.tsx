@@ -200,6 +200,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
 
   const { selectedDepartments } = useDepartmentFilter();
   const isOwner = userProfile.role === 'owner';
+  const isPhil = userProfile?.email === 'phil.s@broadoakgroup.com';
 
   useEffect(() => {
     if (!db) {
@@ -318,11 +319,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
       .filter(s => isSameWeek(getCorrectedLocalDate(s.date), addDays(today, 7), { weekStartsOn: 1 }))
       .sort((a, b) => getCorrectedLocalDate(a.date).getTime() - getCorrectedLocalDate(b.date).getTime());
   
-    const sixWeeksAgo = startOfWeek(subWeeks(today, 5), { weekStartsOn: 1 });
-    const historicalShifts = finalFilteredShifts.filter(s => {
-      const shiftDate = getCorrectedLocalDate(s.date);
-      return shiftDate >= sixWeeksAgo && shiftDate <= endOfWeek(today, { weekStartsOn: 1 }) && ['completed', 'incomplete', 'rejected'].includes(s.status);
-    });
+    const historicalShifts = finalFilteredShifts.filter(s => ['completed', 'incomplete', 'rejected'].includes(s.status));
       
     const selectedArchiveDate = startOfWeek(subWeeks(today, parseInt(selectedArchiveWeek)), { weekStartsOn: 1 });
     const finalArchiveShifts = historicalShifts
@@ -720,13 +717,15 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                                     {isOwner && (
                                         <TableCell className="text-right">
                                             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEditShift(shift)}><Edit className="h-4 w-4" /></Button>
-                                            <AlertDialog>
-                                                <AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/70"><Trash2 className="h-4 w-4" /></Button></AlertDialogTrigger>
-                                                <AlertDialogContent>
-                                                    <AlertDialogHeader><AlertDialogTitle>Delete Shift?</AlertDialogTitle><AlertDialogDescription>This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
-                                                    <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteShift(shift)} className="bg-destructive">Delete</AlertDialogAction></AlertDialogFooter>
-                                                </AlertDialogContent>
-                                            </AlertDialog>
+                                            {isPhil && (
+                                                <AlertDialog>
+                                                    <AlertDialogTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/70"><Trash2 className="h-4 w-4" /></Button></AlertDialogTrigger>
+                                                    <AlertDialogContent>
+                                                        <AlertDialogHeader><AlertDialogTitle>Delete Shift?</AlertDialogTitle><AlertDialogDescription>This action cannot be undone.</AlertDialogDescription></AlertDialogHeader>
+                                                        <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleDeleteShift(shift)} className="bg-destructive">Delete</AlertDialogAction></AlertDialogFooter>
+                                                    </AlertDialogContent>
+                                                </AlertDialog>
+                                            )}
                                         </TableCell>
                                     )}
                                 </TableRow>
