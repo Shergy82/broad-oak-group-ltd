@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
@@ -254,7 +253,6 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
       }
       return allShifts;
     }
-    // For non-owners, allShifts is already restricted by the Firestore query.
     return allShifts;
   }, [allShifts, isOwner, selectedDepartments]);
   
@@ -363,7 +361,6 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
   
   /**
    * 🔒 COLLATED SITE ADDRESSES
-   * Only uses shifts visible to the current department filter.
    */
   const uniqueSiteAddresses = useMemo(() => {
     const addressMap = new Map<string, string>();
@@ -373,7 +370,6 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
             if (!addressMap.has(key)) {
                 addressMap.set(key, shift.address);
             } else {
-                // Representative Selection: prefer the one with commas or longer length
                 const existing = addressMap.get(key)!;
                 if (shift.address.includes(',') && !existing.includes(',')) {
                     addressMap.set(key, shift.address);

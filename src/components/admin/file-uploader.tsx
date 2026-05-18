@@ -255,12 +255,11 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
               department: finalImportDepartment,
               notes: p.notes || '',
               eNumber: p.eNumber || '',
-              plannerName: currentPlannerName, // Derived from filename
+              plannerName: currentPlannerName, 
           }));
           
           allFailedShifts = result.failures;
 
-          // Deduplicate incoming Excel shifts
           const uniqueShiftsMap = new Map<string, ParsedShift>();
           for (const shift of allShiftsFromExcel) {
             const key = getShiftKey(shift as any);
@@ -279,7 +278,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           const existingShiftsMap = new Map<string, Shift>();
           const toDelete: Shift[] = [];
 
-          // 🔒 URGENT FIX: Detection and removal of duplicate shifts in DB
           const STATUS_PRIORITY: Record<string, number> = {
             'completed': 1,
             'incomplete': 2,
@@ -289,18 +287,19 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             'pending-confirmation': 6
           };
 
-          // Sort docs by status priority (advanced status first) so we keep the most "real" shift
           const sortedDocs = [...existingShiftsSnapshot.docs].sort((a, b) => {
             const statusA = (a.data().status as string) || 'pending-confirmation';
             const statusB = (b.data().status as string) || 'pending-confirmation';
             return (STATUS_PRIORITY[statusA] || 99) - (STATUS_PRIORITY[statusB] || 99);
           });
 
+          const importTodayLocal = new Date();
+          importTodayLocal.setHours(0, 0, 0, 0);
+
           sortedDocs.forEach((doc) => {
             const shiftData = { id: doc.id, ...doc.data() } as Shift;
             if (!shiftData.userId || !shiftData.date || !shiftData.address) return;
             
-            // Filter by department based on import type
             if (importType === 'GAS') {
                 if (shiftData.department && shiftData.department !== 'Gas') return;
             } else {
@@ -308,9 +307,13 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             }
 
             const key = getShiftKey(shiftData as any);
+            const shiftDate = getCorrectedLocalDate(shiftData.date as any);
+
             if (existingShiftsMap.has(key)) {
-                // Duplicate detected in database! Mark for deletion.
-                toDelete.push(shiftData);
+                // 🔒 DUPLICATE DETECTION: Only delete if date is TODAY or FUTURE
+                if (shiftDate >= importTodayLocal) {
+                    toDelete.push(shiftData);
+                }
             } else {
                 existingShiftsMap.set(key, shiftData);
             }
@@ -331,31 +334,31 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           for (const [key, excelShift] of excelShiftsMap.entries()) {
             const existingShift = existingShiftsMap.get(key);
             if (!existingShift) {
-              toCreate.push(excelShift);
+              // Only create if it's today or future
+              if (excelShift.date >= importTodayLocal) {
+                toCreate.push(excelShift);
+              }
             } else if (!protectedStatuses.includes(existingShift.status)) {
-              const hasChanged =
-                normalizeText(existingShift.task) !== normalizeText(excelShift.task) ||
-                normalizeText(existingShift.eNumber || '') !== normalizeText(excelShift.eNumber || '') ||
-                normalizeText(existingShift.manager || '') !== normalizeText(excelShift.manager || '') ||
-                normalizeText(existingShift.notes || '') !== normalizeText(excelShift.notes || '') ||
-                normalizeText(existingShift.contract || '') !== normalizeText(excelShift.contract || '') ||
-                existingShift.type !== excelShift.type; 
+              // Only update if it's today or future
+              const shiftDate = getCorrectedLocalDate(existingShift.date as any);
+              if (shiftDate >= importTodayLocal) {
+                const hasChanged =
+                  normalizeText(existingShift.task) !== normalizeText(excelShift.task) ||
+                  normalizeText(existingShift.eNumber || '') !== normalizeText(excelShift.eNumber || '') ||
+                  normalizeText(existingShift.manager || '') !== normalizeText(excelShift.manager || '') ||
+                  normalizeText(existingShift.notes || '') !== normalizeText(excelShift.notes || '') ||
+                  normalizeText(existingShift.contract || '') !== normalizeText(excelShift.contract || '') ||
+                  existingShift.type !== excelShift.type; 
 
-              if (hasChanged) {
-                toUpdate.push({ old: existingShift, new: excelShift });
+                if (hasChanged) {
+                  toUpdate.push({ old: existingShift, new: excelShift });
+                }
               }
             }
           }
 
-          const importTodayLocal = new Date();
-          importTodayLocal.setHours(0, 0, 0, 0);
-
-          // 🔒 RESTORED PLANNER ISOLATION:
-          // Handle deletion of shifts MISSING from Excel, but ONLY if they belong to THIS planner.
           for (const [key, existingShift] of existingShiftsMap.entries()) {
-            // Isolation check: Only delete if the shift source matches the current file
             const isFromThisPlanner = existingShift.plannerName === currentPlannerName;
-
             if (isFromThisPlanner && !excelShiftsMap.has(key) && !protectedStatuses.includes(existingShift.status) && existingShift.source !== 'manual') {
               const shiftDate = getCorrectedLocalDate(existingShift.date as any);
               if (shiftDate >= importTodayLocal) {
@@ -363,6 +366,13 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
               }
             }
           }
+
+          // Chronological sorting for all result arrays
+          const dateSort = (a: any, b: any) => {
+            const da = a.date instanceof Date ? a.date.getTime() : a.date.toDate().getTime();
+            const db = b.date instanceof Date ? b.date.getTime() : b.date.toDate().getTime();
+            return da - db;
+          };
 
           const onConfirm = async () => {
             try {
@@ -389,7 +399,12 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           };
 
           if (!commitChanges) {
-            onImportComplete(allFailedShifts, onConfirm, { toCreate, toUpdate, toDelete, failed: allFailedShifts });
+            onImportComplete(allFailedShifts, onConfirm, { 
+                toCreate: toCreate.sort(dateSort), 
+                toUpdate: toUpdate.sort((a,b) => dateSort(a.new, b.new)), 
+                toDelete: toDelete.sort(dateSort), 
+                failed: allFailedShifts.sort((a,b) => (a.shiftDate || '').localeCompare(b.shiftDate || ''))
+            });
             setIsUploading(false);
             return;
           }
