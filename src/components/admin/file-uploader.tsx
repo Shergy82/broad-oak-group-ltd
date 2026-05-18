@@ -203,7 +203,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
       setIsUploading(true);
       setError(null);
 
-      const plannerName = file.name.replace(/\.[^/.]+$/, "");
+      const currentPlannerName = file.name.replace(/\.[^/.]+$/, "");
 
       const reader = new FileReader();
       reader.onload = async (e) => {
@@ -255,7 +255,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
               department: finalImportDepartment,
               notes: p.notes || '',
               eNumber: p.eNumber || '',
-              plannerName: importType === 'GAS' ? plannerName : (p.plannerName || ''),
+              plannerName: currentPlannerName, // Derived from filename
           }));
           
           allFailedShifts = result.failures;
@@ -303,7 +303,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             // Filter by department based on import type
             if (importType === 'GAS') {
                 if (shiftData.department && shiftData.department !== 'Gas') return;
-                // REMOVED plannerName restriction to correctly detect duplicates across all files
             } else {
                 if (shiftData.department && shiftData.department !== finalImportDepartment) return;
             }
@@ -351,9 +350,13 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           const importTodayLocal = new Date();
           importTodayLocal.setHours(0, 0, 0, 0);
 
-          // Handle deletion of shifts MISSING from Excel
+          // 🔒 RESTORED PLANNER ISOLATION:
+          // Handle deletion of shifts MISSING from Excel, but ONLY if they belong to THIS planner.
           for (const [key, existingShift] of existingShiftsMap.entries()) {
-            if (!excelShiftsMap.has(key) && !protectedStatuses.includes(existingShift.status) && existingShift.source !== 'manual') {
+            // Isolation check: Only delete if the shift source matches the current file
+            const isFromThisPlanner = existingShift.plannerName === currentPlannerName;
+
+            if (isFromThisPlanner && !excelShiftsMap.has(key) && !protectedStatuses.includes(existingShift.status) && existingShift.source !== 'manual') {
               const shiftDate = getCorrectedLocalDate(existingShift.date as any);
               if (shiftDate >= importTodayLocal) {
                 toDelete.push(existingShift);
