@@ -92,10 +92,9 @@ function normalizeText(text: string | null | undefined): string {
  */
 const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; task?: string; type?: string }): string => {
   const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  const dateStr = `${year}-${month}-${day}`;
+  const localDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  
+  const dateStr = `${localDate.getFullYear()}-${String(localDate.getMonth() + 1).padStart(2, '0')}-${String(localDate.getDate()).padStart(2, '0')}`;
   
   const taskPart = shift.task ? `-${normalizeText(shift.task)}` : '';
   const typePart = shift.type ? `-${shift.type}` : '';
@@ -261,6 +260,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           
           allFailedShifts = result.failures;
 
+          // Deduplicate incoming Excel shifts
           const uniqueShiftsMap = new Map<string, ParsedShift>();
           for (const shift of allShiftsFromExcel) {
             const key = getShiftKey(shift as any);
@@ -277,16 +277,44 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           const existingShiftsSnapshot = await getDocs(existingShiftsQuery);
           
           const existingShiftsMap = new Map<string, Shift>();
-          existingShiftsSnapshot.forEach((doc) => {
+          const toDelete: Shift[] = [];
+
+          // 🔒 URGENT FIX: Detection and removal of duplicate shifts in DB
+          const STATUS_PRIORITY: Record<string, number> = {
+            'completed': 1,
+            'incomplete': 2,
+            'rejected': 3,
+            'on-site': 4,
+            'confirmed': 5,
+            'pending-confirmation': 6
+          };
+
+          // Sort docs by status priority (advanced status first) so we keep the most "real" shift
+          const sortedDocs = [...existingShiftsSnapshot.docs].sort((a, b) => {
+            const statusA = (a.data().status as string) || 'pending-confirmation';
+            const statusB = (b.data().status as string) || 'pending-confirmation';
+            return (STATUS_PRIORITY[statusA] || 99) - (STATUS_PRIORITY[statusB] || 99);
+          });
+
+          sortedDocs.forEach((doc) => {
             const shiftData = { id: doc.id, ...doc.data() } as Shift;
             if (!shiftData.userId || !shiftData.date || !shiftData.address) return;
             
+            // Filter by department based on import type
             if (importType === 'GAS') {
                 if (shiftData.department && shiftData.department !== 'Gas') return;
-                if (shiftData.plannerName !== plannerName) return;
+                // REMOVED plannerName restriction to correctly detect duplicates across all files
+            } else {
+                if (shiftData.department && shiftData.department !== finalImportDepartment) return;
             }
 
-            existingShiftsMap.set(getShiftKey(shiftData as any), shiftData);
+            const key = getShiftKey(shiftData as any);
+            if (existingShiftsMap.has(key)) {
+                // Duplicate detected in database! Mark for deletion.
+                toDelete.push(shiftData);
+            } else {
+                existingShiftsMap.set(key, shiftData);
+            }
           });
 
           const excelShiftsMap = new Map<string, ParsedShift>();
@@ -296,7 +324,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
 
           const toCreate: ParsedShift[] = [];
           const toUpdate: { old: Shift; new: ParsedShift }[] = [];
-          const toDelete: Shift[] = [];
           
           const protectedStatuses: ShiftStatus[] = finalImportDepartment === 'Gas'
             ? ['completed', 'incomplete', 'rejected', 'confirmed', 'on-site']
@@ -324,6 +351,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           const importTodayLocal = new Date();
           importTodayLocal.setHours(0, 0, 0, 0);
 
+          // Handle deletion of shifts MISSING from Excel
           for (const [key, existingShift] of existingShiftsMap.entries()) {
             if (!excelShiftsMap.has(key) && !protectedStatuses.includes(existingShift.status) && existingShift.source !== 'manual') {
               const shiftDate = getCorrectedLocalDate(existingShift.date as any);
