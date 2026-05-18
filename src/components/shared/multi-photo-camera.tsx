@@ -122,10 +122,11 @@ export function MultiPhotoCamera({ open, onOpenChange, requiredCount, onUploadCo
                 const location = await getGeolocation();
                 const timestamp = new Date().toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'medium' });
 
-                // --- Text Overlay ---
+                // --- Text Overlay Settings ---
                 const fontSize = Math.max(18, Math.round(canvas.height * 0.025));
                 const padding = Math.round(fontSize * 0.5);
                 const lineHeight = fontSize * 1.2;
+                const maxWidth = canvas.width - (padding * 2);
 
                 context.font = `bold ${fontSize}px Arial`;
                 context.fillStyle = 'white';
@@ -134,21 +135,70 @@ export function MultiPhotoCamera({ open, onOpenChange, requiredCount, onUploadCo
                 context.textAlign = 'left';
                 context.textBaseline = 'bottom';
 
-                const lines = [];
-                if (location) {
-                    lines.push(`Lat: ${location.coords.latitude.toFixed(5)}, Lon: ${location.coords.longitude.toFixed(5)}`);
-                }
-                lines.push(timestamp);
-                
-                // Add first line of address if provided
+                // --- Address Smart Filtering ---
+                let filteredAddress = '';
                 if (siteAddress) {
-                    const firstLine = siteAddress.split(',')[0].trim();
-                    lines.push(firstLine);
+                    const firstPart = siteAddress.split(',')[0].trim();
+                    
+                    // Filter out Town/County/Postcode junk if they followed the street in the first part
+                    const streetSuffixes = [
+                        'ROAD', 'STREET', 'AVENUE', 'LANE', 'DRIVE', 'WAY', 'CLOSE', 'CRESCENT', 
+                        'COTTAGES', 'COURT', 'GROVE', 'HILL', 'PLACE', 'SQUARE', 'VIEW', 'WALK', 
+                        'GARDENS', 'TERRACE', 'MEWS', 'ROW', 'RISE', 'VILLAS', 'BUILDINGS', 'DR', 'ST', 'RD', 'LN', 'CL'
+                    ];
+                    
+                    const words = firstPart.toUpperCase().split(/\s+/);
+                    let cutoffIndex = -1;
+                    
+                    for (let i = words.length - 1; i >= 0; i--) {
+                        if (streetSuffixes.includes(words[i])) {
+                            cutoffIndex = i;
+                            break;
+                        }
+                    }
+                    
+                    filteredAddress = firstPart;
+                    if (cutoffIndex !== -1) {
+                        // Extract only up to the street suffix
+                        filteredAddress = firstPart.split(/\s+/).slice(0, cutoffIndex + 1).join(' ');
+                    }
+                    
+                    // Fallback cleanup: remove UK postcodes if they somehow made it in
+                    filteredAddress = filteredAddress.replace(/\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b/gi, '').trim();
                 }
-                
+
+                // Prepare fixed bottom data lines
+                const dataLines = [];
+                if (location) {
+                    dataLines.push(`Lat: ${location.coords.latitude.toFixed(5)}, Lon: ${location.coords.longitude.toFixed(5)}`);
+                }
+                dataLines.push(timestamp);
+
+                // Handle wrapping for the filtered address
+                const addressLines: string[] = [];
+                if (filteredAddress) {
+                    const words = filteredAddress.split(' ');
+                    let currentLine = '';
+                    for (let n = 0; n < words.length; n++) {
+                        const testLine = currentLine + words[n] + ' ';
+                        const metrics = context.measureText(testLine);
+                        if (metrics.width > maxWidth && n > 0) {
+                            addressLines.push(currentLine.trim());
+                            currentLine = words[n] + ' ';
+                        } else {
+                            currentLine = testLine;
+                        }
+                    }
+                    addressLines.push(currentLine.trim());
+                }
+
+                // Final lines to draw (merged, in order from bottom to top for the drawing loop)
+                // Reverse addressLines because we want the first line of address (e.g. 10 Main St) to be HIGHEST
+                const finalLinesToDraw = [...dataLines, ...[...addressLines].reverse()];
+
                 // Draw lines from bottom up
-                for (let i = 0; i < lines.length; i++) {
-                    const line = lines[i];
+                for (let i = 0; i < finalLinesToDraw.length; i++) {
+                    const line = finalLinesToDraw[i];
                     const yPos = canvas.height - padding - (i * lineHeight);
                     context.strokeText(line, padding, yPos);
                     context.fillText(line, padding, yPos);
