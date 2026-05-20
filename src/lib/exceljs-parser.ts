@@ -189,9 +189,12 @@ function isNonShiftText(text: string): boolean {
   ];
 
   // 🔒 STRICT HEADER MATCHING: Prevents generic words from triggering the ignore filter 
-  // when they are part of a longer task description.
+  // when they are part of a longer task description (like "Send time and date stamped photos").
   const strictHeaders = ["date", "task", "name", "operative", "address"];
   if (strictHeaders.includes(t)) return true;
+
+  // Ensure common room names are NOT ignored
+  if (t.includes('bedroom') || t.includes('bathroom')) return false;
 
   return noise.some(b => t.includes(b)) || /^\+?\d[\d\s-]{7,}$/.test(t);
 }
@@ -255,7 +258,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
 
     if (dateRowIdx === -1) continue;
 
-    // 🔒 SITE ADDRESS EXTRACTION
+    // 🔒 SITE ADDRESS EXTRACTION (STRICT BOX 5 TARGETING)
     const siteAddressResult = extractSiteAddress(sheet, used, blockStart, blockEnd);
     if (!siteAddressResult) continue;
     
@@ -512,13 +515,16 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
         return best.score >= 20 ? { address: normalizeWhitespace(best.text), row: best.row } : null;
     }
 
-    // 🔒 GAS LAST BOX LOGIC
-    // The user states: "Out of the 5 boxes in each site information the top 4 can be blank 
-    // but the address will ALWAYS be the last box details".
-    // We strictly take the text from the bottom-most row of the detected block.
-    // This prevents picking up manager names or instructions from the "top 4" rows 
-    // if the address row happens to be empty or contains template filler.
-    const text = getCellText(ws.getRow(endRow).getCell(1));
+    // 🔒 GAS BLOCK-BASED ADDRESS EXTRACTION
+    // The user states: "Out of the 5 boxes... the address will ALWAYS be the last box".
+    // This means in a site information block, Box 5 is the address.
+    
+    // We target specifically the 5th box (index 4 from startRow).
+    const addressRowIndex = startRow + 4;
+    
+    // Ensure we don't scan beyond the detected block boundaries.
+    const targetRow = addressRowIndex <= endRow ? addressRowIndex : endRow;
+    const text = getCellText(ws.getRow(targetRow).getCell(1));
     
     const noiseKeywords = [
         'SITE MANAGER', 'TECHNICAL MANAGER', 'MATERIALS ORDERING', 'TLO', 'MEASURES', 'PROJECT MANAGER', 'MEASURE', 'CONTACT'
@@ -526,12 +532,20 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
 
     if (text && text.length > 2) {
         const upper = text.toUpperCase();
-        // Even though it is the "last box", we perform a sanity check to ensure 
-        // it doesn't contain a generic contact header, which might indicate a block detection issue.
+        // Perform a sanity check to ensure the targeted "last box" isn't a generic header.
         if (!noiseKeywords.some(kw => upper.includes(kw))) {
-            return { address: normalizeWhitespace(text), row: endRow };
+            return { address: normalizeWhitespace(text), row: targetRow };
         }
     }
+    
+    // Fallback logic if the 5th box is empty or noise: take the last valid row in the block.
+    for (let r = endRow; r >= startRow; r--) {
+        const fallbackText = getCellText(ws.getRow(r).getCell(1));
+        if (fallbackText && fallbackText.length > 2 && !noiseKeywords.some(kw => fallbackText.toUpperCase().includes(kw))) {
+            return { address: normalizeWhitespace(fallbackText), row: r };
+        }
+    }
+
     return null;
 }
 
