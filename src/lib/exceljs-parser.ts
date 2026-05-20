@@ -188,9 +188,9 @@ function isNonShiftText(text: string): boolean {
     "scaffolding", "cc", "council", "manager", "ordering"
   ];
 
-  // 🔒 STRICT HEADER MATCHING: Prevents words like "date" or "task" inside a 
-  // description from triggering the ignore filter.
-  const strictHeaders = ["date", "task", "name", "operative"];
+  // 🔒 STRICT HEADER MATCHING: Prevents generic words from triggering the ignore filter 
+  // when they are part of a longer task description.
+  const strictHeaders = ["date", "task", "name", "operative", "address"];
   if (strictHeaders.includes(t)) return true;
 
   return noise.some(b => t.includes(b)) || /^\+?\d[\d\s-]{7,}$/.test(t);
@@ -255,7 +255,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
 
     if (dateRowIdx === -1) continue;
 
-    // 🔒 LAST BOX LOGIC
+    // 🔒 SITE ADDRESS EXTRACTION
     const siteAddressResult = extractSiteAddress(sheet, used, blockStart, blockEnd);
     if (!siteAddressResult) continue;
     
@@ -513,17 +513,23 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
     }
 
     // 🔒 GAS LAST BOX LOGIC
+    // The user states: "Out of the 5 boxes in each site information the top 4 can be blank 
+    // but the address will ALWAYS be the last box details".
+    // We strictly take the text from the bottom-most row of the detected block.
+    // This prevents picking up manager names or instructions from the "top 4" rows 
+    // if the address row happens to be empty or contains template filler.
+    const text = getCellText(ws.getRow(endRow).getCell(1));
+    
     const noiseKeywords = [
-        'SITE MANAGER', 'TECHNICAL MANAGER', 'MATERIALS ORDERING', 'TLO', 'MEASURES', 'PROJECT MANAGER', 'MEASURE'
+        'SITE MANAGER', 'TECHNICAL MANAGER', 'MATERIALS ORDERING', 'TLO', 'MEASURES', 'PROJECT MANAGER', 'MEASURE', 'CONTACT'
     ];
 
-    for (let r = endRow; r >= startRow; r--) {
-        const text = getCellText(ws.getRow(r).getCell(1));
-        if (text && text.length > 2) {
-            const upper = text.toUpperCase();
-            if (!noiseKeywords.some(kw => upper.includes(kw))) {
-                return { address: normalizeWhitespace(text), row: r };
-            }
+    if (text && text.length > 2) {
+        const upper = text.toUpperCase();
+        // Even though it is the "last box", we perform a sanity check to ensure 
+        // it doesn't contain a generic contact header, which might indicate a block detection issue.
+        if (!noiseKeywords.some(kw => upper.includes(kw))) {
+            return { address: normalizeWhitespace(text), row: endRow };
         }
     }
     return null;
