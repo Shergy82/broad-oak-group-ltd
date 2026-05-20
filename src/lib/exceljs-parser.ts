@@ -258,23 +258,28 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
 
     if (dateRowIdx === -1) continue;
 
-    // 🔒 SITE ADDRESS EXTRACTION (STRICT BOX 5 TARGETING)
+    // 🔒 SITE ADDRESS EXTRACTION (SMART SCAN)
     const siteAddressResult = extractSiteAddress(sheet, used, blockStart, blockEnd);
     if (!siteAddressResult) continue;
     
-    const { address: rawSiteAddress } = siteAddressResult;
+    const { address: rawSiteAddress, row: addressRowIdx } = siteAddressResult;
     const eNumMatch = rawSiteAddress.match(/\b([BE]\d+\S*)\b/i);
     const eNumber = eNumMatch ? eNumMatch[1].toUpperCase() : '';
-    const siteAddress = eNumMatch ? rawSiteAddress.replace(eNumMatch[0], '').trim().replace(/,$/, '').trim() : rawSiteAddress;
+    const siteAddress = eNumMatch ? rawSiteAddress.replace(eNumMatch[0], '').trim().replace(/^[:\-\s]+/, '').trim().replace(/,$/, '').trim() : rawSiteAddress;
 
+    // 🔒 CONTACT EXTRACTION (SCAN ABOVE ADDRESS)
     let manager = '';
     const otherContacts: string[] = [];
-    for (let r = blockStart; r <= blockEnd; r++) {
+    for (let r = blockStart; r < addressRowIdx; r++) {
         const cellText = getCellText(sheet.getRow(r).getCell(1));
         if (cellText) {
             const upper = cellText.toUpperCase();
-            if (upper.includes('SITE MANAGER')) manager = cellText.replace(/site manager\s*:?/i, '').trim().split('\n')[0];
-            else if (upper.includes('PROJECT MANAGER') || upper.includes('TLO')) otherContacts.push(cellText);
+            if (upper.includes('SITE MANAGER') || upper.includes('RESPONSIBLE PERSON')) {
+                const cleaned = cellText.replace(/(site manager|responsible person)\s*:?/i, '').trim();
+                if (!manager) manager = cleaned.split('\n')[0].trim();
+            } else if (upper.includes('PROJECT MANAGER') || upper.includes('TLO') || upper.includes('TECHNICAL MANAGER') || upper.includes('CONTACT')) {
+                otherContacts.push(cellText);
+            }
         }
     }
 
@@ -386,7 +391,7 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
         const { address: rawSiteAddress } = siteAddressResult;
         const eNumMatch = rawSiteAddress.match(/\b([BE]\d+\S*)\b/i);
         const eNumber = eNumMatch ? eNumMatch[1].toUpperCase() : '';
-        const siteAddress = eNumMatch ? rawSiteAddress.replace(eNumMatch[0], '').trim().replace(/,$/, '').trim() : rawSiteAddress;
+        const siteAddress = eNumMatch ? rawSiteAddress.replace(eNumMatch[0], '').trim().replace(/^[:\-\s]+/, '').trim().replace(/,$/, '').trim() : rawSiteAddress;
 
         const seenShiftsInBlock = new Set<string>();
 
@@ -516,34 +521,30 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
     }
 
     // 🔒 GAS BLOCK-BASED ADDRESS EXTRACTION
-    // The user states: "Out of the 5 boxes... the address will ALWAYS be the last box".
-    // This means in a site information block, Box 5 is the address.
-    
-    // We target specifically the 5th box (index 4 from startRow).
-    const addressRowIndex = startRow + 4;
-    
-    // Ensure we don't scan beyond the detected block boundaries.
-    const targetRow = addressRowIndex <= endRow ? addressRowIndex : endRow;
-    const text = getCellText(ws.getRow(targetRow).getCell(1));
-    
+    // User instruction: The address is ALWAYS in the last box.
+    // Supports formats with 3 or 5 boxes. Top boxes can be blank or contact info.
+
     const noiseKeywords = [
-        'SITE MANAGER', 'TECHNICAL MANAGER', 'MATERIALS ORDERING', 'TLO', 'MEASURES', 'PROJECT MANAGER', 'MEASURE', 'CONTACT'
+        'SITE MANAGER', 'TECHNICAL MANAGER', 'MATERIALS ORDERING', 'TLO', 
+        'MEASURES', 'PROJECT MANAGER', 'MEASURE', 'CONTACT',
+        'RESPONSIBLE PERSON', 'TO BE FILLED IN'
     ];
 
-    if (text && text.length > 2) {
-        const upper = text.toUpperCase();
-        // Perform a sanity check to ensure the targeted "last box" isn't a generic header.
-        if (!noiseKeywords.some(kw => upper.includes(kw))) {
-            return { address: normalizeWhitespace(text), row: targetRow };
-        }
-    }
-    
-    // Fallback logic if the 5th box is empty or noise: take the last valid row in the block.
+    // Scan from bottom to top of the detected block range
     for (let r = endRow; r >= startRow; r--) {
-        const fallbackText = getCellText(ws.getRow(r).getCell(1));
-        if (fallbackText && fallbackText.length > 2 && !noiseKeywords.some(kw => fallbackText.toUpperCase().includes(kw))) {
-            return { address: normalizeWhitespace(fallbackText), row: r };
-        }
+        const cell = ws.getRow(r).getCell(1);
+        const text = getCellText(cell);
+        
+        // Skip empty or trivial cells
+        if (!text || text.trim().length < 3) continue;
+        
+        const upper = text.toUpperCase();
+        
+        // Skip rows that match known contact headers or instruction labels
+        if (noiseKeywords.some(kw => upper.includes(kw))) continue;
+        
+        // Return the first significant text found starting from the bottom (the "last box").
+        return { address: normalizeWhitespace(text), row: r };
     }
 
     return null;
