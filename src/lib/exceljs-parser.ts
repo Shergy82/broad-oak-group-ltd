@@ -179,13 +179,20 @@ function toISODate(dt: Date): string {
 
 function isNonShiftText(text: string): boolean {
   const t = text.trim().toLowerCase();
+  
+  // Overly specific headers to ignore
   const noise = [
     "job manager", "measures", "scheme", "pulse", "ignore", "ordered", 
     "start date", "on live", "coole", "variation", "work type", 
-    "operative", "site address", "task", "date", "name", "week comm", 
-    "asbestos present", "waiting on", "scaffolding", 
-    "cc", "council", "manager", "ordering"
+    "site address", "week comm", "asbestos present", "waiting on", 
+    "scaffolding", "cc", "council", "manager", "ordering"
   ];
+
+  // 🔒 STRICT HEADER MATCHING: Prevents words like "date" or "task" inside a 
+  // description from triggering the ignore filter.
+  const strictHeaders = ["date", "task", "name", "operative"];
+  if (strictHeaders.includes(t)) return true;
+
   return noise.some(b => t.includes(b)) || /^\+?\d[\d\s-]{7,}$/.test(t);
 }
 
