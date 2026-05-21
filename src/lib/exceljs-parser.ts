@@ -154,17 +154,29 @@ function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: Us
  */
 function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
   const v = getCellValue(cell);
+  let d: Date | null = null;
+
   if (v instanceof Date && !isNaN(v.getTime())) {
-    return new Date(v.getFullYear(), v.getMonth(), v.getDate());
+    d = new Date(v.getFullYear(), v.getMonth(), v.getDate());
+  } else if (typeof v === "number" && v > 20000 && v < 60000) {
+    const rawDate = new Date((v - 25569) * 86400 * 1000);
+    d = new Date(rawDate.getFullYear(), rawDate.getMonth(), rawDate.getDate());
+  } else {
+    const text = getCellText(cell);
+    if (text) {
+      const parsed = new Date(text.replace(/(\d+)(st|nd|rd|th)/g, '$1'));
+      if (!isNaN(parsed.getTime())) {
+        d = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+      }
+    }
   }
-  if (typeof v === "number" && v > 20000 && v < 60000) {
-    const d = new Date((v - 25569) * 86400 * 1000);
-    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+
+  // Stricter validation: Only accept dates between 2020 and 2050 to avoid false positives
+  if (d && d.getFullYear() >= 2020 && d.getFullYear() <= 2050) {
+    return d;
   }
-  const text = getCellText(cell);
-  if (!text) return null;
-  const d = new Date(text.replace(/(\d+)(st|nd|rd|th)/g, '$1'));
-  return (!isNaN(d.getTime()) && d.getFullYear() > 2000) ? new Date(d.getFullYear(), d.getMonth(), d.getDate()) : null;
+
+  return null;
 }
 
 /**
@@ -249,7 +261,8 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
     let dateCols: { col: number; isoDate: string }[] = [];
     for (let r = blockStart; r <= blockEnd; r++) {
         const tempCols = getDateColumns(sheet, used, r, 6); 
-        if (tempCols.length >= 1) { 
+        // 🔒 Improved: Require at least 2 date-like columns to consider it a header row
+        if (tempCols.length >= 2) { 
             dateRowIdx = r;
             dateCols = tempCols;
             break;
@@ -365,7 +378,7 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
             if (colNumber < 7) return;
 
             const dt = parseExcelCellAsDate(cell);
-            if (dt && dt.getFullYear() > 2020) tempCols.push({ col: colNumber, isoDate: toISODate(dt) });
+            if (dt) tempCols.push({ col: colNumber, isoDate: toISODate(dt) });
         });
         if (tempCols.length >= 2) { 
             dateRowIdx = r; 

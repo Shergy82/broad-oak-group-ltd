@@ -243,20 +243,28 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
               };
           }
 
-          allShiftsFromExcel = result.parsed.map(p => ({
-              date: new Date(p.shiftDate),
-              address: p.siteAddress,
-              task: p.task,
-              userId: p.user.uid,
-              userName: p.user.originalName,
-              type: p.type,
-              manager: p.manager || '',
-              contract: p.contract || '',
-              department: finalImportDepartment,
-              notes: p.notes || '',
-              eNumber: p.eNumber || '',
-              plannerName: currentPlannerName, 
-          }));
+          allShiftsFromExcel = result.parsed
+            .map(p => {
+              const dt = new Date(p.shiftDate);
+              // Ensure we only process valid dates
+              if (isNaN(dt.getTime())) return null;
+              
+              return {
+                date: dt,
+                address: p.siteAddress,
+                task: p.task,
+                userId: p.user.uid,
+                userName: p.user.originalName,
+                type: p.type,
+                manager: p.manager || '',
+                contract: p.contract || '',
+                department: finalImportDepartment,
+                notes: p.notes || '',
+                eNumber: p.eNumber || '',
+                plannerName: currentPlannerName, 
+              };
+            })
+            .filter((s): s is ParsedShift => s !== null);
           
           allFailedShifts = result.failures;
 
@@ -369,8 +377,8 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
 
           // Chronological sorting for all result arrays
           const dateSort = (a: any, b: any) => {
-            const da = a.date instanceof Date ? a.date.getTime() : a.date.toDate().getTime();
-            const db = b.date instanceof Date ? b.date.getTime() : b.date.toDate().getTime();
+            const da = a.date instanceof Date ? a.date.getTime() : (a.date?.toDate ? a.date.toDate().getTime() : 0);
+            const db = b.date instanceof Date ? b.date.getTime() : (b.date?.toDate ? b.date.toDate().getTime() : 0);
             return da - db;
           };
 

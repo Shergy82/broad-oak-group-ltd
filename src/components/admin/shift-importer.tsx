@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
@@ -11,7 +10,7 @@ import { CheckCircle, FileWarning, Upload, List, ArrowRight, Edit, Plus, Trash2,
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from '../ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
-import { format } from 'date-fns';
+import { format, isValid } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAllUsers } from '@/hooks/use-all-users';
 import { Label } from '../ui/label';
@@ -134,6 +133,12 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
     doc.save(`failed_shift_import_${format(generationDate, 'yyyy-MM-dd')}.pdf`);
   };
 
+  const safeFormatDate = (date: any) => {
+    if (!date) return 'N/A';
+    const d = date instanceof Date ? date : (date?.toDate ? date.toDate() : new Date(date));
+    if (!isValid(d)) return 'Invalid Date';
+    return format(d, 'PPP');
+  }
 
   const renderDryRunResults = (dryRun: DryRunResult) => {
     const hasChanges = dryRun.toCreate.length > 0 || dryRun.toUpdate.length > 0 || dryRun.toDelete.length > 0;
@@ -244,10 +249,9 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                                 <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Task</TableHead><TableHead>Address</TableHead></TableRow></TableHeader>
                                 <TableBody>
                                   {[...dryRun.toCreate]
-                                    .sort((a, b) => a.date.getTime() - b.date.getTime())
                                     .map((s, i) => (
                                       <TableRow key={i}>
-                                        <TableCell>{format(s.date, 'PPP')}</TableCell>
+                                        <TableCell>{safeFormatDate(s.date)}</TableCell>
                                         <TableCell>{s.userName}</TableCell>
                                         <TableCell>{s.task}</TableCell>
                                         <TableCell>{s.address}</TableCell>
@@ -275,10 +279,9 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                                 </TableHeader>
                                 <TableBody>
                                     {[...dryRun.toUpdate]
-                                      .sort((a, b) => a.new.date.getTime() - b.new.date.getTime())
                                       .map((u,i) => (
                                         <TableRow key={i}>
-                                            <TableCell>{format(u.new.date, 'PPP')}</TableCell>
+                                            <TableCell>{safeFormatDate(u.new.date)}</TableCell>
                                             <TableCell>{u.new.userName}</TableCell>
                                             <TableCell className="text-xs">{renderChanges(u.old, u.new)}</TableCell>
                                         </TableRow>
@@ -298,10 +301,9 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                                 <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Task</TableHead><TableHead>Address</TableHead></TableRow></TableHeader>
                                 <TableBody>
                                   {[...dryRun.toDelete]
-                                    .sort((a, b) => a.date.toDate().getTime() - b.date.toDate().getTime())
                                     .map((s,i) => (
                                       <TableRow key={i}>
-                                        <TableCell>{format(s.date.toDate(), 'PPP')}</TableCell>
+                                        <TableCell>{safeFormatDate(s.date)}</TableCell>
                                         <TableCell>{s.userName}</TableCell>
                                         <TableCell>{s.task}</TableCell>
                                         <TableCell>{s.address}</TableCell>
