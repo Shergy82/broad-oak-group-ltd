@@ -153,27 +153,32 @@ function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: Us
  * 🔒 TIMEZONE-STABLE DATE PARSING
  */
 function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
-  const v = getCellValue(cell);
-  let d: Date | null = null;
+  try {
+    const v = getCellValue(cell);
+    let d: Date | null = null;
 
-  if (v instanceof Date && !isNaN(v.getTime())) {
-    d = new Date(v.getFullYear(), v.getMonth(), v.getDate());
-  } else if (typeof v === "number" && v > 20000 && v < 60000) {
-    const rawDate = new Date((v - 25569) * 86400 * 1000);
-    d = new Date(rawDate.getFullYear(), rawDate.getMonth(), rawDate.getDate());
-  } else {
-    const text = getCellText(cell);
-    if (text) {
-      const parsed = new Date(text.replace(/(\d+)(st|nd|rd|th)/g, '$1'));
-      if (!isNaN(parsed.getTime())) {
-        d = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+    if (v instanceof Date && !isNaN(v.getTime())) {
+      d = new Date(v.getFullYear(), v.getMonth(), v.getDate());
+    } else if (typeof v === "number" && v > 20000 && v < 60000) {
+      const rawDate = new Date((v - 25569) * 86400 * 1000);
+      d = new Date(rawDate.getFullYear(), rawDate.getMonth(), rawDate.getDate());
+    } else {
+      const text = getCellText(cell);
+      if (text) {
+        const cleanedText = text.replace(/(\d+)(st|nd|rd|th)/g, '$1');
+        const parsed = new Date(cleanedText);
+        if (!isNaN(parsed.getTime())) {
+          d = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+        }
       }
     }
-  }
 
-  // Stricter validation: Only accept dates between 2020 and 2050 to avoid false positives
-  if (d && d.getFullYear() >= 2020 && d.getFullYear() <= 2050) {
-    return d;
+    // Stricter validation: Only accept dates between 2020 and 2050 to avoid false positives
+    if (d && d.getFullYear() >= 2020 && d.getFullYear() <= 2050) {
+      return d;
+    }
+  } catch (e) {
+    console.error("Error parsing excel cell as date:", e);
   }
 
   return null;
@@ -181,8 +186,10 @@ function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
 
 /**
  * 🔒 STABLE ISO CONVERSION
+ * Returns empty string for invalid dates to ensure they are filtered out downstream.
  */
-function toISODate(dt: Date): string {
+function toISODate(dt: Date | null): string {
+  if (!dt || isNaN(dt.getTime())) return "";
   const y = dt.getFullYear();
   const m = String(dt.getMonth() + 1).padStart(2, '0');
   const d = String(dt.getDate()).padStart(2, '0');
@@ -234,7 +241,7 @@ export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry
   const today = toISODate(now);
   
   return { 
-    parsed: allParsed.filter(s => s.shiftDate >= today), 
+    parsed: allParsed.filter(s => s.shiftDate && s.shiftDate >= today), 
     failures: allFailures.filter(f => !f.shiftDate || f.shiftDate >= today) 
   };
 }
@@ -411,7 +418,7 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
         for (let r = blockStart; r <= blockEnd; r++) {
             const row = sheet.getRow(r);
             for (const { col, isoDate } of dateCols) {
-                if (isoDate < today) continue;
+                if (isoDate && isoDate < today) continue;
 
                 const cell = row.getCell(col);
                 const cellText = getCellText(cell);
@@ -600,3 +607,4 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
 
     return { task, names: uniqueNames, type };
 }
+

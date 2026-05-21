@@ -44,7 +44,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
         setImportType(storedType);
       }
     } catch (e) {
-      // Ignore localStorage errors on server or if disabled
+      // Ignore localStorage errors
     }
   }, []);
 
@@ -133,18 +133,26 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
     doc.save(`failed_shift_import_${format(generationDate, 'yyyy-MM-dd')}.pdf`);
   };
 
+  /**
+   * 🔒 ROBUST DATE FORMATTING
+   * Wraps call in try-catch to prevent "Invalid time value" from crashing the entire app.
+   */
   const safeFormatDate = (date: any) => {
     if (!date) return 'N/A';
-    const d = date instanceof Date ? date : (date?.toDate ? date.toDate() : new Date(date));
-    if (!isValid(d)) return 'Invalid Date';
-    return format(d, 'PPP');
+    try {
+      const d = date instanceof Date ? date : (date?.toDate ? date.toDate() : new Date(date));
+      if (!isValid(d)) return 'Invalid Date';
+      return format(d, 'PPP');
+    } catch (e) {
+      console.error("safeFormatDate error:", e);
+      return 'Invalid Date';
+    }
   }
 
   const renderDryRunResults = (dryRun: DryRunResult) => {
     const hasChanges = dryRun.toCreate.length > 0 || dryRun.toUpdate.length > 0 || dryRun.toDelete.length > 0;
     const hasFailures = dryRun.failed.length > 0;
     
-    // Determine default tab
     let defaultTab = "overview";
     if (!hasChanges && hasFailures) {
         defaultTab = "failed";
@@ -435,3 +443,4 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
     </Card>
   );
 }
+

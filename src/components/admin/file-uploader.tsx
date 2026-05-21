@@ -39,6 +39,7 @@ import {
 import { ScrollArea } from '../ui/scroll-area';
 import { cn, getCorrectedLocalDate } from '@/lib/utils';
 import { parseGasWorkbook, parseBuildWorkbook, type ImportType, type ParsedGasShift } from '@/lib/exceljs-parser';
+import { isValid } from 'date-fns';
 
 
 export type ParsedShift = Omit<
@@ -92,6 +93,10 @@ function normalizeText(text: string | null | undefined): string {
  */
 const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; task?: string; type?: string }): string => {
   const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
+  
+  // Guard against invalid dates returning from excel or firestore
+  if (!d || isNaN(d.getTime())) return `invalid-date-${shift.userId}-${Math.random()}`;
+
   const localDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
   
   const dateStr = `${localDate.getFullYear()}-${String(localDate.getMonth() + 1).padStart(2, '0')}-${String(localDate.getDate()).padStart(2, '0')}`;
@@ -228,18 +233,18 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           
           const finalImportDepartment = importType === 'GAS' ? 'Gas' : importDepartment;
           
-          let result: { parsed: ParsedGasShift[], failures: FailedShift[] };
+          let result: { parsed: ParsedGasShift[], failures: any[] };
           if (importType === 'GAS') {
               const res = await parseGasWorkbook(Buffer.from(data), userMap);
               result = {
                   parsed: res.parsed,
-                  failures: res.failures as FailedShift[]
+                  failures: res.failures
               };
           } else {
               const res = await parseBuildWorkbook(Buffer.from(data), userMap, selectedSheets);
               result = {
                   parsed: res.parsed,
-                  failures: res.failures as FailedShift[]
+                  failures: res.failures
               };
           }
 
@@ -247,7 +252,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             .map(p => {
               const dt = new Date(p.shiftDate);
               // Ensure we only process valid dates
-              if (isNaN(dt.getTime())) return null;
+              if (!isValid(dt)) return null;
               
               return {
                 date: dt,
@@ -266,7 +271,14 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             })
             .filter((s): s is ParsedShift => s !== null);
           
-          allFailedShifts = result.failures;
+          allFailedShifts = result.failures.map(f => ({
+            date: f.shiftDate ? new Date(f.shiftDate) : null,
+            projectAddress: f.siteAddress || '',
+            cellContent: f.cellContent || '',
+            reason: f.reason,
+            sheetName: f.sheetName || '',
+            cellRef: f.cellRef || ''
+          }));
 
           const uniqueShiftsMap = new Map<string, ParsedShift>();
           for (const shift of allShiftsFromExcel) {
@@ -375,20 +387,28 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             }
           }
 
-          // Chronological sorting for all result arrays
+          /**
+           * 🔒 STABLE SORTING
+           * Explicitly handles Invalid Dates and places them at the end.
+           */
           const dateSort = (a: any, b: any) => {
-            const da = a.date instanceof Date ? a.date.getTime() : (a.date?.toDate ? a.date.toDate().getTime() : 0);
-            const db = b.date instanceof Date ? b.date.getTime() : (b.date?.toDate ? b.date.toDate().getTime() : 0);
-            return da - db;
+            const getT = (item: any) => {
+                const d = item.date instanceof Date ? item.date : (item.date?.toDate ? item.date.toDate() : new Date(item.date));
+                return (d && !isNaN(d.getTime())) ? d.getTime() : Infinity;
+            }
+            const ta = getT(a);
+            const tb = getT(b);
+            return ta - tb;
           };
 
           const onConfirm = async () => {
             try {
               if (!functions) throw new Error("Functions service not initialized.");
               const reconcileShiftsFn = httpsCallable(functions, 'reconcileShifts');
+              
               const payload = {
-                toCreate: toCreate.map(s => ({ ...s, date: s.date.toISOString() })),
-                toUpdate: toUpdate.map(u => ({
+                toCreate: toCreate.filter(s => isValid(s.date)).map(s => ({ ...s, date: s.date.toISOString() })),
+                toUpdate: toUpdate.filter(u => isValid(u.new.date)).map(u => ({
                   id: u.old.id,
                   new: { ...u.new, date: u.new.date.toISOString() }
                 })),
@@ -411,7 +431,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
                 toCreate: toCreate.sort(dateSort), 
                 toUpdate: toUpdate.sort((a,b) => dateSort(a.new, b.new)), 
                 toDelete: toDelete.sort(dateSort), 
-                failed: allFailedShifts.sort((a,b) => (a.shiftDate || '').localeCompare(b.shiftDate || ''))
+                failed: allFailedShifts.sort(dateSort)
             });
             setIsUploading(false);
             return;
@@ -422,7 +442,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           handleClear();
         } catch (err: any) {
           console.error('Import failed:', err);
-          setError(err?.message || 'An unexpected error occurred.');
+          setError(err?.message || 'An unexpected error occurred during processing.');
           onImportComplete([], async () => {}, undefined);
         } finally {
           setIsUploading(false);
@@ -537,3 +557,4 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
     </div>
   );
 }
+
