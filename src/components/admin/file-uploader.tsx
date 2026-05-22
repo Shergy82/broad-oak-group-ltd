@@ -94,11 +94,9 @@ function normalizeText(text: string | null | undefined): string {
 const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; task?: string; type?: string }): string => {
   const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
   
-  // Guard against invalid dates returning from excel or firestore
   if (!d || isNaN(d.getTime())) return `invalid-date-${shift.userId}-${Math.random()}`;
 
   const localDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  
   const dateStr = `${localDate.getFullYear()}-${String(localDate.getMonth() + 1).padStart(2, '0')}-${String(localDate.getDate()).padStart(2, '0')}`;
   
   const taskPart = shift.task ? `-${normalizeText(shift.task)}` : '';
@@ -251,7 +249,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           allShiftsFromExcel = result.parsed
             .map(p => {
               const dt = new Date(p.shiftDate);
-              // Ensure we only process valid dates
               if (!isValid(dt)) return null;
               
               return {
@@ -330,7 +327,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             const shiftDate = getCorrectedLocalDate(shiftData.date as any);
 
             if (existingShiftsMap.has(key)) {
-                // 🔒 DUPLICATE DETECTION: Only delete if date is TODAY or FUTURE
                 if (shiftDate >= importTodayLocal) {
                     toDelete.push(shiftData);
                 }
@@ -354,12 +350,10 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           for (const [key, excelShift] of excelShiftsMap.entries()) {
             const existingShift = existingShiftsMap.get(key);
             if (!existingShift) {
-              // Only create if it's today or future
               if (excelShift.date >= importTodayLocal) {
                 toCreate.push(excelShift);
               }
             } else if (!protectedStatuses.includes(existingShift.status)) {
-              // Only update if it's today or future
               const shiftDate = getCorrectedLocalDate(existingShift.date as any);
               if (shiftDate >= importTodayLocal) {
                 const hasChanged =
@@ -378,7 +372,13 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           }
 
           for (const [key, existingShift] of existingShiftsMap.entries()) {
-            const isFromThisPlanner = existingShift.plannerName === currentPlannerName;
+            // 🔒 RECTIFIED FOR BUILD IMPORT:
+            // For Build, we relax the filename isolation. This handles "planner.xls" vs "planner (1).xls".
+            // If it's an imported shift in this department and it's missing from the new file, it gets deleted.
+            const isFromThisPlanner = importType === 'GAS' 
+              ? existingShift.plannerName === currentPlannerName 
+              : true; 
+
             if (isFromThisPlanner && !excelShiftsMap.has(key) && !protectedStatuses.includes(existingShift.status) && existingShift.source !== 'manual') {
               const shiftDate = getCorrectedLocalDate(existingShift.date as any);
               if (shiftDate >= importTodayLocal) {
@@ -387,10 +387,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             }
           }
 
-          /**
-           * 🔒 STABLE SORTING
-           * Explicitly handles Invalid Dates and places them at the end.
-           */
           const dateSort = (a: any, b: any) => {
             const getT = (item: any) => {
                 const d = item.date instanceof Date ? item.date : (item.date?.toDate ? item.date.toDate() : new Date(item.date));
@@ -557,4 +553,3 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
     </div>
   );
 }
-
