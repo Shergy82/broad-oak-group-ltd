@@ -343,9 +343,9 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           const toCreate: ParsedShift[] = [];
           const toUpdate: { old: Shift; new: ParsedShift }[] = [];
           
-          const protectedStatuses: ShiftStatus[] = finalImportDepartment === 'Gas'
-            ? ['completed', 'incomplete', 'rejected', 'confirmed', 'on-site']
-            : ['completed', 'incomplete'];
+          // 🔒 UPDATE: Only terminal statuses (completed, incomplete, rejected) are protected. 
+          // Confirmed and On-site shifts will now be deleted if missing from the spreadsheet.
+          const protectedStatuses: ShiftStatus[] = ['completed', 'incomplete', 'rejected'];
 
           for (const [key, excelShift] of excelShiftsMap.entries()) {
             const existingShift = existingShiftsMap.get(key);
@@ -372,9 +372,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           }
 
           for (const [key, existingShift] of existingShiftsMap.entries()) {
-            // 🔒 RECTIFIED FOR BUILD IMPORT:
-            // For Build, we relax the filename isolation. This handles "planner.xls" vs "planner (1).xls".
-            // If it's an imported shift in this department and it's missing from the new file, it gets deleted.
             const isFromThisPlanner = importType === 'GAS' 
               ? existingShift.plannerName === currentPlannerName 
               : true; 
