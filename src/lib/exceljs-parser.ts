@@ -201,15 +201,16 @@ function isNonShiftText(text: string): boolean {
   
   // Overly specific headers to ignore
   const noise = [
-    "job manager", "measures", "scheme", "pulse", "ignore", "ordered", 
+    "job manager", "ignore", "ordered", 
     "start date", "on live", "coole", "variation", "work type", 
     "site address", "week comm", "asbestos present", "waiting on", 
     "scaffolding", "cc", "council", "manager", "ordering"
   ];
 
   // 🔒 STRICT HEADER MATCHING: Prevents generic words from triggering the ignore filter 
-  // when they are part of a longer task description (like "Send time and date stamped photos").
-  const strictHeaders = ["date", "task", "name", "operative", "address"];
+  // when they are part of a longer task description.
+  // If the cell is EXACTLY one of these, it's a header.
+  const strictHeaders = ["date", "task", "name", "operative", "address", "scheme", "measures", "pulse"];
   if (strictHeaders.includes(t)) return true;
 
   // Ensure common room names are NOT ignored
@@ -607,4 +608,3 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
 
     return { task, names: uniqueNames, type };
 }
-
