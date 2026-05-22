@@ -684,6 +684,10 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
       return <div className="h-24 text-center flex items-center justify-center text-muted-foreground mt-4 border border-dashed rounded-lg">No shifts scheduled.</div>;
     }
     const sortedShifts = [...shiftsToRender].sort((a,b) => getCorrectedLocalDate(a.date).getTime() - getCorrectedLocalDate(b.date).getTime());
+    
+    // Logic to determine if we should show the Operative info
+    const showOperative = selectedUserId === 'all' || viewMode === 'site' || activeTab === 'archive';
+
     return (
         <>
             <Card className="hidden md:block mt-4">
@@ -692,7 +696,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                         <TableHeader>
                             <TableRow>
                                 <TableHead className="w-[180px]">Date</TableHead>
-                                { (selectedUserId === 'all' || activeTab === 'archive') && <TableHead className="w-[180px]">Operative</TableHead> }
+                                { showOperative && <TableHead className="w-[180px]">Operative</TableHead> }
                                 <TableHead>Task &amp; Address</TableHead>
                                 <TableHead>Manager</TableHead>
                                 <TableHead className="text-right w-[110px]">Type</TableHead>
@@ -704,7 +708,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                             {sortedShifts.map(shift => (
                                 <TableRow key={shift.id}>
                                     <TableCell className="font-medium">{format(getCorrectedLocalDate(shift.date), 'eeee, MMM d')}</TableCell>
-                                    { (selectedUserId === 'all' || activeTab === 'archive') && <TableCell>{userNameMap.get(shift.userId) || 'Unknown'}</TableCell> }
+                                    { showOperative && <TableCell>{userNameMap.get(shift.userId) || 'Unknown'}</TableCell> }
                                     <TableCell>
                                         <div className="font-medium whitespace-pre-wrap">{shift.task}</div>
                                         <a href={`https://maps.google.com/?q=${encodeURIComponent(shift.address)}`} target="_blank" rel="noopener noreferrer" className="text-xs text-muted-foreground hover:underline block whitespace-pre-wrap">{shift.address}</a>
@@ -744,6 +748,12 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                             <div className="flex justify-between items-start gap-2">
                                 <div className="flex-1">
                                     <CardTitle className="text-base leading-tight">{shift.task}</CardTitle>
+                                    {showOperative && (
+                                        <p className="text-sm font-semibold text-primary mt-1 flex items-center gap-1.5">
+                                            <Users className="h-4 w-4" />
+                                            {userNameMap.get(shift.userId) || 'Unknown'}
+                                        </p>
+                                    )}
                                     <p className="text-sm text-muted-foreground mt-1 flex items-start gap-1">
                                         <MapPin className="h-3 w-3 shrink-0 mt-0.5" />
                                         {shift.address}
