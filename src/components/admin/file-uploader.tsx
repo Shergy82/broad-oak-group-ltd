@@ -343,9 +343,9 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           const toCreate: ParsedShift[] = [];
           const toUpdate: { old: Shift; new: ParsedShift }[] = [];
           
-          // 🔒 UPDATE: Only terminal statuses (completed, incomplete, rejected) are protected. 
-          // Confirmed and On-site shifts will now be deleted if missing from the spreadsheet.
-          const protectedStatuses: ShiftStatus[] = ['completed', 'incomplete', 'rejected'];
+          // 🔒 PROTECTED STATUSES: Terminal states AND 'On-site' are protected. 
+          // 'Confirmed' and 'Pending' shifts will now be deleted if missing from the spreadsheet.
+          const protectedStatuses: ShiftStatus[] = ['completed', 'incomplete', 'rejected', 'on-site'];
 
           for (const [key, excelShift] of excelShiftsMap.entries()) {
             const existingShift = existingShiftsMap.get(key);
