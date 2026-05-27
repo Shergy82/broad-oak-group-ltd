@@ -25,7 +25,12 @@ const allFaqs = [
     answer: "For certain jobs, a checklist of required tasks will appear on the shift card after you have marked yourself as **'On Site'**. \n\nAs you finish each item, simply check the box next to it. If a task has a camera icon, a photo is required. Clicking the checkbox for a photo-required task will open your device's camera. The photo you take will be automatically timestamped, geotagged, and uploaded to the project's evidence folder with the correct tag.",
     roles: ['user', 'admin', 'owner', 'manager', 'TLO'],
   },
-    {
+  {
+    question: "How do I set up tasks that trigger automatically for any operative (Multi-Trade)?",
+    answer: "Use **Dynamic Task Discovery** to enforce photo requirements based on the *job description* rather than the *operative's trade*:\n\n1.  **Create the Specialist Task**: Go to 'Task Management' and create a task. The **Task Name** acts as the primary 'Anchor Phrase'.\n2.  **Configure Requirements**: Set the 'Photo Required' toggle, specify the count, and provide an 'Evidence Tag' (e.g., `loft-insulation`).\n3.  **Add Trigger Keywords**: For flexibility, use the search icon in the Task Manager to add comma-separated keywords (e.g., `Insulation, Lofting`). \n4.  **Automatic Injection**: When any operative (e.g., a Painter) has a shift containing these phrases, the app automatically adds that task to their checklist for that job.\n5.  **Smart Filtering**: To prevent accidental triggers, use specific phrases. For example, 'Loft Top Up' is better than just 'Loft' to avoid triggering for plumbers simply running pipes through a loft space.",
+    roles: ['admin', 'owner', 'manager'],
+  },
+  {
     question: "How does the 'Share App' link work?",
     answer: "The 'Share App' button generates a special signup link that automatically assigns new users to a specific department, streamlining the onboarding process.\n\n- **For Admins/Managers/Users**: The link will always be for your own department.\n- **For Owners**: The link will be for the single department you have selected in your department filter. If you have multiple departments selected, you will be prompted to choose one first.",
     roles: ['user', 'admin', 'owner', 'manager', 'TLO'],
