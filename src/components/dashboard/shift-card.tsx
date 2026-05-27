@@ -1,7 +1,6 @@
-
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
@@ -137,7 +136,7 @@ const expiredStatusInfo = {
 
 const FINAL_STATUSES = new Set(['completed', 'incomplete', 'rejected']);
 
-const LS_SHIFT_TASKS_KEY = 'shiftTaskCompletion_v2';
+const LS_SHIFT_TASKS_KEY = 'shiftTaskCompletion_v3';
 
 export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
   const router = useRouter();
@@ -149,16 +148,16 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
   const [isCompleteNoteDialogOpen, setIsCompleteNoteDialogOpen] = useState(false);
   const [completionNote, setCompletionNote] = useState('');
   
-  const [rejectingTaskIndex, setRejectingTaskIndex] = useState<number | null>(null);
+  const [rejectingTaskName, setRejectingTaskName] = useState<string | null>(null);
   const [isRejectNoteDialogOpen, setRejectNoteDialogOpen] = useState(false);
   const [rejectionNote, setRejectionNote] = useState('');
   const [note, setNote] = useState('');
 
   const [tradeTasks, setTradeTasks] = useState<TradeTask[]>([]);
-  const [taskStatuses, setTaskStatuses] = useState<{ [key: number]: TaskStatus }>({});
+  const [taskStatuses, setTaskStatuses] = useState<{ [key: string]: TaskStatus }>({});
 
   const [isCameraOpen, setIsCameraOpen] = useState(false);
-  const [selectedCameraTask, setSelectedCameraTask] = useState<{task: TradeTask, index: number} | null>(null);
+  const [selectedCameraTask, setSelectedCameraTask] = useState<TradeTask | null>(null);
 
   const [project, setProject] = useState<Project | null>(null);
   const [allTrades, setAllTrades] = useState<Trade[]>([]);
@@ -183,9 +182,6 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
   const StatusIcon = statusInfo.icon;
 
   const isHistorical = shift.status === 'completed' || shift.status === 'incomplete';
-  const allTasksCompleted =
-    tradeTasks.length === 0 ||
-    tradeTasks.every((_, index) => !!taskStatuses[index]);
 
   // --- Task/Checklist Logic ---
   useEffect(() => {
@@ -213,21 +209,52 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
     return () => unsubscribe();
   }, []);
 
+  /**
+   * 🔒 DYNAMIC TASK DISCOVERY
+   * Hierarchy:
+   * 1. Personal Trade category (User Name matching category name)
+   * 2. Anchor Phrase matching: Scan ALL categories for tasks that appear in shift description.
+   */
   useEffect(() => {
-    if (userProfile?.name && allTrades.length > 0) {
-        const matchingTrade = allTrades.find(
-            (trade) => trade.name.toLowerCase() === userProfile.name?.toLowerCase()
-        );
+    if (!allTrades.length) return;
 
-        if (matchingTrade) {
-            setTradeTasks(matchingTrade.tasks || []);
-        } else {
-            setTradeTasks([]);
-        }
-    } else {
-        setTradeTasks([]);
+    const discoveredTasks: TradeTask[] = [];
+    const shiftDesc = (shift.task || "").toLowerCase();
+
+    // 1. Add category matching user name (Special User-Specific Category)
+    if (userProfile?.name) {
+      const userCategory = allTrades.find(t => t.name.toLowerCase() === userProfile.name.toLowerCase());
+      if (userCategory?.tasks) {
+        discoveredTasks.push(...userCategory.tasks);
+      }
     }
-  }, [userProfile, allTrades]);
+
+    // 2. Scan ALL categories for specific anchor phrases or keywords
+    allTrades.forEach(category => {
+      if (category.tasks) {
+        category.tasks.forEach(task => {
+          const taskAnchor = task.text.toLowerCase();
+          const triggers = task.triggerKeywords 
+            ? task.triggerKeywords.toLowerCase().split(',').map(s => s.trim()).filter(Boolean)
+            : [];
+          
+          // STRICT PHRASE MATCHING: Ensure we aren't matching partial words inside other words
+          // We look for the exact task name OR any of the triggers as distinct substrings
+          const isTaskInDesc = shiftDesc.includes(taskAnchor);
+          const isTriggerInDesc = triggers.some(t => shiftDesc.includes(t));
+
+          if (isTaskInDesc || isTriggerInDesc) {
+            // Deduplicate by task name
+            if (!discoveredTasks.find(existing => existing.text === task.text)) {
+              discoveredTasks.push(task);
+            }
+          }
+        });
+      }
+    });
+
+    setTradeTasks(discoveredTasks);
+  }, [userProfile, allTrades, shift.task]);
 
 
   useEffect(() => {
@@ -247,7 +274,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
     }
   }, [shift.id, tradeTasks.length]);
 
-  const updateAndStoreTaskStatuses = (newStatuses: { [key: number]: TaskStatus }) => {
+  const updateAndStoreTaskStatuses = (newStatuses: { [key: string]: TaskStatus }) => {
     setTaskStatuses(newStatuses);
     try {
       const allShiftTasks = JSON.parse(localStorage.getItem(LS_SHIFT_TASKS_KEY) || '{}');
@@ -258,30 +285,30 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
     }
   };
 
-  const handleTaskToggle = (taskIndex: number) => {
-    const task = tradeTasks[taskIndex];
-    if (task.photoRequired && !taskStatuses[taskIndex]) {
-        setSelectedCameraTask({ task, index: taskIndex });
+  const handleTaskToggle = (task: TradeTask) => {
+    const taskName = task.text;
+    if (task.photoRequired && !taskStatuses[taskName]) {
+        setSelectedCameraTask(task);
         setIsCameraOpen(true);
         return;
     }
 
     const newStatuses = { ...taskStatuses };
-    if (newStatuses[taskIndex]) {
-      delete newStatuses[taskIndex];
+    if (newStatuses[taskName]) {
+      delete newStatuses[taskName];
     } else {
-      newStatuses[taskIndex] = { status: 'completed' };
+      newStatuses[taskName] = { status: 'completed' };
     }
     updateAndStoreTaskStatuses(newStatuses);
   };
 
-  const handleOpenRejectDialog = (taskIndex: number) => {
-    setRejectingTaskIndex(taskIndex);
+  const handleOpenRejectDialog = (taskName: string) => {
+    setRejectingTaskName(taskName);
     setRejectNoteDialogOpen(true);
   };
 
   const handleRejectSubmit = () => {
-    if (rejectingTaskIndex === null || !rejectionNote.trim()) {
+    if (rejectingTaskName === null || !rejectionNote.trim()) {
       toast({
         variant: 'destructive',
         title: 'Reason Required',
@@ -290,18 +317,23 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
       return;
     }
     const newStatuses = { ...taskStatuses };
-    newStatuses[rejectingTaskIndex] = { status: 'rejected', note: rejectionNote.trim() };
+    newStatuses[rejectingTaskName] = { status: 'rejected', note: rejectionNote.trim() };
     updateAndStoreTaskStatuses(newStatuses);
     setRejectNoteDialogOpen(false);
     setRejectionNote('');
-    setRejectingTaskIndex(null);
+    setRejectingTaskName(null);
   };
 
-  const handleUndoReject = (taskIndex: number) => {
+  const handleUndoReject = (taskName: string) => {
     const newStatuses = { ...taskStatuses };
-    delete newStatuses[taskIndex];
+    delete newStatuses[taskName];
     updateAndStoreTaskStatuses(newStatuses);
   };
+
+  const allTasksCompleted = useMemo(() => {
+    if (tradeTasks.length === 0) return true;
+    return tradeTasks.every(task => !!taskStatuses[task.text]);
+  }, [tradeTasks, taskStatuses]);
 
   const handlePhotoUpload = async (filesToUpload: File[]) => {
     if (!selectedCameraTask) return;
@@ -314,7 +346,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
         toast({
           variant: 'destructive',
           title: 'Project Not Found',
-          description: `No project found with address: ${shift.address}. Cannot upload photo.`,
+          description: `No project found with address: ${shift.address}. Please contact admin.`,
         });
         throw new Error('Project not found');
       }
@@ -340,7 +372,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
                 uploadedAt: serverTimestamp(),
                 uploaderId: userProfile?.uid || "system",
                 uploaderName: userProfile.name,
-                evidenceTag: selectedCameraTask.task.evidenceTag || '',
+                evidenceTag: selectedCameraTask.evidenceTag || selectedCameraTask.text,
               });
               resolve();
             } catch (error) {
@@ -352,7 +384,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
       await Promise.all(uploadPromises);
 
       const newStatuses = { ...taskStatuses };
-      newStatuses[selectedCameraTask.index] = { status: 'completed' };
+      newStatuses[selectedCameraTask.text] = { status: 'completed' };
       updateAndStoreTaskStatuses(newStatuses);
 
       toast({ title: 'Photos Uploaded', description: `${filesToUpload.length} photo(s) uploaded and task completed.` });
@@ -466,17 +498,17 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
     return (
       <div className="mt-4 p-4 border-t">
         <h4 className="font-semibold text-sm mb-3 flex items-center gap-2 text-muted-foreground">
-          <ListChecks /> Checklist
+          <ListChecks className="h-4 w-4" /> Required Tasks
         </h4>
         <div className="space-y-3">
           {tradeTasks.map((task, index) => {
-            const status = taskStatuses[index];
+            const status = taskStatuses[task.text];
             return (
               <div key={index} className="flex items-start space-x-3">
                 <Checkbox
                   id={`task-${shift.id}-${index}`}
                   checked={status?.status === 'completed'}
-                  onCheckedChange={() => handleTaskToggle(index)}
+                  onCheckedChange={() => handleTaskToggle(task)}
                   disabled={isLoading || status?.status === 'rejected'}
                   className="mt-1"
                 />
@@ -502,7 +534,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6"
-                          onClick={() => handleOpenRejectDialog(index)}
+                          onClick={() => handleOpenRejectDialog(task.text)}
                           disabled={isLoading}
                         >
                           <XCircle className="h-4 w-4 text-destructive/70 hover:text-destructive" />
@@ -520,7 +552,7 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
                         variant="link"
                         size="sm"
                         className="h-auto p-0 mt-1 text-destructive"
-                        onClick={() => handleUndoReject(index)}
+                        onClick={() => handleUndoReject(task.text)}
                       >
                         <Undo className="mr-1 h-3 w-3" /> Undo
                       </Button>
@@ -685,9 +717,9 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
         <MultiPhotoCamera
             open={isCameraOpen}
             onOpenChange={setIsCameraOpen}
-            requiredCount={selectedCameraTask.task.photoCount || 1}
+            requiredCount={selectedCameraTask.photoCount || 1}
             onUploadComplete={handlePhotoUpload}
-            taskName={selectedCameraTask.task.text}
+            taskName={selectedCameraTask.text}
             siteAddress={shift.address}
         />
       )}

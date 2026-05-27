@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -7,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { PlusCircle, Trash2, Camera, Tags, Copy } from 'lucide-react';
+import { PlusCircle, Trash2, Camera, Tags, Copy, Search } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
@@ -29,6 +27,8 @@ export function TaskManager() {
   const [newSubTaskPhotoRequired, setNewSubTaskPhotoRequired] = useState<{ [key: string]: boolean }>({});
   const [newSubTaskEvidenceTag, setNewSubTaskEvidenceTag] = useState<{ [key: string]: string }>({});
   const [newSubTaskPhotoCount, setNewSubTaskPhotoCount] = useState<{ [key: string]: number }>({});
+  const [newSubTaskTriggers, setNewSubTaskTriggers] = useState<{ [key: string]: string }>({});
+  
   const { toast } = useToast();
   const { userProfile } = useUserProfile();
   const { users: allUsers, loading: usersLoading } = useAllUsers();
@@ -63,11 +63,9 @@ export function TaskManager() {
     if (!userProfile) return [];
     
     if (userProfile.role === 'owner') {
-        // An owner can see global tasks OR tasks in their selected departments
         return trades.filter(trade => !trade.department || selectedDepartments.has(trade.department!));
     }
 
-    // For other privileged users (admin/manager)
     return trades.filter(trade => !trade.department || trade.department === userProfile.department);
   }, [trades, userProfile, selectedDepartments]);
 
@@ -87,13 +85,10 @@ export function TaskManager() {
       };
       
       if (isOwner) {
-        // If owner has ONE department selected, assign to that department.
-        // Otherwise, it's a global task.
         if (selectedDepartments.size === 1) {
             payload.department = Array.from(selectedDepartments)[0];
         }
       } else if (userProfile.department) {
-        // Admins/Managers create tasks for their own department.
         payload.department = userProfile.department;
       }
       
@@ -160,9 +155,16 @@ export function TaskManager() {
     const photoRequired = newSubTaskPhotoRequired[tradeId] || false;
     const evidenceTag = newSubTaskEvidenceTag[tradeId]?.trim() || taskText;
     const photoCount = newSubTaskPhotoCount[tradeId] ?? 6;
+    const triggerKeywords = newSubTaskTriggers[tradeId]?.trim() || '';
+    
     const tradeDocRef = doc(db, 'trade_tasks', tradeId);
     
-    const newTask: TradeTask = { text: taskText, photoRequired };
+    const newTask: TradeTask = { 
+      text: taskText, 
+      photoRequired,
+      triggerKeywords: triggerKeywords || undefined
+    };
+    
     if (photoRequired) {
         newTask.evidenceTag = evidenceTag;
         newTask.photoCount = photoCount;
@@ -176,6 +178,7 @@ export function TaskManager() {
       setNewSubTaskPhotoRequired({ ...newSubTaskPhotoRequired, [tradeId]: false });
       setNewSubTaskEvidenceTag({ ...newSubTaskEvidenceTag, [tradeId]: '' });
       setNewSubTaskPhotoCount({ ...newSubTaskPhotoCount, [tradeId]: 6 });
+      setNewSubTaskTriggers({ ...newSubTaskTriggers, [tradeId]: '' });
       toast({ title: 'Success', description: `Task added.` });
     } catch (error) {
       console.error('Error adding task: ', error);
@@ -237,7 +240,7 @@ export function TaskManager() {
             <CardHeader>
                 <CardTitle>Task Management</CardTitle>
                 <CardDescription>
-                Create and manage reusable tasks organized by category (e.g., trade or role).
+                Create and manage reusable tasks organized by category.
                 </CardDescription>
             </CardHeader>
             <CardContent>
@@ -254,7 +257,7 @@ export function TaskManager() {
       <CardHeader>
         <CardTitle>Task Management</CardTitle>
         <CardDescription>
-          Create and manage reusable tasks organized by category (e.g., trade or role). This data is stored centrally for all users.
+          Create reusable tasks. Specialist tasks will automatically appear on shift cards if the description matches the task name or triggers.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -331,16 +334,29 @@ export function TaskManager() {
                   <div className="space-y-4">
                     {isPrivilegedUser && (
                         <div className="space-y-3 p-3 border bg-background rounded-md">
-                        <Input
-                            placeholder="Add a new sub-task..."
-                            value={newSubTaskText[trade.id] || ''}
-                            onChange={(e) => {
-                                const text = e.target.value;
-                                setNewSubTaskText({ ...newSubTaskText, [trade.id]: text });
-                                setNewSubTaskEvidenceTag({ ...newSubTaskEvidenceTag, [trade.id]: text });
-                            }}
-                            onKeyPress={(e) => e.key === 'Enter' && handleAddTask(trade.id)}
-                        />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <Input
+                              placeholder="Task name (Anchor Phrase)..."
+                              value={newSubTaskText[trade.id] || ''}
+                              onChange={(e) => {
+                                  const text = e.target.value;
+                                  setNewSubTaskText({ ...newSubTaskText, [trade.id]: text });
+                                  if (!newSubTaskEvidenceTag[trade.id]) {
+                                      setNewSubTaskEvidenceTag({ ...newSubTaskEvidenceTag, [trade.id]: text });
+                                  }
+                              }}
+                          />
+                          <div className="relative">
+                            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                            <Input
+                                placeholder="Extra Trigger Keywords (comma separated)..."
+                                className="pl-8"
+                                value={newSubTaskTriggers[trade.id] || ''}
+                                onChange={(e) => setNewSubTaskTriggers({ ...newSubTaskTriggers, [trade.id]: e.target.value })}
+                            />
+                          </div>
+                        </div>
+
                         <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
                             <div className="flex items-center space-x-2">
                             <Checkbox
@@ -372,7 +388,7 @@ export function TaskManager() {
                                     <div className="flex items-center gap-2 w-full flex-grow">
                                         <Tags className="h-4 w-4 text-muted-foreground" />
                                         <Input 
-                                            placeholder="Evidence Tag (e.g., boiler-photo)"
+                                            placeholder="Evidence Tag"
                                             value={newSubTaskEvidenceTag[trade.id] || ''}
                                             onChange={(e) => setNewSubTaskEvidenceTag({...newSubTaskEvidenceTag, [trade.id]: e.target.value})}
                                             className="h-8 flex-grow"
@@ -392,37 +408,45 @@ export function TaskManager() {
                         {trade.tasks.map((task, index) => (
                           <li
                             key={index}
-                            className="flex items-center justify-between p-2 bg-background rounded-md border"
+                            className="flex flex-col gap-2 p-3 bg-background rounded-md border"
                           >
-                            <div className="flex items-center gap-3 flex-wrap">
-                                <span className="font-medium">{task.text}</span>
-                                {task.photoRequired && <Camera className="h-4 w-4 text-muted-foreground" title="Photo required" />}
-                                {task.photoCount && task.photoCount > 0 && (
-                                <span className="text-xs text-muted-foreground">({task.photoCount} photos)</span>
-                                )}
-                                {task.evidenceTag && (
-                                  <Badge variant="secondary">{task.evidenceTag}</Badge>
+                            <div className="flex items-center justify-between w-full">
+                                <div className="flex items-center gap-3 flex-wrap">
+                                    <span className="font-semibold">{task.text}</span>
+                                    {task.photoRequired && <Camera className="h-4 w-4 text-muted-foreground" title="Photo required" />}
+                                    {task.photoCount && task.photoCount > 0 && (
+                                    <span className="text-xs text-muted-foreground">({task.photoCount} photos)</span>
+                                    )}
+                                    {task.evidenceTag && (
+                                      <Badge variant="secondary">{task.evidenceTag}</Badge>
+                                    )}
+                                </div>
+                                {isPrivilegedUser && (
+                                    <div className="flex items-center gap-1">
+                                        <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7 text-muted-foreground"
+                                        onClick={() => handleDuplicateTask(trade.id, task)}
+                                        >
+                                        <Copy className="h-4 w-4" />
+                                        </Button>
+                                        <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7 text-destructive/70 hover:text-destructive hover:bg-destructive/10"
+                                        onClick={() => handleDeleteTask(trade.id, task)}
+                                        >
+                                        <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                    </div>
                                 )}
                             </div>
-                            {isPrivilegedUser && (
-                                <div>
-                                    <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7 text-muted-foreground"
-                                    onClick={() => handleDuplicateTask(trade.id, task)}
-                                    >
-                                    <Copy className="h-4 w-4" />
-                                    </Button>
-                                    <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7 text-destructive/70 hover:text-destructive hover:bg-destructive/10"
-                                    onClick={() => handleDeleteTask(trade.id, task)}
-                                    >
-                                    <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                </div>
+                            {task.triggerKeywords && (
+                              <div className="text-[10px] text-muted-foreground flex items-center gap-1">
+                                <Search className="h-3 w-3" />
+                                <span>Triggers: <span className="font-medium italic">{task.triggerKeywords}</span></span>
+                              </div>
                             )}
                           </li>
                         ))}

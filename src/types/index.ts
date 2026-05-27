@@ -152,6 +152,7 @@ export interface TradeTask {
   photoRequired: boolean;
   evidenceTag?: string;
   photoCount?: number;
+  triggerKeywords?: string;
 }
 
 export interface EvidenceChecklist {
