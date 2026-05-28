@@ -199,24 +199,26 @@ function toISODate(dt: Date | null): string {
 function isNonShiftText(text: string): boolean {
   const t = text.trim().toLowerCase();
   
-  // Substring matches - only ignore if these phrases appear in specific context
+  // Substring matches - only ignore if these phrases appear in isolation or as distinct headers.
+  // We use more specific matching to avoid killing shifts like "NOTTINGHAM CC".
   const noise = [
-    "job manager", "ignore", "ordered", 
-    "start date", "on live", "coole", "variation", "work type", 
-    "site address", "week comm", "asbestos present", "waiting on", 
-    "scaffolding", "ordering"
+    "job manager:",
+    "site address:",
+    "week comm:",
+    "asbestos present:",
+    "variation:",
   ];
 
   // 🔒 STRICT HEADER MATCHING: Prevents generic words from triggering the ignore filter 
   // when they are part of a longer task description (like "NOTTINGHAM CC" or "COUNCIL HOUSE").
   // If the cell is EXACTLY one of these, it's a header.
-  const strictHeaders = ["date", "task", "name", "operative", "address", "scheme", "measures", "pulse", "cc", "council", "manager"];
+  const strictHeaders = ["date", "task", "name", "operative", "address", "scheme", "measures", "pulse", "cc", "council", "manager", "ignore", "ordered", "start date", "on live", "coole", "variation", "work type", "waiting on", "scaffolding", "ordering"];
   if (strictHeaders.includes(t)) return true;
 
   // Ensure common room names are NOT ignored
   if (t.includes('bedroom') || t.includes('bathroom')) return false;
 
-  return noise.some(b => t.includes(b)) || /^\+?\d[\d\s-]{7,}$/.test(t);
+  return noise.some(b => t.startsWith(b)) || /^\+?\d[\d\s-]{7,}$/.test(t);
 }
 
 /* =========================
