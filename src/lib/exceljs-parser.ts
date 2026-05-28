@@ -199,18 +199,18 @@ function toISODate(dt: Date | null): string {
 function isNonShiftText(text: string): boolean {
   const t = text.trim().toLowerCase();
   
-  // Overly specific headers to ignore
+  // Substring matches - only ignore if these phrases appear in specific context
   const noise = [
     "job manager", "ignore", "ordered", 
     "start date", "on live", "coole", "variation", "work type", 
     "site address", "week comm", "asbestos present", "waiting on", 
-    "scaffolding", "cc", "council", "manager", "ordering"
+    "scaffolding", "ordering"
   ];
 
   // 🔒 STRICT HEADER MATCHING: Prevents generic words from triggering the ignore filter 
-  // when they are part of a longer task description.
+  // when they are part of a longer task description (like "NOTTINGHAM CC" or "COUNCIL HOUSE").
   // If the cell is EXACTLY one of these, it's a header.
-  const strictHeaders = ["date", "task", "name", "operative", "address", "scheme", "measures", "pulse"];
+  const strictHeaders = ["date", "task", "name", "operative", "address", "scheme", "measures", "pulse", "cc", "council", "manager"];
   if (strictHeaders.includes(t)) return true;
 
   // Ensure common room names are NOT ignored
