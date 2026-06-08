@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useCallback } from 'react';
@@ -206,7 +207,12 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
       setIsUploading(true);
       setError(null);
 
-      const currentPlannerName = file.name.replace(/\.[^/.]+$/, "");
+      // 🔒 Filename handling: BUILD uses normalized names to handle versioned downloads (e.g. planner 1, planner 2)
+      // GAS remains strictly isolated by literal filename as per user requirement.
+      const rawFilename = file.name.replace(/\.[^/.]+$/, "");
+      const currentPlannerName = importType === 'BUILD' 
+        ? rawFilename.replace(/\s*\(?\d+\)?$/, "").replace(/\s*-\s*copy$/i, "").trim()
+        : rawFilename;
 
       const reader = new FileReader();
       reader.onload = async (e) => {
@@ -372,9 +378,11 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           }
 
           for (const [key, existingShift] of existingShiftsMap.entries()) {
-            const isFromThisPlanner = importType === 'GAS' 
-              ? existingShift.plannerName === currentPlannerName 
-              : true; 
+            // 🔒 Ownership check: BUILD now uses targeted isolation (same as GAS) to prevent wiping the whole department.
+            // For BUILD, we also normalize the name of the existing shift to match the new normalized currentPlannerName.
+            const isFromThisPlanner = importType === 'BUILD'
+              ? (existingShift.plannerName || '').replace(/\s*\(?\d+\)?$/, "").replace(/\s*-\s*copy$/i, "").trim() === currentPlannerName
+              : existingShift.plannerName === currentPlannerName;
 
             if (isFromThisPlanner && !excelShiftsMap.has(key) && !protectedStatuses.includes(existingShift.status) && existingShift.source !== 'manual') {
               const shiftDate = getCorrectedLocalDate(existingShift.date as any);
