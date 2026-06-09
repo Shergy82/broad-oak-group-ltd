@@ -6,7 +6,7 @@ import { FileUploader, type FailedShift, type DryRunResult, type ParsedShift } f
 import type { UserProfile, Shift } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { CheckCircle, FileWarning, Upload, List, ArrowRight, Edit, Plus, Trash2, Download } from 'lucide-react';
+import { CheckCircle, FileWarning, Upload, List, ArrowRight, Edit, Plus, Trash2, Download, FileText } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from '../ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
@@ -16,6 +16,14 @@ import { useAllUsers } from '@/hooks/use-all-users';
 import { Label } from '../ui/label';
 import type { ImportType } from '@/lib/exceljs-parser';
 import { Input } from '../ui/input';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface ShiftImporterProps {
   userProfile: UserProfile;
@@ -31,6 +39,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
   } | null>(null);
 
   const [isConfirmed, setIsConfirmed] = useState(false);
+  const [isPostImportDialogOpen, setIsPostImportDialogOpen] = useState(false);
   const [importDepartment, setImportDepartment] = useState(userProfile.department || '');
   const [importType, setImportType] = useState<ImportType>('BUILD');
   const { users: allUsers, loading: usersLoading } = useAllUsers();
@@ -86,13 +95,6 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
     setIsConfirmed(false);
   }
 
-  const handleConfirmImport = async () => {
-    if (importResults?.onConfirm) {
-      await importResults.onConfirm();
-      setIsConfirmed(true);
-    }
-  };
-  
   const handleDownloadFailedReport = async (failedShifts: FailedShift[]) => {
     if (failedShifts.length === 0) return;
 
@@ -107,6 +109,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
     doc.setFontSize(11);
     doc.setTextColor(100);
     doc.text(`Generated on: ${format(generationDate, 'PPP p')}`, 14, 28);
+    doc.text(`Department: ${importType === 'GAS' ? 'Gas' : importDepartment}`, 14, 34);
 
     const head = [['Sheet', 'Cell', 'Content', 'Reason for Failure']];
     const body = failedShifts.map(f => [
@@ -117,7 +120,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
     ]);
 
     autoTable(doc, {
-        startY: 35,
+        startY: 40,
         head,
         body,
         headStyles: { fillColor: [220, 53, 69] },
@@ -133,9 +136,20 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
     doc.save(`failed_shift_import_${format(generationDate, 'yyyy-MM-dd')}.pdf`);
   };
 
+  const handleConfirmImport = async () => {
+    if (importResults?.onConfirm) {
+      await importResults.onConfirm();
+      setIsConfirmed(true);
+      
+      // If there are failures, trigger the post-import dialog
+      if (importResults.failedShifts.length > 0) {
+        setIsPostImportDialogOpen(true);
+      }
+    }
+  };
+  
   /**
    * 🔒 ROBUST DATE FORMATTING
-   * Wraps call in try-catch to prevent "Invalid time value" from crashing the entire app.
    */
   const safeFormatDate = (date: any) => {
     if (!date) return 'N/A';
@@ -362,85 +376,120 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Import Shifts from Excel</CardTitle>
-        <CardDescription>
-          Upload an Excel workbook to create, update, or delete shifts in bulk.
-          Use the "Dry Run" option to preview changes before publishing.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-4">
-            <div className="space-y-2">
-                <Label htmlFor="import-format-select">Select Import Format</Label>
-                <Select value={importType} onValueChange={(v) => handleImportTypeChange(v as 'BUILD' | 'GAS')}>
-                    <SelectTrigger id="import-format-select">
-                        <SelectValue placeholder="Select import format..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="BUILD">Build Department Format</SelectItem>
-                        <SelectItem value="GAS">Gas Department Format</SelectItem>
-                    </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">Select the format that matches your Excel file.</p>
-            </div>
-            
-            {importType === 'GAS' ? (
-                <div className="space-y-2">
-                    <Label>Department</Label>
-                    <Input value="Gas" disabled />
-                    <p className="text-xs text-muted-foreground">GAS format files are always imported into the Gas department.</p>
-                </div>
-            ) : isOwner ? (
-                <div className="space-y-2">
-                    <Label htmlFor="import-department-select">Assign to Department</Label>
-                    <Select value={importDepartment} onValueChange={setImportDepartment}>
-                        <SelectTrigger id="import-department-select">
-                            <SelectValue placeholder="Select department..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {usersLoading 
-                                ? <div className="p-2 text-sm text-muted-foreground">Loading departments...</div>
-                                : availableDepartments.map(dept => <SelectItem key={dept} value={dept}>{dept}</SelectItem>)
-                            }
-                        </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">All imported shifts will be tagged with this department.</p>
-                </div>
-            ) : (
-                 <div className="space-y-2">
-                    <Label>Department</Label>
-                    <Input value={userProfile.department || 'No department assigned'} disabled />
-                    <p className="text-xs text-muted-foreground">Shifts will be imported into your assigned department.</p>
-                </div>
-            )}
-        </div>
-        <div className="mt-4">
-            <FileUploader
-            onImportComplete={handleImportComplete}
-            onFileSelect={handleFileSelect}
-            userProfile={userProfile}
-            importDepartment={importDepartment}
-            importType={importType}
-            />
-        </div>
-      </CardContent>
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Import Shifts from Excel</CardTitle>
+          <CardDescription>
+            Upload an Excel workbook to create, update, or delete shifts in bulk.
+            Use the "Dry Run" option to preview changes before publishing.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+              <div className="space-y-2">
+                  <Label htmlFor="import-format-select">Select Import Format</Label>
+                  <Select value={importType} onValueChange={(v) => handleImportTypeChange(v as 'BUILD' | 'GAS')}>
+                      <SelectTrigger id="import-format-select">
+                          <SelectValue placeholder="Select import format..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                          <SelectItem value="BUILD">Build Department Format</SelectItem>
+                          <SelectItem value="GAS">Gas Department Format</SelectItem>
+                      </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">Select the format that matches your Excel file.</p>
+              </div>
+              
+              {importType === 'GAS' ? (
+                  <div className="space-y-2">
+                      <Label>Department</Label>
+                      <Input value="Gas" disabled />
+                      <p className="text-xs text-muted-foreground">GAS format files are always imported into the Gas department.</p>
+                  </div>
+              ) : isOwner ? (
+                  <div className="space-y-2">
+                      <Label htmlFor="import-department-select">Assign to Department</Label>
+                      <Select value={importDepartment} onValueChange={setImportDepartment}>
+                          <SelectTrigger id="import-department-select">
+                              <SelectValue placeholder="Select department..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                              {usersLoading 
+                                  ? <div className="p-2 text-sm text-muted-foreground">Loading departments...</div>
+                                  : availableDepartments.map(dept => <SelectItem key={dept} value={dept}>{dept}</SelectItem>)
+                              }
+                          </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">All imported shifts will be tagged with this department.</p>
+                  </div>
+              ) : (
+                   <div className="space-y-2">
+                      <Label>Department</Label>
+                      <Input value={userProfile.department || 'No department assigned'} disabled />
+                      <p className="text-xs text-muted-foreground">Shifts will be imported into your assigned department.</p>
+                  </div>
+              )}
+          </div>
+          <div className="mt-4">
+              <FileUploader
+              onImportComplete={handleImportComplete}
+              onFileSelect={handleFileSelect}
+              userProfile={userProfile}
+              importDepartment={importDepartment}
+              importType={importType}
+              />
+          </div>
+        </CardContent>
 
-      {importResults && (
-        <CardFooter className="flex-col items-start gap-4 pt-6">
-          {isConfirmed ? (
-            <Alert>
-              <CheckCircle className="h-4 w-4" />
-              <AlertTitle>Import Successful!</AlertTitle>
-              <AlertDescription>Your changes have been published.</AlertDescription>
-            </Alert>
-          ) : (
-             importResults.dryRunResult && renderDryRunResults(importResults.dryRunResult)
-          )}
-        </CardFooter>
-      )}
-    </Card>
+        {importResults && (
+          <CardFooter className="flex-col items-start gap-4 pt-6">
+            {isConfirmed ? (
+              <Alert>
+                <CheckCircle className="h-4 w-4" />
+                <AlertTitle>Import Successful!</AlertTitle>
+                <AlertDescription>Your changes have been published.</AlertDescription>
+              </Alert>
+            ) : (
+               importResults.dryRunResult && renderDryRunResults(importResults.dryRunResult)
+            )}
+          </CardFooter>
+        )}
+      </Card>
+
+      <Dialog open={isPostImportDialogOpen} onOpenChange={setIsPostImportDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileWarning className="h-5 w-5 text-amber-500" />
+              Import Complete with Failures
+            </DialogTitle>
+            <DialogDescription>
+              The import finished, but <strong>{importResults?.failedShifts.length}</strong> row(s) could not be processed due to errors (e.g., misspelled names or invalid formatting).
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-4 bg-muted/30 rounded-lg p-4 text-sm space-y-2">
+            <p>Would you like to download a PDF report of these failures? This will help you identify which rows need manual correction in your spreadsheet.</p>
+          </div>
+
+          <DialogFooter className="flex flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setIsPostImportDialogOpen(false)} className="w-full sm:w-auto">
+              Close
+            </Button>
+            <Button 
+              onClick={() => {
+                if (importResults) handleDownloadFailedReport(importResults.failedShifts);
+                setIsPostImportDialogOpen(false);
+              }} 
+              className="w-full sm:w-auto"
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Download Failure Report
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }
-
