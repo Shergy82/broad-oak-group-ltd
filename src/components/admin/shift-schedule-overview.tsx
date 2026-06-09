@@ -97,6 +97,7 @@ import {
   ChevronRight,
   Calendar as CalendarIcon,
   MapPin,
+  FileText,
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -202,6 +203,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
   const { selectedDepartments } = useDepartmentFilter();
   const isOwner = userProfile.role === 'owner';
   const isPhil = userProfile?.email === 'phil.s@broadoakgroup.com';
+  const isPrivilegedForPlanner = ['admin', 'owner', 'manager'].includes(userProfile.role);
 
   useEffect(() => {
     if (!db) {
@@ -699,6 +701,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                                 { showOperative && <TableHead className="w-[180px]">Operative</TableHead> }
                                 <TableHead>Task &amp; Address</TableHead>
                                 <TableHead>Manager</TableHead>
+                                { isPrivilegedForPlanner && <TableHead>Planner</TableHead> }
                                 <TableHead className="text-right w-[110px]">Type</TableHead>
                                 <TableHead className="text-right w-[160px]">Status</TableHead>
                                 {isOwner && <TableHead className="text-right w-[140px]">Actions</TableHead>}
@@ -715,6 +718,11 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                                         {shift.eNumber && <div className="text-xs text-muted-foreground">{shift.eNumber}</div>}
                                     </TableCell>
                                     <TableCell className="text-xs text-muted-foreground">{shift.manager || 'N/A'}</TableCell>
+                                    { isPrivilegedForPlanner && (
+                                        <TableCell className="text-xs text-muted-foreground">
+                                            {shift.department === 'Gas' ? (shift.plannerName || 'Manual') : '—'}
+                                        </TableCell>
+                                    )}
                                     <TableCell className="text-right">
                                         <Badge variant={shift.type === 'am' ? 'default' : 'outline'} className={cn("capitalize text-xs", shift.type === 'pm' && "bg-purple-500 text-white border-transparent")}>{shift.type === 'all-day' ? 'All Day' : shift.type.toUpperCase()}</Badge>
                                     </TableCell>
@@ -765,6 +773,14 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
                                 </Badge>
                             </div>
                         </CardHeader>
+                        <CardContent className="p-4 pt-0 pb-2">
+                            {isPrivilegedForPlanner && shift.department === 'Gas' && (
+                                <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                                    <FileText className="h-3 w-3" />
+                                    Source: {shift.plannerName || 'Manual Entry'}
+                                </p>
+                            )}
+                        </CardContent>
                         <CardFooter className="p-2 border-t bg-muted/30 flex justify-between items-center">
                             <div className="flex-1">
                                 {getStatusBadge(shift)}
