@@ -158,27 +158,21 @@ function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
     let d: Date | null = null;
 
     if (v instanceof Date && !isNaN(v.getTime())) {
-      // 🔒 Excel Date objects are already timezone-neutral in exceljs
       d = new Date(v.getFullYear(), v.getMonth(), v.getDate());
     } else if (typeof v === "number" && v > 20000 && v < 60000) {
-      // 🔒 Standard Excel numeric date conversion
       const rawDate = new Date((v - 25569) * 86400 * 1000);
       d = new Date(rawDate.getFullYear(), rawDate.getMonth(), rawDate.getDate());
     } else {
       const text = getCellText(cell);
       if (text) {
-        // 🔒 Robust UK format handling: DD/MM/YYYY or DD/MM/YY
-        // This handles cases where dates are saved as strings (e.g., 29/05/2026)
         const ukMatch = text.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);
         if (ukMatch) {
             const day = parseInt(ukMatch[1], 10);
-            const month = parseInt(ukMatch[2], 10) - 1; // 0-indexed
+            const month = parseInt(ukMatch[2], 10) - 1;
             let year = parseInt(ukMatch[3], 10);
             if (year < 100) year += 2000;
-            
             d = new Date(year, month, day);
         } else {
-            // Fallback to standard JS parsing for other formats
             const cleanedText = text.replace(/(\d+)(st|nd|rd|th)/g, '$1');
             const parsed = new Date(cleanedText);
             if (!isNaN(parsed.getTime())) {
@@ -188,20 +182,17 @@ function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
       }
     }
 
-    // Stricter validation: Only accept dates between 2020 and 2050 to avoid false positives
     if (d && !isNaN(d.getTime()) && d.getFullYear() >= 2020 && d.getFullYear() <= 2050) {
       return d;
     }
   } catch (e) {
     console.error("Error parsing excel cell as date:", e);
   }
-
   return null;
 }
 
 /**
  * 🔒 STABLE ISO CONVERSION
- * Returns empty string for invalid dates to ensure they are filtered out downstream.
  */
 function toISODate(dt: Date | null): string {
   if (!dt || isNaN(dt.getTime())) return "";
@@ -214,8 +205,6 @@ function toISODate(dt: Date | null): string {
 function isNonShiftText(text: string): boolean {
   const t = text.trim().toLowerCase();
   
-  // Substring matches - only ignore if these phrases appear in isolation or as distinct headers.
-  // We use more specific matching to avoid killing shifts like "NOTTINGHAM CC".
   const noise = [
     "job manager:",
     "site address:",
@@ -225,9 +214,15 @@ function isNonShiftText(text: string): boolean {
   ];
 
   // 🔒 STRICT HEADER MATCHING: Prevents generic words from triggering the ignore filter 
-  // when they are part of a longer task description (like "NOTTINGHAM CC" or "COUNCIL HOUSE").
-  // If the cell is EXACTLY one of these, it's a header.
-  const strictHeaders = ["date", "task", "name", "operative", "address", "scheme", "measures", "pulse", "cc", "council", "manager", "ignore", "ordered", "start date", "on live", "coole", "variation", "work type", "waiting on", "scaffolding", "ordering"];
+  // when they are part of a longer task description.
+  const strictHeaders = [
+    "date", "task", "name", "operative", "address", 
+    "scheme", "measures", "pulse", "cc", "council", 
+    "manager", "ignore", "ordered", "start date", 
+    "on live", "coole", "variation", "work type", 
+    "waiting on", "scaffolding", "ordering"
+  ];
+  
   if (strictHeaders.includes(t)) return true;
 
   // Ensure common room names are NOT ignored
@@ -281,12 +276,10 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
     const blockEnd = dividerRows[i + 1] - 1;
     if (blockEnd < blockStart) continue;
 
-    // FIND DATE HEADER WITHIN BLOCK
     let dateRowIdx = -1;
     let dateCols: { col: number; isoDate: string }[] = [];
     for (let r = blockStart; r <= blockEnd; r++) {
-        // 🔒 Start scan at Column 5 (E) to include Monday shifts
-        const tempCols = getDateColumns(sheet, used, r, 5); 
+        const tempCols = getDateColumns(sheet, used, r, 5); // Scan starts at Column 5 (E)
         if (tempCols.length >= 2) { 
             dateRowIdx = r;
             dateCols = tempCols;
@@ -296,7 +289,6 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
 
     if (dateRowIdx === -1) continue;
 
-    // 🔒 SITE ADDRESS EXTRACTION (SMART SCAN)
     const siteAddressResult = extractSiteAddress(sheet, used, blockStart, blockEnd);
     if (!siteAddressResult) continue;
     
@@ -305,7 +297,6 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
     const eNumber = eNumMatch ? eNumMatch[1].toUpperCase() : '';
     const siteAddress = eNumMatch ? rawSiteAddress.replace(eNumMatch[0], '').trim().replace(/^[:\-\s]+/, '').trim().replace(/,$/, '').trim() : rawSiteAddress;
 
-    // 🔒 CONTACT EXTRACTION (SCAN ABOVE ADDRESS)
     let manager = '';
     const otherContacts: string[] = [];
     for (let r = blockStart; r < addressRowIdx; r++) {
@@ -315,7 +306,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
             if (upper.includes('SITE MANAGER') || upper.includes('RESPONSIBLE PERSON')) {
                 const cleaned = cellText.replace(/(site manager|responsible person)\s*:?/i, '').trim();
                 if (!manager) manager = cleaned.split('\n')[0].trim();
-            } else if (upper.includes('PROJECT MANAGER') || upper.includes('TLO') || upper.includes('TECHNICAL MANAGER') || upper.includes('CONTACT')) {
+            } else if (upper.includes('PROJECT MANAGER') || upper.includes('TLO') || upper.includes('TECHNICAL MANAGER') || upper.includes('CONTACT') || upper.includes('SCHEME')) {
                 otherContacts.push(cellText);
             }
         }
@@ -329,8 +320,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
       const row = sheet.getRow(r);
       for (const { col, isoDate } of dateCols) {
         const text = getCellText(row.getCell(col));
-        // 🔒 Robust hyphen/dash detection for Gas names
-        if (!text || !/[-\–\—]/.test(text) || isNonShiftText(text)) continue;
+        if (!text || isNonShiftText(text)) continue;
 
         const { task, names, type } = extractGasTaskAndNames(text);
         
@@ -400,9 +390,7 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
         const row = sheet.getRow(r);
         const tempCols: { col: number, isoDate: string }[] = [];
         row.eachCell((cell, colNumber) => {
-            // BUILD Grid strictly starts from Column G (7) onwards
             if (colNumber < 7) return;
-
             const dt = parseExcelCellAsDate(cell);
             if (dt) tempCols.push({ col: colNumber, isoDate: toISODate(dt) });
         });
@@ -441,7 +429,6 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
 
                 const cell = row.getCell(col);
                 const cellText = getCellText(cell);
-                
                 if (!cellText || isNonShiftText(cellText)) continue;
 
                 const { task, names, type } = extractGasTaskAndNames(cellText);
@@ -516,11 +503,9 @@ function findDividerRows(ws: ExcelJS.Worksheet, used: UsedBounds): number[] {
   for (let r = used.startRow; r <= used.endRow; r++) {
     const row = ws.getRow(r);
     const colA = getCellText(row.getCell(1));
-    
     if (!colA) emptyCount++;
     else emptyCount = 0;
     if (emptyCount >= 15) break;
-
     if (isDividerRow(ws, r) || !row.hasValues) rows.push(r);
   }
   return rows.filter((row, idx) => idx === 0 || row !== rows[idx - 1] + 1);
@@ -559,33 +544,20 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
         return best.score >= 20 ? { address: normalizeWhitespace(best.text), row: best.row } : null;
     }
 
-    // 🔒 GAS BLOCK-BASED ADDRESS EXTRACTION
-    // User instruction: The address is ALWAYS in the last box.
-    // Supports formats with 3 or 5 boxes. Top boxes can be blank or contact info.
-
     const noiseKeywords = [
         'SITE MANAGER', 'TECHNICAL MANAGER', 'MATERIALS ORDERING', 'TLO', 
         'MEASURES', 'PROJECT MANAGER', 'MEASURE', 'CONTACT',
         'RESPONSIBLE PERSON', 'TO BE FILLED IN', 'SCHEME'
     ];
 
-    // Scan from bottom to top of the detected block range
     for (let r = endRow; r >= startRow; r--) {
         const cell = ws.getRow(r).getCell(1);
         const text = getCellText(cell);
-        
-        // Skip empty or trivial cells
         if (!text || text.trim().length < 3) continue;
-        
         const upper = text.toUpperCase();
-        
-        // Skip rows that match known contact headers or instruction labels
         if (noiseKeywords.some(kw => upper.includes(kw))) continue;
-        
-        // Return the first significant text found starting from the bottom (the "last box").
         return { address: normalizeWhitespace(text), row: r };
     }
-
     return null;
 }
 
@@ -605,23 +577,30 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
     if (/^AM\b/i.test(raw)) { type = 'am'; raw = raw.substring(2).trim(); }
     else if (/^PM\b/i.test(raw)) { type = 'pm'; raw = raw.substring(2).trim(); }
     
-    // 🔒 IMPROVED HYPHEN/DASH DETECTION (Handles standard hyphen, En-dash, and Em-dash)
-    const lastHyphenMatch = raw.match(/[-\–\—][^-\–\—]*$/);
-    const lastHyphenIdx = lastHyphenMatch ? lastHyphenMatch.index! : -1;
-    
-    let task: string;
-    let names: string[];
-
-    // 🔒 IMPROVED SPLITTING FOR MULTI-NAME CELLS (e.g. Philip & John)
-    const splitRegex = /[,&\/\+\\]| and /i;
-
-    if (lastHyphenIdx === -1) {
-        task = "Unspecified";
-        names = raw.split(splitRegex).map(s => s.trim()).filter(Boolean);
-    } else {
-        task = raw.substring(0, lastHyphenIdx).trim() || "Unspecified";
-        names = raw.substring(lastHyphenIdx + 1).split(splitRegex).map(s => s.trim()).filter(Boolean);
+    // 🔒 IMPROVED HYPHEN/DASH DETECTION (Handles various spacing around dashes)
+    const separatorRegex = /[-\–\—]/g;
+    let match;
+    let lastIdx = -1;
+    while ((match = separatorRegex.exec(raw)) !== null) {
+        lastIdx = match.index;
     }
+
+    let task: string;
+    let namesPart: string;
+
+    if (lastIdx === -1) {
+        // No dash found. Allow name-only cells.
+        task = "Work"; 
+        namesPart = raw;
+    } else {
+        // Dash found. Robust split.
+        task = raw.substring(0, lastIdx).trim() || "Work";
+        namesPart = raw.substring(lastIdx + 1).trim();
+        if (task.toLowerCase() === 'unspecified') task = "Work";
+    }
+
+    const splitRegex = /[,&\/\+\\]| and /i;
+    const names = namesPart.split(splitRegex).map(s => s.trim()).filter(Boolean);
     
     const uniqueNames = Array.from(new Set(names.map(n => n.toLowerCase()))).map(lowName => {
         return names.find(n => n.toLowerCase() === lowName)!;
