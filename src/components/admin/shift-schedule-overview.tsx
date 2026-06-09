@@ -322,10 +322,9 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
       .filter(s => isSameWeek(getCorrectedLocalDate(s.date), addDays(today, 7), { weekStartsOn: 1 }))
       .sort((a, b) => getCorrectedLocalDate(a.date).getTime() - getCorrectedLocalDate(b.date).getTime());
   
-    const historicalShifts = finalFilteredShifts.filter(s => ['completed', 'incomplete', 'rejected'].includes(s.status));
-      
+    // 🔒 ARCHIVE VISIBILITY FIX: Show all shifts in the selected week, not just completed ones.
     const selectedArchiveDate = startOfWeek(subWeeks(today, parseInt(selectedArchiveWeek)), { weekStartsOn: 1 });
-    const finalArchiveShifts = historicalShifts
+    const finalArchiveShifts = finalFilteredShifts
       .filter(s => isSameWeek(getCorrectedLocalDate(s.date), selectedArchiveDate, { weekStartsOn: 1 }))
       .sort((a, b) => getCorrectedLocalDate(a.date).getTime() - getCorrectedLocalDate(b.date).getTime());
   
@@ -349,7 +348,8 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
   const archiveWeekOptions = useMemo(() => {
     const options = [];
     const today = new Date();
-    for (let i = 0; i < 6; i++) {
+    // 🔒 HISTORY EXPANSION: Now goes back 52 weeks (1 year)
+    for (let i = 0; i < 52; i++) {
       const weekStart = startOfWeek(subWeeks(today, i), { weekStartsOn: 1 });
       options.push({
         value: i.toString(),
