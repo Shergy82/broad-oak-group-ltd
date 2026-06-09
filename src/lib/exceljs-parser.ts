@@ -150,7 +150,7 @@ function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: Us
 }
 
 /**
- * 🔒 TIMEZONE-STABLE DATE PARSING
+ * 🔒 TIMEZONE-STABLE DATE PARSING (UK ROBUST)
  */
 function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
   try {
@@ -158,23 +158,38 @@ function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
     let d: Date | null = null;
 
     if (v instanceof Date && !isNaN(v.getTime())) {
+      // 🔒 Excel Date objects are already timezone-neutral in exceljs
       d = new Date(v.getFullYear(), v.getMonth(), v.getDate());
     } else if (typeof v === "number" && v > 20000 && v < 60000) {
+      // 🔒 Standard Excel numeric date conversion
       const rawDate = new Date((v - 25569) * 86400 * 1000);
       d = new Date(rawDate.getFullYear(), rawDate.getMonth(), rawDate.getDate());
     } else {
       const text = getCellText(cell);
       if (text) {
-        const cleanedText = text.replace(/(\d+)(st|nd|rd|th)/g, '$1');
-        const parsed = new Date(cleanedText);
-        if (!isNaN(parsed.getTime())) {
-          d = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+        // 🔒 Robust UK format handling: DD/MM/YYYY or DD/MM/YY
+        // This handles cases where dates are saved as strings (e.g., 29/05/2026)
+        const ukMatch = text.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);
+        if (ukMatch) {
+            const day = parseInt(ukMatch[1], 10);
+            const month = parseInt(ukMatch[2], 10) - 1; // 0-indexed
+            let year = parseInt(ukMatch[3], 10);
+            if (year < 100) year += 2000;
+            
+            d = new Date(year, month, day);
+        } else {
+            // Fallback to standard JS parsing for other formats
+            const cleanedText = text.replace(/(\d+)(st|nd|rd|th)/g, '$1');
+            const parsed = new Date(cleanedText);
+            if (!isNaN(parsed.getTime())) {
+              d = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+            }
         }
       }
     }
 
     // Stricter validation: Only accept dates between 2020 and 2050 to avoid false positives
-    if (d && d.getFullYear() >= 2020 && d.getFullYear() <= 2050) {
+    if (d && !isNaN(d.getTime()) && d.getFullYear() >= 2020 && d.getFullYear() <= 2050) {
       return d;
     }
   } catch (e) {
