@@ -285,8 +285,8 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
     let dateRowIdx = -1;
     let dateCols: { col: number; isoDate: string }[] = [];
     for (let r = blockStart; r <= blockEnd; r++) {
-        const tempCols = getDateColumns(sheet, used, r, 6); 
-        // 🔒 Improved: Require at least 2 date-like columns to consider it a header row
+        // 🔒 Start scan at Column 5 (E) to include Monday shifts
+        const tempCols = getDateColumns(sheet, used, r, 5); 
         if (tempCols.length >= 2) { 
             dateRowIdx = r;
             dateCols = tempCols;
@@ -329,7 +329,8 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
       const row = sheet.getRow(r);
       for (const { col, isoDate } of dateCols) {
         const text = getCellText(row.getCell(col));
-        if (!text || !text.includes('-') || isNonShiftText(text)) continue;
+        // 🔒 Robust hyphen/dash detection for Gas names
+        if (!text || !/[-\–\—]/.test(text) || isNonShiftText(text)) continue;
 
         const { task, names, type } = extractGasTaskAndNames(text);
         
@@ -565,7 +566,7 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
     const noiseKeywords = [
         'SITE MANAGER', 'TECHNICAL MANAGER', 'MATERIALS ORDERING', 'TLO', 
         'MEASURES', 'PROJECT MANAGER', 'MEASURE', 'CONTACT',
-        'RESPONSIBLE PERSON', 'TO BE FILLED IN'
+        'RESPONSIBLE PERSON', 'TO BE FILLED IN', 'SCHEME'
     ];
 
     // Scan from bottom to top of the detected block range
@@ -603,7 +604,10 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
     let type: 'am' | 'pm' | 'all-day' = 'all-day';
     if (/^AM\b/i.test(raw)) { type = 'am'; raw = raw.substring(2).trim(); }
     else if (/^PM\b/i.test(raw)) { type = 'pm'; raw = raw.substring(2).trim(); }
-    const lastHyphen = raw.lastIndexOf("-");
+    
+    // 🔒 IMPROVED HYPHEN/DASH DETECTION (Handles standard hyphen, En-dash, and Em-dash)
+    const lastHyphenMatch = raw.match(/[-\–\—][^-\–\—]*$/);
+    const lastHyphenIdx = lastHyphenMatch ? lastHyphenMatch.index! : -1;
     
     let task: string;
     let names: string[];
@@ -611,12 +615,12 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
     // 🔒 IMPROVED SPLITTING FOR MULTI-NAME CELLS (e.g. Philip & John)
     const splitRegex = /[,&\/\+\\]| and /i;
 
-    if (lastHyphen === -1) {
+    if (lastHyphenIdx === -1) {
         task = "Unspecified";
         names = raw.split(splitRegex).map(s => s.trim()).filter(Boolean);
     } else {
-        task = raw.substring(0, lastHyphen).trim() || "Unspecified";
-        names = raw.substring(lastHyphen + 1).split(splitRegex).map(s => s.trim()).filter(Boolean);
+        task = raw.substring(0, lastHyphenIdx).trim() || "Unspecified";
+        names = raw.substring(lastHyphenIdx + 1).split(splitRegex).map(s => s.trim()).filter(Boolean);
     }
     
     const uniqueNames = Array.from(new Set(names.map(n => n.toLowerCase()))).map(lowName => {
