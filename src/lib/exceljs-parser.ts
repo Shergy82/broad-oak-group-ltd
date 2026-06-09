@@ -165,6 +165,7 @@ function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
     } else {
       const text = getCellText(cell);
       if (text) {
+        // Try UK Format DD/MM/YYYY
         const ukMatch = text.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);
         if (ukMatch) {
             const day = parseInt(ukMatch[1], 10);
@@ -173,6 +174,7 @@ function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
             if (year < 100) year += 2000;
             d = new Date(year, month, day);
         } else {
+            // Try standard parse as fallback
             const cleanedText = text.replace(/(\d+)(st|nd|rd|th)/g, '$1');
             const parsed = new Date(cleanedText);
             if (!isNaN(parsed.getTime())) {
@@ -226,7 +228,8 @@ function isNonShiftText(text: string): boolean {
     "scheme", "measures", "pulse", "cc", "council", 
     "manager", "ignore", "ordered", "start date", 
     "on live", "coole", "variation", "work type", 
-    "waiting on", "scaffolding", "ordering", "hc"
+    "waiting on", "scaffolding", "ordering", "hc",
+    "remedial"
   ];
   
   if (strictHeaders.includes(t)) return true;
@@ -285,7 +288,8 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
     let dateRowIdx = -1;
     let dateCols: { col: number; isoDate: string }[] = [];
     for (let r = blockStart; r <= blockEnd; r++) {
-        const tempCols = getDateColumns(sheet, used, r, 5); // 🔒 SCAN STARTS AT MONDAY (COL 5)
+        // 🔒 GAS SCAN STARTS AT MONDAY (COL 5)
+        const tempCols = getDateColumns(sheet, used, r, 5); 
         if (tempCols.length >= 2) { 
             dateRowIdx = r;
             dateCols = tempCols;
@@ -333,15 +337,18 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
         for (const name of names) {
             const { users: matchedUsers, reason } = findUsersInMap(name, userMap);
             if (matchedUsers.length !== 1) {
-                failures.push({ 
-                    reason: reason || `Could not match operative: "${name}"`, 
-                    siteAddress, 
-                    shiftDate: isoDate,
-                    operativeNameRaw: name, 
-                    sheetName, 
-                    cellRef: row.getCell(col).address,
-                    cellContent: text
-                });
+                // 🔒 SUPPRESS FAILURE if it looks like a date or pure template junk
+                if (!/^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}$/.test(name) && !/^\d+$/.test(name)) {
+                  failures.push({ 
+                      reason: reason || `Could not match operative: "${name}"`, 
+                      siteAddress, 
+                      shiftDate: isoDate,
+                      operativeNameRaw: name, 
+                      sheetName, 
+                      cellRef: row.getCell(col).address,
+                      cellContent: text
+                  });
+                }
                 continue;
             }
             
@@ -442,15 +449,18 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
                 for (const name of names) {
                     const { users: matchedUsers, reason } = findUsersInMap(name, userMap);
                     if (matchedUsers.length !== 1) {
-                        allFailures.push({
-                            reason: reason || `Could not match operative: "${name}"`,
-                            siteAddress,
-                            shiftDate: isoDate,
-                            operativeNameRaw: name,
-                            sheetName: sheet.name,
-                            cellRef: cell.address,
-                            cellContent: cellText
-                        });
+                         // 🔒 SUPPRESS FAILURE if it looks like a date or pure template junk
+                        if (!/^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}$/.test(name) && !/^\d+$/.test(name)) {
+                          allFailures.push({
+                              reason: reason || `Could not match operative: "${name}"`,
+                              siteAddress,
+                              shiftDate: isoDate,
+                              operativeNameRaw: name,
+                              sheetName: sheet.name,
+                              cellRef: cell.address,
+                              cellContent: cellText
+                          });
+                        }
                         continue;
                     }
 
@@ -553,7 +563,7 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
     const noiseKeywords = [
         'SITE MANAGER', 'TECHNICAL MANAGER', 'MATERIALS ORDERING', 'TLO', 
         'MEASURES', 'PROJECT MANAGER', 'MEASURE', 'CONTACT',
-        'RESPONSIBLE PERSON', 'TO BE FILLED IN', 'SCHEME'
+        'RESPONSIBLE PERSON', 'TO BE FILLED IN', 'SCHEME', 'REMEDIAL', 'START DATE'
     ];
 
     for (let r = endRow; r >= startRow; r--) {

@@ -384,7 +384,7 @@ export const deleteProjectAndFiles = onCall(
     }
     const projectId = (data as any).projectId;
     if (typeof projectId !== 'string' || !projectId.trim()) {
-      throw new https_1.HttpsError('invalid-argument', 'A projectId (string) is required.');
+      throw new HttpsError('invalid-argument', 'A projectId (string) is required.');
     }
 
     const bucket = admin.storage().bucket();
