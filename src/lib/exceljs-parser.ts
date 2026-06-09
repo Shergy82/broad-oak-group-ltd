@@ -213,14 +213,13 @@ function isNonShiftText(text: string): boolean {
     "variation:",
   ];
 
-  // 🔒 STRICT HEADER MATCHING: Prevents generic words from triggering the ignore filter 
-  // when they are part of a longer task description.
+  // 🔒 STRICT HEADER MATCHING: Only ignore if the cell text IS exactly one of these.
   const strictHeaders = [
     "date", "task", "name", "operative", "address", 
     "scheme", "measures", "pulse", "cc", "council", 
     "manager", "ignore", "ordered", "start date", 
     "on live", "coole", "variation", "work type", 
-    "waiting on", "scaffolding", "ordering"
+    "waiting on", "scaffolding", "ordering", "hc"
   ];
   
   if (strictHeaders.includes(t)) return true;
@@ -279,7 +278,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
     let dateRowIdx = -1;
     let dateCols: { col: number; isoDate: string }[] = [];
     for (let r = blockStart; r <= blockEnd; r++) {
-        const tempCols = getDateColumns(sheet, used, r, 5); // Scan starts at Column 5 (E)
+        const tempCols = getDateColumns(sheet, used, r, 5); // 🔒 SCAN STARTS AT MONDAY (COL 5)
         if (tempCols.length >= 2) { 
             dateRowIdx = r;
             dateCols = tempCols;
@@ -577,7 +576,7 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
     if (/^AM\b/i.test(raw)) { type = 'am'; raw = raw.substring(2).trim(); }
     else if (/^PM\b/i.test(raw)) { type = 'pm'; raw = raw.substring(2).trim(); }
     
-    // 🔒 IMPROVED HYPHEN/DASH DETECTION (Handles various spacing around dashes)
+    // 🔒 REQUIRES SEPARATOR (Hyphen, En-dash, Em-dash)
     const separatorRegex = /[-\–\—]/g;
     let match;
     let lastIdx = -1;
@@ -585,18 +584,17 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
         lastIdx = match.index;
     }
 
-    let task: string;
-    let namesPart: string;
-
     if (lastIdx === -1) {
-        // No dash found. Allow name-only cells.
-        task = "Work"; 
-        namesPart = raw;
-    } else {
-        // Dash found. Robust split.
-        task = raw.substring(0, lastIdx).trim() || "Work";
-        namesPart = raw.substring(lastIdx + 1).trim();
-        if (task.toLowerCase() === 'unspecified') task = "Work";
+        // No separator found -> Skip this cell (Likely a site note)
+        return { task: "", names: [], type };
+    }
+
+    // Separator found. Robust split.
+    const task = raw.substring(0, lastIdx).trim() || "Work";
+    const namesPart = raw.substring(lastIdx + 1).trim();
+    if (task.toLowerCase() === 'unspecified') {
+        // Task was empty before the dash
+        return { task: "Work", names: [], type };
     }
 
     const splitRegex = /[,&\/\+\\]| and /i;
