@@ -205,12 +205,19 @@ function toISODate(dt: Date | null): string {
 function isNonShiftText(text: string): boolean {
   const t = text.trim().toLowerCase();
   
+  // 🔒 Ignore purely numeric or date-like strings that are template noise
+  if (/^\d{4}-\d{2}-\d{2}/.test(t)) return true; // ISO date or starts with one
+  if (/^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}$/.test(t)) return true; // UK date header
+  if (/^\d+$/.test(t)) return true; // Pure numbers (IDs, etc.)
+
   const noise = [
     "job manager:",
     "site address:",
     "week comm:",
     "asbestos present:",
     "variation:",
+    "scheme:",
+    "site manager:",
   ];
 
   // 🔒 STRICT HEADER MATCHING: Only ignore if the cell text IS exactly one of these.
@@ -598,7 +605,12 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
     }
 
     const splitRegex = /[,&\/\+\\]| and /i;
-    const names = namesPart.split(splitRegex).map(s => s.trim()).filter(Boolean);
+    const names = namesPart.split(splitRegex).map(s => s.trim()).filter(Boolean).filter(n => {
+        // 🔒 DISCARD names that look like dates or pure numbers found in template notes
+        if (/^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}$/.test(n)) return false;
+        if (/^\d+$/.test(n)) return false;
+        return n.length > 1; // Ignore single letters
+    });
     
     const uniqueNames = Array.from(new Set(names.map(n => n.toLowerCase()))).map(lowName => {
         return names.find(n => n.toLowerCase() === lowName)!;
