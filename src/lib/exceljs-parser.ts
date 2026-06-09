@@ -69,8 +69,14 @@ function normalizeWhitespace(s: string | null | undefined): string {
  */
 function normalizeText(text: string | null | undefined): string {
   if (!text) return "";
-  return String(text)
-    .toLowerCase()
+  let t = String(text).toLowerCase();
+  
+  // 🔒 STRIP PHONE NUMBERS from addresses to ensure key stability
+  // Matches common UK formats and long digit sequences
+  t = t.replace(/\b(0\d{3,4}\s*\d{5,6}|07\d{3}\s*\d{6}|\+44\s*\d{4}\s*\d{6})\b/g, '');
+  t = t.replace(/\s*\d{10,12}\b/g, ''); 
+  
+  return t
     .replace(/[^a-z0-9]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -207,10 +213,9 @@ function toISODate(dt: Date | null): string {
 function isNonShiftText(text: string): boolean {
   const t = text.trim().toLowerCase();
   
-  // 🔒 Ignore purely numeric or date-like strings that are template noise
-  if (/^\d{4}-\d{2}-\d{2}/.test(t)) return true; // ISO date or starts with one
-  if (/^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}$/.test(t)) return true; // UK date header
-  if (/^\d+$/.test(t)) return true; // Pure numbers (IDs, etc.)
+  if (/^\d{4}-\d{2}-\d{2}/.test(t)) return true;
+  if (/^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}$/.test(t)) return true;
+  if (/^\d+$/.test(t)) return true;
 
   const noise = [
     "job manager:",
@@ -222,7 +227,6 @@ function isNonShiftText(text: string): boolean {
     "site manager:",
   ];
 
-  // 🔒 STRICT HEADER MATCHING: Only ignore if the cell text IS exactly one of these.
   const strictHeaders = [
     "date", "task", "name", "operative", "address", 
     "scheme", "measures", "pulse", "cc", "council", 
@@ -233,8 +237,6 @@ function isNonShiftText(text: string): boolean {
   ];
   
   if (strictHeaders.includes(t)) return true;
-
-  // Ensure common room names are NOT ignored
   if (t.includes('bedroom') || t.includes('bathroom')) return false;
 
   return noise.some(b => t.startsWith(b)) || /^\+?\d[\d\s-]{7,}$/.test(t);
@@ -337,7 +339,6 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
         for (const name of names) {
             const { users: matchedUsers, reason } = findUsersInMap(name, userMap);
             if (matchedUsers.length !== 1) {
-                // 🔒 SUPPRESS FAILURE if it looks like a date or pure template junk
                 if (!/^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}$/.test(name) && !/^\d+$/.test(name)) {
                   failures.push({ 
                       reason: reason || `Could not match operative: "${name}"`, 
@@ -449,7 +450,6 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
                 for (const name of names) {
                     const { users: matchedUsers, reason } = findUsersInMap(name, userMap);
                     if (matchedUsers.length !== 1) {
-                         // 🔒 SUPPRESS FAILURE if it looks like a date or pure template junk
                         if (!/^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}$/.test(name) && !/^\d+$/.test(name)) {
                           allFailures.push({
                               reason: reason || `Could not match operative: "${name}"`,
@@ -522,7 +522,7 @@ function findDividerRows(ws: ExcelJS.Worksheet, used: UsedBounds): number[] {
     if (!colA) emptyCount++;
     else emptyCount = 0;
     if (emptyCount >= 15) break;
-    if (isDividerRow(ws, r) || !row.hasValues) rows.push(r);
+    if (isDividerRow(ws, r)) rows.push(r);
   }
   return rows.filter((row, idx) => idx === 0 || row !== rows[idx - 1] + 1);
 }
@@ -530,14 +530,21 @@ function findDividerRows(ws: ExcelJS.Worksheet, used: UsedBounds): number[] {
 function isDividerRow(ws: ExcelJS.Worksheet, r: number): boolean {
   const row = ws.getRow(r);
   let hasPatternFill = false;
-  let hasText = false;
+  
+  // 🔒 POSTCODE PROTECTION: If a colored row contains a postcode, it is a property header, NOT a divider.
   for (let c = 1; c <= 8; c++) {
     const cell = row.getCell(c);
-    if (getCellText(cell)) { hasText = true; break; }
+    const text = getCellText(cell);
+    if (text && /\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) {
+      return false;
+    }
     const fill = cell.fill as any;
     if (fill?.type === "pattern" && fill.pattern !== "none") hasPatternFill = true;
   }
-  return hasPatternFill && !hasText;
+  
+  // 🔒 DIVIDERS ARE DEFINED BY COLOR: In GAS planners, dividers (blue/green strips) often contain text like "START DATE".
+  // We allow text in dividers as long as it's not a property header (handled by postcode check above).
+  return hasPatternFill;
 }
 
 function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, endRow: number, isBuild = false): { address: string; row: number; } | null {
@@ -563,16 +570,24 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
     const noiseKeywords = [
         'SITE MANAGER', 'TECHNICAL MANAGER', 'MATERIALS ORDERING', 'TLO', 
         'MEASURES', 'PROJECT MANAGER', 'MEASURE', 'CONTACT',
-        'RESPONSIBLE PERSON', 'TO BE FILLED IN', 'SCHEME', 'REMEDIAL', 'START DATE'
+        'RESPONSIBLE PERSON', 'TO BE FILLED IN', 'SCHEME', 'REMEDIAL', 'START DATE',
+        'WEEK COMM', 'CONTRACT'
     ];
 
-    for (let r = endRow; r >= startRow; r--) {
+    // 🔒 LOOK HIGHER: site addresses are often in colored headers at the very start of a block.
+    for (let r = endRow; r >= startRow - 1; r--) {
+        if (r < 1) continue;
         const cell = ws.getRow(r).getCell(1);
         const text = getCellText(cell);
-        if (!text || text.trim().length < 3) continue;
+        if (!text || text.trim().length < 5) continue;
+        
         const upper = text.toUpperCase();
         if (noiseKeywords.some(kw => upper.includes(kw))) continue;
-        return { address: normalizeWhitespace(text), row: r };
+        
+        // 🔒 ADDRESS VALIDATION: Ensure the line has either digits or a postcode pattern.
+        if (/\d+/.test(text) || /\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) {
+            return { address: normalizeWhitespace(text), row: r };
+        }
     }
     return null;
 }
@@ -593,7 +608,7 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
     if (/^AM\b/i.test(raw)) { type = 'am'; raw = raw.substring(2).trim(); }
     else if (/^PM\b/i.test(raw)) { type = 'pm'; raw = raw.substring(2).trim(); }
     
-    // 🔒 REQUIRES SEPARATOR (Hyphen, En-dash, Em-dash)
+    // 🔒 SMART DASH RECOGNITION: Handles standard hyphen, En-dash (–), and Em-dash (—)
     const separatorRegex = /[-\–\—]/g;
     let match;
     let lastIdx = -1;
@@ -602,24 +617,20 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
     }
 
     if (lastIdx === -1) {
-        // No separator found -> Skip this cell (Likely a site note)
         return { task: "", names: [], type };
     }
 
-    // Separator found. Robust split.
     const task = raw.substring(0, lastIdx).trim() || "Work";
     const namesPart = raw.substring(lastIdx + 1).trim();
     if (task.toLowerCase() === 'unspecified') {
-        // Task was empty before the dash
         return { task: "Work", names: [], type };
     }
 
     const splitRegex = /[,&\/\+\\]| and /i;
     const names = namesPart.split(splitRegex).map(s => s.trim()).filter(Boolean).filter(n => {
-        // 🔒 DISCARD names that look like dates or pure numbers found in template notes
         if (/^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}$/.test(n)) return false;
         if (/^\d+$/.test(n)) return false;
-        return n.length > 1; // Ignore single letters
+        return n.length > 1;
     });
     
     const uniqueNames = Array.from(new Set(names.map(n => n.toLowerCase()))).map(lowName => {

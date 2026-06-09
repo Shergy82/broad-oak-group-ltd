@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useCallback } from 'react';
@@ -78,12 +77,17 @@ export interface DryRunResult {
 }
 
 /**
- * 🔒 ROBUST NORMALIZATION
+ * 🔒 ROBUST NORMALIZATION (MATCHES PARSER)
  */
 function normalizeText(text: string | null | undefined): string {
   if (!text) return "";
-  return String(text)
-    .toLowerCase()
+  let t = String(text).toLowerCase();
+  
+  // Strip phone numbers to ensure stable keys
+  t = t.replace(/\b(0\d{3,4}\s*\d{5,6}|07\d{3}\s*\d{6}|\+44\s*\d{4}\s*\d{6})\b/g, '');
+  t = t.replace(/\s*\d{10,12}\b/g, ''); 
+  
+  return t
     .replace(/[^a-z0-9]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -207,8 +211,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
       setIsUploading(true);
       setError(null);
 
-      // 🔒 Filename handling: BUILD uses normalized names to handle versioned downloads (e.g. planner 1, planner 2)
-      // GAS remains strictly isolated by literal filename as per user requirement.
       const rawFilename = file.name.replace(/\.[^/.]+$/, "");
       const currentPlannerName = importType === 'BUILD' 
         ? rawFilename.replace(/\s*\(?\d+\)?$/, "").replace(/\s*-\s*copy$/i, "").trim()
@@ -349,8 +351,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           const toCreate: ParsedShift[] = [];
           const toUpdate: { old: Shift; new: ParsedShift }[] = [];
           
-          // 🔒 PROTECTED STATUSES: Terminal states AND 'On-site' are protected. 
-          // 'Confirmed' and 'Pending' shifts will now be deleted if missing from the spreadsheet.
           const protectedStatuses: ShiftStatus[] = ['completed', 'incomplete', 'rejected', 'on-site'];
 
           for (const [key, excelShift] of excelShiftsMap.entries()) {
@@ -378,8 +378,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           }
 
           for (const [key, existingShift] of existingShiftsMap.entries()) {
-            // 🔒 Ownership check: BUILD now uses targeted isolation (same as GAS) to prevent wiping the whole department.
-            // For BUILD, we also normalize the name of the existing shift to match the new normalized currentPlannerName.
             const isFromThisPlanner = importType === 'BUILD'
               ? (existingShift.plannerName || '').replace(/\s*\(?\d+\)?$/, "").replace(/\s*-\s*copy$/i, "").trim() === currentPlannerName
               : existingShift.plannerName === currentPlannerName;
