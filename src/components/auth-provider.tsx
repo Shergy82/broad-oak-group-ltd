@@ -16,7 +16,7 @@ import { usePathname, useRouter } from 'next/navigation';
 
 import { auth, isFirebaseConfigured, db } from '@/lib/firebase';
 import { Spinner } from '@/components/shared/spinner';
-import type { UserProfile } from '@/types';
+import type { UserProfile, HealthAndSafetyFile } from '@/types';
 
 export type PendingAnnouncement = {
   id: string;
@@ -33,11 +33,17 @@ export const AuthContext = createContext<{
   // Announcements gating + modal support
   pendingAnnouncements: PendingAnnouncement[];
   hasPendingAnnouncements: boolean;
+
+  // H&S gating support
+  pendingHSFiles: HealthAndSafetyFile[];
+  hasPendingHSFiles: boolean;
 }>({
   user: null,
   isLoading: true,
   pendingAnnouncements: [],
   hasPendingAnnouncements: false,
+  pendingHSFiles: [],
+  hasPendingHSFiles: false,
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -47,6 +53,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const [pendingAnnouncements, setPendingAnnouncements] = useState<PendingAnnouncement[]>([]);
   const [hasPendingAnnouncements, setHasPendingAnnouncements] = useState(false);
+  
+  const [pendingHSFiles, setPendingHSFiles] = useState<HealthAndSafetyFile[]>([]);
+  const [hasPendingHSFiles, setHasPendingHSFiles] = useState(false);
 
   const router = useRouter();
   const pathname = usePathname();
@@ -94,7 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (e) {
       console.error('Failed to query announcements:', e);
-      return []; // Return empty on error to not block UI
+      return [];
     }
 
     if (annDocs.length === 0) return [];
@@ -129,6 +138,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return pending;
   }
 
+  async function loadPendingHSFiles(u: User) {
+    if (!db) return [];
+    try {
+      // 1. Fetch all H&S files
+      const hsFilesSnap = await getDocs(collection(db, 'health_and_safety_files'));
+      const allHSFiles = hsFilesSnap.docs.map(d => ({ id: d.id, ...d.data() } as HealthAndSafetyFile));
+      
+      if (allHSFiles.length === 0) return [];
+
+      // 2. Fetch user's acknowledgements
+      const ackSnap = await getDocs(
+        query(collection(db, 'hsAcknowledgements'), where('userId', '==', u.uid))
+      );
+      
+      const ackedFileIds = new Set(ackSnap.docs.map(d => d.data().fileId));
+      
+      // 3. Filter unacknowledged
+      return allHSFiles.filter(file => !ackedFileIds.has(file.id));
+    } catch (e) {
+      console.error("Failed to query H&S acknowledgements:", e);
+      return [];
+    }
+  }
+
   useEffect(() => {
     if (!isFirebaseConfigured || !auth || !db) {
       setIsLoading(false);
@@ -142,6 +175,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!u) {
         setPendingAnnouncements([]);
         setHasPendingAnnouncements(false);
+        setPendingHSFiles([]);
+        setHasPendingHSFiles(false);
         setIsLoading(false);
         setCheckingAcks(false);
         return;
@@ -156,10 +191,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           ? (userDocSnap.data() as UserProfile)
           : null;
 
-        const pending = await loadPendingAnnouncements(u, userProfile);
+        const [announcements, hsFiles] = await Promise.all([
+          loadPendingAnnouncements(u, userProfile),
+          loadPendingHSFiles(u)
+        ]);
 
-        setPendingAnnouncements(pending);
-        setHasPendingAnnouncements(pending.length > 0);
+        setPendingAnnouncements(announcements);
+        setHasPendingAnnouncements(announcements.length > 0);
+        
+        setPendingHSFiles(hsFiles);
+        setHasPendingHSFiles(hsFiles.length > 0);
       } finally {
         setCheckingAcks(false);
         setIsLoading(false);
@@ -184,6 +225,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isLoading,
         pendingAnnouncements,
         hasPendingAnnouncements,
+        pendingHSFiles,
+        hasPendingHSFiles,
       }}
     >
       {children}

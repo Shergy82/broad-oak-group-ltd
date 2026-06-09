@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -12,7 +10,7 @@ import { format } from 'date-fns';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
-import { Download, Trash2, Folder, FolderPlus, FolderCog, FolderX, X } from 'lucide-react';
+import { Download, Trash2, Folder, FolderPlus, FolderCog, FolderX, X, FileBadge } from 'lucide-react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Dialog, DialogHeader, DialogTitle, DialogContent, DialogDescription, DialogFooter, DialogClose } from '@/components/ui/dialog';
@@ -20,6 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/shared/spinner';
 import { FileUploader } from './file-uploader';
 import { downloadFile } from '@/file-proxy';
+import { ComplianceReportButton } from './compliance-report-button';
 import Image from 'next/image';
 import { Separator } from '../ui/separator';
 import { cn } from '@/lib/utils';
@@ -437,9 +436,12 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
             <div className='space-y-4'>
                 <div className="flex justify-between items-center">
                     <h2 className="text-xl font-semibold">Upload Files</h2>
-                    <Button onClick={() => setIsFolderCreating(true)}>
-                        <FolderPlus className="mr-2 h-4 w-4" /> Create Folder
-                    </Button>
+                    <div className="flex items-center gap-2">
+                        <ComplianceReportButton />
+                        <Button onClick={() => setIsFolderCreating(true)}>
+                            <FolderPlus className="mr-2 h-4 w-4" /> Create Folder
+                        </Button>
+                    </div>
                 </div>
                 <FileUploader userProfile={userProfile} />
             </div>
@@ -545,9 +547,3 @@ export function HealthAndSafetyFileList({ userProfile }: HealthAndSafetyFileList
     </>
   );
 }
-
-    
-
-    
-
-

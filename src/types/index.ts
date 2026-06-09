@@ -136,6 +136,16 @@ export interface Acknowledgement {
   acknowledgedAt: Timestamp;
 }
 
+export interface HSAcknowledgement {
+  id: string;
+  userId: string;
+  userName: string;
+  fileId: string;
+  fileName: string;
+  signature: string;
+  acknowledgedAt: Timestamp;
+}
+
 /* =========================
    Trades & Performance
    ========================= */
