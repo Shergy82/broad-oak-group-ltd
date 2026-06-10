@@ -77,13 +77,13 @@ export interface DryRunResult {
 }
 
 /**
- * 🔒 ROBUST NORMALIZATION (MATCHES PARSER)
+ * 🔒 ROBUST NORMALIZATION (STABLE KEY GENERATION)
  */
 function normalizeText(text: string | null | undefined): string {
   if (!text) return "";
   let t = String(text).toLowerCase();
   
-  // Strip phone numbers to ensure stable keys
+  // 🔒 STRIP PHONE NUMBERS from addresses to ensure key stability
   t = t.replace(/\b(0\d{3,4}\s*\d{5,6}|07\d{3}\s*\d{6}|\+44\s*\d{4}\s*\d{6})\b/g, '');
   t = t.replace(/\s*\d{10,12}\b/g, ''); 
   
@@ -294,9 +294,12 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           }
           allShiftsFromExcel = Array.from(uniqueShiftsMap.values());
 
-          const existingShiftsQuery = importType === 'GAS' 
-            ? query(collection(firestore, 'shifts'))
-            : query(collection(firestore, 'shifts'), where('department', '==', finalImportDepartment));
+          // 🔒 PERMISSION FIX: Always include the department filter on the client fetch
+          // This prevents "insufficient permissions" errors for Managers/TLOs.
+          const existingShiftsQuery = query(
+            collection(firestore, 'shifts'), 
+            where('department', '==', finalImportDepartment)
+          );
           
           const existingShiftsSnapshot = await getDocs(existingShiftsQuery);
           
@@ -325,11 +328,8 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             const shiftData = { id: doc.id, ...doc.data() } as Shift;
             if (!shiftData.userId || !shiftData.date || !shiftData.address) return;
             
-            if (importType === 'GAS') {
-                if (shiftData.department && shiftData.department !== 'Gas') return;
-            } else {
-                if (shiftData.department && shiftData.department !== finalImportDepartment) return;
-            }
+            // Only consider shifts for this specific department
+            if (shiftData.department !== finalImportDepartment) return;
 
             const key = getShiftKey(shiftData as any);
             const shiftDate = getCorrectedLocalDate(shiftData.date as any);

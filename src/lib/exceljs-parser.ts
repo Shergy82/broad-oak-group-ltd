@@ -72,7 +72,6 @@ function normalizeText(text: string | null | undefined): string {
   let t = String(text).toLowerCase();
   
   // 🔒 STRIP PHONE NUMBERS from addresses to ensure key stability
-  // Matches common UK formats and long digit sequences
   t = t.replace(/\b(0\d{3,4}\s*\d{5,6}|07\d{3}\s*\d{6}|\+44\s*\d{4}\s*\d{6})\b/g, '');
   t = t.replace(/\s*\d{10,12}\b/g, ''); 
   
@@ -128,14 +127,12 @@ function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: Us
     
     // 2. STRICT CHECK: If only one name is provided, DO NOT partial match individuals.
     if (chunkParts.length < 2) {
-        // ALLOW single-word matches for COMPANIES only (e.g. "VULCAN" matching "Vulcan Facilities")
         const companyMatches = userMap.filter(u => u.accountType === 'company' && u.normalizedName.includes(normalizedChunk));
         if (companyMatches.length === 1) return { users: companyMatches };
-        
         return { users: [], reason: `Single name "${nameChunk}" requires a full/exact match for individuals. No match found.` };
     }
 
-    // 3. Multi-word partial matching
+    //  multi-word partial matching
     matches = userMap.filter(u => u.normalizedName.includes(normalizedChunk));
     if (matches.length === 1) return { users: matches };
     if (matches.length > 1) return { users: [], reason: `Ambiguous input "${nameChunk}" matches multiple users.` };
@@ -180,7 +177,6 @@ function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
             if (year < 100) year += 2000;
             d = new Date(year, month, day);
         } else {
-            // Try standard parse as fallback
             const cleanedText = text.replace(/(\d+)(st|nd|rd|th)/g, '$1');
             const parsed = new Date(cleanedText);
             if (!isNaN(parsed.getTime())) {
@@ -290,7 +286,6 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
     let dateRowIdx = -1;
     let dateCols: { col: number; isoDate: string }[] = [];
     for (let r = blockStart; r <= blockEnd; r++) {
-        // 🔒 GAS SCAN STARTS AT MONDAY (COL 5)
         const tempCols = getDateColumns(sheet, used, r, 5); 
         if (tempCols.length >= 2) { 
             dateRowIdx = r;
@@ -531,19 +526,15 @@ function isDividerRow(ws: ExcelJS.Worksheet, r: number): boolean {
   const row = ws.getRow(r);
   let hasPatternFill = false;
   
-  // 🔒 POSTCODE PROTECTION: If a colored row contains a postcode, it is a property header, NOT a divider.
+  // 🔒 POSTCODE PROTECTION: Property headers contain postcodes. They are data, NOT dividers.
   for (let c = 1; c <= 8; c++) {
     const cell = row.getCell(c);
     const text = getCellText(cell);
-    if (text && /\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) {
-      return false;
-    }
+    if (text && /\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) return false;
     const fill = cell.fill as any;
     if (fill?.type === "pattern" && fill.pattern !== "none") hasPatternFill = true;
   }
   
-  // 🔒 DIVIDERS ARE DEFINED BY COLOR: In GAS planners, dividers (blue/green strips) often contain text like "START DATE".
-  // We allow text in dividers as long as it's not a property header (handled by postcode check above).
   return hasPatternFill;
 }
 
@@ -574,7 +565,7 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
         'WEEK COMM', 'CONTRACT'
     ];
 
-    // 🔒 LOOK HIGHER: site addresses are often in colored headers at the very start of a block.
+    // 🔒 LOOK HIGHER for addresses stored in colored headers
     for (let r = endRow; r >= startRow - 1; r--) {
         if (r < 1) continue;
         const cell = ws.getRow(r).getCell(1);
@@ -583,8 +574,6 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
         
         const upper = text.toUpperCase();
         if (noiseKeywords.some(kw => upper.includes(kw))) continue;
-        
-        // 🔒 ADDRESS VALIDATION: Ensure the line has either digits or a postcode pattern.
         if (/\d+/.test(text) || /\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) {
             return { address: normalizeWhitespace(text), row: r };
         }
@@ -608,7 +597,6 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
     if (/^AM\b/i.test(raw)) { type = 'am'; raw = raw.substring(2).trim(); }
     else if (/^PM\b/i.test(raw)) { type = 'pm'; raw = raw.substring(2).trim(); }
     
-    // 🔒 SMART DASH RECOGNITION: Handles standard hyphen, En-dash (–), and Em-dash (—)
     const separatorRegex = /[-\–\—]/g;
     let match;
     let lastIdx = -1;
@@ -616,15 +604,11 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
         lastIdx = match.index;
     }
 
-    if (lastIdx === -1) {
-        return { task: "", names: [], type };
-    }
+    if (lastIdx === -1) return { task: "", names: [], type };
 
     const task = raw.substring(0, lastIdx).trim() || "Work";
     const namesPart = raw.substring(lastIdx + 1).trim();
-    if (task.toLowerCase() === 'unspecified') {
-        return { task: "Work", names: [], type };
-    }
+    if (task.toLowerCase() === 'unspecified') return { task: "Work", names: [], type };
 
     const splitRegex = /[,&\/\+\\]| and /i;
     const names = namesPart.split(splitRegex).map(s => s.trim()).filter(Boolean).filter(n => {
