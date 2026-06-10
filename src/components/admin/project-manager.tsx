@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -586,11 +585,24 @@ export function ProjectManager({ userProfile, initialSearchTerm = '' }: ProjectM
   const [projectToEdit, setProjectToEdit] = useState<Project | null>(null);
 
   useEffect(() => {
-    // Fetch all projects. Filtering is now done client-side.
-    const q = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
+    // 🔒 PERMISSION FIX: Standard privileged users (Managers/TLOs) 
+    // must filter by department to comply with security rules.
+    const isOwnerRole = userProfile.role === 'owner';
+    const projectsCollection = collection(db, 'projects');
+    
+    const q = isOwnerRole
+      ? query(projectsCollection)
+      : query(projectsCollection, where('department', '==', userProfile.department));
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project)));
+      const fetched = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project));
+      // Sort on client to avoid composite index requirements
+      fetched.sort((a, b) => {
+          const dateA = a.createdAt?.toMillis() || 0;
+          const dateB = b.createdAt?.toMillis() || 0;
+          return dateB - dateA;
+      });
+      setProjects(fetched);
       setLoading(false);
     }, (error) => {
       console.error("Error fetching projects:", error);
@@ -598,7 +610,7 @@ export function ProjectManager({ userProfile, initialSearchTerm = '' }: ProjectM
       setLoading(false);
     });
     return () => unsubscribe();
-  }, [toast]);
+  }, [userProfile.role, userProfile.department, toast]);
 
   const filteredProjects = useMemo(() => {
     // Apply department filtering first

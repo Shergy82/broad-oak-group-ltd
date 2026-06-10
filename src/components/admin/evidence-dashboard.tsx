@@ -976,10 +976,8 @@ export function EvidenceDashboard() {
   const [searchTerm, setSearchTerm] = useState('');
   const [editingChecklist, setEditingChecklist] = useState<string | null>(null);
   const { userProfile } = useUserProfile();
-  const { users } = useAllUsers();
   const { toast } = useToast();
   const { selectedDepartments } = useDepartmentFilter();
-  const isOwner = userProfile?.role === 'owner';
 
   const [filesByProject, setFilesByProject] = useState<Map<string, ProjectFile[]>>(new Map());
   const LS_HIDDEN_CONTRACTS_KEY = 'evidence_dashboard_hidden_contracts_v1';
@@ -1061,27 +1059,47 @@ export function EvidenceDashboard() {
     });
   };
 
-  // Unified data fetching
+  // Unified data fetching with security rules compliance
   useEffect(() => {
     if (!userProfile) return;
     setLoading(true);
 
-    const projectsQuery = query(collection(db, 'projects'), orderBy('createdAt', 'desc'));
+    const isOwner = userProfile.role === 'owner';
+    const dept = userProfile.department;
+
+    // Projects Listener
+    const projectsBaseQuery = collection(db, 'projects');
+    const projectsQuery = isOwner 
+        ? query(projectsBaseQuery)
+        : query(projectsBaseQuery, where('department', '==', dept));
+
     const unsubProjects = onSnapshot(projectsQuery, (snapshot) => {
-        setProjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project)));
+        const fetched = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project));
+        // Sort by creation date DESC
+        fetched.sort((a, b) => {
+            const dateA = a.createdAt?.toMillis() || 0;
+            const dateB = b.createdAt?.toMillis() || 0;
+            return dateB - dateA;
+        });
+        setProjects(fetched);
     }, (err) => {
         console.error("Error fetching projects:", err);
-        toast({ variant: 'destructive', title: 'Error', description: 'Could not fetch projects.' });
+        toast({ variant: 'destructive', title: 'Error', description: 'Could not fetch projects. Check permissions.' });
     });
 
-    const shiftsQuery = query(collection(db, 'shifts'));
+    // Shifts Listener
+    const shiftsBaseQuery = collection(db, 'shifts');
+    const shiftsQuery = isOwner
+        ? query(shiftsBaseQuery)
+        : query(shiftsBaseQuery, where('department', '==', dept));
+
     const unsubShifts = onSnapshot(shiftsQuery, (snapshot) => {
         setAllShifts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shift)));
     }, (err) => {
         console.error("Error fetching shifts:", err);
-        toast({ variant: 'destructive', title: 'Error', description: 'Could not fetch shifts.' });
     });
 
+    // Checklists Listener
     const checklistsQuery = query(collection(db, 'evidence_checklists'));
     const unsubChecklists = onSnapshot(checklistsQuery, (snapshot) => {
         const checklistsMap = new Map<string, EvidenceChecklist>();
@@ -1117,21 +1135,7 @@ export function EvidenceDashboard() {
   
   const relevantProjects = useMemo(() => {
     if (!userProfile) return [];
-
-    let relevantProjectAddresses = new Set<string>();
-    
-    if (!isOwner) {
-        projects.forEach(p => {
-            if (p.department === userProfile.department) {
-                relevantProjectAddresses.add(p.address);
-            }
-        });
-        allShifts.forEach(s => {
-            if (s.userId === userProfile.uid && s.address) {
-                relevantProjectAddresses.add(s.address);
-            }
-        });
-    }
+    const isOwner = userProfile.role === 'owner';
 
     const filtered = projects.filter(project => {
         if (isOwner) {
@@ -1139,9 +1143,8 @@ export function EvidenceDashboard() {
                 return project.department && selectedDepartments.has(project.department);
             }
             return true; 
-        } else {
-            return relevantProjectAddresses.has(project.address);
         }
+        return true; // Already filtered by department in query for non-owners
     });
     
     if (!searchTerm) return filtered;
@@ -1150,7 +1153,7 @@ export function EvidenceDashboard() {
       project.contract?.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
-  }, [projects, allShifts, userProfile, isOwner, selectedDepartments, searchTerm]);
+  }, [projects, userProfile, selectedDepartments, searchTerm]);
 
 
   const groupedProjects = useMemo(() => {

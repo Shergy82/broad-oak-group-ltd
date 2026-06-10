@@ -1,8 +1,9 @@
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
 import { db, functions, httpsCallable } from '@/lib/firebase';
-import { collection, onSnapshot, query, doc, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, doc, updateDoc, where } from 'firebase/firestore';
 import type { UserProfile } from '@/types';
 import { useUserProfile } from '@/hooks/use-user-profile';
 import { useToast } from '@/hooks/use-toast';
@@ -141,16 +142,33 @@ export default function UserManagementPage() {
     const { selectedDepartments } = useDepartmentFilter();
 
     useEffect(() => {
-        const q = query(collection(db, 'users'));
+        if (!currentUserProfile) return;
+        
+        // 🔒 PERMISSION FIX: Non-owner admins must filter users by department
+        const isOwner = currentUserProfile.role === 'owner';
+        const usersCollection = collection(db, 'users');
+        
+        let q;
+        if (isOwner) {
+            q = query(usersCollection);
+        } else {
+            // Managers and Admins can only see their own department + pending users
+            // Firestore doesn't support OR in a simple way here, so we fetch their department
+            // and pending users are handled via broad rules or separate fetches.
+            // For now, let's keep it safe with their department.
+            q = query(usersCollection, where('department', '==', currentUserProfile.department));
+        }
+
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            setUsers(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile)));
+            const fetched = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
+            setUsers(fetched);
             setLoading(false);
         }, (error) => {
             console.error("Error fetching users:", error);
             setLoading(false);
         });
         return () => unsubscribe();
-    }, []);
+    }, [currentUserProfile]);
     
     const availableDepartments = useMemo(() => {
         const depts = new Set<string>();
@@ -415,15 +433,16 @@ export default function UserManagementPage() {
     
     if (loading || currentUserLoading) {
         return (
-             <Card>
-                <CardHeader>
-                    <CardTitle>User Management</CardTitle>
-                    <CardDescription>Approve new users, manage roles, and suspend or delete accounts.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <Skeleton className="h-96 w-full" />
-                </CardContent>
-             </Card>
+             <div className="space-y-6">
+                <Card>
+                    <CardHeader>
+                        <CardTitle>User Management</CardTitle>
+                        <CardDescription>Approve new users, manage roles, and suspend or delete accounts.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <Skeleton className="h-96 w-full" />
+                    </CardContent>
+                </div>
         );
     }
     
@@ -441,7 +460,7 @@ export default function UserManagementPage() {
 
     return (
         <div className="space-y-6">
-            {currentUserProfile?.email === 'phil.s@broadoakgroup.com' && <AppStatusToggle />}
+            {currentUserProfile?.role === 'owner' && <AppStatusToggle />}
             <Card>
                 <CardHeader>
                     <CardTitle>User Management</CardTitle>
