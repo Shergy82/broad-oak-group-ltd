@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useCallback } from 'react';
@@ -124,6 +125,7 @@ const LOCAL_STORAGE_KEY = 'shiftImport_selectedSheets_v2';
 export function FileUploader({ onImportComplete, onFileSelect, userProfile, importDepartment, importType }: FileUploaderProps) {
   const [file, setFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isDryRun, setIsDryRun] = useState(true);
   const [sheetNames, setSheetNames] = useState<string[]>([]);
@@ -136,6 +138,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
     setSheetNames([]);
     setSelectedSheets([]);
     setError(null);
+    setUploadProgress(null);
     const fileInput = document.getElementById('shift-file-input') as HTMLInputElement;
     if (fileInput) fileInput.value = '';
     onFileSelect();
@@ -209,6 +212,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
       }
 
       setIsUploading(true);
+      setUploadProgress('Reading file...');
       setError(null);
 
       const rawFilename = file.name.replace(/\.[^/.]+$/, "");
@@ -225,6 +229,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           let allShiftsFromExcel: ParsedShift[] = [];
           let allFailedShifts: FailedShift[] = [];
 
+          setUploadProgress('Fetching users...');
           const usersSnapshot = await getDocs(collection(firestore, 'users'));
           const userMap: UserMapEntry[] = usersSnapshot.docs.map((d) => {
             const u = d.data() as UserProfile;
@@ -239,6 +244,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           
           const finalImportDepartment = importType === 'GAS' ? 'Gas' : importDepartment;
           
+          setUploadProgress('Parsing workbook (this may take a minute for large files)...');
           let result: { parsed: ParsedGasShift[], failures: any[] };
           if (importType === 'GAS') {
               const res = await parseGasWorkbook(Buffer.from(data), userMap);
@@ -294,8 +300,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           }
           allShiftsFromExcel = Array.from(uniqueShiftsMap.values());
 
-          // 🔒 PERMISSION FIX: Always include the department filter on the client fetch
-          // This prevents "insufficient permissions" errors for Managers/TLOs.
+          setUploadProgress('Comparing with existing data...');
           const existingShiftsQuery = query(
             collection(firestore, 'shifts'), 
             where('department', '==', finalImportDepartment)
@@ -328,7 +333,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             const shiftData = { id: doc.id, ...doc.data() } as Shift;
             if (!shiftData.userId || !shiftData.date || !shiftData.address) return;
             
-            // Only consider shifts for this specific department
             if (shiftData.department !== finalImportDepartment) return;
 
             const key = getShiftKey(shiftData as any);
@@ -405,23 +409,58 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
               if (!functions) throw new Error("Functions service not initialized.");
               const reconcileShiftsFn = httpsCallable(functions, 'reconcileShifts');
               
-              const payload = {
-                toCreate: toCreate.filter(s => isValid(s.date)).map(s => ({ ...s, date: s.date.toISOString() })),
-                toUpdate: toUpdate.filter(u => isValid(u.new.date)).map(u => ({
-                  id: u.old.id,
-                  new: { ...u.new, date: u.new.date.toISOString() }
-                })),
-                toDelete: toDelete.map(s => ({ id: s.id })),
-                department: finalImportDepartment
-              };
-              const result = await reconcileShiftsFn(payload);
+              const CHUNK_SIZE = 150; // Smaller chunks to prevent 10MB payload error
+              const totalItems = toCreate.length + toUpdate.length + toDelete.length;
+              let itemsProcessed = 0;
+
+              // 1. Process Creations in chunks
+              for (let i = 0; i < toCreate.length; i += CHUNK_SIZE) {
+                const chunk = toCreate.slice(i, i + CHUNK_SIZE);
+                setUploadProgress(`Publishing batch ${Math.floor(i/CHUNK_SIZE) + 1} (Creations)...`);
+                await reconcileShiftsFn({
+                  toCreate: chunk.filter(s => isValid(s.date)).map(s => ({ ...s, date: s.date.toISOString() })),
+                  toUpdate: [],
+                  toDelete: [],
+                  department: finalImportDepartment
+                });
+              }
+
+              // 2. Process Updates in chunks
+              for (let i = 0; i < toUpdate.length; i += CHUNK_SIZE) {
+                const chunk = toUpdate.slice(i, i + CHUNK_SIZE);
+                setUploadProgress(`Publishing batch ${Math.floor(i/CHUNK_SIZE) + 1} (Updates)...`);
+                await reconcileShiftsFn({
+                  toCreate: [],
+                  toUpdate: chunk.filter(u => isValid(u.new.date)).map(u => ({
+                    id: u.old.id,
+                    new: { ...u.new, date: u.new.date.toISOString() }
+                  })),
+                  toDelete: [],
+                  department: finalImportDepartment
+                });
+              }
+
+              // 3. Process Deletions in chunks
+              for (let i = 0; i < toDelete.length; i += CHUNK_SIZE) {
+                const chunk = toDelete.slice(i, i + CHUNK_SIZE);
+                setUploadProgress(`Publishing batch ${Math.floor(i/CHUNK_SIZE) + 1} (Deletions)...`);
+                await reconcileShiftsFn({
+                  toCreate: [],
+                  toUpdate: [],
+                  toDelete: chunk.map(s => ({ id: s.id })),
+                  department: finalImportDepartment
+                });
+              }
+
               toast({
                 title: 'Import Complete',
-                description: (result.data as any).message || 'Changes published successfully.',
+                description: `Successfully processed ${totalItems} changes.`,
               });
             } catch (error: any) {
-              console.error("Error during reconciliation:", error);
-              toast({ variant: 'destructive', title: 'Error', description: error.message || 'Action failed.' });
+              console.error("Error during reconciliation batch:", error);
+              toast({ variant: 'destructive', title: 'Error', description: error.message || 'Action failed during batch processing.' });
+            } finally {
+              setUploadProgress(null);
             }
           };
 
@@ -433,6 +472,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
                 failed: allFailedShifts.sort(dateSort)
             });
             setIsUploading(false);
+            setUploadProgress(null);
             return;
           }
 
@@ -445,6 +485,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           onImportComplete([], async () => {}, undefined);
         } finally {
           setIsUploading(false);
+          setUploadProgress(null);
         }
       };
       reader.readAsArrayBuffer(file);
@@ -545,10 +586,11 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
               <Checkbox id="dry-run" checked={isDryRun} onCheckedChange={(checked) => setIsDryRun(!!checked)} />
               <Label htmlFor="dry-run" className="text-sm font-medium leading-none">Dry Run</Label>
             </div>
-            <div className="flex items-center gap-2">
-              <Button onClick={handleImport} disabled={!file || isUploading || (importType === 'BUILD' && selectedSheets.length === 0)} className="w-full sm:w-auto">
+            <div className="flex flex-col sm:flex-row items-center gap-3">
+              <Button onClick={handleImport} disabled={!file || isUploading || (importType === 'BUILD' && selectedSheets.length === 0)} className="w-full sm:w-auto min-w-[140px]">
                 {isUploading ? <Spinner /> : isDryRun ? <><TestTube2 className="mr-2 h-4 w-4" /> Run Test</> : <><Upload className="mr-2 h-4 w-4" /> Import Shifts</>}
               </Button>
+              {uploadProgress && <span className="text-xs text-muted-foreground font-medium animate-pulse">{uploadProgress}</span>}
             </div>
           </div>
         )}

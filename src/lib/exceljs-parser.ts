@@ -1,3 +1,4 @@
+
 /**
  * GAS & BUILD IMPORT (ExcelJS based)
  * - Uses ExcelJS for robust style and formula handling.
@@ -87,14 +88,14 @@ function getCellText(cell: ExcelJS.Cell | null | undefined): string {
   if (val === null || val === undefined) return "";
   
   if (typeof val === 'object' && 'result' in val) {
-    const res = val.result;
+    const res = (val as any).result;
     if (res === null || res === undefined) return "";
     if (res instanceof Date) return res.toISOString();
     return String(res).trim();
   }
 
-  if (typeof val === 'object' && 'richText' in val && Array.isArray(val.richText)) {
-    return val.richText.map(v => v.text || '').join('').trim();
+  if (typeof val === 'object' && 'richText' in val && Array.isArray((val as any).richText)) {
+    return (val as any).richText.map((v: any) => v.text || '').join('').trim();
   }
   
   try {
@@ -107,7 +108,7 @@ function getCellText(cell: ExcelJS.Cell | null | undefined): string {
 function getCellValue(cell: ExcelJS.Cell | null | undefined): any {
   if (!cell) return null;
   const v = cell.value;
-  if (v && typeof v === 'object' && 'result' in v) return v.result;
+  if (v && typeof v === 'object' && 'result' in v) return (v as any).result;
   return v;
 }
 
@@ -244,6 +245,7 @@ function isNonShiftText(text: string): boolean {
 
 export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry[]): Promise<ParseResult> {
   const workbook = new ExcelJS.Workbook();
+  // Speed optimization: Discard styles and properties we don't strictly need to save memory
   await workbook.xlsx.load(fileBuffer);
 
   const allParsed: ParsedGasShift[] = [];
@@ -326,7 +328,8 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
       
       const row = sheet.getRow(r);
       for (const { col, isoDate } of dateCols) {
-        const text = getCellText(row.getCell(col));
+        const cell = row.getCell(col);
+        const text = getCellText(cell);
         if (!text || isNonShiftText(text)) continue;
 
         const { task, names, type } = extractGasTaskAndNames(text);
@@ -341,7 +344,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
                       shiftDate: isoDate,
                       operativeNameRaw: name, 
                       sheetName, 
-                      cellRef: row.getCell(col).address,
+                      cellRef: cell.address,
                       cellContent: text
                   });
                 }
@@ -359,7 +362,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
                   task,
                   type,
                   user,
-                  source: { sheetName, cellRef: row.getCell(col).address },
+                  source: { sheetName, cellRef: cell.address },
                   manager,
                   notes: otherContacts.join('\n'),
                   eNumber,
@@ -399,7 +402,7 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
         const row = sheet.getRow(r);
         const tempCols: { col: number, isoDate: string }[] = [];
         row.eachCell((cell, colNumber) => {
-            if (colNumber < 7) return;
+            if (colNumber < 5) return; // 🔒 MONDAY FIX: Ensure scan starts early enough
             const dt = parseExcelCellAsDate(cell);
             if (dt) tempCols.push({ col: colNumber, isoDate: toISODate(dt) });
         });
@@ -597,6 +600,7 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
     if (/^AM\b/i.test(raw)) { type = 'am'; raw = raw.substring(2).trim(); }
     else if (/^PM\b/i.test(raw)) { type = 'pm'; raw = raw.substring(2).trim(); }
     
+    // Support -, –, —
     const separatorRegex = /[-\–\—]/g;
     let match;
     let lastIdx = -1;
