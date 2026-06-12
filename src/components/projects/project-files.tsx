@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -214,77 +213,75 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
 
   return (
     <>
-      <div className="space-y-4">
-        <h4 className="text-sm font-semibold">Attached Files</h4>
-        
-        {isLoading ? (
-          <div className="space-y-2">
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-          </div>
-        ) : files.length === 0 ? (
-          <div className="text-center text-muted-foreground p-4 border-dashed border rounded-lg">
-            <FileText className="mx-auto h-8 w-8 text-muted-foreground/50" />
-            <p className="mt-2 text-sm">No files attached yet.</p>
-          </div>
-        ) : (
-          <div className="border rounded-lg overflow-hidden flex flex-col max-h-[300px]">
-              <ScrollArea className="flex-1">
-                <Table>
-                    <TableHeader className="sticky top-0 bg-background z-10">
-                        <TableRow>
-                            <TableHead>File</TableHead>
-                            <TableHead className="text-right">Actions</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                    {files.map(file => (
-                        <TableRow key={file.id}>
-                            <TableCell className="font-medium truncate max-w-[150px]">
-                                <button onClick={() => handleFileClick(file)} className="hover:underline text-left truncate block w-full" title={file.name}>
-                                    {file.name}
-                                </button>
-                                <p className="text-[10px] text-muted-foreground">{formatFileSize(file.size)} • {file.uploaderName}</p>
-                            </TableCell>
-                            <TableCell className="text-right space-x-1">
-                                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => downloadFile(file.fullPath)}>
-                                    <Download className="h-4 w-4" />
-                                </Button>
-                                {(userProfile.uid === file.uploaderId || ['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role)) && (
-                                    <AlertDialog>
-                                        <AlertDialogTrigger asChild>
-                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10">
-                                                <Trash2 className="h-4 w-4" />
-                                            </Button>
-                                        </AlertDialogTrigger>
-                                        <AlertDialogContent>
-                                            <AlertDialogHeader>
-                                                <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                                                <AlertDialogDescription>This will permanently delete "{file.name}".</AlertDialogDescription>
-                                            </AlertDialogHeader>
-                                            <AlertDialogFooter>
-                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                <AlertDialogAction onClick={() => handleDeleteFile(file)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
-                                            </AlertDialogFooter>
-                                        </AlertDialogContent>
-                                    </AlertDialog>
-                                )}
-                            </TableCell>
-                        </TableRow>
-                    ))}
-                    </TableBody>
-                </Table>
-              </ScrollArea>
-              {files.length > 4 && (
-                  <div className="bg-muted/30 p-1.5 text-center text-[9px] text-muted-foreground border-t">
-                      Scroll to view all {files.length} files
-                  </div>
-              )}
-          </div>
-        )}
-        <div className="pt-2 space-y-3">
-          <div className="space-y-2 text-left">
-              <Label htmlFor={`evidence-tag-user-${project.id}`}>Evidence Tag (Optional)</Label>
+      <div className="flex flex-col h-full space-y-4">
+        <div className="flex-1 min-h-0 flex flex-col space-y-2">
+            <h4 className="text-sm font-semibold flex-shrink-0">Attached Files</h4>
+            
+            {isLoading ? (
+              <div className="space-y-2">
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+              </div>
+            ) : files.length === 0 ? (
+              <div className="text-center text-muted-foreground p-4 border-dashed border rounded-lg flex-1 flex flex-col justify-center min-h-[100px]">
+                <FileText className="mx-auto h-8 w-8 text-muted-foreground/50" />
+                <p className="mt-2 text-xs">No files attached yet.</p>
+              </div>
+            ) : (
+              <div className="border rounded-lg overflow-hidden flex flex-col flex-1 min-h-[150px] max-h-[220px]">
+                  <ScrollArea className="flex-1">
+                    <Table>
+                        <TableHeader className="sticky top-0 bg-background z-10">
+                            <TableRow className="hover:bg-transparent">
+                                <TableHead className="h-8 text-[10px] uppercase font-bold">File</TableHead>
+                                <TableHead className="h-8 text-right text-[10px] uppercase font-bold">Actions</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                        {files.map(file => (
+                            <TableRow key={file.id} className="h-12">
+                                <TableCell className="py-1 font-medium truncate max-w-[120px]">
+                                    <button onClick={() => handleFileClick(file)} className="hover:underline text-left truncate block w-full text-xs font-semibold" title={file.name}>
+                                        {file.name}
+                                    </button>
+                                    <p className="text-[9px] text-muted-foreground truncate">{formatFileSize(file.size)} • {file.uploaderName.split(' ')[0]}</p>
+                                </TableCell>
+                                <TableCell className="py-1 text-right space-x-0.5">
+                                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => downloadFile(file.fullPath)}>
+                                        <Download className="h-3.5 w-3.5" />
+                                    </Button>
+                                    {(userProfile.uid === file.uploaderId || ['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role)) && (
+                                        <AlertDialog>
+                                            <AlertDialogTrigger asChild>
+                                                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive/70 hover:text-destructive hover:bg-destructive/10">
+                                                    <Trash2 className="h-3.5 w-3.5" />
+                                                </Button>
+                                            </AlertDialogTrigger>
+                                            <AlertDialogContent>
+                                                <AlertDialogHeader>
+                                                    <AlertDialogTitle className="text-base">Delete File?</AlertDialogTitle>
+                                                    <AlertDialogDescription className="text-sm">This action cannot be undone.</AlertDialogDescription>
+                                                </AlertDialogHeader>
+                                                <AlertDialogFooter className="flex-row gap-2">
+                                                    <AlertDialogCancel className="mt-0 flex-1">Cancel</AlertDialogCancel>
+                                                    <AlertDialogAction onClick={() => handleDeleteFile(file)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90 flex-1">Delete</AlertDialogAction>
+                                                </AlertDialogFooter>
+                                            </AlertDialogContent>
+                                        </AlertDialog>
+                                    )}
+                                </TableCell>
+                            </TableRow>
+                        ))}
+                        </TableBody>
+                    </Table>
+                  </ScrollArea>
+              </div>
+            )}
+        </div>
+
+        <div className="flex-shrink-0 pt-2 space-y-3 border-t">
+          <div className="space-y-1.5 text-left">
+              <Label htmlFor={`evidence-tag-user-${project.id}`} className="text-[11px] font-bold uppercase text-muted-foreground">Evidence Tag (Optional)</Label>
               <Input 
                   id={`evidence-tag-user-${project.id}`}
                   placeholder="e.g., boiler-photo"
@@ -292,7 +289,6 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
                   onChange={(e) => setEvidenceTag(e.target.value)}
                   className="bg-background h-8 text-xs"
               />
-              <p className="text-[10px] text-muted-foreground px-1">Apply a tag to link uploads to a checklist item.</p>
           </div>
 
           <Input
@@ -303,11 +299,11 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
             onChange={(e) => handleFileUpload(e.target.files)}
             disabled={isUploading}
           />
-          <Button asChild className="w-full" disabled={isUploading} variant="outline" size="sm">
-            <Label htmlFor={`file-upload-user-${project.id}`} className="cursor-pointer w-full">
+          <Button asChild className="w-full h-9 shadow-sm" disabled={isUploading} variant="outline" size="sm">
+            <Label htmlFor={`file-upload-user-${project.id}`} className="cursor-pointer w-full flex items-center justify-center font-bold">
               {isUploading ? (
                 <>
-                  <Spinner size="sm" /> Uploading...
+                  <Spinner size="sm" className="mr-2" /> Uploading...
                 </>
               ) : (
                 <>
@@ -319,11 +315,11 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
         </div>
       </div>
       <Dialog open={!!viewingFile} onOpenChange={() => setViewingFile(null)}>
-        <DialogContent className="max-w-[90vw] h-[90vh] p-2 flex flex-col">
+        <DialogContent className="max-w-[95vw] h-[85vh] p-2 flex flex-col sm:max-w-[90vw]">
             <DialogHeader className="p-2 border-b flex-shrink-0">
-                <DialogTitle className="truncate">{viewingFile?.name}</DialogTitle>
+                <DialogTitle className="truncate text-base">{viewingFile?.name}</DialogTitle>
             </DialogHeader>
-            <div className="flex-grow relative bg-muted/20 overflow-hidden">
+            <div className="flex-grow relative bg-muted/20 overflow-hidden rounded-md">
                 {renderFileViewer()}
             </div>
         </DialogContent>

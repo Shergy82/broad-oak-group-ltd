@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -157,20 +156,20 @@ function CreateProjectDialog({ open, onOpenChange, userProfile }: CreateProjectD
 }
 
 function FileUploader({ project, userProfile }: { project: Project; userProfile: UserProfile }) {
-  const [isUploading, setIsUploading] = useState(false);
+  const [isUploading, setIsLoading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const { toast } = useToast();
 
   const handleFileUpload = (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    setIsUploading(true);
+    setIsLoading(true);
 
     const uploadPromises = Array.from(files).map(file => {
       const storagePath = `project_files/${project.id}/${Date.now()}-${file.name}`;
       const storageRef = ref(storage, storagePath);
       
       const metadata = {
-        contentDisposition: 'attachment', // This is the crucial part
+        contentDisposition: 'attachment',
       };
 
       const uploadTask = uploadBytesResumable(storageRef, file, metadata);
@@ -209,7 +208,7 @@ function FileUploader({ project, userProfile }: { project: Project; userProfile:
     Promise.all(uploadPromises)
       .then(() => toast({ title: 'Success', description: `${files.length} file(s) uploaded successfully.` }))
       .catch(() => toast({ variant: 'destructive', title: 'Upload Failed', description: 'One or more files failed to upload. Please try again.' }))
-      .finally(() => setIsUploading(false));
+      .finally(() => setIsLoading(false));
   };
   
   const onDragProps = {
@@ -592,8 +591,6 @@ export function ProjectManager({ userProfile, initialSearchTerm = '' }: ProjectM
   const [projectToEdit, setProjectToEdit] = useState<Project | null>(null);
 
   useEffect(() => {
-    // 🔒 PERMISSION FIX: Standard privileged users (Managers/TLOs) 
-    // must filter by department to comply with security rules.
     const isOwnerRole = userProfile.role === 'owner';
     const projectsCollection = collection(db, 'projects');
     
@@ -603,7 +600,6 @@ export function ProjectManager({ userProfile, initialSearchTerm = '' }: ProjectM
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetched = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project));
-      // Sort on client to avoid composite index requirements
       fetched.sort((a, b) => {
           const dateA = a.createdAt?.toMillis() || 0;
           const dateB = b.createdAt?.toMillis() || 0;
@@ -620,7 +616,6 @@ export function ProjectManager({ userProfile, initialSearchTerm = '' }: ProjectM
   }, [userProfile.role, userProfile.department, toast]);
 
   const filteredProjects = useMemo(() => {
-    // Apply department filtering first
     const departmentFilteredProjects = isOwner
         ? projects.filter(p => selectedDepartments.size === 0 || (p.department && selectedDepartments.has(p.department)))
         : projects.filter(p => p.department === userProfile.department);
@@ -641,12 +636,7 @@ export function ProjectManager({ userProfile, initialSearchTerm = '' }: ProjectM
     }
 
     const uniqueProjectsArray = Array.from(uniqueProjects.values());
-    
-    // Sort by address numerically
-    uniqueProjectsArray.sort((a, b) => {
-      return a.address.localeCompare(b.address, undefined, { numeric: true });
-    });
-
+    uniqueProjectsArray.sort((a, b) => a.address.localeCompare(b.address, undefined, { numeric: true }));
     return uniqueProjectsArray;
   }, [projects, searchTerm, isOwner, selectedDepartments, userProfile.department]);
 
@@ -768,7 +758,10 @@ export function ProjectManager({ userProfile, initialSearchTerm = '' }: ProjectM
       </div>
 
       {loading ? (
-        <Skeleton className="h-64 w-full" />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Skeleton className="h-64 w-full" />
+            <Skeleton className="h-64 w-full" />
+        </div>
       ) : filteredProjects.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center">
             <FolderOpen className="mx-auto h-12 w-12 text-muted-foreground" />
@@ -780,7 +773,7 @@ export function ProjectManager({ userProfile, initialSearchTerm = '' }: ProjectM
       ) : (
         <>
             {/* Desktop Table View */}
-            <div className="border rounded-lg hidden md:block">
+            <div className="border rounded-lg hidden md:block overflow-hidden">
                 <Table>
                 <TableHeader>
                     <TableRow>
@@ -808,7 +801,7 @@ export function ProjectManager({ userProfile, initialSearchTerm = '' }: ProjectM
                        }
 
                        return (
-                        <TableRow key={project.id} className={isScheduledForDeletion ? 'bg-destructive/10 hover:bg-destructive/20' : ''}>
+                        <TableRow key={project.id} className={cn(isScheduledForDeletion && 'bg-destructive/10 hover:bg-destructive/20')}>
                             <TableCell className="font-medium">{project.address}</TableCell>
                             <TableCell>{project.eNumber}</TableCell>
                             <TableCell>{project.manager}</TableCell>
@@ -873,7 +866,7 @@ export function ProjectManager({ userProfile, initialSearchTerm = '' }: ProjectM
             </div>
 
             {/* Mobile Card View */}
-            <div className="grid gap-4 md:hidden">
+            <div className="grid grid-cols-1 md:hidden gap-6">
                 {filteredProjects.map(project => {
                     const isScheduledForDeletion = !!project.deletionScheduledAt;
                     let countdownText = '';
@@ -888,48 +881,48 @@ export function ProjectManager({ userProfile, initialSearchTerm = '' }: ProjectM
                         }
                     }
                     return (
-                        <Card key={project.id} className={isScheduledForDeletion ? 'border-destructive bg-destructive/10' : ''}>
-                            <CardHeader>
-                                <CardTitle>{project.address}</CardTitle>
-                                <CardDescription>Number: {project.eNumber || 'N/A'}</CardDescription>
+                        <Card key={project.id} className={cn("flex flex-col h-full shadow-sm", isScheduledForDeletion && 'border-destructive bg-destructive/10')}>
+                            <CardHeader className="p-4 pb-2">
+                                <CardTitle className="text-base leading-tight line-clamp-2 min-h-[2.5rem]">{project.address}</CardTitle>
+                                <CardDescription className="text-xs">Number: {project.eNumber || 'N/A'}</CardDescription>
                             </CardHeader>
-                            <CardContent className="text-sm space-y-2">
-                                <div><strong>Manager:</strong> {project.manager || 'N/A'}</div>
-                                <div><strong>Created:</strong> {project.createdAt ? format(project.createdAt.toDate(), 'dd/MM/yyyy') : 'N/A'}</div>
-                                <div><strong>Next Review:</strong> {project.nextReviewDate ? format(project.nextReviewDate.toDate(), 'dd/MM/yyyy') : 'N/A'}</div>
+                            <CardContent className="p-4 pt-0 text-sm space-y-2 flex-1">
+                                <div className="flex justify-between"><strong>Manager:</strong> <span className="truncate ml-4">{project.manager || 'N/A'}</span></div>
+                                <div className="flex justify-between"><strong>Created:</strong> <span>{project.createdAt ? format(project.createdAt.toDate(), 'dd/MM/yyyy') : 'N/A'}</span></div>
+                                <div className="flex justify-between"><strong>Next Review:</strong> <span>{project.nextReviewDate ? format(project.nextReviewDate.toDate(), 'dd/MM/yyyy') : 'N/A'}</span></div>
                             </CardContent>
-                            <CardFooter className="flex flex-col gap-2">
+                            <CardFooter className="p-2 border-t bg-muted/20 flex flex-col gap-2 flex-shrink-0">
                                 {isScheduledForDeletion ? (
                                     <div className="w-full space-y-2">
                                         <div className="text-center w-full space-y-1">
-                                            <p className="text-sm font-semibold text-destructive">Scheduled for deletion</p>
-                                            <p className="text-xs text-destructive">{countdownText}</p>
+                                            <p className="text-sm font-semibold text-destructive uppercase tracking-wider">Scheduled for deletion</p>
+                                            <p className="text-xs text-destructive font-medium">{countdownText}</p>
                                         </div>
                                         <div className="grid grid-cols-2 gap-2">
-                                            <Button variant="outline" className="w-full" onClick={() => handleManageFiles(project)}>
+                                            <Button variant="outline" size="sm" className="h-10" onClick={() => handleManageFiles(project)}>
                                                 <FolderOpen className="mr-2 h-4 w-4" />
-                                                Manage Files
+                                                Files
                                             </Button>
-                                            <Button variant="outline" size="sm" onClick={() => handleCancelDeletion(project.id)} className="w-full">
+                                            <Button variant="outline" size="sm" onClick={() => handleCancelDeletion(project.id)} className="h-10">
                                                 <Undo2 className="mr-2 h-4 w-4" />
-                                                Cancel Deletion
+                                                Restore
                                             </Button>
                                         </div>
                                     </div>
                                 ) : (
                                     <>
-                                        <Button variant="outline" className="w-full" onClick={() => handleManageFiles(project)}>
+                                        <Button variant="outline" className="w-full h-10" onClick={() => handleManageFiles(project)}>
                                             <FolderOpen className="mr-2 h-4 w-4" />
                                             Manage Files
                                         </Button>
                                         {['admin', 'owner', 'manager'].includes(userProfile.role) && (
                                             <div className="grid grid-cols-2 gap-2 w-full">
-                                                <Button variant="outline" className="w-full" onClick={() => handleEditProject(project)}>
+                                                <Button variant="outline" className="w-full h-10" onClick={() => handleEditProject(project)}>
                                                     <Edit className="mr-2 h-4 w-4" /> Edit
                                                 </Button>
                                                 <AlertDialog>
                                                     <AlertDialogTrigger asChild>
-                                                        <Button variant="destructive" className="w-full">
+                                                        <Button variant="destructive" className="w-full h-10">
                                                             <Trash2 className="mr-2 h-4 w-4" /> Delete
                                                         </Button>
                                                     </AlertDialogTrigger>
@@ -937,13 +930,13 @@ export function ProjectManager({ userProfile, initialSearchTerm = '' }: ProjectM
                                                         <AlertDialogHeader>
                                                             <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
                                                             <AlertDialogDescription>
-                                                                This will permanently delete the project <span className="font-semibold">"{project.address}"</span> and all of its associated files. This action cannot be undone.
+                                                                This will permanently delete "{project.address}" and all associated data.
                                                             </AlertDialogDescription>
                                                         </AlertDialogHeader>
                                                         <AlertDialogFooter>
                                                             <AlertDialogCancel>Cancel</AlertDialogCancel>
                                                             <AlertDialogAction onClick={() => handleDeleteProject(project)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                                                                Delete Project
+                                                                Delete
                                                             </AlertDialogAction>
                                                         </AlertDialogFooter>
                                                     </AlertDialogContent>

@@ -1,10 +1,9 @@
-
 'use client';
 
 import { useEffect, useMemo, useState, Suspense } from 'react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { Project, Shift } from '@/types';
+import type { Project } from '@/types';
 import { useAuth } from '@/hooks/use-auth';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Spinner } from '@/components/shared/spinner';
@@ -34,13 +33,6 @@ function ProjectsPageContent() {
     }
   }, [user, isAuthLoading, router]);
 
-  /**
-   * 🔒 UNIFIED PROJECT FETCHING
-   * To ensure visibility, everyone (Operatives and Admins) now sees all projects 
-   * within their assigned department. This solves the "literal address match" 
-   * issue where operatives couldn't see site files if the schedule address 
-   * varied by a single character.
-   */
   useEffect(() => {
     if (isProfileLoading || !userProfile) return;
 
@@ -55,7 +47,6 @@ function ProjectsPageContent() {
     setLoading(true);
     const projectsCollection = collection(db, 'projects');
     
-    // 🔒 Non-owners are restricted by department
     const q = isOwner 
         ? projectsCollection 
         : query(projectsCollection, where('department', '==', dept));
@@ -66,7 +57,6 @@ function ProjectsPageContent() {
             fetchedProjects.push({ id: doc.id, ...doc.data() } as Project);
         });
         
-        // Sort by address numerically
         setProjects(fetchedProjects.sort((a, b) => a.address.localeCompare(b.address, undefined, { numeric: true })));
         setLoading(false);
     }, (error) => {
@@ -94,11 +84,7 @@ function ProjectsPageContent() {
     }
     
     const uniqueProjectsArray = Array.from(uniqueProjects.values());
-    
-    uniqueProjectsArray.sort((a, b) => {
-      return a.address.localeCompare(b.address, undefined, { numeric: true });
-    });
-
+    uniqueProjectsArray.sort((a, b) => a.address.localeCompare(b.address, undefined, { numeric: true }));
     return uniqueProjectsArray;
   }, [projects, searchTerm]);
   
@@ -115,17 +101,17 @@ function ProjectsPageContent() {
   return (
     <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
       {isPrivilegedUser && userProfile ? (
-          <Card>
+          <Card className="w-full">
               <CardHeader>
-              <CardTitle>Project & File Management</CardTitle>
-              <CardDescription>Create new projects and upload or delete files associated with them. All users can view projects and files here.</CardDescription>
+                <CardTitle>Project & File Management</CardTitle>
+                <CardDescription>Create new projects and upload or delete files associated with them.</CardDescription>
               </CardHeader>
               <CardContent>
                   <ProjectManager userProfile={userProfile} initialSearchTerm={initialSearchTerm} />
               </CardContent>
           </Card>
       ) : (
-          <Card>
+          <Card className="w-full">
           <CardHeader>
               <CardTitle>Projects</CardTitle>
               <CardDescription>Search for projects in your department and manage your uploaded files.</CardDescription>
@@ -142,7 +128,7 @@ function ProjectsPageContent() {
               {loading ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {Array.from({ length: 3 }).map((_, i) => (
-                    <Card key={i}><CardHeader><div className="h-5 w-3/4 bg-muted rounded animate-pulse" /><div className="h-4 w-1/4 bg-muted rounded animate-pulse mt-2" /></CardHeader><CardContent><div className="h-24 bg-muted rounded-lg animate-pulse" /></CardContent></Card>
+                    <Card key={i} className="h-full flex flex-col"><CardHeader><div className="h-5 w-3/4 bg-muted rounded animate-pulse" /><div className="h-4 w-1/4 bg-muted rounded animate-pulse mt-2" /></CardHeader><CardContent className="flex-1"><div className="h-48 bg-muted rounded-lg animate-pulse" /></CardContent></Card>
                   ))}
               </div>
               ) : filteredProjects.length === 0 ? (
@@ -156,16 +142,16 @@ function ProjectsPageContent() {
               ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {filteredProjects.map((project) => (
-                  <Card key={project.id}>
-                      <CardHeader>
-                          <CardTitle className="text-lg">{project.address}</CardTitle>
+                  <Card key={project.id} className="flex flex-col h-full shadow-sm hover:shadow-md transition-shadow">
+                      <CardHeader className="flex-shrink-0">
+                          <CardTitle className="text-lg leading-tight line-clamp-2 min-h-[3rem]">{project.address}</CardTitle>
                           <CardDescription className="text-xs pt-2 space-y-1">
-                              <div><strong>Number:</strong> {project.eNumber || 'N/A'}</div>
-                              <div><strong>Council:</strong> {project.council || 'N/A'}</div>
-                              <div><strong>Manager:</strong> {project.manager || 'N/A'}</div>
+                              <div className="flex justify-between"><strong>Number:</strong> <span>{project.eNumber || 'N/A'}</span></div>
+                              <div className="flex justify-between"><strong>Council:</strong> <span className="truncate ml-4">{project.council || 'N/A'}</span></div>
+                              <div className="flex justify-between"><strong>Manager:</strong> <span className="truncate ml-4">{project.manager || 'N/A'}</span></div>
                           </CardDescription>
                       </CardHeader>
-                      <CardContent>
+                      <CardContent className="flex-1 overflow-hidden">
                         {userProfile && <ProjectFiles project={project} userProfile={userProfile} />}
                       </CardContent>
                   </Card>
