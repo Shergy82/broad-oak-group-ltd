@@ -245,7 +245,6 @@ function isNonShiftText(text: string): boolean {
 
 export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry[]): Promise<ParseResult> {
   const workbook = new ExcelJS.Workbook();
-  // Speed optimization: Discard styles and properties we don't strictly need to save memory
   await workbook.xlsx.load(fileBuffer);
 
   const allParsed: ParsedGasShift[] = [];
@@ -312,20 +311,17 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
 
     for (let r = blockStart; r <= blockEnd; r++) {
         const row = sheet.getRow(r);
-        // Scan common columns for metadata
         for (let c = 1; c <= 8; c++) {
             const cellText = getCellText(row.getCell(c));
             if (!cellText) continue;
 
             const upper = cellText.toUpperCase();
             
-            // Extract Manager
             if (r < addressRowIdx && (upper.includes('SITE MANAGER') || upper.includes('RESPONSIBLE PERSON'))) {
                 const cleaned = cellText.replace(/(site manager|responsible person)\s*:?/i, '').trim();
                 if (!manager) manager = cleaned.split('\n')[0].trim();
             } 
             
-            // 🔒 SCHEME EXTRACTION: Extract value to the right of "SCHEME:"
             if (upper.includes('SCHEME:')) {
                 const schemeVal = getCellText(row.getCell(c + 1));
                 if (schemeVal) {
@@ -333,7 +329,6 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
                 }
             }
 
-            // Other notes
             if (r < addressRowIdx && (upper.includes('PROJECT MANAGER') || upper.includes('TLO') || upper.includes('TECHNICAL MANAGER') || upper.includes('CONTACT'))) {
                 otherContacts.push(cellText);
             }
@@ -421,7 +416,7 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
         const row = sheet.getRow(r);
         const tempCols: { col: number, isoDate: string }[] = [];
         row.eachCell((cell, colNumber) => {
-            if (colNumber < 5) return; // 🔒 MONDAY FIX: Ensure scan starts early enough
+            if (colNumber < 5) return;
             const dt = parseExcelCellAsDate(cell);
             if (dt) tempCols.push({ col: colNumber, isoDate: toISODate(dt) });
         });
@@ -532,13 +527,7 @@ type UsedBounds = { startRow: number; endRow: number; startCol: number; endCol: 
 
 function findDividerRows(ws: ExcelJS.Worksheet, used: UsedBounds): number[] {
   const rows: number[] = [];
-  let emptyCount = 0;
   for (let r = used.startRow; r <= used.endRow; r++) {
-    const row = ws.getRow(r);
-    const colA = getCellText(row.getCell(1));
-    if (!colA) emptyCount++;
-    else emptyCount = 0;
-    if (emptyCount >= 15) break;
     if (isDividerRow(ws, r)) rows.push(r);
   }
   return rows.filter((row, idx) => idx === 0 || row !== rows[idx - 1] + 1);
@@ -549,10 +538,21 @@ function isDividerRow(ws: ExcelJS.Worksheet, r: number): boolean {
   let hasPatternFill = false;
   
   // 🔒 POSTCODE PROTECTION: Property headers contain postcodes. They are data, NOT dividers.
-  for (let c = 1; c <= 8; c++) {
+  // 🔒 HEADER PROTECTION: Rows containing metadata or dates are NOT dividers.
+  for (let c = 1; c <= 12; c++) {
     const cell = row.getCell(c);
     const text = getCellText(cell);
-    if (text && /\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) return false;
+    if (!text) {
+        const fill = cell.fill as any;
+        if (fill?.type === "pattern" && fill.pattern !== "none") hasPatternFill = true;
+        continue;
+    }
+
+    const upper = text.toUpperCase();
+    if (/\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) return false;
+    if (upper.includes('SITE MANAGER') || upper.includes('TECHNICAL MANAGER') || upper.includes('SCHEME:')) return false;
+    if (parseExcelCellAsDate(cell)) return false;
+
     const fill = cell.fill as any;
     if (fill?.type === "pattern" && fill.pattern !== "none") hasPatternFill = true;
   }
@@ -587,7 +587,6 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
         'WEEK COMM', 'CONTRACT'
     ];
 
-    // 🔒 LOOK HIGHER for addresses stored in colored headers
     for (let r = endRow; r >= startRow - 1; r--) {
         if (r < 1) continue;
         const cell = ws.getRow(r).getCell(1);
@@ -603,7 +602,7 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
     return null;
 }
 
-function getDateColumns(ws: ExcelJS.Worksheet, used: UsedBounds, dateRowIdx: number, matrixStartCol = 6): Array<{ col: number; isoDate: string }> {
+function getDateColumns(ws: ExcelJS.Worksheet, used: UsedBounds, dateRowIdx: number, matrixStartCol = 5): Array<{ col: number; isoDate: string }> {
   const cols = [];
   const startCol = Math.max(used.startCol, matrixStartCol);
   for (let c = startCol; c <= used.endCol; c++) {
@@ -619,7 +618,6 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
     if (/^AM\b/i.test(raw)) { type = 'am'; raw = raw.substring(2).trim(); }
     else if (/^PM\b/i.test(raw)) { type = 'pm'; raw = raw.substring(2).trim(); }
     
-    // Support -, –, —
     const separatorRegex = /[-\–\—]/g;
     let match;
     let lastIdx = -1;
@@ -646,4 +644,3 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
 
     return { task, names: uniqueNames, type };
 }
-
