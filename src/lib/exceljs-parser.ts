@@ -308,14 +308,33 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
 
     let manager = '';
     const otherContacts: string[] = [];
-    for (let r = blockStart; r < addressRowIdx; r++) {
-        const cellText = getCellText(sheet.getRow(r).getCell(1));
-        if (cellText) {
+    let scheme = sheetName; // Default to sheet name
+
+    for (let r = blockStart; r <= blockEnd; r++) {
+        const row = sheet.getRow(r);
+        // Scan common columns for metadata
+        for (let c = 1; c <= 8; c++) {
+            const cellText = getCellText(row.getCell(c));
+            if (!cellText) continue;
+
             const upper = cellText.toUpperCase();
-            if (upper.includes('SITE MANAGER') || upper.includes('RESPONSIBLE PERSON')) {
+            
+            // Extract Manager
+            if (r < addressRowIdx && (upper.includes('SITE MANAGER') || upper.includes('RESPONSIBLE PERSON'))) {
                 const cleaned = cellText.replace(/(site manager|responsible person)\s*:?/i, '').trim();
                 if (!manager) manager = cleaned.split('\n')[0].trim();
-            } else if (upper.includes('PROJECT MANAGER') || upper.includes('TLO') || upper.includes('TECHNICAL MANAGER') || upper.includes('CONTACT') || upper.includes('SCHEME')) {
+            } 
+            
+            // 🔒 SCHEME EXTRACTION: Extract value to the right of "SCHEME:"
+            if (upper.includes('SCHEME:')) {
+                const schemeVal = getCellText(row.getCell(c + 1));
+                if (schemeVal) {
+                    scheme = schemeVal;
+                }
+            }
+
+            // Other notes
+            if (r < addressRowIdx && (upper.includes('PROJECT MANAGER') || upper.includes('TLO') || upper.includes('TECHNICAL MANAGER') || upper.includes('CONTACT'))) {
                 otherContacts.push(cellText);
             }
         }
@@ -366,7 +385,7 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
                   manager,
                   notes: otherContacts.join('\n'),
                   eNumber,
-                  contract: sheetName,
+                  contract: scheme,
                   department: 'Gas'
                 });
             }
@@ -627,3 +646,4 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
 
     return { task, names: uniqueNames, type };
 }
+
