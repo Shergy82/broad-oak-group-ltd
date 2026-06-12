@@ -233,6 +233,8 @@ function isNonShiftText(text: string): boolean {
     "variation:",
     "scheme:",
     "site manager:",
+    "technical manager:",
+    "responsible person:",
   ];
 
   const strictHeaders = [
@@ -242,7 +244,7 @@ function isNonShiftText(text: string): boolean {
     "on live", "coole", "variation", "work type", 
     "waiting on", "scaffolding", "ordering", "hc",
     "remedial", "responsible person", "planner",
-    "technical manager"
+    "technical manager", "job manager"
   ];
   
   if (strictHeaders.includes(t)) return true;
@@ -325,30 +327,50 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
 
       let manager = '';
       let contract = sheetName;
-      let notes: string[] = [];
+      let notesSet = new Set<string>();
 
       // Scan zone for metadata
-      const metadataStart = Math.max(used.startRow, header.row - 5);
-      const metadataEnd = Math.min(blockEnd, header.row + 5);
+      const metadataStart = Math.max(used.startRow, header.row - 6);
+      const metadataEnd = Math.min(blockEnd, header.row + 6);
       for (let r = metadataStart; r <= metadataEnd; r++) {
           const row = sheet.getRow(r);
-          for (let c = 1; c <= 8; c++) {
+          for (let c = 1; c <= 10; c++) {
               const text = getCellText(row.getCell(c));
               if (!text) continue;
               const upper = text.toUpperCase();
-              if (upper.includes('SITE MANAGER') || upper.includes('RESPONSIBLE PERSON') || upper.includes('TECHNICAL MANAGER')) {
-                  const cleaned = text.replace(/(site manager|responsible person|technical manager)\s*:?/i, '').trim();
-                  if (!manager) manager = cleaned.split('\n')[0].trim();
+              
+              // 🔒 INCLUSIVE METADATA EXTRACTION
+              // Capture Technical Manager, Site Manager, TLO, Planner, Contact, etc.
+              const isMetadata = 
+                upper.includes('SITE MANAGER') || 
+                upper.includes('RESPONSIBLE PERSON') || 
+                upper.includes('TECHNICAL MANAGER') || 
+                upper.includes('JOB MANAGER') ||
+                upper.includes('TLO') || 
+                upper.includes('PLANNER') || 
+                upper.includes('CONTACT') ||
+                upper.includes('ASBESTOS') ||
+                upper.includes('VARIATION');
+
+              if (isMetadata) {
+                  notesSet.add(text);
+                  
+                  // Specifically extract for the 'manager' field (dedicated display)
+                  if (upper.includes('SITE MANAGER') || upper.includes('RESPONSIBLE PERSON') || upper.includes('TECHNICAL MANAGER') || upper.includes('JOB MANAGER')) {
+                      const cleaned = text.replace(/(site manager|responsible person|technical manager|job manager)\s*:?/i, '').trim();
+                      if (!manager) manager = cleaned.split('\n')[0].trim();
+                  }
               }
+
               if (upper.includes('SCHEME:')) {
+                  notesSet.add(text);
                   const val = getCellText(row.getCell(c + 1));
                   if (val) contract = val;
               }
-              if (upper.includes('TLO') || upper.includes('PLANNER') || upper.includes('CONTACT')) {
-                  notes.push(text);
-              }
           }
       }
+
+      const finalNotes = Array.from(notesSet).join('\n').trim();
 
       // 4. Process individual shifts in the block
       for (let r = header.row + 1; r <= blockEnd; r++) {
@@ -377,7 +399,7 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
                           manager,
                           eNumber,
                           contract,
-                          notes: notes.join('\n'),
+                          notes: finalNotes,
                           department: 'Gas'
                       });
                   } else {
@@ -560,7 +582,7 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
     const scoreAddress = (text: string) => {
         if (!text || text.length < 5) return 0;
         const upper = text.toUpperCase();
-        const noise = ['MATERIALS', 'MANAGER', 'TLO', 'MEASURES', 'SCHEME', 'PULSE', 'WEEK COMM', 'REMEDIAL', 'START DATE', 'SITE MANAGER', 'TECHNICAL MANAGER'];
+        const noise = ['MATERIALS', 'MANAGER', 'TLO', 'MEASURES', 'SCHEME', 'PULSE', 'WEEK COMM', 'REMEDIAL', 'START DATE', 'SITE MANAGER', 'TECHNICAL MANAGER', 'JOB MANAGER', 'RESPONSIBLE PERSON'];
         if (noise.some(n => upper.includes(n))) return -500;
         let score = Math.min(text.length, 50);
         if (/\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) score += 2000;
