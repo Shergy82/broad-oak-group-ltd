@@ -20,7 +20,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Spinner } from '@/components/shared/spinner';
 import { UnconfiguredForm } from '@/components/auth/unconfigured-form';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Terminal, CheckCircle } from "lucide-react"
+import { Terminal, CheckCircle, Mail } from "lucide-react"
 
 const formSchema = z.object({
   email: z.string().email({ message: 'Please enter a valid email address.' }),
@@ -31,6 +31,7 @@ export function ForgotPasswordForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [sentEmail, setSentEmail] = useState('');
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -40,30 +41,49 @@ export function ForgotPasswordForm() {
   });
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
+    if (!auth) return;
+    
     setIsLoading(true);
     setError(null);
     setSuccess(false);
+    
+    const email = values.email.trim().toLowerCase();
+
     try {
-      await sendPasswordResetEmail(auth!, values.email);
+      await sendPasswordResetEmail(auth, email);
+      setSentEmail(email);
       setSuccess(true);
       form.reset();
-    } catch (error: any) {
+      toast({
+        title: "Email Sent",
+        description: `A reset link has been sent to ${email}`,
+      });
+    } catch (err: any) {
+      console.error('Password reset error:', err);
       let errorMessage = 'An unexpected error occurred. Please try again.';
-      if (error.code) {
-        switch (error.code) {
+      
+      if (err.code) {
+        switch (err.code) {
           case 'auth/user-not-found':
-            errorMessage = 'No user found with this email address.';
+            // For security, Firebase sometimes doesn't throw this anymore, 
+            // but we keep it for projects with enumeration protection disabled.
+            errorMessage = 'No account found with this email address.';
+            break;
+          case 'auth/invalid-email':
+            errorMessage = 'The email address is not valid.';
             break;
           case 'auth/too-many-requests':
              errorMessage = 'Too many requests. Please try again later.';
             break;
+          case 'auth/network-request-failed':
+            errorMessage = 'Network error. Please check your internet connection.';
+            break;
           default:
-            errorMessage = `Failed to send email: ${error.message}`;
+            errorMessage = err.message || 'Failed to send reset email.';
             break;
         }
       }
       setError(errorMessage);
-      console.error('Password reset error:', error);
     } finally {
       setIsLoading(false);
     }
@@ -75,13 +95,23 @@ export function ForgotPasswordForm() {
   
   if (success) {
     return (
-        <Alert className="border-green-500 text-green-700 [&>svg]:text-green-500">
-            <CheckCircle className="h-4 w-4" />
-            <AlertTitle>Check Your Email</AlertTitle>
-            <AlertDescription>
-                A password reset link has been sent to your email address. Please check your inbox and spam folder.
-            </AlertDescription>
-        </Alert>
+        <div className="space-y-4">
+            <Alert className="border-green-500 text-green-700 [&>svg]:text-green-500 bg-green-50">
+                <CheckCircle className="h-4 w-4" />
+                <AlertTitle>Check Your Email</AlertTitle>
+                <AlertDescription>
+                    A password reset link has been sent to <strong>{sentEmail}</strong>. 
+                    Please check your inbox and your spam folder.
+                </AlertDescription>
+            </Alert>
+            <Button 
+              variant="outline" 
+              className="w-full" 
+              onClick={() => setSuccess(false)}
+            >
+              Try another email
+            </Button>
+        </div>
     )
   }
 
@@ -100,9 +130,17 @@ export function ForgotPasswordForm() {
           name="email"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Email</FormLabel>
+              <FormLabel>Email Address</FormLabel>
               <FormControl>
-                <Input placeholder="name@example.com" {...field} />
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input 
+                    placeholder="name@example.com" 
+                    className="pl-10" 
+                    {...field} 
+                    disabled={isLoading}
+                  />
+                </div>
               </FormControl>
               <FormMessage />
             </FormItem>
