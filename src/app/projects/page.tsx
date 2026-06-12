@@ -25,9 +25,6 @@ function ProjectsPageContent() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState(initialSearchTerm);
-  
-  const [userShiftAddresses, setUserShiftAddresses] = useState<Set<string>>(new Set());
-  const [loadingShifts, setLoadingShifts] = useState(true);
 
   const isPrivilegedUser = userProfile && ['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role);
 
@@ -37,114 +34,55 @@ function ProjectsPageContent() {
     }
   }, [user, isAuthLoading, router]);
 
-  // Privileged user project fetching
+  /**
+   * 🔒 UNIFIED PROJECT FETCHING
+   * To ensure visibility, everyone (Operatives and Admins) now sees all projects 
+   * within their assigned department. This solves the "literal address match" 
+   * issue where operatives couldn't see site files if the schedule address 
+   * varied by a single character.
+   */
   useEffect(() => {
-    if (!isPrivilegedUser || !userProfile) {
-        // If not privileged, this effect does nothing.
-        if (!isAuthLoading && !isProfileLoading) setLoading(false);
+    if (isProfileLoading || !userProfile) return;
+
+    const isOwner = userProfile.role === 'owner';
+    const dept = userProfile.department;
+
+    if (!isOwner && !dept) {
+        setLoading(false);
         return;
     }
 
-    // For privileged users, fetch all projects within their department(s).
+    setLoading(true);
     const projectsCollection = collection(db, 'projects');
-    const q = userProfile.role === 'owner' 
+    
+    // 🔒 Non-owners are restricted by department
+    const q = isOwner 
         ? projectsCollection 
-        : query(projectsCollection, where('department', '==', userProfile.department));
+        : query(projectsCollection, where('department', '==', dept));
         
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
         const fetchedProjects: Project[] = [];
         querySnapshot.forEach((doc) => {
             fetchedProjects.push({ id: doc.id, ...doc.data() } as Project);
         });
-        setProjects(fetchedProjects.sort((a, b) => a.address.localeCompare(b.address)));
+        
+        // Sort by address numerically
+        setProjects(fetchedProjects.sort((a, b) => a.address.localeCompare(b.address, undefined, { numeric: true })));
         setLoading(false);
     }, (error) => {
-        console.error("Error fetching projects for admin:", error);
+        console.error("Error fetching projects:", error);
         setProjects([]);
         setLoading(false);
     });
 
     return () => unsubscribe();
-}, [userProfile, isPrivilegedUser, isAuthLoading, isProfileLoading]);
-
-
-  // Non-privileged user shift address fetching
-  useEffect(() => {
-    if (isPrivilegedUser || !user) {
-        setLoadingShifts(false);
-        return;
-    };
-    
-    setLoadingShifts(true);
-    const shiftsQuery = query(collection(db, 'shifts'), where('userId', '==', user.uid));
-    const unsubscribe = onSnapshot(shiftsQuery, (snapshot) => {
-        const addresses = new Set<string>();
-        snapshot.forEach(doc => {
-            const shift = doc.data() as Shift;
-            if (shift.address) {
-                addresses.add(shift.address);
-            }
-        });
-        setUserShiftAddresses(addresses);
-        setLoadingShifts(false);
-    }, (error) => {
-        console.error("Error fetching user shifts for project list:", error);
-        setLoadingShifts(false);
-    });
-
-    return () => unsubscribe();
-  }, [isPrivilegedUser, user]);
-
-  // Non-privileged user project fetching based on addresses
-  useEffect(() => {
-    if (isPrivilegedUser) return;
-    if (loadingShifts) return;
-
-    if (userShiftAddresses.size === 0) {
-        setProjects([]);
-        setLoading(false);
-        return;
-    }
-
-    setLoading(true);
-    
-    const addresses = Array.from(userShiftAddresses);
-    const CHUNK_SIZE = 30;
-    const allFetchedProjects: Map<string, Project> = new Map();
-    const unsubscribes: (() => void)[] = [];
-
-    for (let i = 0; i < addresses.length; i += CHUNK_SIZE) {
-        const chunk = addresses.slice(i, i + CHUNK_SIZE);
-        if (chunk.length > 0) {
-            const projectsQuery = query(collection(db, 'projects'), where('address', 'in', chunk));
-            
-            const unsub = onSnapshot(projectsQuery, (snapshot) => {
-                snapshot.docs.forEach((doc) => {
-                    allFetchedProjects.set(doc.id, { id: doc.id, ...doc.data() } as Project);
-                });
-                setProjects(Array.from(allFetchedProjects.values()).sort((a, b) => a.address.localeCompare(b.address)));
-                // Only set loading to false after the last chunk's initial fetch might have run
-                if (i + CHUNK_SIZE >= addresses.length) {
-                    setLoading(false);
-                }
-            }, (error) => {
-                 console.error("Error fetching project chunk: ", error);
-                 setLoading(false);
-            });
-            unsubscribes.push(unsub);
-        }
-    }
-     if (addresses.length === 0) {
-        setLoading(false);
-    }
-
-    return () => unsubscribes.forEach(unsub => unsub());
-  }, [isPrivilegedUser, userShiftAddresses, loadingShifts]);
+}, [userProfile, isProfileLoading]);
 
 
   const filteredProjects = useMemo(() => {
     const searchedProjects = projects.filter(project =>
-      project.address.toLowerCase().includes(searchTerm.toLowerCase())
+      project.address.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      project.eNumber?.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
     const uniqueProjects = new Map<string, Project>();
@@ -164,7 +102,7 @@ function ProjectsPageContent() {
     return uniqueProjectsArray;
   }, [projects, searchTerm]);
   
-  const isLoadingPage = isAuthLoading || isProfileLoading || (loading && !isPrivilegedUser && loadingShifts);
+  const isLoadingPage = isAuthLoading || isProfileLoading || loading;
   
   if (isLoadingPage) {
     return (
@@ -190,10 +128,10 @@ function ProjectsPageContent() {
           <Card>
           <CardHeader>
               <CardTitle>Projects</CardTitle>
-              <CardDescription>Search for projects and manage your uploaded files.</CardDescription>
+              <CardDescription>Search for projects in your department and manage your uploaded files.</CardDescription>
               <div className="pt-4">
               <Input
-                  placeholder="Search by address..."
+                  placeholder="Search by address or number..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="max-w-sm"
@@ -203,16 +141,16 @@ function ProjectsPageContent() {
           <CardContent>
               {loading ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  <Card><CardHeader><div className="h-5 w-3/4 bg-muted rounded animate-pulse" /><div className="h-4 w-1/4 bg-muted rounded animate-pulse mt-2" /></CardHeader><CardContent><div className="h-24 bg-muted rounded-lg animate-pulse" /></CardContent></Card>
-                  <Card><CardHeader><div className="h-5 w-3/4 bg-muted rounded animate-pulse" /><div className="h-4 w-1/4 bg-muted rounded animate-pulse mt-2" /></CardHeader><CardContent><div className="h-24 bg-muted rounded-lg animate-pulse" /></CardContent></Card>
-                  <Card><CardHeader><div className="h-5 w-3/4 bg-muted rounded animate-pulse" /><div className="h-4 w-1/4 bg-muted rounded animate-pulse mt-2" /></CardHeader><CardContent><div className="h-24 bg-muted rounded-lg animate-pulse" /></CardContent></Card>
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <Card key={i}><CardHeader><div className="h-5 w-3/4 bg-muted rounded animate-pulse" /><div className="h-4 w-1/4 bg-muted rounded animate-pulse mt-2" /></CardHeader><CardContent><div className="h-24 bg-muted rounded-lg animate-pulse" /></CardContent></Card>
+                  ))}
               </div>
               ) : filteredProjects.length === 0 ? (
                   <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center">
                       <Building className="mx-auto h-12 w-12 text-muted-foreground" />
                       <h3 className="mt-4 text-lg font-semibold">No Projects Found</h3>
                       <p className="mb-4 mt-2 text-sm text-muted-foreground">
-                          No projects have been assigned to you yet. This page will populate once you have shifts scheduled.
+                          No projects have been assigned to your department yet.
                       </p>
                   </div>
               ) : (

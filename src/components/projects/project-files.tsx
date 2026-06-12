@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -45,6 +44,7 @@ import type { Project, ProjectFile, UserProfile } from '@/types';
 import { downloadFile } from '@/file-proxy';
 import Image from 'next/image';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface ProjectFilesProps {
   project: Project;
@@ -196,7 +196,7 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
     const isOfficeDoc = officeExtensions.includes(fileExtension);
     
     if (isImage) {
-        return <Image src={`/api/file?path=${encodeURIComponent(viewingFile.fullPath)}`} alt={viewingFile.name} fill className="object-contain" />;
+        return <div className="relative w-full h-full"><Image src={`/api/file?path=${encodeURIComponent(viewingFile.fullPath)}`} alt={viewingFile.name} fill className="object-contain" /></div>;
     }
 
     if (isPdf) {
@@ -225,56 +225,61 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
         ) : files.length === 0 ? (
           <div className="text-center text-muted-foreground p-4 border-dashed border rounded-lg">
             <FileText className="mx-auto h-8 w-8 text-muted-foreground/50" />
-            <p className="mt-2 text-sm">No files have been attached to this project yet.</p>
+            <p className="mt-2 text-sm">No files attached yet.</p>
           </div>
         ) : (
-          <div className="border rounded-lg overflow-hidden max-h-60 overflow-y-auto">
-              <Table>
-                  <TableHeader>
-                      <TableRow>
-                          <TableHead>File</TableHead>
-                          <TableHead>Uploaded by</TableHead>
-                          <TableHead className="text-right">Actions</TableHead>
-                      </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                  {files.map(file => (
-                      <TableRow key={file.id}>
-                          <TableCell className="font-medium truncate max-w-[150px]">
-                              <button onClick={() => handleFileClick(file)} className="hover:underline text-left truncate block w-full" title={file.name}>
-                                {file.name}
-                              </button>
-                              <p className="text-xs text-muted-foreground">{formatFileSize(file.size)}</p>
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">{file.uploaderName}</TableCell>
-                          <TableCell className="text-right space-x-1">
-                              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => downloadFile(file.fullPath)}>
-                                  <Download className="h-4 w-4" />
-                              </Button>
-                              {(userProfile.uid === file.uploaderId || ['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role)) && (
-                                  <AlertDialog>
-                                      <AlertDialogTrigger asChild>
-                                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10">
-                                              <Trash2 className="h-4 w-4" />
-                                          </Button>
-                                      </AlertDialogTrigger>
-                                      <AlertDialogContent>
-                                          <AlertDialogHeader>
-                                              <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                                              <AlertDialogDescription>This will permanently delete "{file.name}".</AlertDialogDescription>
-                                          </AlertDialogHeader>
-                                          <AlertDialogFooter>
-                                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                              <AlertDialogAction onClick={() => handleDeleteFile(file)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
-                                          </AlertDialogFooter>
-                                      </AlertDialogContent>
-                                  </AlertDialog>
-                              )}
-                          </TableCell>
-                      </TableRow>
-                  ))}
-                  </TableBody>
-              </Table>
+          <div className="border rounded-lg overflow-hidden flex flex-col max-h-[300px]">
+              <ScrollArea className="flex-1">
+                <Table>
+                    <TableHeader className="sticky top-0 bg-background z-10">
+                        <TableRow>
+                            <TableHead>File</TableHead>
+                            <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                    {files.map(file => (
+                        <TableRow key={file.id}>
+                            <TableCell className="font-medium truncate max-w-[150px]">
+                                <button onClick={() => handleFileClick(file)} className="hover:underline text-left truncate block w-full" title={file.name}>
+                                    {file.name}
+                                </button>
+                                <p className="text-[10px] text-muted-foreground">{formatFileSize(file.size)} • {file.uploaderName}</p>
+                            </TableCell>
+                            <TableCell className="text-right space-x-1">
+                                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => downloadFile(file.fullPath)}>
+                                    <Download className="h-4 w-4" />
+                                </Button>
+                                {(userProfile.uid === file.uploaderId || ['admin', 'owner', 'manager', 'TLO'].includes(userProfile.role)) && (
+                                    <AlertDialog>
+                                        <AlertDialogTrigger asChild>
+                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10">
+                                                <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                        </AlertDialogTrigger>
+                                        <AlertDialogContent>
+                                            <AlertDialogHeader>
+                                                <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                                                <AlertDialogDescription>This will permanently delete "{file.name}".</AlertDialogDescription>
+                                            </AlertDialogHeader>
+                                            <AlertDialogFooter>
+                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                <AlertDialogAction onClick={() => handleDeleteFile(file)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+                                            </AlertDialogFooter>
+                                        </AlertDialogContent>
+                                    </AlertDialog>
+                                )}
+                            </TableCell>
+                        </TableRow>
+                    ))}
+                    </TableBody>
+                </Table>
+              </ScrollArea>
+              {files.length > 4 && (
+                  <div className="bg-muted/30 p-1.5 text-center text-[9px] text-muted-foreground border-t">
+                      Scroll to view all {files.length} files
+                  </div>
+              )}
           </div>
         )}
         <div className="pt-2 space-y-3">
@@ -285,9 +290,9 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
                   placeholder="e.g., boiler-photo"
                   value={evidenceTag}
                   onChange={(e) => setEvidenceTag(e.target.value)}
-                  className="bg-background"
+                  className="bg-background h-8 text-xs"
               />
-              <p className="text-xs text-muted-foreground px-1">Apply a tag to link uploads to a checklist item.</p>
+              <p className="text-[10px] text-muted-foreground px-1">Apply a tag to link uploads to a checklist item.</p>
           </div>
 
           <Input
@@ -298,11 +303,11 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
             onChange={(e) => handleFileUpload(e.target.files)}
             disabled={isUploading}
           />
-          <Button asChild className="w-full" disabled={isUploading}>
+          <Button asChild className="w-full" disabled={isUploading} variant="outline" size="sm">
             <Label htmlFor={`file-upload-user-${project.id}`} className="cursor-pointer w-full">
               {isUploading ? (
                 <>
-                  <Spinner /> Uploading...
+                  <Spinner size="sm" /> Uploading...
                 </>
               ) : (
                 <>
@@ -318,7 +323,7 @@ export function ProjectFiles({ project, userProfile }: ProjectFilesProps) {
             <DialogHeader className="p-2 border-b flex-shrink-0">
                 <DialogTitle className="truncate">{viewingFile?.name}</DialogTitle>
             </DialogHeader>
-            <div className="flex-grow relative bg-muted/20">
+            <div className="flex-grow relative bg-muted/20 overflow-hidden">
                 {renderFileViewer()}
             </div>
         </DialogContent>

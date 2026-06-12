@@ -328,7 +328,7 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
         const isOfficeDoc = officeExtensions.includes(fileExtension);
         
         if (isImage) {
-            return <Image src={`/api/file?path=${encodeURIComponent(viewingFile.fullPath)}`} alt={viewingFile.name} fill className="object-contain" />;
+            return <div className="relative w-full h-full"><Image src={`/api/file?path=${encodeURIComponent(viewingFile.fullPath)}`} alt={viewingFile.name} fill className="object-contain" /></div>;
         }
 
         if (isPdf) {
@@ -379,53 +379,60 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                                 <p className="mt-2 text-sm text-muted-foreground">No files uploaded yet.</p>
                             </div>
                         ) : (
-                            <div className="border rounded-lg max-h-64 overflow-y-auto">
-                                <Table>
-                                  <TableHeader>
-                                    <TableRow>
-                                      <TableHead>File</TableHead>
-                                      <TableHead>Uploaded By</TableHead>
-                                      <TableHead className="text-right">Actions</TableHead>
-                                    </TableRow>
-                                  </TableHeader>
-                                    <TableBody>
-                                        {files.map(file => (
-                                            <TableRow key={file.id}>
-                                                <TableCell className="font-medium truncate max-w-[180px]">
-                                                  <button onClick={() => handleFileClick(file)} className="hover:underline text-left truncate block w-full" title={file.name}>
-                                                    {file.name}
-                                                  </button>
-                                                  <p className="text-xs text-muted-foreground">{formatFileSize(file.size)}</p>
-                                                </TableCell>
-                                                <TableCell className="text-xs text-muted-foreground">{file.uploaderName}</TableCell>
-                                                <TableCell className="text-right">
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => downloadFile(file.fullPath)}>
-                                                        <Download className="h-4 w-4" />
-                                                    </Button>
-                                                     {(userProfile.uid === file.uploaderId || ['admin', 'owner', 'manager'].includes(userProfile.role)) && (
-                                                        <AlertDialog>
-                                                            <AlertDialogTrigger asChild>
-                                                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10">
-                                                                    <Trash2 className="h-4 w-4" />
-                                                                </Button>
-                                                            </AlertDialogTrigger>
-                                                            <AlertDialogContent>
-                                                                <AlertDialogHeader>
-                                                                    <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                                                                    <AlertDialogDescription>This will permanently delete the file <span className="font-semibold">{file.name}</span>. This action cannot be undone.</AlertDialogDescription>
-                                                                </AlertDialogHeader>
-                                                                <AlertDialogFooter>
-                                                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                                                    <AlertDialogAction onClick={() => handleDeleteFile(file)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
-                                                                </AlertDialogFooter>
-                                                            </AlertDialogContent>
-                                                        </AlertDialog>
-                                                     )}
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
+                            <div className="border rounded-lg max-h-[400px] overflow-hidden flex flex-col">
+                                <ScrollArea className="flex-1">
+                                    <Table>
+                                    <TableHeader className="sticky top-0 bg-background z-10">
+                                        <TableRow>
+                                        <TableHead>File</TableHead>
+                                        <TableHead>Uploaded By</TableHead>
+                                        <TableHead className="text-right">Actions</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                        <TableBody>
+                                            {files.map(file => (
+                                                <TableRow key={file.id}>
+                                                    <TableCell className="font-medium truncate max-w-[180px]">
+                                                    <button onClick={() => handleFileClick(file)} className="hover:underline text-left truncate block w-full" title={file.name}>
+                                                        {file.name}
+                                                    </button>
+                                                    <p className="text-xs text-muted-foreground">{formatFileSize(file.size)}</p>
+                                                    </TableCell>
+                                                    <TableCell className="text-xs text-muted-foreground">{file.uploaderName}</TableCell>
+                                                    <TableCell className="text-right">
+                                                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => downloadFile(file.fullPath)}>
+                                                            <Download className="h-4 w-4" />
+                                                        </Button>
+                                                        {(userProfile.uid === file.uploaderId || ['admin', 'owner', 'manager'].includes(userProfile.role)) && (
+                                                            <AlertDialog>
+                                                                <AlertDialogTrigger asChild>
+                                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive/70 hover:text-destructive hover:bg-destructive/10">
+                                                                        <Trash2 className="h-4 w-4" />
+                                                                    </Button>
+                                                                </AlertDialogTrigger>
+                                                                <AlertDialogContent>
+                                                                    <AlertDialogHeader>
+                                                                        <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                                                                        <AlertDialogDescription>This will permanently delete the file <span className="font-semibold">{file.name}</span>. This action cannot be undone.</AlertDialogDescription>
+                                                                    </AlertDialogHeader>
+                                                                    <AlertDialogFooter>
+                                                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                                        <AlertDialogAction onClick={() => handleDeleteFile(file)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+                                                                    </AlertDialogFooter>
+                                                                </AlertDialogContent>
+                                                            </AlertDialog>
+                                                        )}
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </ScrollArea>
+                                {files.length > 5 && (
+                                    <div className="bg-muted/30 p-2 text-center text-[10px] text-muted-foreground border-t">
+                                        Scroll to view more files ({files.length} total)
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
@@ -443,7 +450,7 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                     <ScrollArea className="h-[70vh] rounded-md border p-4">
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                             {imageFiles.map((photo) => (
-                                <div key={photo.id} className="relative aspect-square group cursor-pointer rounded-md overflow-hidden" onClick={() => handleFileClick(photo)}>
+                                <div key={photo.id} className="relative aspect-square group cursor-pointer rounded-md overflow-hidden bg-muted" onClick={() => handleFileClick(photo)}>
                                     <Image
                                         src={`/api/file?path=${encodeURIComponent(photo.fullPath)}`}
                                         alt={photo.name}
@@ -467,7 +474,7 @@ function FileManagerDialog({ project, open, onOpenChange, userProfile }: { proje
                 <DialogHeader className="p-2 border-b flex-shrink-0">
                     <DialogTitle className="truncate">{viewingFile?.name}</DialogTitle>
                 </DialogHeader>
-                <div className="flex-grow relative bg-muted/20">
+                <div className="flex-grow relative bg-muted/20 overflow-hidden">
                     {renderFileViewer()}
                 </div>
             </DialogContent>
