@@ -82,9 +82,16 @@ function normalizeText(text: string | null | undefined): string {
     .trim();
 }
 
+/**
+ * 🔒 MERGED CELL AWARE TEXT EXTRACTION
+ */
 function getCellText(cell: ExcelJS.Cell | null | undefined): string {
   if (!cell) return "";
-  const val = cell.value;
+  
+  // Handle Merged Cells
+  const master = cell.isMerged ? cell.master : cell;
+  const val = master.value;
+  
   if (val === null || val === undefined) return "";
   
   if (typeof val === 'object' && 'result' in val) {
@@ -99,15 +106,19 @@ function getCellText(cell: ExcelJS.Cell | null | undefined): string {
   }
   
   try {
-    return (cell.text || String(val)).trim();
+    return (master.text || String(val)).trim();
   } catch (e) {
     return String(val || "").trim();
   }
 }
 
+/**
+ * 🔒 MERGED CELL AWARE VALUE EXTRACTION
+ */
 function getCellValue(cell: ExcelJS.Cell | null | undefined): any {
   if (!cell) return null;
-  const v = cell.value;
+  const master = cell.isMerged ? cell.master : cell;
+  const v = master.value;
   if (v && typeof v === 'object' && 'result' in v) return (v as any).result;
   return v;
 }
@@ -284,103 +295,105 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
     const blockEnd = dividerRows[i + 1] - 1;
     if (blockEnd < blockStart) continue;
 
-    let dateRowIdx = -1;
-    let dateCols: { col: number; isoDate: string }[] = [];
-    for (let r = blockStart; r <= blockEnd; r++) {
-        const tempCols = getDateColumns(sheet, used, r, 5); 
-        if (tempCols.length >= 2) { 
-            dateRowIdx = r;
-            dateCols = tempCols;
-            break;
-        }
-    }
-
-    if (dateRowIdx === -1) continue;
-
-    const siteAddressResult = extractSiteAddress(sheet, used, blockStart, blockEnd);
-    if (!siteAddressResult) continue;
-    
-    const { address: rawSiteAddress, row: addressRowIdx } = siteAddressResult;
-    const eNumMatch = rawSiteAddress.match(/\b([BE]\d+\S*)\b/i);
-    const eNumber = eNumMatch ? eNumMatch[1].toUpperCase() : '';
-    const siteAddress = eNumMatch ? rawSiteAddress.replace(eNumMatch[0], '').trim().replace(/^[:\-\s]+/, '').trim().replace(/,$/, '').trim() : rawSiteAddress;
-
-    let manager = '';
-    const otherContacts: string[] = [];
-    let scheme = sheetName; // Default to sheet name
+    /**
+     * 🔒 DYNAMIC MULTI-GRID SCANNING
+     * Some blocks contain multiple properties without dividers. 
+     * We scan row-by-row and segment when new dates are found.
+     */
+    let currentGridDateCols: { col: number; isoDate: string }[] = [];
+    let currentGridDateRowIdx = -1;
+    let currentGridAddressInfo: { address: string; eNumber: string } | null = null;
+    let currentGridManager = '';
+    let currentGridContract = sheetName;
+    let currentGridNotes: string[] = [];
 
     for (let r = blockStart; r <= blockEnd; r++) {
-        const row = sheet.getRow(r);
-        for (let c = 1; c <= 8; c++) {
-            const cellText = getCellText(row.getCell(c));
-            if (!cellText) continue;
-
-            const upper = cellText.toUpperCase();
-            
-            if (r < addressRowIdx && (upper.includes('SITE MANAGER') || upper.includes('RESPONSIBLE PERSON'))) {
-                const cleaned = cellText.replace(/(site manager|responsible person)\s*:?/i, '').trim();
-                if (!manager) manager = cleaned.split('\n')[0].trim();
-            } 
-            
-            if (upper.includes('SCHEME:')) {
-                const schemeVal = getCellText(row.getCell(c + 1));
-                if (schemeVal) {
-                    scheme = schemeVal;
-                }
-            }
-
-            if (r < addressRowIdx && (upper.includes('PROJECT MANAGER') || upper.includes('TLO') || upper.includes('TECHNICAL MANAGER') || upper.includes('CONTACT'))) {
-                otherContacts.push(cellText);
-            }
-        }
-    }
-
-    const seenShiftsInBlock = new Set<string>();
-
-    for (let r = blockStart; r <= blockEnd; r++) {
-      if (r === dateRowIdx) continue; 
-      
       const row = sheet.getRow(r);
-      for (const { col, isoDate } of dateCols) {
-        const cell = row.getCell(col);
-        const text = getCellText(cell);
-        if (!text || isNonShiftText(text)) continue;
+      const potentialDateCols = getDateColumns(sheet, used, r, 5);
 
-        const { task, names, type } = extractGasTaskAndNames(text);
+      // Check if this row is a NEW grid header
+      if (potentialDateCols.length >= 2) {
+        currentGridDateCols = potentialDateCols;
+        currentGridDateRowIdx = r;
         
-        for (const name of names) {
-            const { users: matchedUsers, reason } = findUsersInMap(name, userMap);
-            if (matchedUsers.length !== 1) {
-                if (!/^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}$/.test(name) && !/^\d+$/.test(name)) {
-                  failures.push({ 
-                      reason: reason || `Could not match operative: "${name}"`, 
-                      siteAddress, 
-                      shiftDate: isoDate,
-                      operativeNameRaw: name, 
-                      sheetName, 
-                      cellRef: cell.address,
-                      cellContent: text
-                  });
+        // Find address by looking forward in the current sub-block
+        const addrResult = extractSiteAddress(sheet, used, r, blockEnd);
+        if (addrResult) {
+            const rawAddr = addrResult.address;
+            const eNumMatch = rawAddr.match(/\b([BE]\d+\S*)\b/i);
+            const eNumber = eNumMatch ? eNumMatch[1].toUpperCase() : '';
+            const siteAddress = eNumMatch ? rawAddr.replace(eNumMatch[0], '').trim().replace(/^[:\-\s]+/, '').trim().replace(/,$/, '').trim() : rawAddr;
+            currentGridAddressInfo = { address: siteAddress, eNumber };
+        } else {
+            currentGridAddressInfo = null;
+        }
+
+        // Reset metadata for this new grid
+        currentGridManager = '';
+        currentGridContract = sheetName;
+        currentGridNotes = [];
+
+        // Scan the header area (A-H) for this specific grid
+        for (let metadataRow = Math.max(blockStart, r - 5); metadataRow <= Math.min(blockEnd, r + 15); metadataRow++) {
+            const mRow = sheet.getRow(metadataRow);
+            for (let c = 1; c <= 8; c++) {
+                const cell = mRow.getCell(c);
+                const text = getCellText(cell);
+                if (!text) continue;
+                const upper = text.toUpperCase();
+
+                if (upper.includes('SITE MANAGER') || upper.includes('RESPONSIBLE PERSON')) {
+                    const cleaned = text.replace(/(site manager|responsible person)\s*:?/i, '').trim();
+                    if (!currentGridManager) currentGridManager = cleaned.split('\n')[0].trim();
                 }
-                continue;
+                if (upper.includes('SCHEME:')) {
+                    const val = getCellText(mRow.getCell(c + 1));
+                    if (val) currentGridContract = val;
+                }
+                if (upper.includes('PROJECT MANAGER') || upper.includes('TLO') || upper.includes('CONTACT')) {
+                    currentGridNotes.push(text);
+                }
             }
-            
-            const user = matchedUsers[0];
-            const uniqueKey = `${isoDate}-${user.uid}-${normalizeText(siteAddress)}-${normalizeText(task)}-${type}`;
-            
-            if (!seenShiftsInBlock.has(uniqueKey)) {
-                seenShiftsInBlock.add(uniqueKey);
+        }
+        continue;
+      }
+
+      // If we have a grid active, process this row for shifts
+      if (currentGridDateRowIdx !== -1 && currentGridAddressInfo) {
+        for (const { col, isoDate } of currentGridDateCols) {
+            const cell = row.getCell(col);
+            const text = getCellText(cell);
+            if (!text || isNonShiftText(text)) continue;
+
+            const { task, names, type } = extractGasTaskAndNames(text);
+            for (const name of names) {
+                const { users: matchedUsers, reason } = findUsersInMap(name, userMap);
+                if (matchedUsers.length !== 1) {
+                    if (!/^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}$/.test(name) && !/^\d+$/.test(name)) {
+                        failures.push({ 
+                            reason: reason || `Could not match operative: "${name}"`, 
+                            siteAddress: currentGridAddressInfo.address, 
+                            shiftDate: isoDate,
+                            operativeNameRaw: name, 
+                            sheetName, 
+                            cellRef: cell.address,
+                            cellContent: text
+                        });
+                    }
+                    continue;
+                }
+
                 parsed.push({
-                  siteAddress,
+                  siteAddress: currentGridAddressInfo.address,
                   shiftDate: isoDate,
                   task,
                   type,
-                  user,
+                  user: matchedUsers[0],
                   source: { sheetName, cellRef: cell.address },
-                  manager,
-                  notes: otherContacts.join('\n'),
-                  eNumber,
-                  contract: scheme,
+                  manager: currentGridManager,
+                  notes: currentGridNotes.join('\n'),
+                  eNumber: currentGridAddressInfo.eNumber,
+                  contract: currentGridContract,
                   department: 'Gas'
                 });
             }
@@ -536,70 +549,51 @@ function findDividerRows(ws: ExcelJS.Worksheet, used: UsedBounds): number[] {
 function isDividerRow(ws: ExcelJS.Worksheet, r: number): boolean {
   const row = ws.getRow(r);
   let hasPatternFill = false;
+  let textInMatrix = false;
   
-  // 🔒 POSTCODE PROTECTION: Property headers contain postcodes. They are data, NOT dividers.
-  // 🔒 HEADER PROTECTION: Rows containing metadata or dates are NOT dividers.
-  for (let c = 1; c <= 12; c++) {
+  for (let c = 1; c <= 15; c++) {
     const cell = row.getCell(c);
     const text = getCellText(cell);
-    if (!text) {
-        const fill = cell.fill as any;
-        if (fill?.type === "pattern" && fill.pattern !== "none") hasPatternFill = true;
-        continue;
-    }
 
-    const upper = text.toUpperCase();
-    if (/\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) return false;
-    if (upper.includes('SITE MANAGER') || upper.includes('TECHNICAL MANAGER') || upper.includes('SCHEME:')) return false;
-    if (parseExcelCellAsDate(cell)) return false;
-
+    // 🔒 BLACK DIVIDER PROTECTION
     const fill = cell.fill as any;
-    if (fill?.type === "pattern" && fill.pattern !== "none") hasPatternFill = true;
+    if (fill?.type === 'pattern' && fill.fgColor?.argb === 'FF000000') return true;
+
+    if (text) {
+        if (c >= 5) textInMatrix = true; // Columns 5+ are shifts/dates
+        
+        const upper = text.toUpperCase();
+        if (/\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) return false; // Postcode
+        if (upper.includes('SITE MANAGER') || upper.includes('SCHEME:')) return false;
+        if (parseExcelCellAsDate(cell)) return false;
+    } else {
+        if (fill?.type === "pattern" && fill.pattern !== "none") hasPatternFill = true;
+    }
   }
   
-  return hasPatternFill;
+  // A divider is colored but MUST NOT contain text in the shift grid area
+  return hasPatternFill && !textInMatrix;
 }
 
 function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, endRow: number, isBuild = false): { address: string; row: number; } | null {
-    if (isBuild) {
-        const scoreAddress = (text: string) => {
-            if (!text || text.length < 5) return 0;
-            const upper = text.toUpperCase();
-            const noise = ['MATERIALS', 'MANAGER', 'TLO', 'MEASURES', 'SCHEME', 'PULSE', 'WEEK COMM'];
-            if (noise.some(n => upper.includes(n))) return -500;
-            let score = Math.min(text.length, 50);
-            if (/\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) score += 2000;
-            return score;
-        };
-        let best = { text: "", score: -Infinity, row: 0 };
-        for (let r = startRow; r <= endRow; r++) {
-            const text = getCellText(ws.getRow(r).getCell(1));
-            const score = scoreAddress(text);
-            if (score > best.score) best = { text, score, row: r };
-        }
-        return best.score >= 20 ? { address: normalizeWhitespace(best.text), row: best.row } : null;
-    }
-
-    const noiseKeywords = [
-        'SITE MANAGER', 'TECHNICAL MANAGER', 'MATERIALS ORDERING', 'TLO', 
-        'MEASURES', 'PROJECT MANAGER', 'MEASURE', 'CONTACT',
-        'RESPONSIBLE PERSON', 'TO BE FILLED IN', 'SCHEME', 'REMEDIAL', 'START DATE',
-        'WEEK COMM', 'CONTRACT'
-    ];
-
-    for (let r = endRow; r >= startRow - 1; r--) {
-        if (r < 1) continue;
-        const cell = ws.getRow(r).getCell(1);
-        const text = getCellText(cell);
-        if (!text || text.trim().length < 5) continue;
-        
+    const scoreAddress = (text: string) => {
+        if (!text || text.length < 5) return 0;
         const upper = text.toUpperCase();
-        if (noiseKeywords.some(kw => upper.includes(kw))) continue;
-        if (/\d+/.test(text) || /\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) {
-            return { address: normalizeWhitespace(text), row: r };
-        }
+        const noise = ['MATERIALS', 'MANAGER', 'TLO', 'MEASURES', 'SCHEME', 'PULSE', 'WEEK COMM', 'REMEDIAL', 'START DATE'];
+        if (noise.some(n => upper.includes(n))) return -500;
+        let score = Math.min(text.length, 50);
+        if (/\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) score += 2000;
+        if (/\d+/.test(text)) score += 500;
+        return score;
+    };
+
+    let best = { text: "", score: -Infinity, row: 0 };
+    for (let r = startRow; r <= endRow; r++) {
+        const text = getCellText(ws.getRow(r).getCell(1));
+        const score = scoreAddress(text);
+        if (score > best.score) best = { text, score, row: r };
     }
-    return null;
+    return best.score >= 50 ? { address: normalizeWhitespace(best.text), row: best.row } : null;
 }
 
 function getDateColumns(ws: ExcelJS.Worksheet, used: UsedBounds, dateRowIdx: number, matrixStartCol = 5): Array<{ col: number; isoDate: string }> {
