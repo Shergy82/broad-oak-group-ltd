@@ -340,7 +340,6 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
               const upper = text.toUpperCase();
               
               // 🔒 INCLUSIVE METADATA EXTRACTION
-              // Capture Technical Manager, Site Manager, TLO, Planner, Contact, etc.
               const isMetadata = 
                 upper.includes('SITE MANAGER') || 
                 upper.includes('RESPONSIBLE PERSON') || 
@@ -355,17 +354,25 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
               if (isMetadata) {
                   notesSet.add(text);
                   
-                  // Specifically extract for the 'manager' field (dedicated display)
                   if (upper.includes('SITE MANAGER') || upper.includes('RESPONSIBLE PERSON') || upper.includes('TECHNICAL MANAGER') || upper.includes('JOB MANAGER')) {
                       const cleaned = text.replace(/(site manager|responsible person|technical manager|job manager)\s*:?/i, '').trim();
                       if (!manager) manager = cleaned.split('\n')[0].trim();
                   }
               }
 
+              // 🔒 AGGRESSIVE SCHEME EXTRACTION
+              // Check the box to the right of "SCHEME"
               if (upper.includes('SCHEME:')) {
                   notesSet.add(text);
-                  const val = getCellText(row.getCell(c + 1));
-                  if (val) contract = val;
+                  // 1. Check if name is in the SAME cell (e.g. "SCHEME: CITIZEN GB")
+                  const sameCellScheme = text.split(/scheme:/i)[1]?.trim();
+                  if (sameCellScheme) {
+                    contract = sameCellScheme;
+                  } else {
+                    // 2. Check cell immediately to the RIGHT
+                    const nextVal = getCellText(row.getCell(c + 1));
+                    if (nextVal) contract = nextVal;
+                  }
               }
           }
       }

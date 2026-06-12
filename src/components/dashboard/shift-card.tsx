@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -211,9 +212,6 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
 
   /**
    * 🔒 DYNAMIC TASK DISCOVERY
-   * Hierarchy:
-   * 1. Personal Trade category (User Name matching category name)
-   * 2. Anchor Phrase matching: Scan ALL categories for tasks that appear in shift description.
    */
   useEffect(() => {
     if (!allTrades.length) return;
@@ -221,7 +219,6 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
     const discoveredTasks: TradeTask[] = [];
     const shiftDesc = (shift.task || "").toLowerCase();
 
-    // 1. Add category matching user name (Special User-Specific Category)
     if (userProfile?.name) {
       const userCategory = allTrades.find(t => t.name.toLowerCase() === userProfile.name.toLowerCase());
       if (userCategory?.tasks) {
@@ -229,7 +226,6 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
       }
     }
 
-    // 2. Scan ALL categories for specific anchor phrases or keywords
     allTrades.forEach(category => {
       if (category.tasks) {
         category.tasks.forEach(task => {
@@ -238,13 +234,10 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
             ? task.triggerKeywords.toLowerCase().split(',').map(s => s.trim()).filter(Boolean)
             : [];
           
-          // STRICT PHRASE MATCHING: Ensure we aren't matching partial words inside other words
-          // We look for the exact task name OR any of the triggers as distinct substrings
           const isTaskInDesc = shiftDesc.includes(taskAnchor);
           const isTriggerInDesc = triggers.some(t => shiftDesc.includes(t));
 
           if (isTaskInDesc || isTriggerInDesc) {
-            // Deduplicate by task name
             if (!discoveredTasks.find(existing => existing.text === task.text)) {
               discoveredTasks.push(task);
             }
@@ -610,7 +603,14 @@ export function ShiftCard({ shift, userProfile, onDismiss }: ShiftCardProps) {
           </Button>
           
           {shift.eNumber && <p className="text-xs text-muted-foreground">Number: {shift.eNumber}</p>}
-          {shift.contract && <p className="text-xs text-muted-foreground">Contract: {shift.contract}</p>}
+          
+          {/* 🔒 GAS SPECIFIC LABEL: SHOW "SCHEME" INSTEAD OF "CONTRACT" */}
+          {shift.contract && (
+            <p className="text-xs text-muted-foreground font-semibold">
+              {shift.department === 'Gas' ? 'Scheme:' : 'Contract:'} {shift.contract}
+            </p>
+          )}
+
           {shift.manager && <p className="text-xs text-muted-foreground">Manager: {shift.manager}</p>}
           
           {shift.notes && (shift.status !== 'incomplete' && shift.status !== 'rejected') && (
