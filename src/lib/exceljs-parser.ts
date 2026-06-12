@@ -144,7 +144,7 @@ function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: Us
         return { users: [], reason: `Single name "${nameChunk}" requires a full/exact match for individuals. No match found.` };
     }
 
-    //  multi-word partial matching
+    // multi-word partial matching
     matches = userMap.filter(u => u.normalizedName.includes(normalizedChunk));
     if (matches.length === 1) return { users: matches };
     if (matches.length > 1) return { users: [], reason: `Ambiguous input "${nameChunk}" matches multiple users.` };
@@ -241,7 +241,8 @@ function isNonShiftText(text: string): boolean {
     "manager", "ignore", "ordered", "start date", 
     "on live", "coole", "variation", "work type", 
     "waiting on", "scaffolding", "ordering", "hc",
-    "remedial"
+    "remedial", "responsible person", "planner",
+    "technical manager"
   ];
   
   if (strictHeaders.includes(t)) return true;
@@ -264,7 +265,7 @@ export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry
   const visibleWorksheets = workbook.worksheets.filter(ws => ws.state !== 'hidden');
 
   for (const sheet of visibleWorksheets) {
-    const sheetResult = parseMatrixView(sheet, userMap);
+    const sheetResult = parseGasSheet(sheet, userMap);
     allParsed.push(...sheetResult.parsed);
     allFailures.push(...sheetResult.failures);
   }
@@ -278,7 +279,7 @@ export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry
   };
 }
 
-function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): ParseResult {
+function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): ParseResult {
   const sheetName = sheet.name;
   const failures: ImportFailure[] = [];
   const parsed: ParsedGasShift[] = [];
@@ -286,121 +287,118 @@ function parseMatrixView(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Par
   const used = getUsedBounds(sheet);
   if (!used) return { parsed: [], failures: [] };
 
-  let dividerRows = findDividerRows(sheet, used);
-  if (!dividerRows.includes(used.startRow - 1)) dividerRows.unshift(used.startRow - 1);
-  if (!dividerRows.includes(used.endRow + 1)) dividerRows.push(used.endRow + 1);
+  // 1. Find all rows that act as Date Headers (Anchors)
+  const dateHeaderRows: Array<{ row: number; dateCols: Array<{ col: number; isoDate: string }> }> = [];
+  for (let r = used.startRow; r <= used.endRow; r++) {
+      const dateCols = getDateColumns(sheet, used, r, 3); // Start earlier (Col C) to catch Mondays
+      if (dateCols.length >= 2) {
+          dateHeaderRows.push({ row: r, dateCols });
+      }
+  }
 
-  for (let i = 0; i < dividerRows.length - 1; i++) {
-    const blockStart = dividerRows[i] + 1;
-    const blockEnd = dividerRows[i + 1] - 1;
-    if (blockEnd < blockStart) continue;
+  if (dateHeaderRows.length === 0) return { parsed: [], failures: [] };
 
-    /**
-     * 🔒 DYNAMIC MULTI-GRID SCANNING
-     * Some blocks contain multiple properties without dividers. 
-     * We scan row-by-row and segment when new dates are found.
-     */
-    let currentGridDateCols: { col: number; isoDate: string }[] = [];
-    let currentGridDateRowIdx = -1;
-    let currentGridAddressInfo: { address: string; eNumber: string } | null = null;
-    let currentGridManager = '';
-    let currentGridContract = sheetName;
-    let currentGridNotes: string[] = [];
-
-    for (let r = blockStart; r <= blockEnd; r++) {
-      const row = sheet.getRow(r);
-      const potentialDateCols = getDateColumns(sheet, used, r, 5);
-
-      // Check if this row is a NEW grid header
-      if (potentialDateCols.length >= 2) {
-        currentGridDateCols = potentialDateCols;
-        currentGridDateRowIdx = r;
-        
-        // Find address by looking forward in the current sub-block
-        const addrResult = extractSiteAddress(sheet, used, r, blockEnd);
-        if (addrResult) {
-            const rawAddr = addrResult.address;
-            const eNumMatch = rawAddr.match(/\b([BE]\d+\S*)\b/i);
-            const eNumber = eNumMatch ? eNumMatch[1].toUpperCase() : '';
-            const siteAddress = eNumMatch ? rawAddr.replace(eNumMatch[0], '').trim().replace(/^[:\-\s]+/, '').trim().replace(/,$/, '').trim() : rawAddr;
-            currentGridAddressInfo = { address: siteAddress, eNumber };
-        } else {
-            currentGridAddressInfo = null;
-        }
-
-        // Reset metadata for this new grid
-        currentGridManager = '';
-        currentGridContract = sheetName;
-        currentGridNotes = [];
-
-        // Scan the header area (A-H) for this specific grid
-        for (let metadataRow = Math.max(blockStart, r - 5); metadataRow <= Math.min(blockEnd, r + 15); metadataRow++) {
-            const mRow = sheet.getRow(metadataRow);
-            for (let c = 1; c <= 8; c++) {
-                const cell = mRow.getCell(c);
-                const text = getCellText(cell);
-                if (!text) continue;
-                const upper = text.toUpperCase();
-
-                if (upper.includes('SITE MANAGER') || upper.includes('RESPONSIBLE PERSON')) {
-                    const cleaned = text.replace(/(site manager|responsible person)\s*:?/i, '').trim();
-                    if (!currentGridManager) currentGridManager = cleaned.split('\n')[0].trim();
-                }
-                if (upper.includes('SCHEME:')) {
-                    const val = getCellText(mRow.getCell(c + 1));
-                    if (val) currentGridContract = val;
-                }
-                if (upper.includes('PROJECT MANAGER') || upper.includes('TLO') || upper.includes('CONTACT')) {
-                    currentGridNotes.push(text);
-                }
-            }
-        }
-        continue;
+  // 2. Process each header's "zone of influence"
+  for (let i = 0; i < dateHeaderRows.length; i++) {
+      const header = dateHeaderRows[i];
+      const nextHeaderRow = dateHeaderRows[i+1]?.row || used.endRow + 1;
+      
+      // A "Block" ends at the next header or a black divider
+      let blockEnd = nextHeaderRow - 1;
+      for (let r = header.row + 1; r < nextHeaderRow; r++) {
+          if (isBlackDivider(sheet.getRow(r))) {
+              blockEnd = r - 1;
+              break;
+          }
       }
 
-      // If we have a grid active, process this row for shifts
-      if (currentGridDateRowIdx !== -1 && currentGridAddressInfo) {
-        for (const { col, isoDate } of currentGridDateCols) {
-            const cell = row.getCell(col);
-            const text = getCellText(cell);
-            if (!text || isNonShiftText(text)) continue;
+      if (blockEnd <= header.row) continue;
 
-            const { task, names, type } = extractGasTaskAndNames(text);
-            for (const name of names) {
-                const { users: matchedUsers, reason } = findUsersInMap(name, userMap);
-                if (matchedUsers.length !== 1) {
-                    if (!/^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}$/.test(name) && !/^\d+$/.test(name)) {
-                        failures.push({ 
-                            reason: reason || `Could not match operative: "${name}"`, 
-                            siteAddress: currentGridAddressInfo.address, 
+      // 3. Extract metadata for this block (Address, Manager, Scheme)
+      const addressResult = extractSiteAddress(sheet, used, header.row, blockEnd);
+      if (!addressResult) continue;
+
+      const { address: rawAddr } = addressResult;
+      const eNumMatch = rawAddr.match(/\b([BE]\d+\S*)\b/i);
+      const eNumber = eNumMatch ? eNumMatch[1].toUpperCase() : '';
+      const siteAddress = eNumMatch ? rawAddr.replace(eNumMatch[0], '').trim().replace(/^[:\-\s]+/, '').trim().replace(/,$/, '').trim() : rawAddr;
+
+      let manager = '';
+      let contract = sheetName;
+      let notes: string[] = [];
+
+      // Scan zone for metadata
+      const metadataStart = Math.max(used.startRow, header.row - 5);
+      const metadataEnd = Math.min(blockEnd, header.row + 5);
+      for (let r = metadataStart; r <= metadataEnd; r++) {
+          const row = sheet.getRow(r);
+          for (let c = 1; c <= 8; c++) {
+              const text = getCellText(row.getCell(c));
+              if (!text) continue;
+              const upper = text.toUpperCase();
+              if (upper.includes('SITE MANAGER') || upper.includes('RESPONSIBLE PERSON') || upper.includes('TECHNICAL MANAGER')) {
+                  const cleaned = text.replace(/(site manager|responsible person|technical manager)\s*:?/i, '').trim();
+                  if (!manager) manager = cleaned.split('\n')[0].trim();
+              }
+              if (upper.includes('SCHEME:')) {
+                  const val = getCellText(row.getCell(c + 1));
+                  if (val) contract = val;
+              }
+              if (upper.includes('TLO') || upper.includes('PLANNER') || upper.includes('CONTACT')) {
+                  notes.push(text);
+              }
+          }
+      }
+
+      // 4. Process individual shifts in the block
+      for (let r = header.row + 1; r <= blockEnd; r++) {
+          const row = sheet.getRow(r);
+          
+          // Skip rows that look like purely administrative text
+          const firstColText = getCellText(row.getCell(1));
+          if (isNonShiftText(firstColText) && !firstColText.toLowerCase().includes('bedroom')) continue;
+
+          for (const { col, isoDate } of header.dateCols) {
+              const cell = row.getCell(col);
+              const text = getCellText(cell);
+              if (!text || isNonShiftText(text)) continue;
+
+              const { task, names, type } = extractGasTaskAndNames(text);
+              for (const name of names) {
+                  const { users: matchedUsers, reason } = findUsersInMap(name, userMap);
+                  if (matchedUsers.length === 1) {
+                      parsed.push({
+                          siteAddress,
+                          shiftDate: isoDate,
+                          task,
+                          type,
+                          user: matchedUsers[0],
+                          source: { sheetName, cellRef: cell.address },
+                          manager,
+                          eNumber,
+                          contract,
+                          notes: notes.join('\n'),
+                          department: 'Gas'
+                      });
+                  } else {
+                      // Failure reporting: Skip names that are likely just date noise or invalid markers
+                      if (!/^\d/.test(name) && name.length > 2) {
+                        failures.push({
+                            reason: reason || `Operative mismatch: "${name}"`,
+                            siteAddress,
                             shiftDate: isoDate,
-                            operativeNameRaw: name, 
-                            sheetName, 
+                            operativeNameRaw: name,
+                            sheetName,
                             cellRef: cell.address,
                             cellContent: text
                         });
-                    }
-                    continue;
-                }
-
-                parsed.push({
-                  siteAddress: currentGridAddressInfo.address,
-                  shiftDate: isoDate,
-                  task,
-                  type,
-                  user: matchedUsers[0],
-                  source: { sheetName, cellRef: cell.address },
-                  manager: currentGridManager,
-                  notes: currentGridNotes.join('\n'),
-                  eNumber: currentGridAddressInfo.eNumber,
-                  contract: currentGridContract,
-                  department: 'Gas'
-                });
-            }
-        }
+                      }
+                  }
+              }
+          }
       }
-    }
   }
+
   return { parsed, failures };
 }
 
@@ -451,7 +449,7 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
         const blockEnd = dividerRows[i + 1] - 1;
         if (blockEnd < blockStart) continue;
 
-        const siteAddressResult = extractSiteAddress(sheet, used, blockStart, blockEnd, true);
+        const siteAddressResult = extractSiteAddress(sheet, used, blockStart, blockEnd);
         if (!siteAddressResult) continue;
 
         const { address: rawSiteAddress } = siteAddressResult;
@@ -541,45 +539,28 @@ type UsedBounds = { startRow: number; endRow: number; startCol: number; endCol: 
 function findDividerRows(ws: ExcelJS.Worksheet, used: UsedBounds): number[] {
   const rows: number[] = [];
   for (let r = used.startRow; r <= used.endRow; r++) {
-    if (isDividerRow(ws, r)) rows.push(r);
+    if (isBlackDivider(ws.getRow(r))) rows.push(r);
   }
   return rows.filter((row, idx) => idx === 0 || row !== rows[idx - 1] + 1);
 }
 
-function isDividerRow(ws: ExcelJS.Worksheet, r: number): boolean {
-  const row = ws.getRow(r);
-  let hasPatternFill = false;
-  let textInMatrix = false;
-  
-  for (let c = 1; c <= 15; c++) {
-    const cell = row.getCell(c);
-    const text = getCellText(cell);
-
-    // 🔒 BLACK DIVIDER PROTECTION
-    const fill = cell.fill as any;
-    if (fill?.type === 'pattern' && fill.fgColor?.argb === 'FF000000') return true;
-
-    if (text) {
-        if (c >= 5) textInMatrix = true; // Columns 5+ are shifts/dates
-        
-        const upper = text.toUpperCase();
-        if (/\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) return false; // Postcode
-        if (upper.includes('SITE MANAGER') || upper.includes('SCHEME:')) return false;
-        if (parseExcelCellAsDate(cell)) return false;
-    } else {
-        if (fill?.type === "pattern" && fill.pattern !== "none") hasPatternFill = true;
+function isBlackDivider(row: ExcelJS.Row): boolean {
+    for (let c = 1; c <= 5; c++) {
+        const cell = row.getCell(c);
+        const fill = cell.fill as any;
+        if (fill?.type === 'pattern') {
+            const color = fill.fgColor?.argb || fill.fgColor?.theme;
+            if (color === 'FF000000' || color === '000000' || fill.fgColor?.indexed === 64) return true;
+        }
     }
-  }
-  
-  // A divider is colored but MUST NOT contain text in the shift grid area
-  return hasPatternFill && !textInMatrix;
+    return false;
 }
 
-function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, endRow: number, isBuild = false): { address: string; row: number; } | null {
+function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, endRow: number): { address: string; row: number; } | null {
     const scoreAddress = (text: string) => {
         if (!text || text.length < 5) return 0;
         const upper = text.toUpperCase();
-        const noise = ['MATERIALS', 'MANAGER', 'TLO', 'MEASURES', 'SCHEME', 'PULSE', 'WEEK COMM', 'REMEDIAL', 'START DATE'];
+        const noise = ['MATERIALS', 'MANAGER', 'TLO', 'MEASURES', 'SCHEME', 'PULSE', 'WEEK COMM', 'REMEDIAL', 'START DATE', 'SITE MANAGER', 'TECHNICAL MANAGER'];
         if (noise.some(n => upper.includes(n))) return -500;
         let score = Math.min(text.length, 50);
         if (/\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) score += 2000;
@@ -588,15 +569,19 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
     };
 
     let best = { text: "", score: -Infinity, row: 0 };
+    // Check Cols A, B, C for property addresses
     for (let r = startRow; r <= endRow; r++) {
-        const text = getCellText(ws.getRow(r).getCell(1));
-        const score = scoreAddress(text);
-        if (score > best.score) best = { text, score, row: r };
+        const row = ws.getRow(r);
+        for (let c = 1; c <= 3; c++) {
+            const text = getCellText(row.getCell(c));
+            const score = scoreAddress(text);
+            if (score > best.score) best = { text, score, row: r };
+        }
     }
     return best.score >= 50 ? { address: normalizeWhitespace(best.text), row: best.row } : null;
 }
 
-function getDateColumns(ws: ExcelJS.Worksheet, used: UsedBounds, dateRowIdx: number, matrixStartCol = 5): Array<{ col: number; isoDate: string }> {
+function getDateColumns(ws: ExcelJS.Worksheet, used: UsedBounds, dateRowIdx: number, matrixStartCol = 3): Array<{ col: number; isoDate: string }> {
   const cols = [];
   const startCol = Math.max(used.startCol, matrixStartCol);
   for (let c = startCol; c <= used.endCol; c++) {
