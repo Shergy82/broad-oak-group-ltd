@@ -88,7 +88,6 @@ function normalizeText(text: string | null | undefined): string {
 function getCellText(cell: ExcelJS.Cell | null | undefined): string {
   if (!cell) return "";
   
-  // Handle Merged Cells
   const master = cell.isMerged ? cell.master : cell;
   const val = master.value;
   
@@ -130,21 +129,18 @@ function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: Us
     const normalizedChunk = normalizeText(nameChunk);
     if (!normalizedChunk) return { users: [], reason: 'Empty name provided.' };
 
-    // 1. Try Exact Match First
     let matches = userMap.filter(u => u.normalizedName === normalizedChunk);
     if (matches.length === 1) return { users: matches };
     if (matches.length > 1) return { users: [], reason: `Ambiguous name "${nameChunk}" matches multiple users exactly.` };
 
     const chunkParts = normalizedChunk.split(' ');
     
-    // 2. STRICT CHECK: If only one name is provided, DO NOT partial match individuals.
     if (chunkParts.length < 2) {
         const companyMatches = userMap.filter(u => u.accountType === 'company' && u.normalizedName.includes(normalizedChunk));
         if (companyMatches.length === 1) return { users: companyMatches };
         return { users: [], reason: `Single name "${nameChunk}" requires a full/exact match for individuals. No match found.` };
     }
 
-    // multi-word partial matching
     matches = userMap.filter(u => u.normalizedName.includes(normalizedChunk));
     if (matches.length === 1) return { users: matches };
     if (matches.length > 1) return { users: [], reason: `Ambiguous input "${nameChunk}" matches multiple users.` };
@@ -173,17 +169,13 @@ function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
     let d: Date | null = null;
 
     if (v instanceof Date && !isNaN(v.getTime())) {
-      // Locked to midnight UTC intended components
       d = new Date(Date.UTC(v.getFullYear(), v.getMonth(), v.getDate()));
     } else if (typeof v === "number" && v > 20000 && v < 60000) {
-      // Excel serial number. rawDate is midnight UTC of that day.
       const rawDate = new Date((v - 25569) * 86400 * 1000);
-      // Lock to literal day
       d = new Date(Date.UTC(rawDate.getUTCFullYear(), rawDate.getUTCMonth(), rawDate.getUTCDate()));
     } else {
       const text = getCellText(cell);
       if (text) {
-        // Try UK Format DD/MM/YYYY
         const ukMatch = text.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);
         if (ukMatch) {
             const day = parseInt(ukMatch[1], 10);
@@ -202,7 +194,6 @@ function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
     }
 
     if (d && !isNaN(d.getTime()) && d.getUTCFullYear() >= 2020 && d.getUTCFullYear() <= 2050) {
-      // Return as local date object but components are pure from UTC logic
       return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
     }
   } catch (e) {
@@ -211,9 +202,6 @@ function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
   return null;
 }
 
-/**
- * 🔒 STABLE ISO CONVERSION
- */
 function toISODate(dt: Date | null): string {
   if (!dt || isNaN(dt.getTime())) return "";
   const y = dt.getFullYear();
@@ -239,6 +227,10 @@ function isNonShiftText(text: string): boolean {
     "site manager:",
     "technical manager:",
     "responsible person:",
+    "contract:",
+    "waiting on",
+    "totals",
+    "weekly summary"
   ];
 
   const strictHeaders = [
@@ -293,7 +285,6 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
   const used = getUsedBounds(sheet);
   if (!used) return { parsed: [], failures: [] };
 
-  // 1. Find all rows that act as Date Headers (Anchors)
   const dateHeaderRows: Array<{ row: number; dateCols: Array<{ col: number; isoDate: string }> }> = [];
   for (let r = used.startRow; r <= used.endRow; r++) {
       const dateCols = getDateColumns(sheet, used, r, 3);
@@ -304,7 +295,6 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
 
   if (dateHeaderRows.length === 0) return { parsed: [], failures: [] };
 
-  // 2. Process each header's "zone of influence"
   for (let i = 0; i < dateHeaderRows.length; i++) {
       const header = dateHeaderRows[i];
       const nextHeaderRow = dateHeaderRows[i+1]?.row || used.endRow + 1;
@@ -354,7 +344,6 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
 
               if (isMetadata) {
                   notesSet.add(text);
-                  
                   if (upper.includes('SITE MANAGER') || upper.includes('RESPONSIBLE PERSON') || upper.includes('TECHNICAL MANAGER') || upper.includes('JOB MANAGER')) {
                       const cleaned = text.replace(/(site manager|responsible person|technical manager|job manager)\s*:?/i, '').trim();
                       if (!manager) manager = cleaned.split('\n')[0].trim();
@@ -425,7 +414,7 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
 }
 
 /* =========================
-   LOCKED BUILD PARSER (VERIFIED)
+   LOCKED BUILD PARSER (LINEAR SCAN FIX)
 ========================= */
 
 export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEntry[], selectedSheets: string[]): Promise<ParseResult> {
@@ -446,12 +435,11 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
     let dateRowIdx = -1;
     let dateCols: { col: number, isoDate: string }[] = [];
     
-    // Find the date row, skipping the first 5 columns to avoid header noise
     for (let r = 1; r <= 50; r++) {
         const row = sheet.getRow(r);
         const tempCols: { col: number, isoDate: string }[] = [];
         row.eachCell((cell, colNumber) => {
-            if (colNumber < 6) return; // Strict skip for BUILD
+            if (colNumber < 6) return; 
             const dt = parseExcelCellAsDate(cell);
             if (dt) tempCols.push({ col: colNumber, isoDate: toISODate(dt) });
         });
@@ -464,72 +452,68 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
 
     if (dateRowIdx === -1) continue;
 
-    let dividerRows = findDividerRows(sheet, used);
-    if (!dividerRows.includes(dateRowIdx)) dividerRows.unshift(dateRowIdx);
-    if (!dividerRows.includes(used.endRow + 1)) dividerRows.push(used.endRow + 1);
+    // 🔒 LINEAR SCAN FIX: Replace block-logic with a precise row-by-row address tracker
+    let currentAddress = "";
+    let currentENumber = "";
 
-    for (let i = 0; i < dividerRows.length - 1; i++) {
-        const blockStart = dividerRows[i] + 1;
-        const blockEnd = dividerRows[i + 1] - 1;
-        if (blockEnd < blockStart) continue;
+    for (let r = dateRowIdx + 1; r <= used.endRow; r++) {
+        const row = sheet.getRow(r);
 
-        const siteAddressResult = extractSiteAddress(sheet, used, blockStart, blockEnd);
-        if (!siteAddressResult) continue;
+        // Check for black divider - clear context
+        if (isBlackDivider(row)) {
+            currentAddress = "";
+            currentENumber = "";
+            continue;
+        }
 
-        const { address: rawSiteAddress } = siteAddressResult;
-        const eNumMatch = rawSiteAddress.match(/\b([BE]\d+\S*)\b/i);
-        const eNumber = eNumMatch ? eNumMatch[1].toUpperCase() : '';
-        const siteAddress = eNumMatch ? rawSiteAddress.replace(eNumMatch[0], '').trim().replace(/^[:\-\s]+/, '').trim().replace(/,$/, '').trim() : rawSiteAddress;
+        // Try to extract a new address from THIS specific row
+        const rowAddr = extractBuildAddressFromRow(row);
+        if (rowAddr) {
+            currentAddress = rowAddr.address;
+            currentENumber = rowAddr.eNumber;
+        }
 
-        const seenShiftsInBlock = new Set<string>();
+        // If we don't have a valid address context for this row, skip it
+        if (!currentAddress) continue;
 
-        for (let r = blockStart; r <= blockEnd; r++) {
-            const row = sheet.getRow(r);
-            for (const { col, isoDate } of dateCols) {
-                if (isoDate && isoDate < today) continue;
+        for (const { col, isoDate } of dateCols) {
+            if (isoDate && isoDate < today) continue;
 
-                const cell = row.getCell(col);
-                const cellText = getCellText(cell);
-                if (!cellText || isNonShiftText(cellText)) continue;
+            const cell = row.getCell(col);
+            const cellText = getCellText(cell);
+            if (!cellText || isNonShiftText(cellText)) continue;
 
-                const { task, names, type } = extractGasTaskAndNames(cellText);
-                
-                for (const name of names) {
-                    const { users: matchedUsers, reason } = findUsersInMap(name, userMap);
-                    if (matchedUsers.length !== 1) {
-                        if (!/^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}$/.test(name) && !/^\d+$/.test(name)) {
-                          allFailures.push({
-                              reason: reason || `Could not match operative: "${name}"`,
-                              siteAddress,
-                              shiftDate: isoDate,
-                              operativeNameRaw: name,
-                              sheetName: sheet.name,
-                              cellRef: cell.address,
-                              cellContent: cellText
-                          });
-                        }
-                        continue;
+            const { task, names, type } = extractGasTaskAndNames(cellText);
+            
+            for (const name of names) {
+                const { users: matchedUsers, reason } = findUsersInMap(name, userMap);
+                if (matchedUsers.length !== 1) {
+                    if (!/^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}$/.test(name) && !/^\d+$/.test(name) && name.length > 2) {
+                      allFailures.push({
+                          reason: reason || `Operative match error: "${name}"`,
+                          siteAddress: currentAddress,
+                          shiftDate: isoDate,
+                          operativeNameRaw: name,
+                          sheetName: sheet.name,
+                          cellRef: cell.address,
+                          cellContent: cellText
+                      });
                     }
-
-                    const user = matchedUsers[0];
-                    const uniqueKey = `${isoDate}-${user.uid}-${normalizeText(siteAddress)}-${normalizeText(task)}-${type}`;
-                    
-                    if (!seenShiftsInBlock.has(uniqueKey)) {
-                        seenShiftsInBlock.add(uniqueKey);
-                        allParsed.push({
-                            siteAddress,
-                            shiftDate: isoDate,
-                            task,
-                            type,
-                            user,
-                            source: { sheetName: sheet.name, cellRef: cell.address },
-                            eNumber,
-                            contract: sheetName,
-                            department: 'Build',
-                            manager: sheetName
-                        });
-                    }
+                    continue;
                 }
+
+                allParsed.push({
+                    siteAddress: currentAddress,
+                    shiftDate: isoDate,
+                    task,
+                    type,
+                    user: matchedUsers[0],
+                    source: { sheetName: sheet.name, cellRef: cell.address },
+                    eNumber: currentENumber,
+                    contract: sheetName,
+                    department: 'Build',
+                    manager: sheetName
+                });
             }
         }
     }
@@ -560,14 +544,6 @@ function getUsedBounds(ws: ExcelJS.Worksheet): UsedBounds | null {
 
 type UsedBounds = { startRow: number; endRow: number; startCol: number; endCol: number };
 
-function findDividerRows(ws: ExcelJS.Worksheet, used: UsedBounds): number[] {
-  const rows: number[] = [];
-  for (let r = used.startRow; r <= used.endRow; r++) {
-    if (isBlackDivider(ws.getRow(r))) rows.push(r);
-  }
-  return rows.filter((row, idx) => idx === 0 || row !== rows[idx - 1] + 1);
-}
-
 function isBlackDivider(row: ExcelJS.Row): boolean {
     for (let c = 1; c <= 5; c++) {
         const cell = row.getCell(c);
@@ -578,6 +554,33 @@ function isBlackDivider(row: ExcelJS.Row): boolean {
         }
     }
     return false;
+}
+
+/**
+ * 🔒 BUILD SPECIFIC ADDRESS EXTRACTOR
+ */
+function extractBuildAddressFromRow(row: ExcelJS.Row): { address: string; eNumber: string } | null {
+  for (let c = 1; c <= 3; c++) {
+    const text = getCellText(row.getCell(c));
+    if (!text || text.length < 5) continue;
+
+    const upper = text.toUpperCase();
+    const noise = ['MATERIALS', 'MANAGER', 'TLO', 'MEASURES', 'SCHEME', 'PULSE', 'WEEK COMM', 'REMEDIAL', 'START DATE', 'SITE MANAGER', 'TECHNICAL MANAGER', 'JOB MANAGER', 'RESPONSIBLE PERSON', 'CONTRACT:', 'WAITING ON', 'TOTALS', 'SUMMARY'];
+    if (noise.some(n => upper.includes(n))) continue;
+
+    let score = Math.min(text.length, 50);
+    if (/\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) score += 2000;
+    if (/\d+/.test(text)) score += 500;
+
+    if (score >= 50) {
+      const rawAddr = normalizeWhitespace(text);
+      const eNumMatch = rawAddr.match(/\b([BE]\d+\S*)\b/i);
+      const eNumber = eNumMatch ? eNumMatch[1].toUpperCase() : '';
+      const address = eNumMatch ? rawAddr.replace(eNumMatch[0], '').trim().replace(/^[:\-\s]+/, '').trim().replace(/,$/, '').trim() : rawAddr;
+      return { address, eNumber };
+    }
+  }
+  return null;
 }
 
 function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, endRow: number): { address: string; row: number; } | null {
@@ -631,8 +634,7 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
 
     const task = raw.substring(0, lastIdx).trim() || "Work";
     const namesPart = raw.substring(lastIdx + 1).trim();
-    if (task.toLowerCase() === 'unspecified') return { task: "Work", names: [], type };
-
+    
     const splitRegex = /[,&\/\+\\]| and /i;
     const names = namesPart.split(splitRegex).map(s => s.trim()).filter(Boolean).filter(n => {
         if (/^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}$/.test(n)) return false;
