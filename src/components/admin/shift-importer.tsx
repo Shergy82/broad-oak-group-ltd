@@ -6,7 +6,7 @@ import { FileUploader, type FailedShift, type DryRunResult, type ParsedShift } f
 import type { UserProfile, Shift } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { CheckCircle, FileWarning, Upload, List, ArrowRight, Edit, Plus, Trash2, Download, FileText } from 'lucide-react';
+import { CheckCircle, FileWarning, ArrowRight, Edit, Plus, Trash2, Download } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from '../ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
@@ -212,7 +212,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
     };
     
     return (
-        <Tabs defaultValue={defaultTab}>
+        <Tabs defaultValue={defaultTab} className="w-full">
             <TabsList className="grid w-full grid-cols-5">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="create">New ({dryRun.toCreate.length})</TabsTrigger>
@@ -266,17 +266,16 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                  <Card>
                     <CardHeader><CardTitle>New Shifts</CardTitle></CardHeader>
                     <CardContent>
-                        <ScrollArea className="h-72">
+                        <ScrollArea className="h-96">
                             <Table>
                                 <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Task</TableHead><TableHead>Address</TableHead></TableRow></TableHeader>
                                 <TableBody>
-                                  {[...dryRun.toCreate]
-                                    .map((s, i) => (
+                                  {dryRun.toCreate.map((s, i) => (
                                       <TableRow key={i}>
                                         <TableCell>{safeFormatDate(s.date)}</TableCell>
                                         <TableCell>{s.userName}</TableCell>
                                         <TableCell>{s.task}</TableCell>
-                                        <TableCell>{s.address}</TableCell>
+                                        <TableCell className="text-xs">{s.address}</TableCell>
                                       </TableRow>
                                     ))}
                                 </TableBody>
@@ -290,21 +289,22 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                  <Card>
                     <CardHeader><CardTitle>Updated Shifts</CardTitle><CardDescription>Only shifts with meaningful changes are shown here.</CardDescription></CardHeader>
                     <CardContent>
-                         <ScrollArea className="h-72">
+                         <ScrollArea className="h-96">
                             <Table>
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>Date</TableHead>
                                         <TableHead>User</TableHead>
+                                        <TableHead>Address</TableHead>
                                         <TableHead>Changes</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {[...dryRun.toUpdate]
-                                      .map((u,i) => (
+                                    {dryRun.toUpdate.map((u,i) => (
                                         <TableRow key={i}>
                                             <TableCell>{safeFormatDate(u.new.date)}</TableCell>
                                             <TableCell>{u.new.userName}</TableCell>
+                                            <TableCell className="text-xs">{u.new.address}</TableCell>
                                             <TableCell className="text-xs">{renderChanges(u.old, u.new)}</TableCell>
                                         </TableRow>
                                     ))}
@@ -318,17 +318,16 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                 <Card>
                     <CardHeader><CardTitle>Deleted Shifts</CardTitle></CardHeader>
                     <CardContent>
-                         <ScrollArea className="h-72">
+                         <ScrollArea className="h-96">
                             <Table>
                                 <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Task</TableHead><TableHead>Address</TableHead></TableRow></TableHeader>
                                 <TableBody>
-                                  {[...dryRun.toDelete]
-                                    .map((s,i) => (
+                                  {dryRun.toDelete.map((s,i) => (
                                       <TableRow key={i}>
                                         <TableCell>{safeFormatDate(s.date)}</TableCell>
                                         <TableCell>{s.userName}</TableCell>
                                         <TableCell>{s.task}</TableCell>
-                                        <TableCell>{s.address}</TableCell>
+                                        <TableCell className="text-xs">{s.address}</TableCell>
                                       </TableRow>
                                     ))}
                                 </TableBody>
@@ -355,7 +354,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                         </div>
                     </CardHeader>
                     <CardContent>
-                         <ScrollArea className="h-72">
+                         <ScrollArea className="h-96">
                             <Table>
                                 <TableHeader><TableRow><TableHead>Sheet</TableHead><TableHead>Cell</TableHead><TableHead>Content</TableHead><TableHead>Reason</TableHead></TableRow></TableHeader>
                                 <TableBody>

@@ -1,4 +1,3 @@
-
 /**
  * GAS & BUILD IMPORT (ExcelJS based)
  * - Uses ExcelJS for robust style and formula handling.
@@ -316,7 +315,7 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
       const { address: rawAddr } = addressResult;
       const eNumMatch = rawAddr.match(/\b([BE]\d+\S*)\b/i);
       const eNumber = eNumMatch ? eNumMatch[1].toUpperCase() : '';
-      const siteAddress = eNumMatch ? rawAddr.replace(eNumMatch[0], '').trim().replace(/^[:\-\s]+/, '').trim().replace(/,$/, '').trim() : rawAddr;
+      const siteAddress = rawAddr; // Keep full address including prefixes like "Gale" or "Hall"
 
       let manager = '';
       let contract = sheetName;

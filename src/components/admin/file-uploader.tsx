@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useCallback } from 'react';
@@ -40,7 +39,7 @@ import {
 import { ScrollArea } from '../ui/scroll-area';
 import { cn, getCorrectedLocalDate } from '@/lib/utils';
 import { parseGasWorkbook, parseBuildWorkbook, type ImportType, type ParsedGasShift } from '@/lib/exceljs-parser';
-import { isValid } from 'date-fns';
+import { isValid, startOfToday } from 'date-fns';
 
 
 export type ParsedShift = Omit<
@@ -95,20 +94,51 @@ function normalizeText(text: string | null | undefined): string {
 }
 
 /**
- * 🔒 TIMEZONE-STABLE KEY GENERATION
+ * 🔒 GAS SPECIFIC ADDRESS NORMALIZER (PREFIX AWARE)
+ * Reaches the "Core" of the address by ignoring everything before the first number.
  */
-const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; task?: string; type?: string }): string => {
+function normalizeGasAddressCore(text: string | null | undefined): string {
+  if (!text) return "";
+  let t = String(text).toLowerCase();
+  
+  // Remove B/E numbers
+  t = t.replace(/\b[be]\d+\S*\b/gi, '');
+  
+  // Strip common postcodes (SY1-9, ST1-21, etc)
+  t = t.replace(/\b[a-z]{1,2}\d{1,2}\s*\d[a-z]{2}\b/gi, '');
+
+  // 🔒 THE GALE/HALL FIX: Find the first digit (the house number) and start from there
+  const firstDigit = t.search(/\d/);
+  if (firstDigit !== -1) {
+    t = t.substring(firstDigit);
+  }
+
+  return t.replace(/[^a-z0-9]/g, "").trim();
+}
+
+/**
+ * 🔒 TIMEZONE-STABLE KEY GENERATION (UTC SYNC)
+ */
+const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; task?: string; type?: string; department?: string }): string => {
   const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
   
   if (!d || isNaN(d.getTime())) return `invalid-date-${shift.userId}-${Math.random()}`;
 
-  const localDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const dateStr = `${localDate.getFullYear()}-${String(localDate.getMonth() + 1).padStart(2, '0')}-${String(localDate.getDate()).padStart(2, '0')}`;
+  // 🔒 UTC SYNC: Always use UTC components for identity matching
+  const dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
   
-  const taskPart = shift.task ? `-${normalizeText(shift.task)}` : '';
-  const typePart = shift.type ? `-${shift.type}` : '';
+  if (shift.department === 'Gas') {
+    // 🔒 GAS CORRELATION FIX: Identity is Date + User + Core Address.
+    // We EXCLUDE task/type from the key so that changes to those trigger an UPDATE, not a deletion.
+    const addr = normalizeGasAddressCore(shift.address);
+    return `gas-${dateStr}-${shift.userId}-${addr}`;
+  }
 
-  return `${dateStr}-${shift.userId}-${normalizeText(shift.address)}${taskPart}${typePart}`;
+  // BUILD: Keep previous identity logic
+  const addr = normalizeText(shift.address);
+  const taskPart = shift.task ? `-${normalizeText(shift.task).replace(/\s+/g, '')}` : '';
+  const typePart = shift.type ? `-${shift.type}` : '';
+  return `build-${dateStr}-${shift.userId}-${addr}${taskPart}${typePart}`;
 };
 
 
@@ -244,7 +274,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           
           const finalImportDepartment = importType === 'GAS' ? 'Gas' : importDepartment;
           
-          setUploadProgress('Parsing workbook (this may take a minute for large files)...');
+          setUploadProgress('Parsing workbook...');
           let result: { parsed: ParsedGasShift[], failures: any[] };
           if (importType === 'GAS') {
               const res = await parseGasWorkbook(Buffer.from(data), userMap);
@@ -307,42 +337,19 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           );
           
           const existingShiftsSnapshot = await getDocs(existingShiftsQuery);
-          
           const existingShiftsMap = new Map<string, Shift>();
-          const toDelete: Shift[] = [];
+          
+          const importTodayLocal = startOfToday();
 
-          const STATUS_PRIORITY: Record<string, number> = {
-            'completed': 1,
-            'incomplete': 2,
-            'rejected': 3,
-            'on-site': 4,
-            'confirmed': 5,
-            'pending-confirmation': 6
-          };
-
-          const sortedDocs = [...existingShiftsSnapshot.docs].sort((a, b) => {
-            const statusA = (a.data().status as string) || 'pending-confirmation';
-            const statusB = (b.data().status as string) || 'pending-confirmation';
-            return (STATUS_PRIORITY[statusA] || 99) - (STATUS_PRIORITY[statusB] || 99);
-          });
-
-          const importTodayLocal = new Date();
-          importTodayLocal.setHours(0, 0, 0, 0);
-
-          sortedDocs.forEach((doc) => {
+          existingShiftsSnapshot.docs.forEach((doc) => {
             const shiftData = { id: doc.id, ...doc.data() } as Shift;
             if (!shiftData.userId || !shiftData.date || !shiftData.address) return;
             
-            if (shiftData.department !== finalImportDepartment) return;
-
             const key = getShiftKey(shiftData as any);
             const shiftDate = getCorrectedLocalDate(shiftData.date as any);
 
-            if (existingShiftsMap.has(key)) {
-                if (shiftDate >= importTodayLocal) {
-                    toDelete.push(shiftData);
-                }
-            } else {
+            // Deduplicate DB records in memory (keep latest status)
+            if (!existingShiftsMap.has(key)) {
                 existingShiftsMap.set(key, shiftData);
             }
           });
@@ -354,9 +361,11 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
 
           const toCreate: ParsedShift[] = [];
           const toUpdate: { old: Shift; new: ParsedShift }[] = [];
+          const toDelete: Shift[] = [];
           
           const protectedStatuses: ShiftStatus[] = ['completed', 'incomplete', 'rejected', 'on-site'];
 
+          // 1. Find New & Updates
           for (const [key, excelShift] of excelShiftsMap.entries()) {
             const existingShift = existingShiftsMap.get(key);
             if (!existingShift) {
@@ -364,23 +373,21 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
                 toCreate.push(excelShift);
               }
             } else if (!protectedStatuses.includes(existingShift.status)) {
-              const shiftDate = getCorrectedLocalDate(existingShift.date as any);
-              if (shiftDate >= importTodayLocal) {
-                const hasChanged =
-                  normalizeText(existingShift.task) !== normalizeText(excelShift.task) ||
-                  normalizeText(existingShift.eNumber || '') !== normalizeText(excelShift.eNumber || '') ||
-                  normalizeText(existingShift.manager || '') !== normalizeText(excelShift.manager || '') ||
-                  normalizeText(existingShift.notes || '') !== normalizeText(excelShift.notes || '') ||
-                  normalizeText(existingShift.contract || '') !== normalizeText(excelShift.contract || '') ||
-                  existingShift.type !== excelShift.type; 
+              const hasChanged =
+                normalizeText(existingShift.task) !== normalizeText(excelShift.task) ||
+                normalizeText(existingShift.eNumber || '') !== normalizeText(excelShift.eNumber || '') ||
+                normalizeText(existingShift.manager || '') !== normalizeText(excelShift.manager || '') ||
+                normalizeText(existingShift.notes || '') !== normalizeText(excelShift.notes || '') ||
+                normalizeText(existingShift.contract || '') !== normalizeText(excelShift.contract || '') ||
+                existingShift.type !== excelShift.type; 
 
-                if (hasChanged) {
-                  toUpdate.push({ old: existingShift, new: excelShift });
-                }
+              if (hasChanged) {
+                toUpdate.push({ old: existingShift, new: excelShift });
               }
             }
           }
 
+          // 2. Find Deletions
           for (const [key, existingShift] of existingShiftsMap.entries()) {
             const isFromThisPlanner = importType === 'BUILD'
               ? (existingShift.plannerName || '').replace(/\s*\(?\d+\)?$/, "").replace(/\s*-\s*copy$/i, "").trim() === currentPlannerName
@@ -399,9 +406,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
                 const d = item.date instanceof Date ? item.date : (item.date?.toDate ? item.date.toDate() : new Date(item.date));
                 return (d && !isNaN(d.getTime())) ? d.getTime() : Infinity;
             }
-            const ta = getT(a);
-            const tb = getT(b);
-            return ta - tb;
+            return getT(a) - getT(b);
           };
 
           const onConfirm = async () => {
@@ -409,58 +414,17 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
               if (!functions) throw new Error("Functions service not initialized.");
               const reconcileShiftsFn = httpsCallable(functions, 'reconcileShifts');
               
-              const CHUNK_SIZE = 150; // Smaller chunks to prevent 10MB payload error
-              const totalItems = toCreate.length + toUpdate.length + toDelete.length;
-              let itemsProcessed = 0;
-
-              // 1. Process Creations in chunks
-              for (let i = 0; i < toCreate.length; i += CHUNK_SIZE) {
-                const chunk = toCreate.slice(i, i + CHUNK_SIZE);
-                setUploadProgress(`Publishing batch ${Math.floor(i/CHUNK_SIZE) + 1} (Creations)...`);
-                await reconcileShiftsFn({
-                  toCreate: chunk.filter(s => isValid(s.date)).map(s => ({ ...s, date: s.date.toISOString() })),
-                  toUpdate: [],
-                  toDelete: [],
-                  department: finalImportDepartment
-                });
-              }
-
-              // 2. Process Updates in chunks
-              for (let i = 0; i < toUpdate.length; i += CHUNK_SIZE) {
-                const chunk = toUpdate.slice(i, i + CHUNK_SIZE);
-                setUploadProgress(`Publishing batch ${Math.floor(i/CHUNK_SIZE) + 1} (Updates)...`);
-                await reconcileShiftsFn({
-                  toCreate: [],
-                  toUpdate: chunk.filter(u => isValid(u.new.date)).map(u => ({
-                    id: u.old.id,
-                    new: { ...u.new, date: u.new.date.toISOString() }
-                  })),
-                  toDelete: [],
-                  department: finalImportDepartment
-                });
-              }
-
-              // 3. Process Deletions in chunks
-              for (let i = 0; i < toDelete.length; i += CHUNK_SIZE) {
-                const chunk = toDelete.slice(i, i + CHUNK_SIZE);
-                setUploadProgress(`Publishing batch ${Math.floor(i/CHUNK_SIZE) + 1} (Deletions)...`);
-                await reconcileShiftsFn({
-                  toCreate: [],
-                  toUpdate: [],
-                  toDelete: chunk.map(s => ({ id: s.id })),
-                  department: finalImportDepartment
-                });
-              }
-
-              toast({
-                title: 'Import Complete',
-                description: `Successfully processed ${totalItems} changes.`,
+              await reconcileShiftsFn({
+                toCreate: toCreate.map(s => ({ ...s, date: s.date.toISOString() })),
+                toUpdate: toUpdate.map(u => ({ id: u.old.id, new: { ...u.new, date: u.new.date.toISOString() } })),
+                toDelete: toDelete.map(s => ({ id: s.id })),
+                department: finalImportDepartment
               });
+
+              toast({ title: 'Import Complete', description: 'Schedule updated successfully.' });
             } catch (error: any) {
-              console.error("Error during reconciliation batch:", error);
-              toast({ variant: 'destructive', title: 'Error', description: error.message || 'Action failed during batch processing.' });
-            } finally {
-              setUploadProgress(null);
+              console.error("Error during reconciliation:", error);
+              toast({ variant: 'destructive', title: 'Error', description: error.message });
             }
           };
 
@@ -481,7 +445,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           handleClear();
         } catch (err: any) {
           console.error('Import failed:', err);
-          setError(err?.message || 'An unexpected error occurred during processing.');
+          setError(err?.message || 'Unexpected error.');
           onImportComplete([], async () => {}, undefined);
         } finally {
           setIsUploading(false);
