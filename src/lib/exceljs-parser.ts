@@ -466,7 +466,7 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
             continue;
         }
 
-        // Try to extract a new address from THIS specific row
+        // 🔒 BUILD FIX: Restrict address extraction to Column 1 (A) only to avoid notes in Column B
         const rowAddr = extractBuildAddressFromRow(row);
         if (rowAddr) {
             currentAddress = rowAddr.address;
@@ -560,26 +560,26 @@ function isBlackDivider(row: ExcelJS.Row): boolean {
  * 🔒 BUILD SPECIFIC ADDRESS EXTRACTOR
  */
 function extractBuildAddressFromRow(row: ExcelJS.Row): { address: string; eNumber: string } | null {
-  for (let c = 1; c <= 3; c++) {
-    const text = getCellText(row.getCell(c));
-    if (!text || text.length < 5) continue;
+  // 🔒 BUILD FIX: Scan only Column 1 (A) for addresses to prevent notes in Col B/C from being misidentified.
+  const text = getCellText(row.getCell(1));
+  if (!text || text.length < 5) return null;
 
-    const upper = text.toUpperCase();
-    const noise = ['MATERIALS', 'MANAGER', 'TLO', 'MEASURES', 'SCHEME', 'PULSE', 'WEEK COMM', 'REMEDIAL', 'START DATE', 'SITE MANAGER', 'TECHNICAL MANAGER', 'JOB MANAGER', 'RESPONSIBLE PERSON', 'CONTRACT:', 'WAITING ON', 'TOTALS', 'SUMMARY'];
-    if (noise.some(n => upper.includes(n))) continue;
+  const upper = text.toUpperCase();
+  const noise = ['MATERIALS', 'MANAGER', 'TLO', 'MEASURES', 'SCHEME', 'PULSE', 'WEEK COMM', 'REMEDIAL', 'START DATE', 'SITE MANAGER', 'TECHNICAL MANAGER', 'JOB MANAGER', 'RESPONSIBLE PERSON', 'CONTRACT:', 'WAITING ON', 'TOTALS', 'SUMMARY'];
+  if (noise.some(n => upper.includes(n))) return null;
 
-    let score = Math.min(text.length, 50);
-    if (/\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) score += 2000;
-    if (/\d+/.test(text)) score += 500;
+  let score = Math.min(text.length, 50);
+  if (/\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) score += 2000;
+  if (/\d+/.test(text)) score += 500;
 
-    if (score >= 50) {
-      const rawAddr = normalizeWhitespace(text);
-      const eNumMatch = rawAddr.match(/\b([BE]\d+\S*)\b/i);
-      const eNumber = eNumMatch ? eNumMatch[1].toUpperCase() : '';
-      const address = eNumMatch ? rawAddr.replace(eNumMatch[0], '').trim().replace(/^[:\-\s]+/, '').trim().replace(/,$/, '').trim() : rawAddr;
-      return { address, eNumber };
-    }
+  if (score >= 50) {
+    const rawAddr = normalizeWhitespace(text);
+    const eNumMatch = rawAddr.match(/\b([BE]\d+\S*)\b/i);
+    const eNumber = eNumMatch ? eNumMatch[1].toUpperCase() : '';
+    const address = eNumMatch ? rawAddr.replace(eNumMatch[0], '').trim().replace(/^[:\-\s]+/, '').trim().replace(/,$/, '').trim() : rawAddr;
+    return { address, eNumber };
   }
+  
   return null;
 }
 
