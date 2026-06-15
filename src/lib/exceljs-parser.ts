@@ -173,10 +173,13 @@ function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
     let d: Date | null = null;
 
     if (v instanceof Date && !isNaN(v.getTime())) {
-      d = new Date(v.getFullYear(), v.getMonth(), v.getDate());
+      // Locked to midnight UTC intended components
+      d = new Date(Date.UTC(v.getFullYear(), v.getMonth(), v.getDate()));
     } else if (typeof v === "number" && v > 20000 && v < 60000) {
+      // Excel serial number. rawDate is midnight UTC of that day.
       const rawDate = new Date((v - 25569) * 86400 * 1000);
-      d = new Date(rawDate.getFullYear(), rawDate.getMonth(), rawDate.getDate());
+      // Lock to literal day
+      d = new Date(Date.UTC(rawDate.getUTCFullYear(), rawDate.getUTCMonth(), rawDate.getUTCDate()));
     } else {
       const text = getCellText(cell);
       if (text) {
@@ -187,19 +190,20 @@ function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
             const month = parseInt(ukMatch[2], 10) - 1;
             let year = parseInt(ukMatch[3], 10);
             if (year < 100) year += 2000;
-            d = new Date(year, month, day);
+            d = new Date(Date.UTC(year, month, day));
         } else {
             const cleanedText = text.replace(/(\d+)(st|nd|rd|th)/g, '$1');
             const parsed = new Date(cleanedText);
             if (!isNaN(parsed.getTime())) {
-              d = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+              d = new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate()));
             }
         }
       }
     }
 
-    if (d && !isNaN(d.getTime()) && d.getFullYear() >= 2020 && d.getFullYear() <= 2050) {
-      return d;
+    if (d && !isNaN(d.getTime()) && d.getUTCFullYear() >= 2020 && d.getUTCFullYear() <= 2050) {
+      // Return as local date object but components are pure from UTC logic
+      return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
     }
   } catch (e) {
     console.error("Error parsing excel cell as date:", e);
@@ -292,7 +296,7 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
   // 1. Find all rows that act as Date Headers (Anchors)
   const dateHeaderRows: Array<{ row: number; dateCols: Array<{ col: number; isoDate: string }> }> = [];
   for (let r = used.startRow; r <= used.endRow; r++) {
-      const dateCols = getDateColumns(sheet, used, r, 3); // Start earlier (Col C) to catch Mondays
+      const dateCols = getDateColumns(sheet, used, r, 3);
       if (dateCols.length >= 2) {
           dateHeaderRows.push({ row: r, dateCols });
       }
@@ -305,7 +309,6 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
       const header = dateHeaderRows[i];
       const nextHeaderRow = dateHeaderRows[i+1]?.row || used.endRow + 1;
       
-      // A "Block" ends at the next header or a black divider
       let blockEnd = nextHeaderRow - 1;
       for (let r = header.row + 1; r < nextHeaderRow; r++) {
           if (isBlackDivider(sheet.getRow(r))) {
@@ -316,7 +319,6 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
 
       if (blockEnd <= header.row) continue;
 
-      // 3. Extract metadata for this block (Address, Manager, Scheme)
       const addressResult = extractSiteAddress(sheet, used, header.row, blockEnd);
       if (!addressResult) continue;
 
@@ -329,17 +331,16 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
       let contract = sheetName;
       let notesSet = new Set<string>();
 
-      // Scan zone for metadata
       const metadataStart = Math.max(used.startRow, header.row - 6);
       const metadataEnd = Math.min(blockEnd, header.row + 6);
       for (let r = metadataStart; r <= metadataEnd; r++) {
           const row = sheet.getRow(r);
           for (let c = 1; c <= 10; c++) {
-              const text = getCellText(row.getCell(c));
+              const cell = row.getCell(c);
+              const text = getCellText(cell);
               if (!text) continue;
               const upper = text.toUpperCase();
               
-              // 🔒 INCLUSIVE METADATA EXTRACTION
               const isMetadata = 
                 upper.includes('SITE MANAGER') || 
                 upper.includes('RESPONSIBLE PERSON') || 
@@ -360,16 +361,12 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
                   }
               }
 
-              // 🔒 AGGRESSIVE SCHEME EXTRACTION
-              // Check the box to the right of "SCHEME"
               if (upper.includes('SCHEME:')) {
                   notesSet.add(text);
-                  // 1. Check if name is in the SAME cell (e.g. "SCHEME: CITIZEN GB")
                   const sameCellScheme = text.split(/scheme:/i)[1]?.trim();
                   if (sameCellScheme) {
                     contract = sameCellScheme;
                   } else {
-                    // 2. Check cell immediately to the RIGHT
                     const nextVal = getCellText(row.getCell(c + 1));
                     if (nextVal) contract = nextVal;
                   }
@@ -379,11 +376,8 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
 
       const finalNotes = Array.from(notesSet).join('\n').trim();
 
-      // 4. Process individual shifts in the block
       for (let r = header.row + 1; r <= blockEnd; r++) {
           const row = sheet.getRow(r);
-          
-          // Skip rows that look like purely administrative text
           const firstColText = getCellText(row.getCell(1));
           if (isNonShiftText(firstColText) && !firstColText.toLowerCase().includes('bedroom')) continue;
 
@@ -410,7 +404,6 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
                           department: 'Gas'
                       });
                   } else {
-                      // Failure reporting: Skip names that are likely just date noise or invalid markers
                       if (!/^\d/.test(name) && name.length > 2) {
                         failures.push({
                             reason: reason || `Operative mismatch: "${name}"`,
@@ -452,11 +445,13 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
 
     let dateRowIdx = -1;
     let dateCols: { col: number, isoDate: string }[] = [];
+    
+    // Find the date row, skipping the first 5 columns to avoid header noise
     for (let r = 1; r <= 50; r++) {
         const row = sheet.getRow(r);
         const tempCols: { col: number, isoDate: string }[] = [];
         row.eachCell((cell, colNumber) => {
-            if (colNumber < 5) return;
+            if (colNumber < 6) return; // Strict skip for BUILD
             const dt = parseExcelCellAsDate(cell);
             if (dt) tempCols.push({ col: colNumber, isoDate: toISODate(dt) });
         });
@@ -598,7 +593,6 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
     };
 
     let best = { text: "", score: -Infinity, row: 0 };
-    // Check Cols A, B, C for property addresses
     for (let r = startRow; r <= endRow; r++) {
         const row = ws.getRow(r);
         for (let c = 1; c <= 3; c++) {
