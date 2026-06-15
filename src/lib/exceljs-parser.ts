@@ -230,7 +230,8 @@ function isNonShiftText(text: string): boolean {
     "contract:",
     "waiting on",
     "totals",
-    "weekly summary"
+    "weekly summary",
+    "operative"
   ];
 
   const strictHeaders = [
@@ -414,7 +415,7 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
 }
 
 /* =========================
-   LOCKED BUILD PARSER (LINEAR SCAN FIX)
+   LOCKED BUILD PARSER (STRICT COLUMN A)
 ========================= */
 
 export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEntry[], selectedSheets: string[]): Promise<ParseResult> {
@@ -439,7 +440,7 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
         const row = sheet.getRow(r);
         const tempCols: { col: number, isoDate: string }[] = [];
         row.eachCell((cell, colNumber) => {
-            if (colNumber < 6) return; 
+            if (colNumber < 3) return; 
             const dt = parseExcelCellAsDate(cell);
             if (dt) tempCols.push({ col: colNumber, isoDate: toISODate(dt) });
         });
@@ -452,28 +453,24 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
 
     if (dateRowIdx === -1) continue;
 
-    // 🔒 LINEAR SCAN FIX: Replace block-logic with a precise row-by-row address tracker
     let currentAddress = "";
     let currentENumber = "";
 
     for (let r = dateRowIdx + 1; r <= used.endRow; r++) {
         const row = sheet.getRow(r);
 
-        // Check for black divider - clear context
         if (isBlackDivider(row)) {
             currentAddress = "";
             currentENumber = "";
             continue;
         }
 
-        // 🔒 BUILD FIX: Restrict address extraction to Column 1 (A) only to avoid notes in Column B
         const rowAddr = extractBuildAddressFromRow(row);
         if (rowAddr) {
             currentAddress = rowAddr.address;
             currentENumber = rowAddr.eNumber;
         }
 
-        // If we don't have a valid address context for this row, skip it
         if (!currentAddress) continue;
 
         for (const { col, isoDate } of dateCols) {
@@ -483,7 +480,7 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
             const cellText = getCellText(cell);
             if (!cellText || isNonShiftText(cellText)) continue;
 
-            const { task, names, type } = extractGasTaskAndNames(cellText);
+            const { task, names, type } = extractBuildTaskAndNames(cellText);
             
             for (const name of names) {
                 const { users: matchedUsers, reason } = findUsersInMap(name, userMap);
@@ -562,25 +559,59 @@ function isBlackDivider(row: ExcelJS.Row): boolean {
 function extractBuildAddressFromRow(row: ExcelJS.Row): { address: string; eNumber: string } | null {
   // 🔒 BUILD FIX: Scan only Column 1 (A) for addresses to prevent notes in Col B/C from being misidentified.
   const text = getCellText(row.getCell(1));
-  if (!text || text.length < 5) return null;
+  if (!text || text.length < 3) return null;
 
   const upper = text.toUpperCase();
-  const noise = ['MATERIALS', 'MANAGER', 'TLO', 'MEASURES', 'SCHEME', 'PULSE', 'WEEK COMM', 'REMEDIAL', 'START DATE', 'SITE MANAGER', 'TECHNICAL MANAGER', 'JOB MANAGER', 'RESPONSIBLE PERSON', 'CONTRACT:', 'WAITING ON', 'TOTALS', 'SUMMARY'];
+  const noise = [
+    'MATERIALS', 'MANAGER', 'TLO', 'MEASURES', 'SCHEME', 'PULSE', 
+    'WEEK COMM', 'REMEDIAL', 'START DATE', 'SITE MANAGER', 
+    'TECHNICAL MANAGER', 'JOB MANAGER', 'RESPONSIBLE PERSON', 
+    'CONTRACT:', 'WAITING ON', 'TOTALS', 'SUMMARY', 'OPERATIVE'
+  ];
   if (noise.some(n => upper.includes(n))) return null;
 
-  let score = Math.min(text.length, 50);
-  if (/\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) score += 2000;
-  if (/\d+/.test(text)) score += 500;
+  // Skip if it looks like a date or just a number
+  if (/^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}/.test(text)) return null;
+  if (/^\d+$/.test(text)) return null;
 
-  if (score >= 50) {
-    const rawAddr = normalizeWhitespace(text);
-    const eNumMatch = rawAddr.match(/\b([BE]\d+\S*)\b/i);
-    const eNumber = eNumMatch ? eNumMatch[1].toUpperCase() : '';
-    const address = eNumMatch ? rawAddr.replace(eNumMatch[0], '').trim().replace(/^[:\-\s]+/, '').trim().replace(/,$/, '').trim() : rawAddr;
-    return { address, eNumber };
-  }
+  const rawAddr = normalizeWhitespace(text);
+  const eNumMatch = rawAddr.match(/\b([BE]\d+\S*)\b/i);
+  const eNumber = eNumMatch ? eNumMatch[1].toUpperCase() : '';
+  const address = eNumMatch ? rawAddr.replace(eNumMatch[0], '').trim().replace(/^[:\-\s]+/, '').trim().replace(/,$/, '').trim() : rawAddr;
   
-  return null;
+  return { address, eNumber };
+}
+
+/**
+ * 🔒 BUILD SPECIFIC TASK/NAME EXTRACTOR
+ */
+function extractBuildTaskAndNames(text: string): { task: string; names: string[]; type: 'am' | 'pm' | 'all-day' } {
+    let raw = normalizeWhitespace(text);
+    let type: 'am' | 'pm' | 'all-day' = 'all-day';
+    
+    if (/^AM\b/i.test(raw)) { type = 'am'; raw = raw.substring(2).trim(); }
+    else if (/^PM\b/i.test(raw)) { type = 'pm'; raw = raw.substring(2).trim(); }
+
+    const separatorRegex = /[-\–\—]/g;
+    let match;
+    let lastIdx = -1;
+    while ((match = separatorRegex.exec(raw)) !== null) {
+        lastIdx = match.index;
+    }
+
+    if (lastIdx === -1) {
+        // BUILD SPECIFIC: If no dash, treat whole cell as potential names
+        if (raw.length < 2 || /^\d+$/.test(raw)) return { task: "Work", names: [], type };
+        return { task: "Work", names: [raw], type };
+    }
+
+    const task = raw.substring(0, lastIdx).trim() || "Work";
+    const namesPart = raw.substring(lastIdx + 1).trim();
+    
+    const splitRegex = /[,&\/\+\\]| and /i;
+    const names = namesPart.split(splitRegex).map(s => s.trim()).filter(Boolean);
+    
+    return { task, names, type };
 }
 
 function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: number, endRow: number): { address: string; row: number; } | null {
