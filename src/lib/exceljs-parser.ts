@@ -415,7 +415,7 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
 }
 
 /* =========================
-   LOCKED BUILD PARSER (STRICT COLUMN A)
+   LOCKED BUILD PARSER (STRICT COLUMN BOUNDARIES)
 ========================= */
 
 export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEntry[], selectedSheets: string[]): Promise<ParseResult> {
@@ -436,11 +436,13 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
     let dateRowIdx = -1;
     let dateCols: { col: number, isoDate: string }[] = [];
     
+    // 🔒 BUILD SCAN: Find date header row, only looking at Column F (6) onwards.
+    // This bypasses Address/Info/Pricing columns.
     for (let r = 1; r <= 50; r++) {
         const row = sheet.getRow(r);
         const tempCols: { col: number, isoDate: string }[] = [];
         row.eachCell((cell, colNumber) => {
-            if (colNumber < 3) return; 
+            if (colNumber < 6) return; 
             const dt = parseExcelCellAsDate(cell);
             if (dt) tempCols.push({ col: colNumber, isoDate: toISODate(dt) });
         });
@@ -473,6 +475,7 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
 
         if (!currentAddress) continue;
 
+        // 🔒 BUILD SCAN: Only process columns identified as date columns (F/6 onwards)
         for (const { col, isoDate } of dateCols) {
             if (isoDate && isoDate < today) continue;
 
@@ -557,7 +560,7 @@ function isBlackDivider(row: ExcelJS.Row): boolean {
  * 🔒 BUILD SPECIFIC ADDRESS EXTRACTOR
  */
 function extractBuildAddressFromRow(row: ExcelJS.Row): { address: string; eNumber: string } | null {
-  // 🔒 BUILD FIX: Scan only Column 1 (A) for addresses to prevent notes in Col B/C from being misidentified.
+  // 🔒 BUILD FIX: Scan only Column 1 (A) for addresses
   const text = getCellText(row.getCell(1));
   if (!text || text.length < 3) return null;
 
