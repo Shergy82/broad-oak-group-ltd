@@ -83,7 +83,7 @@ function normalizeText(text: string | null | undefined): string {
   if (!text) return "";
   let t = String(text).toLowerCase();
   
-  // 🔒 STRIP PHONE NUMBERS from addresses to ensure key stability
+  // 🔒 STRIP PHONE NUMBERS and specific metadata labels
   t = t.replace(/\b(0\d{3,4}\s*\d{5,6}|07\d{3}\s*\d{6}|\+44\s*\d{4}\s*\d{6})\b/g, '');
   t = t.replace(/\s*\d{10,12}\b/g, ''); 
   
@@ -95,7 +95,7 @@ function normalizeText(text: string | null | undefined): string {
 
 /**
  * 🔒 GAS SPECIFIC ADDRESS NORMALIZER (PREFIX AWARE)
- * Reaches the "Core" of the address by ignoring everything before the first number.
+ * Isolates the core property identity by ignoring everything before the house number.
  */
 function normalizeGasAddressCore(text: string | null | undefined): string {
   if (!text) return "";
@@ -104,10 +104,10 @@ function normalizeGasAddressCore(text: string | null | undefined): string {
   // Remove B/E numbers
   t = t.replace(/\b[be]\d+\S*\b/gi, '');
   
-  // Strip common postcodes (SY1-9, ST1-21, etc)
+  // Strip postcodes
   t = t.replace(/\b[a-z]{1,2}\d{1,2}\s*\d[a-z]{2}\b/gi, '');
 
-  // 🔒 THE GALE/HALL FIX: Find the first digit (the house number) and start from there
+  // Find the first digit (house number) and keep only that onwards
   const firstDigit = t.search(/\d/);
   if (firstDigit !== -1) {
     t = t.substring(firstDigit);
@@ -117,28 +117,26 @@ function normalizeGasAddressCore(text: string | null | undefined): string {
 }
 
 /**
- * 🔒 TIMEZONE-STABLE KEY GENERATION (UTC SYNC)
+ * 🔒 STABLE IDENTITY KEY GENERATION
+ * Crucial: Identity = [Date-UTC] + [UserId] + [CoreAddress] + [Type].
+ * TASK DESCRIPTION is EXCLUDED to ensure changes result in an UPDATE instead of a DELETE/CREATE.
  */
 const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; task?: string; type?: string; department?: string }): string => {
   const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
   
   if (!d || isNaN(d.getTime())) return `invalid-date-${shift.userId}-${Math.random()}`;
 
-  // 🔒 UTC SYNC: Always use UTC components for identity matching
+  // 🔒 UTC SYNC: Always use UTC components to prevent 1-day drift
   const dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
   
-  if (shift.department === 'Gas') {
-    // 🔒 GAS CORRELATION FIX: Identity is Date + User + Core Address.
-    // We EXCLUDE task/type from the key so that changes to those trigger an UPDATE, not a deletion.
-    const addr = normalizeGasAddressCore(shift.address);
-    return `gas-${dateStr}-${shift.userId}-${addr}`;
-  }
-
-  // BUILD: Keep previous identity logic
-  const addr = normalizeText(shift.address);
-  const taskPart = shift.task ? `-${normalizeText(shift.task).replace(/\s+/g, '')}` : '';
+  // Normalize address based on department
+  const addr = shift.department === 'Gas' ? normalizeGasAddressCore(shift.address) : normalizeText(shift.address);
+  
+  // Type is included to allow split shifts (AM/PM) at the same house
   const typePart = shift.type ? `-${shift.type}` : '';
-  return `build-${dateStr}-${shift.userId}-${addr}${taskPart}${typePart}`;
+  const deptPrefix = shift.department === 'Gas' ? 'gas' : 'build';
+  
+  return `${deptPrefix}-${dateStr}-${shift.userId}-${addr}${typePart}`;
 };
 
 
@@ -321,6 +319,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             cellRef: f.cellRef || ''
           }));
 
+          // Deduplicate within the Excel data itself
           const uniqueShiftsMap = new Map<string, ParsedShift>();
           for (const shift of allShiftsFromExcel) {
             const key = getShiftKey(shift as any);
@@ -346,8 +345,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             if (!shiftData.userId || !shiftData.date || !shiftData.address) return;
             
             const key = getShiftKey(shiftData as any);
-            const shiftDate = getCorrectedLocalDate(shiftData.date as any);
-
             // Deduplicate DB records in memory (keep latest status)
             if (!existingShiftsMap.has(key)) {
                 existingShiftsMap.set(key, shiftData);
@@ -365,7 +362,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           
           const protectedStatuses: ShiftStatus[] = ['completed', 'incomplete', 'rejected', 'on-site'];
 
-          // 1. Find New & Updates
+          // 1. Find New & Updates (Stable Correlation)
           for (const [key, excelShift] of excelShiftsMap.entries()) {
             const existingShift = existingShiftsMap.get(key);
             if (!existingShift) {
