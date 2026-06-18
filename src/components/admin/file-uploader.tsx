@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState } from 'react';
@@ -47,12 +48,12 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
         const buffer = e.target?.result;
         if (!(buffer instanceof ArrayBuffer)) throw new Error('Could not read file.');
 
-        // 1. Setup User Map
+        // 1. Setup User Map (Ensuring UID is mapped to Auth UID)
         const usersSnap = await getDocs(collection(db, 'users'));
         const userMap: UserMapEntry[] = usersSnap.docs.map(doc => {
           const u = doc.data() as UserProfile;
           return {
-            uid: doc.id,
+            uid: u.uid || doc.id, // Ensure we use the actual Auth UID
             originalName: u.name,
             normalizedName: u.name.toLowerCase().replace(/[^a-z]/g, ''),
             department: u.department
