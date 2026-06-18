@@ -106,7 +106,8 @@ const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: s
   // 🔒 UTC SYNC: Always use Midday UTC to prevent 1-day drift from local clock offsets
   const dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
   
-  const addr = normalizeText(shift.address);
+  // Strip phone numbers and B/E prefixes from address for the key to ensure stability
+  const addr = normalizeText(shift.address.replace(/\b[BE]\d+\b/gi, ''));
   const typePart = shift.type ? `-${shift.type}` : '';
   
   return `${dateStr}-${shift.userId}-${addr}${typePart}`;
@@ -293,8 +294,15 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           }));
 
           // 🔒 CONTRACT SCOPING: Identify which contracts are in this file to limit deletions
+          // Normalized set of contract names found in the spreadsheet
           const contractsInCurrentFile = new Set<string>();
-          allShiftsFromExcel.forEach(s => { if (s.contract) contractsInCurrentFile.add(normalizeText(s.contract)); });
+          allShiftsFromExcel.forEach(s => { 
+            if (s.contract) {
+                // Strip download numbers e.g. "Unitas (43)" -> "unitas"
+                const norm = s.contract.toLowerCase().replace(/\s*\(\d+\)$/, '').trim();
+                contractsInCurrentFile.add(norm);
+            }
+          });
 
           setUploadProgress('Comparing with existing data...');
           const existingShiftsQuery = query(
@@ -352,7 +360,8 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
 
           // 2. Find Deletions (Limited to SCOPE of imported contracts)
           for (const [key, existingShift] of existingShiftsMap.entries()) {
-            const contractMatch = existingShift.contract && contractsInCurrentFile.has(normalizeText(existingShift.contract));
+            const currentShiftContract = (existingShift.contract || '').toLowerCase().replace(/\s*\(\d+\)$/, '').trim();
+            const contractMatch = currentShiftContract && contractsInCurrentFile.has(currentShiftContract);
             
             if (contractMatch && !excelShiftsMap.has(key) && !protectedStatuses.includes(existingShift.status) && existingShift.source !== 'manual') {
               const shiftDate = getCorrectedLocalDate(existingShift.date as any);

@@ -122,41 +122,32 @@ function getCellValue(cell: ExcelJS.Cell | null | undefined): any {
 }
 
 /**
- * 🔒 VERIFIED MATCHING LOGIC (SHARED)
+ * 🔒 FUZZY WORD-WISE MATCHING (GAS ROBUST)
  */
 function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: UserMapEntry[]; reason?: string } {
-    const normalizedChunk = normalizeText(nameChunk);
-    if (!normalizedChunk) return { users: [], reason: 'Empty name provided.' };
+    const normalizedInput = normalizeText(nameChunk);
+    if (!normalizedInput || normalizedInput.length < 2) return { users: [], reason: 'Input too short.' };
 
-    let matches = userMap.filter(u => u.normalizedName === normalizedChunk);
+    // 1. Exact Match
+    let matches = userMap.filter(u => u.normalizedName === normalizedInput);
     if (matches.length === 1) return { users: matches };
-    if (matches.length > 1) return { users: [], reason: `Ambiguous name "${nameChunk}" matches multiple users exactly.` };
 
-    const chunkParts = normalizedChunk.split(' ');
-    
-    if (chunkParts.length < 2) {
-        const companyMatches = userMap.filter(u => u.accountType === 'company' && u.normalizedName.includes(normalizedChunk));
-        if (companyMatches.length === 1) return { users: companyMatches };
-        return { users: [], reason: `Single name "${nameChunk}" requires a full/exact match for individuals. No match found.` };
-    }
+    // 2. Fragment Match (e.g., "PHIL SHERGO" matches "Phil Shergold")
+    const inputWords = normalizedInput.split(' ').filter(w => w.length > 1);
+    if (inputWords.length === 0) return { users: [], reason: 'No significant words.' };
 
-    matches = userMap.filter(u => u.normalizedName.includes(normalizedChunk));
+    matches = userMap.filter(u => {
+        const userWords = u.normalizedName.split(' ');
+        // Check if every input word is a prefix of some user word
+        return inputWords.every(iWord => 
+            userWords.some(uWord => uWord.startsWith(iWord))
+        );
+    });
+
     if (matches.length === 1) return { users: matches };
-    if (matches.length > 1) return { users: [], reason: `Ambiguous input "${nameChunk}" matches multiple users.` };
+    if (matches.length > 1) return { users: [], reason: `Ambiguous: matches ${matches.map(m => m.originalName).join(', ')}` };
     
-    const lastName = chunkParts[chunkParts.length - 1];
-    if (lastName) {
-        matches = userMap.filter(u => u.normalizedName.endsWith(' ' + lastName));
-        if (matches.length === 1) return { users: matches };
-        if (matches.length > 1) {
-            const firstInitial = chunkParts[0].charAt(0);
-            const initialMatches = matches.filter(u => u.normalizedName.startsWith(firstInitial));
-            if (initialMatches.length === 1) return { users: initialMatches };
-            return { users: [], reason: `Ambiguous name "${nameChunk}" matches multiple users by last name.` };
-        }
-    }
-    
-    return { users: [], reason: `No user found for name: "${nameChunk}".` };
+    return { users: [], reason: `No operative found for: "${nameChunk}"` };
 }
 
 /**
@@ -246,8 +237,6 @@ function isNonShiftText(text: string): boolean {
   ];
   
   if (strictHeaders.includes(t)) return true;
-  if (t.includes('bedroom') || t.includes('bathroom')) return false;
-
   return noise.some(b => t.startsWith(b)) || /^\+?\d[\d\s-]{7,}$/.test(t);
 }
 
@@ -288,7 +277,7 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
   if (!used) return { parsed: [], failures: [] };
 
   const dateHeaderRows: Array<{ row: number; dateCols: Array<{ col: number; isoDate: string }> }> = [];
-  for (let r = used.startRow; r <= used.endRow; r++) {
+  for (let r = used.startRow; r <= Math.min(used.endRow, 500); r++) {
       // 🔒 GAS BOUNDARY: Only look for dates in Column F onwards
       const dateCols = getDateColumns(sheet, used, r, 6);
       if (dateCols.length >= 2) {
@@ -360,7 +349,8 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
       for (let r = header.row + 1; r <= blockEnd; r++) {
           const row = sheet.getRow(r);
           const firstColText = getCellText(row.getCell(1));
-          if (isNonShiftText(firstColText) && !firstColText.toLowerCase().includes('bedroom')) continue;
+          // Skip noise but allowed if it contains property identifiers
+          if (isNonShiftText(firstColText) && !/\d/.test(firstColText)) continue;
 
           for (const { col, isoDate } of header.dateCols) {
               const cell = row.getCell(col);
@@ -385,17 +375,15 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
                           department: 'Gas'
                       });
                   } else {
-                      if (!/^\d/.test(name) && name.length > 2) {
-                        failures.push({
-                            reason: reason || `Operative mismatch: "${name}"`,
-                            siteAddress,
-                            shiftDate: isoDate,
-                            operativeNameRaw: name,
-                            sheetName,
-                            cellRef: cell.address,
-                            cellContent: text
-                        });
-                      }
+                      failures.push({
+                          reason: reason || `Operative mismatch: "${name}"`,
+                          siteAddress,
+                          shiftDate: isoDate,
+                          operativeNameRaw: name,
+                          sheetName,
+                          cellRef: cell.address,
+                          cellContent: text
+                      });
                   }
               }
           }
@@ -477,7 +465,7 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
             for (const name of names) {
                 const { users: matchedUsers, reason } = findUsersInMap(name, userMap);
                 if (matchedUsers.length !== 1) {
-                    if (!/^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}$/.test(name) && !/^\d+$/.test(name) && name.length > 2) {
+                    if (name.length > 2) {
                       allFailures.push({
                           reason: reason || `Operative match error: "${name}"`,
                           siteAddress: currentAddress,
@@ -608,7 +596,7 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
         if (!text || text.length < 5) return 0;
         const upper = text.toUpperCase();
         
-        // 🔒 METADATA PENALTY: Prevent ordering personnel from being used as addresses
+        // 🔒 METADATA PENALTY: Ensure managers and ordering personnel are never used as addresses
         const noise = ['MATERIALS', 'MANAGER', 'TLO', 'MEASURES', 'SCHEME', 'PULSE', 'WEEK COMM', 'REMEDIAL', 'START DATE', 'ORDERING', 'TECHNICAL', 'RESPONSIBLE'];
         if (noise.some(n => upper.includes(n))) return -20000;
         
