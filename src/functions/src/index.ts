@@ -84,7 +84,11 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
         else if (typeof value === 'object' && value.seconds) d = new Date(value.seconds * 1000);
         else d = new Date(value);
         
-        return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+        // 🔒 ROBUST DATE KEY: Extract parts directly to match browser intent
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, "0");
+        const day = String(d.getDate()).padStart(2, "0");
+        return `${y}-${m}-${day}`;
     };
 
     /**
@@ -96,7 +100,7 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
         const dateStr = dayKey(shift.date);
         const addr = normalizeText(shift.address);
         const type = String(shift.type || "all-day").toLowerCase().trim();
-        return [department.toLowerCase(), userId, dateStr, addr, type].join("|");
+        return [userId, dateStr, addr, type].join("|");
     };
 
     // 1. Sync Projects

@@ -31,17 +31,16 @@ interface FileUploaderProps {
 }
 
 /**
- * 🔒 ROBUST IDENTITY KEY GENERATION (Frontend)
- * Used to uniquely identify a shift: Dept + User + Date + Normalized Address + Shift Type.
+ * 🔒 ROBUST IDENTITY KEY GENERATION
+ * Standardized fingerprint: User + Date + Normalized Address + Shift Type.
  */
-function getShiftIdentityKey(shift: any, department: string): string {
-  const dept = String(department || '').toLowerCase().trim();
+function getShiftIdentityKey(shift: any): string {
   const userId = String(shift.userId || shift.operativeUid || '').trim();
   const dateStr = getShiftDayKey(shift.date);
   const address = normalizeAddress(shift.address);
   const type = String(shift.type || 'all-day').toLowerCase().trim();
 
-  return [dept, userId, dateStr, address, type].join('|');
+  return [userId, dateStr, address, type].join('|');
 }
 
 function normalizeAddress(text: string | null | undefined): string {
@@ -54,6 +53,10 @@ function normalizeAddress(text: string | null | undefined): string {
     .trim();
 }
 
+/**
+ * 🔒 TIMEZONE-SAFE DATE KEY
+ * Extracts date parts directly to prevent "midnight shifts" in browser time.
+ */
 function getShiftDayKey(value: any): string {
   let d: Date;
   if (value instanceof Date) {
@@ -68,12 +71,12 @@ function getShiftDayKey(value: any): string {
   
   if (isNaN(d.getTime())) return 'invalid-date';
 
-  // Use UTC to avoid timezone shifts during comparison
-  return [
-    d.getUTCFullYear(),
-    String(d.getUTCMonth() + 1).padStart(2, '0'),
-    String(d.getUTCDate()).padStart(2, '0'),
-  ].join('-');
+  // Use Local components but output as YYYY-MM-DD to match the spreadsheet intent exactly
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  
+  return `${y}-${m}-${day}`;
 }
 
 function isTodayOrFuture(value: any): boolean {
@@ -113,9 +116,8 @@ export function FileUploader({
     onFileSelect();
 
     /**
-     * 🔒 SMART SCOPING
-     * Strips version numbers (v1, v2) and copy markers (1)
-     * so that "Planner v2.xlsx" cross-references "Planner v1.xlsx".
+     * 🔒 STREAM SCOPING
+     * Strips versions so "Planner v2" sees "Planner v1" shifts.
      */
     const profileId = file.name
       .toLowerCase()
@@ -143,7 +145,7 @@ export function FileUploader({
           };
         });
 
-        // 2. Parse workbook using detected profile
+        // 2. Parse workbook
         const parseResult = await parseWorkbook(Buffer.from(buffer), userMap);
         
         // 3. Filter for active shifts and attach metadata
@@ -151,22 +153,21 @@ export function FileUploader({
           .filter(s => isTodayOrFuture(s.date))
           .map(s => ({ ...s, department, plannerName: profileId }));
 
-        // 4. SCOPED SYNC: Fetch existing shifts from THIS planner stream only
-        const existingSnap = await getDocs(
+        // 4. FETCH ALL FOR DEPARTMENT (Prevent Duplicates across any file)
+        const allDeptSnap = await getDocs(
           query(
             collection(db, 'shifts'), 
             where('department', '==', department),
-            where('plannerName', '==', profileId),
             where('source', '==', 'import')
           )
         );
         
-        const existingMap = new Map<string, Shift>();
-        existingSnap.docs.forEach(docSnap => {
+        const masterExistingMap = new Map<string, Shift>();
+        allDeptSnap.docs.forEach(docSnap => {
           const data = docSnap.data();
           if (isTodayOrFuture(data.date)) {
-            const key = getShiftIdentityKey(data, department);
-            existingMap.set(key, { id: docSnap.id, ...data } as Shift);
+            const key = getShiftIdentityKey(data);
+            masterExistingMap.set(key, { id: docSnap.id, ...data } as Shift);
           }
         });
 
@@ -174,16 +175,16 @@ export function FileUploader({
         const toCreate: StandardShift[] = [];
         const toUpdate: { id: string; old: Shift; new: StandardShift }[] = [];
         const toUnchanged: Shift[] = [];
-        const consumedExistingIds = new Set<string>();
+        const consumedIds = new Set<string>();
 
         incomingShifts.forEach(incoming => {
-          const key = getShiftIdentityKey(incoming, department);
-          const existing = existingMap.get(key);
+          const key = getShiftIdentityKey(incoming);
+          const existing = masterExistingMap.get(key);
 
           if (!existing) {
             toCreate.push(incoming);
           } else {
-            consumedExistingIds.add(existing.id);
+            consumedIds.add(existing.id);
             if (hasDataChanged(existing, incoming)) {
               toUpdate.push({ id: existing.id, old: existing, new: incoming });
             } else {
@@ -192,10 +193,10 @@ export function FileUploader({
           }
         });
 
-        // 6. Identify deletions (In DB from this planner but missing from current file)
+        // 6. Identify deletions (ONLY from THIS specific planner profile)
         const toDelete: Shift[] = [];
-        existingMap.forEach(existing => {
-          if (!consumedExistingIds.has(existing.id)) {
+        masterExistingMap.forEach(existing => {
+          if (existing.plannerName === profileId && !consumedIds.has(existing.id)) {
             toDelete.push(existing);
           }
         });
@@ -209,7 +210,7 @@ export function FileUploader({
           profileId,
         });
 
-        // Clear input for immediate reuse
+        // ✅ IMPORTANT: Reset input for immediate reuse
         if (fileInputRef.current) fileInputRef.current.value = '';
 
       } catch (err: any) {
