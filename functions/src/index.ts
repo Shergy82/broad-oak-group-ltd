@@ -68,8 +68,9 @@ const assertIsOwner = async (uid: string) => {
 const assertAdminOrManager = async (uid: string) => {
   const snap = await db.collection("users").doc(uid).get();
   const role = snap.data()?.role;
-  if (!["admin", "owner", "manager"].includes(role)) {
-    throw new HttpsError("permission-denied", "Insufficient permissions");
+  // Included TLO in the allowed roles for reconciliation
+  if (!["admin", "owner", "manager", "TLO"].includes(role)) {
+    throw new HttpsError("permission-denied", "Insufficient permissions for this action.");
   }
 };
 
@@ -436,7 +437,7 @@ export const deleteProjectFile = onCall(
     const fileDoc = await fileRef.get();
     if (!fileDoc.exists) return { success: true };
     const fileData = fileDoc.data()!;
-    if (uid !== fileData.uploaderId && !['admin', 'owner', 'manager'].includes(role)) {
+    if (uid !== fileData.uploaderId && !['admin', 'owner', 'manager', 'TLO'].includes(role)) {
       throw new HttpsError('permission-denied', 'Not allowed');
     }
     if (fileData.fullPath) {
@@ -583,6 +584,7 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     if (!uid) {
         throw new HttpsError("unauthenticated", "Authentication required");
     }
+    // Updated to include TLO role
     await assertAdminOrManager(uid);
 
     const data = req.data;
@@ -600,7 +602,6 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     const shiftsRef = db.collection('shifts');
 
     // --- Handle Project Creation/Update ---
-    // 🔒 Fetch all projects for the department to perform case-insensitive matching
     const allProjectsSnap = await projectsRef.where('department', '==', department).get();
     const existingProjectsByAddr = new Map<string, any>();
     allProjectsSnap.forEach(d => {
@@ -623,12 +624,10 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
         const existingProject = existingProjectsByAddr.get(normAddr);
         
         if (existingProject) {
-            // Update contract if it changed (case-insensitive check)
             if (normalizeText(existingProject.contract) !== normalizeText(shiftInfo.contract)) {
                 batch.update(existingProject.ref, { contract: shiftInfo.contract });
             }
         } else {
-            // Create new project
             const reviewDate = new Date();
             reviewDate.setDate(reviewDate.getDate() + 28);
             batch.set(db.collection('projects').doc(), {
@@ -671,7 +670,6 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             plannerName: newShift.plannerName || '',
         };
         
-        // GAS ONLY: Do not reset status to 'pending-confirmation' if already accepted/active
         if (department !== 'Gas') {
             updatePayload.status = 'pending-confirmation';
         }

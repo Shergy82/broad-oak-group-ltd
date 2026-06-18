@@ -1,3 +1,4 @@
+
 rules_version = '2';
 
 service cloud.firestore {
@@ -36,7 +37,7 @@ service cloud.firestore {
 
       allow delete: if isOwner(request.auth.uid);
 
-      allow list: if signedIn(); // Relies on client-side queries and secure read rules
+      allow list: if signedIn(); 
 
       match /pushSubscriptions/{docId} {
         allow read, write, delete: if request.auth != null && request.auth.uid == userId;
@@ -124,6 +125,11 @@ service cloud.firestore {
     match /evidence_checklists/{contractName} {
         allow read: if signedIn();
         allow write: if isPrivilegedUser(request.auth.uid);
+    }
+
+    // ---- IMPORT LOGS ----
+    match /import_logs/{logId} {
+        allow read, create, list: if isPrivilegedUser(request.auth.uid);
     }
 
     // ---- COLLECTION GROUP QUERIES ----
