@@ -13,8 +13,9 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { AlertCircle, FileSearch, CheckCircle, Info } from 'lucide-react';
+import { AlertCircle, FileSearch, CheckCircle, Info, HelpCircle, Table as TableIcon, LayoutGrid } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 
 interface ShiftImporterProps {
   userProfile: UserProfile;
@@ -79,11 +80,120 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
 
   return (
     <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold tracking-tight">Shift Importer</h2>
+        <Dialog>
+          <DialogTrigger asChild>
+            <Button variant="outline" size="sm">
+              <HelpCircle className="mr-2 h-4 w-4" />
+              Supported Layouts
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>Expected Planner Layouts</DialogTitle>
+              <DialogDescription>
+                The importer supports two primary layouts. Ensure your file matches one of these structures.
+              </DialogDescription>
+            </DialogHeader>
+            <ScrollArea className="max-h-[70vh] pr-4">
+              <div className="space-y-8 py-4">
+                {/* 1. Tabular Layout */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 font-semibold text-primary">
+                    <TableIcon className="h-5 w-5" />
+                    <h3>Standard Tabular (Build/Generic)</h3>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    A simple list where each row is a shift. Ideal for Build and Solar planners.
+                  </p>
+                  <div className="border rounded-md p-4 bg-muted/30">
+                    <table className="w-full text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-muted border-b">
+                          <th className="p-2 border-r text-left">Date</th>
+                          <th className="p-2 border-r text-left">Staff</th>
+                          <th className="p-2 border-r text-left">Site Address</th>
+                          <th className="p-2 text-left">Description</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr className="border-b bg-background">
+                          <td className="p-2 border-r italic">01/10/24</td>
+                          <td className="p-2 border-r italic">John Smith</td>
+                          <td className="p-2 border-r italic">10 Downing Street</td>
+                          <td className="p-2 italic">Boiler Service</td>
+                        </tr>
+                        <tr className="border-b bg-background">
+                          <td className="p-2 border-r text-muted-foreground italic">(Blank)</td>
+                          <td className="p-2 border-r text-muted-foreground italic">(Blank)</td>
+                          <td className="p-2 border-r italic">12 Baker Street</td>
+                          <td className="p-2 italic">Gas Safety Check</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <p className="text-[10px] text-muted-foreground mt-2 italic">
+                      * Blank cells in Date/Staff will automatically carry down the value from above.
+                    </p>
+                  </div>
+                </div>
+
+                {/* 2. Battleship Layout */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 font-semibold text-sky-600">
+                    <LayoutGrid className="h-5 w-5" />
+                    <h3>Battleship Layout (Gas Department)</h3>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    A grid-based layout where site addresses are in Column A and dates are across the top.
+                  </p>
+                  <div className="border rounded-md p-4 bg-muted/30">
+                    <div className="space-y-1">
+                      <div className="h-2 bg-black w-full rounded-sm opacity-50" title="Colored Divider Row" />
+                      <table className="w-full text-[10px] border-collapse bg-background">
+                        <thead>
+                          <tr className="bg-muted/50 border-b">
+                            <th className="p-1 border-r text-left w-1/4">Col A (Address)</th>
+                            <th className="p-1 border-r text-center">Col F (01/10)</th>
+                            <th className="p-1 border-r text-center">Col G (02/10)</th>
+                            <th className="p-1 text-center">Col H (03/10)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr className="border-b">
+                            <td className="p-1 border-r font-bold">16 Hints Meadow</td>
+                            <td className="p-1 border-r text-center">John Smith</td>
+                            <td className="p-1 border-r text-center">Jane Doe</td>
+                            <td className="p-1 text-center text-muted-foreground">-</td>
+                          </tr>
+                          <tr className="border-b">
+                            <td className="p-1 border-r"></td>
+                            <td className="p-1 border-r text-center text-muted-foreground">Task Details...</td>
+                            <td className="p-1 border-r text-center text-muted-foreground">Task Details...</td>
+                            <td className="p-1 text-center text-muted-foreground">-</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                      <div className="h-2 bg-black w-full rounded-sm opacity-50" />
+                    </div>
+                    <ul className="text-[10px] text-muted-foreground mt-3 list-disc pl-4 space-y-1">
+                      <li>Colored dividers (black/solid) define the site blocks.</li>
+                      <li>Operative names must be found in the system to be mapped.</li>
+                      <li>Dates should be formatted clearly or as Excel serial numbers.</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </ScrollArea>
+          </DialogContent>
+        </Dialog>
+      </div>
+
       {!wizardData ? (
         <Card>
           <CardHeader>
-            <CardTitle>Schedule Import Hub</CardTitle>
-            <CardDescription>Upload client planners. Supports Broad Oak, Connexus, and Standard Tabular formats.</CardDescription>
+            <CardTitle>Upload Planner</CardTitle>
+            <CardDescription>Upload client planners for automated shift processing. We support Broad Oak Gas, Connexus, and standard tabular formats.</CardDescription>
           </CardHeader>
           <CardContent>
             <FileUploader 
