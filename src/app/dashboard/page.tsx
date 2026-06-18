@@ -121,7 +121,8 @@ export default function DashboardPage() {
     if (!user) return [];
     const today = startOfToday();
     return allShifts.filter(shift => {
-        if (shift.status !== 'pending-confirmation') return false;
+        // Handle both 'pending' and 'pending-confirmation' statuses
+        if (shift.status !== 'pending-confirmation' && shift.status !== 'pending') return false;
         const shiftDate = getCorrectedLocalDate(shift.date);
         // Only include shifts that are for today or in the future
         return !isBefore(shiftDate, today);

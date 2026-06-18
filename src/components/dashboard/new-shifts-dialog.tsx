@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useMemo } from 'react';
@@ -195,7 +194,7 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
                 {isLoading ? <Spinner /> : <>Accept Selected ({selectedShiftIds.size})</>}
               </Button>
               <Button onClick={handleAcceptAll} disabled={isLoading}>
-                {isLoading ? <Spinner /> : <><CheckCheck className="mr-2 h-4 w-4" /> Accept All ({shifts.length})</>}
+                {isLoading ? <Spinner /> : <><CheckCircle2 className="mr-2 h-4 w-4" /> Accept All ({shifts.length})</>}
               </Button>
             </div>
           </DialogFooter>

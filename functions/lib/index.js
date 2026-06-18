@@ -35,22 +35,11 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteScheduledProjects = exports.pendingShiftNotifier = exports.projectReviewNotifier = exports.reconcileShifts = exports.reGeocodeAllShifts = exports.deleteAllShifts = exports.deleteShift = exports.zipProjectFiles = exports.deleteProjectFile = exports.deleteAllProjects = exports.deleteProjectAndFiles = exports.onShiftDeleted = exports.syncUnavailabilityOnShiftWrite = exports.onShiftCreated = exports.serveFile = exports.deleteUser = exports.setUserStatus = exports.setNotificationStatus = exports.getNotificationStatus = exports.getVapidPublicKey = void 0;
+exports.getVapidPublicKey = exports.setUserStatus = exports.deleteUser = exports.serveFile = exports.reconcileShifts = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
-const firestore_1 = require("firebase-functions/v2/firestore");
-const scheduler_1 = require("firebase-functions/v2/scheduler");
 const v2_1 = require("firebase-functions/v2");
-const jszip_1 = __importDefault(require("jszip"));
-const webPush = __importStar(require("web-push"));
-/* =====================================================
-   CONSTANTS
-===================================================== */
-const REGION = "europe-west2";
 /* =====================================================
    BOOTSTRAP
 ===================================================== */
@@ -58,173 +47,213 @@ if (admin.apps.length === 0) {
     admin.initializeApp();
 }
 const db = admin.firestore();
-/* =====================================================
-   ENV
-===================================================== */
-const WEBPUSH_PUBLIC_KEY = process.env.WEBPUSH_PUBLIC_KEY ?? "";
-const WEBPUSH_PRIVATE_KEY = process.env.WEBPUSH_PRIVATE_KEY ?? "";
-const GEOCODING_KEY = process.env.GOOGLE_GEOCODING_KEY ?? "";
-/* =====================================================
-   VAPID CONFIG
-===================================================== */
-if (WEBPUSH_PUBLIC_KEY && WEBPUSH_PRIVATE_KEY) {
-    try {
-        webPush.setVapidDetails("mailto:example@yourdomain.org", WEBPUSH_PUBLIC_KEY, WEBPUSH_PRIVATE_KEY);
-    }
-    catch (err) {
-        v2_1.logger.error("Failed to configure VAPID", err);
-    }
-}
-else {
-    v2_1.logger.warn("VAPID keys missing – push notifications disabled");
-}
+const REGION = "europe-west2";
 /* =====================================================
    HELPERS
 ===================================================== */
-const assertIsOwner = async (uid) => {
-    const snap = await db.collection("users").doc(uid).get();
-    if (snap.data()?.role !== "owner") {
-        throw new https_1.HttpsError("permission-denied", "Owner role required");
-    }
-};
 const assertAdminOrManager = async (uid) => {
     const snap = await db.collection("users").doc(uid).get();
     const role = snap.data()?.role;
-    if (!["admin", "owner", "manager"].includes(role)) {
-        throw new https_1.HttpsError("permission-denied", "Insufficient permissions");
+    if (!["admin", "owner", "manager", "TLO"].includes(role)) {
+        throw new https_1.HttpsError("permission-denied", "Insufficient permissions for this action.");
     }
 };
-const formatDateUK = (d) => `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}/${d.getUTCFullYear()}`;
-const isShiftInPast = (d) => {
+const normalizeText = (text) => {
+    if (!text)
+        return "";
+    return String(text)
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+};
+/* =====================================================
+   SHIFT RECONCILIATION (SYNC ENGINE)
+===================================================== */
+exports.reconcileShifts = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 300, memory: "1GiB" }, async (req) => {
+    const uid = req.auth?.uid;
+    if (!uid) {
+        throw new https_1.HttpsError("unauthenticated", "Authentication required");
+    }
+    await assertAdminOrManager(uid);
+    const data = req.data;
+    const { toCreate = [], department } = data;
+    if (!Array.isArray(toCreate) || !department) {
+        throw new https_1.HttpsError("invalid-argument", "Invalid payload. Expected toCreate array and department.");
+    }
+    const shiftsRef = db.collection("shifts");
+    const projectsRef = db.collection("projects");
+    const batch = db.batch();
     const now = new Date();
-    const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-    const shiftUtc = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-    return shiftUtc < todayUtc;
-};
-const pendingGateUrl = () => "/dashboard?gate=pending";
-/* =====================================================
-   NOTIFICATIONS
-===================================================== */
-async function sendShiftNotification(userId, title, body, url, data = {}) {
-    if (!userId || !WEBPUSH_PUBLIC_KEY || !WEBPUSH_PRIVATE_KEY)
-        return;
-    const userDoc = await db.collection("users").doc(userId).get();
-    if (userDoc.data()?.notificationsEnabled === false)
-        return;
-    const subs = await db
-        .collection("users")
-        .doc(userId)
-        .collection("pushSubscriptions")
-        .get();
-    if (subs.empty)
-        return;
-    const payload = JSON.stringify({
-        title,
-        body,
-        data: { url, ...data },
-    });
-    await Promise.all(subs.docs.map(async (doc) => {
-        try {
-            await webPush.sendNotification(doc.data(), payload);
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const toDate = (value) => {
+        if (!value) {
+            throw new https_1.HttpsError("invalid-argument", "Invalid date: empty value");
         }
-        catch (err) {
-            if ([404, 410].includes(err?.statusCode)) {
-                await doc.ref.delete().catch(() => { });
+        if (value instanceof Date) {
+            if (Number.isNaN(value.getTime())) {
+                throw new https_1.HttpsError("invalid-argument", "Invalid date: bad Date object");
             }
+            return value;
         }
-    }));
-}
-/* =====================================================
-   VAPID KEY (PUBLIC)
-===================================================== */
-exports.getVapidPublicKey = (0, https_1.onCall)({ region: REGION }, () => {
-    if (!WEBPUSH_PUBLIC_KEY) {
-        throw new https_1.HttpsError("not-found", "VAPID public key not configured on server.");
+        if (typeof value?.toDate === "function") {
+            const d = value.toDate();
+            if (Number.isNaN(d.getTime())) {
+                throw new https_1.HttpsError("invalid-argument", "Invalid date: bad Firestore Timestamp");
+            }
+            return d;
+        }
+        if (typeof value === "object" && typeof value.seconds === "number") {
+            return new Date(value.seconds * 1000);
+        }
+        if (typeof value === "object" && typeof value._seconds === "number") {
+            return new Date(value._seconds * 1000);
+        }
+        const d = new Date(value);
+        if (Number.isNaN(d.getTime())) {
+            throw new https_1.HttpsError("invalid-argument", `Invalid date: ${JSON.stringify(value)}`);
+        }
+        return d;
+    };
+    const dayKey = (value) => {
+        const d = toDate(value);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    };
+    const shiftKey = (shift) => {
+        const userId = shift.userId || shift.operativeUid || "";
+        return [
+            department,
+            userId,
+            dayKey(shift.date),
+            shift.type || "all-day",
+        ].join("|");
+    };
+    const hasChanged = (existing, incoming) => {
+        return ((existing.userId || "") !== incoming.operativeUid ||
+            (existing.userName || "") !== incoming.operative ||
+            (existing.operativeUid || "") !== incoming.operativeUid ||
+            (existing.operative || "") !== incoming.operative ||
+            (existing.address || "") !== (incoming.address || "") ||
+            (existing.task || "") !== (incoming.task || "") ||
+            (existing.type || "all-day") !== (incoming.type || "all-day") ||
+            (existing.eNumber || "") !== (incoming.eNumber || "") ||
+            (existing.contract || "") !== (incoming.contract || "") ||
+            (existing.manager || "") !== (incoming.manager || "") ||
+            (existing.sourceCell || "") !== (incoming.sourceCell || "") ||
+            (existing.sourceSheet || "") !== (incoming.sourceSheet || "") ||
+            (existing.descriptionOfWorks || "") !== (incoming.descriptionOfWorks || ""));
+    };
+    const futureImportedShiftsSnap = await shiftsRef
+        .where("department", "==", department)
+        .where("source", "==", "import")
+        .get();
+    const existingByKey = new Map();
+    futureImportedShiftsSnap.docs.forEach((doc) => {
+        const existing = doc.data();
+        const existingDate = existing.date?.toDate?.();
+        if (!existingDate || existingDate < todayStart)
+            return;
+        existingByKey.set(shiftKey(existing), doc);
+    });
+    const importedFutureShifts = toCreate.filter((shift) => {
+        if (!shift.operativeUid) {
+            throw new https_1.HttpsError("invalid-argument", `Missing operativeUid for ${shift.operative || "unknown operative"} at ${shift.address || "unknown address"}.`);
+        }
+        return toDate(shift.date) >= todayStart;
+    });
+    const importedKeys = new Set();
+    let createdCount = 0;
+    let updatedCount = 0;
+    let deletedCount = 0;
+    let unchangedCount = 0;
+    // Project sync
+    const allProjectsSnap = await projectsRef.where("department", "==", department).get();
+    const existingProjects = new Set();
+    allProjectsSnap.forEach((doc) => {
+        existingProjects.add(normalizeText(doc.data().address));
+    });
+    for (const shift of importedFutureShifts) {
+        const projectKey = normalizeText(shift.address);
+        if (projectKey && !existingProjects.has(projectKey)) {
+            const reviewDate = new Date();
+            reviewDate.setDate(reviewDate.getDate() + 28);
+            batch.set(projectsRef.doc(), {
+                address: shift.address,
+                eNumber: shift.eNumber || "",
+                manager: shift.manager || "",
+                contract: shift.contract || "",
+                department,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                creatorId: uid,
+                nextReviewDate: admin.firestore.Timestamp.fromDate(reviewDate),
+            });
+            existingProjects.add(projectKey);
+        }
     }
-    return { publicKey: WEBPUSH_PUBLIC_KEY };
+    // Create or update
+    for (const shift of importedFutureShifts) {
+        const key = shiftKey(shift);
+        importedKeys.add(key);
+        const existingDoc = existingByKey.get(key);
+        const payload = {
+            userId: shift.operativeUid,
+            userName: shift.operative,
+            operativeUid: shift.operativeUid,
+            operative: shift.operative,
+            address: shift.address,
+            task: shift.task,
+            date: admin.firestore.Timestamp.fromDate(toDate(shift.date)),
+            type: shift.type || "all-day",
+            eNumber: shift.eNumber || "",
+            contract: shift.contract || "",
+            manager: shift.manager || "",
+            department,
+            status: "pending-confirmation",
+            source: "import",
+            plannerName: shift.plannerName || "",
+            profileId: shift.plannerName || "",
+            sourceCell: shift.sourceCell || "",
+            sourceSheet: shift.sourceSheet || "",
+            descriptionOfWorks: shift.descriptionOfWorks || "",
+            importKey: key,
+        };
+        if (!existingDoc) {
+            batch.set(shiftsRef.doc(), {
+                ...payload,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            createdCount++;
+        }
+        else if (hasChanged(existingDoc.data(), shift)) {
+            batch.update(existingDoc.ref, {
+                ...payload,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            updatedCount++;
+        }
+        else {
+            unchangedCount++;
+        }
+    }
+    // Delete future imported shifts missing from latest import
+    existingByKey.forEach((doc, key) => {
+        if (!importedKeys.has(key)) {
+            batch.delete(doc.ref);
+            deletedCount++;
+        }
+    });
+    await batch.commit();
+    return {
+        success: true,
+        message: `Schedule Sync Complete: ${createdCount} created, ${updatedCount} updated, ${deletedCount} deleted, ${unchangedCount} unchanged.`,
+        createdCount,
+        updatedCount,
+        deletedCount,
+        unchangedCount,
+    };
 });
 /* =====================================================
-   CALLABLE FUNCTIONS
-===================================================== */
-exports.getNotificationStatus = (0, https_1.onCall)({ region: REGION }, async (req) => {
-    if (!req.auth?.uid) {
-        throw new https_1.HttpsError("unauthenticated", "Authentication required.");
-    }
-    const snap = await db.collection("users").doc(req.auth.uid).get();
-    return { enabled: snap.data()?.notificationsEnabled ?? false };
-});
-exports.setNotificationStatus = (0, https_1.onCall)({ region: REGION }, async (req) => {
-    if (!req.auth?.uid) {
-        throw new https_1.HttpsError("unauthenticated", "Authentication required.");
-    }
-    const data = req.data;
-    if (!data || typeof data !== "object") {
-        throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
-    }
-    const enabled = data.enabled;
-    const subscription = data.subscription;
-    if (typeof enabled !== "boolean") {
-        throw new https_1.HttpsError("invalid-argument", "enabled must be boolean");
-    }
-    await db
-        .collection("users")
-        .doc(req.auth.uid)
-        .set({ notificationsEnabled: enabled }, { merge: true });
-    if (enabled && subscription) {
-        await db
-            .collection("users")
-            .doc(req.auth.uid)
-            .collection("pushSubscriptions")
-            .doc("browser")
-            .set(subscription, { merge: true });
-    }
-    return { success: true };
-});
-/* =====================================================
-   USER MANAGEMENT (CALLABLE)
-===================================================== */
-exports.setUserStatus = (0, https_1.onCall)({ region: REGION }, async (req) => {
-    if (!req.auth?.uid) {
-        throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    }
-    await assertAdminOrManager(req.auth.uid);
-    const data = req.data;
-    if (!data || typeof data !== "object") {
-        throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
-    }
-    const { uid, disabled, newStatus, department } = data;
-    if (typeof uid !== 'string' ||
-        typeof disabled !== 'boolean' ||
-        !['active', 'suspended'].includes(newStatus)) {
-        throw new https_1.HttpsError('invalid-argument', 'Invalid input for user status update.');
-    }
-    const userUpdateData = { status: newStatus };
-    if (department && typeof department === 'string') {
-        userUpdateData.department = department;
-    }
-    await admin.auth().updateUser(uid, { disabled });
-    await db.collection('users').doc(uid).update(userUpdateData);
-    return { success: true };
-});
-exports.deleteUser = (0, https_1.onCall)({ region: REGION }, async (req) => {
-    if (!req.auth?.uid) {
-        throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    }
-    await assertIsOwner(req.auth.uid);
-    const data = req.data;
-    if (!data || typeof data !== "object") {
-        throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
-    }
-    const uid = data.uid;
-    if (typeof uid !== 'string') {
-        throw new https_1.HttpsError('invalid-argument', 'uid required');
-    }
-    await admin.auth().deleteUser(uid);
-    await db.collection('users').doc(uid).delete();
-    return { success: true };
-});
-/* =====================================================
-   HTTP FILE SERVE
+   OTHER FUNCTIONS (SERVE FILE, USER MGMT, ETC)
 ===================================================== */
 exports.serveFile = (0, https_1.onRequest)({ region: REGION, cors: true }, async (req, res) => {
     const path = req.query.path;
@@ -236,360 +265,38 @@ exports.serveFile = (0, https_1.onRequest)({ region: REGION, cors: true }, async
         const file = admin.storage().bucket().file(path);
         const [exists] = await file.exists();
         if (!exists) {
-            res.status(404).send("File not found");
+            res.status(404).send("Not found");
             return;
         }
         const [metadata] = await file.getMetadata();
-        const download = req.query.download === "1";
         res.setHeader("Content-Type", metadata.contentType || "application/octet-stream");
-        res.setHeader("Content-Disposition", `${download ? "attachment" : "inline"}; filename="${encodeURIComponent(metadata.name || "download")}"`);
+        res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(metadata.name || "download")}"`);
         file.createReadStream().pipe(res);
     }
     catch (error) {
-        v2_1.logger.error("Error in serveFile:", error);
+        v2_1.logger.error("serveFile failed", error);
         res.status(500).send("Error serving file");
     }
 });
-/* =====================================================
-   FIRESTORE TRIGGERS
-===================================================== */
-exports.onShiftCreated = (0, firestore_1.onDocumentCreated)({ document: "shifts/{shiftId}", region: REGION }, async (event) => {
-    const shift = event.data?.data();
-    if (!shift?.userId)
-        return;
-    const date = shift.date?.toDate?.();
-    if (!date || isShiftInPast(date))
-        return;
-    await sendShiftNotification(shift.userId, "New shift added", `A new shift was added for ${formatDateUK(date)}`, pendingGateUrl(), { shiftId: event.params.shiftId });
-});
-exports.syncUnavailabilityOnShiftWrite = (0, firestore_1.onDocumentWritten)({ document: "shifts/{shiftId}", region: REGION }, async (event) => {
-    const shiftId = event.params.shiftId;
-    const shiftAfter = event.data?.after.data();
-    if (!shiftAfter) {
-        return;
-    }
-    const userRef = db.doc(`users/${shiftAfter.userId}`);
-    const userSnap = await userRef.get();
-    if (!userSnap.exists) {
-        return;
-    }
-    const homeDepartment = userSnap.data().department;
-    const shiftDepartment = shiftAfter.department;
-    const unavailabilityRef = db.doc(`unavailability/${shiftId}`);
-    if (!shiftDepartment || !homeDepartment || shiftDepartment === homeDepartment) {
-        await unavailabilityRef.delete().catch(() => { });
-        return;
-    }
-    await unavailabilityRef.set({
-        userId: shiftAfter.userId,
-        userName: shiftAfter.userName,
-        startDate: shiftAfter.date,
-        endDate: shiftAfter.date,
-        reason: "Cross-Department Work",
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        shiftId: shiftId,
-    }, { merge: true });
-});
-exports.onShiftDeleted = (0, firestore_1.onDocumentDeleted)({ document: "shifts/{shiftId}", region: REGION }, async (event) => {
-    const shiftId = event.params.shiftId;
-    await db.doc(`unavailability/${shiftId}`).delete().catch(() => { });
-});
-/* =====================================================
-   PROJECT & FILE MANAGEMENT (CALLABLE)
-===================================================== */
-exports.deleteProjectAndFiles = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async (req) => {
-    if (!req.auth?.uid) {
-        throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    }
-    await assertAdminOrManager(req.auth.uid);
+exports.deleteUser = (0, https_1.onCall)({ region: REGION }, async (req) => {
     const data = req.data;
-    if (!data || typeof data !== "object") {
-        throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
+    if (!req.auth?.uid) {
+        throw new https_1.HttpsError("unauthenticated", "Auth required");
     }
-    const projectId = data.projectId;
-    if (typeof projectId !== 'string' || !projectId.trim()) {
-        throw new https_1.HttpsError('invalid-argument', 'A projectId (string) is required.');
-    }
-    const bucket = admin.storage().bucket();
-    const projectRef = db.collection('projects').doc(projectId);
-    await bucket.deleteFiles({ prefix: `project_files/${projectId}/` }).catch(e => {
-        console.warn(`Could not clean up storage for project ${projectId}.`, e);
-    });
-    const filesSnap = await projectRef.collection('files').get();
-    if (!filesSnap.empty) {
-        const batch = db.batch();
-        filesSnap.docs.forEach((d) => batch.delete(d.ref));
-        await batch.commit();
-    }
-    await projectRef.delete();
+    await admin.auth().deleteUser(data.uid);
+    await db.collection("users").doc(data.uid).delete();
     return { success: true };
 });
-exports.deleteAllProjects = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async (req) => {
-    if (!req.auth?.uid) {
-        throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    }
-    await assertIsOwner(req.auth.uid);
-    return { message: "Action complete." };
-});
-exports.deleteProjectFile = (0, https_1.onCall)({ region: REGION }, async (req) => {
-    if (!req.auth?.uid) {
-        throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    }
-    const uid = req.auth.uid;
+exports.setUserStatus = (0, https_1.onCall)({ region: REGION }, async (req) => {
     const data = req.data;
-    if (!data || typeof data !== "object") {
-        throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
-    }
-    const { projectId, fileId } = data;
-    if (!projectId || !fileId) {
-        throw new https_1.HttpsError('invalid-argument', 'projectId and fileId required');
-    }
-    const userSnap = await db.collection('users').doc(uid).get();
-    const role = userSnap.data()?.role;
-    const fileRef = db.collection('projects').doc(projectId).collection('files').doc(fileId);
-    const fileDoc = await fileRef.get();
-    if (!fileDoc.exists)
-        return { success: true };
-    const fileData = fileDoc.data();
-    if (uid !== fileData.uploaderId && !['admin', 'owner', 'manager'].includes(role)) {
-        throw new https_1.HttpsError('permission-denied', 'Not allowed');
-    }
-    if (fileData.fullPath) {
-        await admin.storage().bucket().file(fileData.fullPath).delete().catch(() => { });
-    }
-    await fileRef.delete();
+    await admin.auth().updateUser(data.uid, { disabled: data.disabled });
+    await db.collection("users").doc(data.uid).update({
+        status: data.newStatus,
+        department: data.department || "",
+    });
     return { success: true };
 });
-exports.zipProjectFiles = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 300, memory: '1GiB' }, async (req) => {
-    if (!req.auth?.uid) {
-        throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    }
-    const data = req.data;
-    if (!data || typeof data !== "object") {
-        throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
-    }
-    const projectId = data.projectId;
-    if (!projectId) {
-        throw new https_1.HttpsError('invalid-argument', 'projectId required');
-    }
-    const projectDoc = await db.collection('projects').doc(projectId).get();
-    if (!projectDoc.exists) {
-        throw new https_1.HttpsError('not-found', 'Project not found');
-    }
-    const filesSnap = await projectDoc.ref.collection('files').get();
-    if (filesSnap.empty) {
-        throw new https_1.HttpsError('not-found', 'No files to zip.');
-    }
-    const zip = new jszip_1.default();
-    const bucket = admin.storage().bucket();
-    await Promise.all(filesSnap.docs.map(async (doc) => {
-        const fileData = doc.data();
-        if (fileData.fullPath) {
-            const [buf] = await bucket.file(fileData.fullPath).download();
-            zip.file(fileData.name, buf);
-        }
-    }));
-    const buffer = await zip.generateAsync({ type: 'nodebuffer' });
-    const zipPath = `archives/${projectId}/${Date.now()}.zip`;
-    const file = bucket.file(zipPath);
-    await file.save(buffer, { contentType: 'application/zip' });
-    const [downloadUrl] = await file.getSignedUrl({
-        action: 'read',
-        expires: Date.now() + 15 * 60 * 1000,
-    });
-    return { downloadUrl };
-});
-/* =====================================================
-   SHIFTS (CALLABLE)
-===================================================== */
-exports.deleteShift = (0, https_1.onCall)({ region: REGION }, async (req) => {
-    const uid = req.auth?.uid;
-    if (!uid) {
-        throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    }
-    await assertAdminOrManager(uid);
-    const data = req.data;
-    if (!data || typeof data !== "object") {
-        throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
-    }
-    const { shiftId } = data;
-    if (typeof shiftId !== "string" || !shiftId.trim()) {
-        throw new https_1.HttpsError("invalid-argument", "shiftId is required.");
-    }
-    const shiftRef = db.collection("shifts").doc(shiftId);
-    await shiftRef.delete();
-    return { success: true };
-});
-exports.deleteAllShifts = (0, https_1.onCall)({ region: REGION }, async (req) => {
-    if (!req.auth?.uid) {
-        throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    }
-    await assertIsOwner(req.auth.uid);
-    const snap = await db.collection('shifts').get();
-    if (snap.empty)
-        return { message: "No shifts to delete." };
-    const batch = db.batch();
-    let count = 0;
-    snap.docs.forEach((d) => {
-        const status = d.data().status;
-        if (!['completed', 'incomplete', 'rejected'].includes(status)) {
-            batch.delete(d.ref);
-            count++;
-        }
-    });
-    await batch.commit();
-    return { message: `Successfully deleted ${count} active shifts.` };
-});
-exports.reGeocodeAllShifts = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 540, memory: '1GiB' }, async (req) => {
-    if (!req.auth?.uid) {
-        throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    }
-    await assertIsOwner(req.auth.uid);
-    if (!GEOCODING_KEY) {
-        throw new https_1.HttpsError('failed-precondition', 'Missing GEOCODING_KEY');
-    }
-    const snap = await db.collection('shifts').get();
-    let updated = 0;
-    for (const doc of snap.docs) {
-        const addr = doc.data().address;
-        if (!addr)
-            continue;
-        const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addr + ', UK')}&key=${GEOCODING_KEY}`;
-        const res = await fetch(url);
-        const json = (await res.json());
-        if (json.status === 'OK' && json.results?.length) {
-            await doc.ref.update({ location: json.results[0].geometry.location });
-            updated++;
-        }
-    }
-    return { updated };
-});
-/**
- * 🔒 CASE-INSENSITIVE NORMALIZATION
- */
-const normalizeText = (text) => {
-    if (!text)
-        return "";
-    return String(text)
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-};
-exports.reconcileShifts = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 300, memory: '1GiB' }, async (req) => {
-    const uid = req.auth?.uid;
-    if (!uid) {
-        throw new https_1.HttpsError("unauthenticated", "Authentication required");
-    }
-    await assertAdminOrManager(uid);
-    const data = req.data;
-    if (!data || typeof data !== "object") {
-        throw new https_1.HttpsError("invalid-argument", "Request data must be an object.");
-    }
-    const { toCreate, toUpdate, toDelete, department } = data;
-    if (!Array.isArray(toCreate) || !Array.isArray(toUpdate) || !Array.isArray(toDelete) || !department) {
-        throw new https_1.HttpsError('invalid-argument', 'Invalid payload.');
-    }
-    const batch = db.batch();
-    const projectsRef = db.collection('projects');
-    const shiftsRef = db.collection('shifts');
-    // --- Handle Project Creation/Update ---
-    // 🔒 Fetch all projects for the department to perform case-insensitive matching
-    const allProjectsSnap = await projectsRef.where('department', '==', department).get();
-    const existingProjectsByAddr = new Map();
-    allProjectsSnap.forEach(d => {
-        const p = d.data();
-        existingProjectsByAddr.set(normalizeText(p.address), { ...p, id: d.id, ref: d.ref });
-    });
-    const allImportedShifts = [...toCreate, ...toUpdate.map((u) => u.new)];
-    const projectInfoFromImport = new Map();
-    allImportedShifts.forEach((shift) => {
-        if (shift.address) {
-            projectInfoFromImport.set(normalizeText(shift.address), shift);
-        }
-    });
-    const userSnap = await db.collection("users").doc(uid).get();
-    const userProfile = userSnap.data();
-    for (const [normAddr, shiftInfo] of projectInfoFromImport.entries()) {
-        const existingProject = existingProjectsByAddr.get(normAddr);
-        if (existingProject) {
-            // Update contract if it changed (case-insensitive check)
-            if (normalizeText(existingProject.contract) !== normalizeText(shiftInfo.contract)) {
-                batch.update(existingProject.ref, { contract: shiftInfo.contract });
-            }
-        }
-        else {
-            // Create new project
-            const reviewDate = new Date();
-            reviewDate.setDate(reviewDate.getDate() + 28);
-            batch.set(db.collection('projects').doc(), {
-                address: shiftInfo.address,
-                eNumber: shiftInfo.eNumber || '',
-                manager: shiftInfo.manager || '',
-                contract: shiftInfo.contract || '',
-                department: shiftInfo.department || department || '',
-                createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                createdBy: userProfile?.name || 'System Import',
-                creatorId: uid,
-                nextReviewDate: admin.firestore.Timestamp.fromDate(reviewDate),
-            });
-        }
-    }
-    // --- Handle Shift Creation ---
-    toCreate.forEach((shift) => {
-        const newShiftRef = shiftsRef.doc();
-        batch.set(newShiftRef, {
-            ...shift,
-            date: admin.firestore.Timestamp.fromDate(new Date(shift.date)),
-            status: 'pending-confirmation',
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            source: 'import',
-        });
-    });
-    // --- Handle Shift Updates ---
-    toUpdate.forEach(({ id, new: newShift }) => {
-        const updatePayload = {
-            address: newShift.address,
-            task: newShift.task,
-            type: newShift.type,
-            eNumber: newShift.eNumber || '',
-            manager: newShift.manager || '',
-            notes: newShift.notes || '',
-            contract: newShift.contract || '',
-            department: newShift.department || department || '',
-            plannerName: newShift.plannerName || '',
-        };
-        // GAS ONLY: Do not reset status to 'pending-confirmation' if already accepted/active
-        if (department !== 'Gas') {
-            updatePayload.status = 'pending-confirmation';
-        }
-        batch.update(shiftsRef.doc(id), updatePayload);
-    });
-    // --- Handle Shift Deletions ---
-    toDelete.forEach((shift) => {
-        batch.delete(shiftsRef.doc(shift.id));
-    });
-    await batch.commit();
-    return {
-        success: true,
-        message: `Processed: ${toCreate.length} created, ${toUpdate.length} updated, ${toDelete.length} deleted.`
-    };
-});
-/* =====================================================
-   SCHEDULED FUNCTIONS
-===================================================== */
-exports.projectReviewNotifier = (0, scheduler_1.onSchedule)({ schedule: "every 24 hours", region: REGION }, async (event) => {
-    v2_1.logger.info("projectReviewNotifier ran");
-});
-exports.pendingShiftNotifier = (0, scheduler_1.onSchedule)({ schedule: "every 1 hours", region: REGION }, async (event) => {
-    v2_1.logger.info("pendingShiftNotifier ran");
-});
-exports.deleteScheduledProjects = (0, scheduler_1.onSchedule)({
-    schedule: "every day 01:00",
-    region: REGION,
-    timeoutSeconds: 540,
-    memory: "256MiB",
-}, async (event) => {
-    v2_1.logger.info("Scheduled project cleanup started");
+exports.getVapidPublicKey = (0, https_1.onCall)({ region: REGION }, () => {
+    return { publicKey: process.env.WEBPUSH_PUBLIC_KEY || "" };
 });
 //# sourceMappingURL=index.js.map
