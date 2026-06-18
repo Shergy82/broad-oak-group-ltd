@@ -1,24 +1,38 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { FileUploader } from './file-uploader';
 import type { UserProfile, Shift } from '@/types';
 import { Button } from '@/components/ui/button';
 import { db, functions, httpsCallable } from '@/lib/firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, getDocs } from 'firebase/firestore';
 import { type UnifiedParseResult } from '@/lib/exceljs-parser';
 import { type StandardShift } from '@/lib/importer/types';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { AlertCircle, FileSearch, CheckCircle, Info, HelpCircle, Table as TableIcon, LayoutGrid, RotateCw, PlusCircle, Trash2, UserCheck, MapPin } from 'lucide-react';
+import { 
+    AlertCircle, 
+    FileSearch, 
+    CheckCircle, 
+    Info, 
+    HelpCircle, 
+    Table as TableIcon, 
+    LayoutGrid, 
+    RotateCw,
+    XCircle,
+    UserCheck,
+    MapPin,
+    Search
+} from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { Spinner } from '@/components/shared/spinner';
 
 interface DryRunResult extends UnifiedParseResult {
     toCreate: StandardShift[];
@@ -35,6 +49,16 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
   const [dryRun, setDryRun] = useState<DryRunResult | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
   const { toast } = useToast();
+  
+  const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
+
+  useEffect(() => {
+    getDocs(collection(db, 'users')).then(snap => {
+      setAllUsers(snap.docs.map(d => ({ uid: d.id, ...d.data() } as UserProfile)));
+    });
+  }, []);
+
+  const userNameMap = useMemo(() => new Map(allUsers.map(u => [u.uid, u.name])), [allUsers]);
 
   const handleImportComplete = (result: DryRunResult) => {
     setDryRun(result);
@@ -87,7 +111,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
   };
 
   const renderDryRunResults = (dryRun: DryRunResult) => {
-    const hasChanges = (dryRun.toCreate?.length || 0) > 0 || (dryRun.toUpdate?.length || 0) > 0 || (dryRun.toDelete?.length || 0) > 0;
+    const totalChanges = (dryRun.toCreate?.length || 0) + (dryRun.toUpdate?.length || 0) + (dryRun.toDelete?.length || 0);
     
     const dateSort = (a: any, b: any) => {
         const itemA = a.new || a;
@@ -100,38 +124,57 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
     const sortedNew = [...(dryRun.toCreate || [])].sort(dateSort);
     const sortedUpdates = [...(dryRun.toUpdate || [])].sort(dateSort);
     const sortedDeletions = [...(dryRun.toDelete || [])].sort(dateSort);
-    const sortedFailed = [...(dryRun.errors || [])].filter(e => e.severity === 'error' || e.severity === 'warning').sort((a,b) => (a.row || 0) - (b.row || 0));
+    const diagnosticLogs = [...(dryRun.errors || [])].sort((a,b) => (a.row || 0) - (b.row || 0));
 
     return (
         <div className="space-y-6">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <Card className="bg-green-50 border-green-200"><CardHeader className="p-3"><CardTitle className="text-xs text-green-700 uppercase">New</CardTitle></CardHeader><CardContent className="p-3 pt-0"><p className="text-2xl font-bold text-green-700">{dryRun.toCreate?.length || 0}</p></CardContent></Card>
-                <Card className="bg-blue-50 border-blue-200"><CardHeader className="p-3"><CardTitle className="text-xs text-blue-700 uppercase">Updates</CardTitle></CardHeader><CardContent className="p-3 pt-0"><p className="text-2xl font-bold text-blue-700">{dryRun.toUpdate?.length || 0}</p></CardContent></Card>
-                <Card className="bg-amber-50 border-amber-200"><CardHeader className="p-3"><CardTitle className="text-xs text-amber-700 uppercase">Deletions</CardTitle></CardHeader><CardContent className="p-3 pt-0"><p className="text-2xl font-bold text-amber-700">{dryRun.toDelete?.length || 0}</p></CardContent></Card>
-                <Card className="bg-red-50 border-red-200"><CardHeader className="p-3"><CardTitle className="text-xs text-red-700 uppercase">Failed</CardTitle></CardHeader><CardContent className="p-3 pt-0"><p className="text-2xl font-bold text-red-700">{sortedFailed.length}</p></CardContent></Card>
+                <Card className="bg-green-50 border-green-200">
+                    <CardHeader className="p-3"><CardTitle className="text-xs text-green-700 uppercase">New</CardTitle></CardHeader>
+                    <CardContent className="p-3 pt-0"><p className="text-2xl font-bold text-green-700">{sortedNew.length}</p></CardContent>
+                </Card>
+                <Card className="bg-blue-50 border-blue-200">
+                    <CardHeader className="p-3"><CardTitle className="text-xs text-blue-700 uppercase">Updates</CardTitle></CardHeader>
+                    <CardContent className="p-3 pt-0"><p className="text-2xl font-bold text-blue-700">{sortedUpdates.length}</p></CardContent>
+                </Card>
+                <Card className="bg-amber-50 border-amber-200">
+                    <CardHeader className="p-3"><CardTitle className="text-xs text-amber-700 uppercase">Deletions</CardTitle></CardHeader>
+                    <CardContent className="p-3 pt-0"><p className="text-2xl font-bold text-amber-700">{sortedDeletions.length}</p></CardContent>
+                </Card>
+                <Card className="bg-slate-50 border-slate-200">
+                    <CardHeader className="p-3"><CardTitle className="text-xs text-slate-700 uppercase">Diagnostic</CardTitle></CardHeader>
+                    <CardContent className="p-3 pt-0"><p className="text-2xl font-bold text-slate-700">{diagnosticLogs.length}</p></CardContent>
+                </Card>
             </div>
 
-            <Tabs defaultValue="create" className="w-full">
+            <Tabs defaultValue={totalChanges > 0 ? "create" : "diag"} className="w-full">
                 <TabsList className="grid w-full grid-cols-4">
-                    <TabsTrigger value="create">New</TabsTrigger>
-                    <TabsTrigger value="update">Updates</TabsTrigger>
-                    <TabsTrigger value="delete">Deletions</TabsTrigger>
-                    <TabsTrigger value="fail">Failed ({sortedFailed.length})</TabsTrigger>
+                    <TabsTrigger value="create">New ({sortedNew.length})</TabsTrigger>
+                    <TabsTrigger value="update">Updates ({sortedUpdates.length})</TabsTrigger>
+                    <TabsTrigger value="delete">Deletions ({sortedDeletions.length})</TabsTrigger>
+                    <TabsTrigger value="diag">Diagnostic Log</TabsTrigger>
                 </TabsList>
                 
                 <TabsContent value="create">
                     <ScrollArea className="h-[400px] border rounded-md">
                         <Table>
-                            <TableHeader className="sticky top-0 bg-background z-10"><TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Site Address</TableHead><TableHead>Task</TableHead></TableRow></TableHeader>
+                            <TableHeader className="sticky top-0 bg-background z-10">
+                                <TableRow>
+                                    <TableHead>Date</TableHead>
+                                    <TableHead>User</TableHead>
+                                    <TableHead>Address</TableHead>
+                                    <TableHead>Task</TableHead>
+                                </TableRow>
+                            </TableHeader>
                             <TableBody>
                                 {sortedNew.length > 0 ? sortedNew.map((s, i) => (
                                     <TableRow key={i}>
                                         <TableCell className="text-xs">{format(s.date, 'dd/MM/yy')}</TableCell>
                                         <TableCell className="font-semibold text-xs text-primary">{s.operative}</TableCell>
-                                        <TableCell className="text-[10px]">{s.address}</TableCell>
+                                        <TableCell className="text-[10px] truncate max-w-[150px]">{s.address}</TableCell>
                                         <TableCell className="text-[10px] italic">{s.task}</TableCell>
                                     </TableRow>
-                                )) : <TableRow><TableCell colSpan={4} className="text-center py-10 text-muted-foreground">No new shifts found.</TableCell></TableRow>}
+                                )) : <TableRow><TableCell colSpan={4} className="text-center py-10 text-muted-foreground">No new shifts extracted.</TableCell></TableRow>}
                             </TableBody>
                         </Table>
                     </ScrollArea>
@@ -140,7 +183,13 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                 <TabsContent value="update">
                     <ScrollArea className="h-[400px] border rounded-md">
                         <Table>
-                            <TableHeader className="sticky top-0 bg-background z-10"><TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Task (New)</TableHead></TableRow></TableHeader>
+                            <TableHeader className="sticky top-0 bg-background z-10">
+                                <TableRow>
+                                    <TableHead>Date</TableHead>
+                                    <TableHead>User</TableHead>
+                                    <TableHead>Task Update</TableHead>
+                                </TableRow>
+                            </TableHeader>
                             <TableBody>
                                 {sortedUpdates.length > 0 ? sortedUpdates.map((u, i) => (
                                     <TableRow key={i}>
@@ -148,7 +197,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                                         <TableCell className="text-xs">{u.new.operative}</TableCell>
                                         <TableCell className="text-[10px] font-medium text-blue-700">{u.new.task}</TableCell>
                                     </TableRow>
-                                )) : <TableRow><TableCell colSpan={3} className="text-center py-10 text-muted-foreground">No existing shifts need updating.</TableCell></TableRow>}
+                                )) : <TableRow><TableCell colSpan={3} className="text-center py-10 text-muted-foreground">No updates needed.</TableCell></TableRow>}
                             </TableBody>
                         </Table>
                     </ScrollArea>
@@ -157,32 +206,50 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                 <TabsContent value="delete">
                     <ScrollArea className="h-[400px] border rounded-md">
                         <Table>
-                            <TableHeader className="sticky top-0 bg-background z-10"><TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Address</TableHead></TableRow></TableHeader>
+                            <TableHeader className="sticky top-0 bg-background z-10">
+                                <TableRow>
+                                    <TableHead>Date</TableHead>
+                                    <TableHead>User</TableHead>
+                                    <TableHead>Address</TableHead>
+                                </TableRow>
+                            </TableHeader>
                             <TableBody>
                                 {sortedDeletions.length > 0 ? sortedDeletions.map((s, i) => (
                                     <TableRow key={i} className="bg-amber-50">
                                         <TableCell className="text-xs">{format(s.date.toDate(), 'dd/MM/yy')}</TableCell>
-                                        <TableCell className="text-xs">{s.userName}</TableCell>
+                                        <TableCell className="text-xs">{userNameMap.get(s.userId) || 'Unknown'}</TableCell>
                                         <TableCell className="text-[10px]">{s.address}</TableCell>
                                     </TableRow>
-                                )) : <TableRow><TableCell colSpan={3} className="text-center py-10 text-muted-foreground">No shifts scheduled for deletion.</TableCell></TableRow>}
+                                )) : <TableRow><TableCell colSpan={3} className="text-center py-10 text-muted-foreground">No deletions detected.</TableCell></TableRow>}
                             </TableBody>
                         </Table>
                     </ScrollArea>
                 </TabsContent>
 
-                <TabsContent value="fail">
+                <TabsContent value="diag">
                     <ScrollArea className="h-[400px] border rounded-md p-4">
                         <div className="space-y-4">
-                            {sortedFailed.length > 0 ? sortedFailed.map((err, i) => (
-                                <div key={i} className="p-3 border-l-4 border-red-500 bg-red-50 rounded-r-md">
+                            <h3 className="font-bold flex items-center gap-2"><FileSearch className="h-5 w-5" /> Detailed Extraction Log</h3>
+                            <p className="text-xs text-muted-foreground">Review this log to see exactly how the importer read your file.</p>
+                            
+                            {diagnosticLogs.map((err, i) => (
+                                <div key={i} className={cn(
+                                    "p-3 border-l-4 rounded-r-md text-xs mb-2",
+                                    err.severity === 'error' ? "bg-red-50 border-red-500" : 
+                                    err.severity === 'warning' ? "bg-amber-50 border-amber-500" :
+                                    err.severity === 'info' ? "bg-blue-50 border-blue-500" :
+                                    "bg-slate-50 border-slate-300"
+                                )}>
                                     <div className="flex justify-between items-center mb-1">
-                                        <Badge variant="destructive" className="text-[10px]">{err.cell || `Row ${err.row}`}</Badge>
-                                        <span className="text-[10px] text-muted-foreground">{err.sheet}</span>
+                                        <Badge variant={err.severity === 'error' ? 'destructive' : 'outline'} className="text-[9px] uppercase">{err.code}</Badge>
+                                        <span className="text-[10px] text-muted-foreground">{err.sheet}{err.cell ? ` | ${err.cell}` : err.row ? ` | Row ${err.row}` : ''}</span>
                                     </div>
-                                    <p className="text-sm font-medium">{err.message}</p>
+                                    <p className="font-medium">{err.message}</p>
+                                    {err.rawValues && (
+                                        <p className="mt-1 text-[10px] opacity-70 italic font-mono bg-white/50 p-1 rounded">Detected Value: "{err.rawValues}"</p>
+                                    )}
                                 </div>
-                            )) : <p className="text-center text-muted-foreground py-10">No data quality issues found.</p>}
+                            ))}
                         </div>
                     </ScrollArea>
                 </TabsContent>
@@ -190,17 +257,19 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
 
             <div className="flex justify-between items-center bg-muted/50 p-4 rounded-lg border">
                 <div className="flex items-center gap-3">
-                    <div className={cn("p-2 rounded-full", sortedFailed.some(e => e.severity === 'error') ? "bg-red-100" : "bg-green-100")}>
-                        {sortedFailed.some(e => e.severity === 'error') ? <AlertCircle className="text-red-600" /> : <CheckCircle className="text-green-600" />}
-                    </div>
+                    {totalChanges > 0 ? (
+                        <div className="p-2 bg-green-100 rounded-full"><CheckCircle className="text-green-600 h-6 w-6" /></div>
+                    ) : (
+                        <div className="p-2 bg-amber-100 rounded-full"><AlertCircle className="text-amber-600 h-6 w-6" /></div>
+                    )}
                     <div>
-                        <p className="font-bold">{sortedFailed.some(e => e.severity === 'error') ? "Fix required before sync" : "Validation passed"}</p>
-                        <p className="text-xs text-muted-foreground">Changes only apply to today and the future within this specific planner.</p>
+                        <p className="font-bold">{totalChanges > 0 ? "Synchronization Ready" : "No Changes Found"}</p>
+                        <p className="text-xs text-muted-foreground">Synchronizing variation copy: {dryRun.profileId}</p>
                     </div>
                 </div>
                 <div className="flex gap-3">
                     <Button variant="ghost" onClick={() => setDryRun(null)}>Discard</Button>
-                    <Button onClick={handleFinalPublish} disabled={isPublishing || sortedFailed.some(e => e.severity === 'error')}>
+                    <Button onClick={handleFinalPublish} disabled={isPublishing || totalChanges === 0}>
                         {isPublishing ? <Spinner /> : <><RotateCw className="mr-2 h-4 w-4" /> Publish Changes</>}
                     </Button>
                 </div>
@@ -215,29 +284,28 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
         <h2 className="text-2xl font-bold tracking-tight">Shift Importer</h2>
         <Dialog>
           <DialogTrigger asChild>
-            <Button variant="outline" size="sm"><HelpCircle className="mr-2 h-4 w-4" /> Format Guide</Button>
+            <Button variant="outline" size="sm"><HelpCircle className="mr-2 h-4 w-4" /> Layout Guide</Button>
           </DialogTrigger>
           <DialogContent className="max-w-3xl">
-            <DialogHeader><DialogTitle>Planner Layout Guide</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>Spreadsheet Formatting Help</DialogTitle></DialogHeader>
             <ScrollArea className="max-h-[70vh] pr-4">
               <div className="space-y-8 py-4">
                 <div className="space-y-3">
-                  <div className="flex items-center gap-2 font-semibold text-primary"><TableIcon className="h-5 w-5" /><h3>Standard Tabular (Build/Eco)</h3></div>
-                  <p className="text-sm text-muted-foreground">List format where each row contains a Date, Staff Name, and Address.</p>
-                  <div className="border rounded-md p-4 bg-muted/30">
-                    <table className="w-full text-xs border-collapse"><thead><tr className="bg-muted border-b"><th className="p-2 border-r text-left">Date</th><th className="p-2 border-r text-left">Staff Name</th><th className="p-2 text-left">Site Address</th></tr></thead><tbody><tr className="border-b bg-background"><td className="p-2 border-r">01/10/24</td><td className="p-2 border-r">John Smith</td><td className="p-2">123 Main St</td></tr></tbody></table>
-                  </div>
+                    <div className="flex items-center gap-2 font-semibold text-primary"><LayoutGrid className="h-5 w-5" /><h3>Battleship Grid (Gas Department)</h3></div>
+                    <ul className="text-sm space-y-2 list-disc pl-5">
+                        <li><strong>Property Sections</strong>: Listed vertically in Column A. The system looks for <i>Site Refs (E9000)</i> or <i>Postcodes</i> to identify the job location.</li>
+                        <li><strong>Horizontal Dates</strong>: Dates are expected across the top header row (usually Row 4-6).</li>
+                        <li><strong>Embedded Names</strong>: Work cells must contain the operative's full name (e.g., "Boiler Service - PHIL SHERGOLD").</li>
+                        <li><strong>Shift Types</strong>: Start text with "AM" or "PM" for partial shifts; otherwise, "All Day" is assumed.</li>
+                    </ul>
                 </div>
+                <Separator />
                 <div className="space-y-3">
-                  <div className="flex items-center gap-2 font-semibold text-sky-600"><LayoutGrid className="h-5 w-5" /><h3>Battleship (Gas)</h3></div>
-                  <p className="text-sm text-muted-foreground">Blocks separated by colored lines. Site in Col A, Dates in header F+.</p>
-                  <div className="border rounded-md p-4 bg-muted/30">
-                    <div className="h-2 bg-indigo-800 w-full rounded-sm opacity-50 mb-1" />
-                    <table className="w-full text-[10px] border-collapse bg-background">
-                        <thead><tr className="bg-muted/50 border-b"><th className="p-1 border-r text-left w-1/4">Col A (Site)</th><th className="p-1 border-r text-center">Col F (15/06)</th><th className="p-1 text-center">Col G (16/06)</th></tr></thead>
-                        <tbody><tr className="border-b"><td className="p-1 border-r font-bold">16 Hints Meadow</td><td className="p-1 border-r text-center">Phil Shergold<br/>(Task in cell below)</td><td className="p-1 text-center">Tom Speak<br/>(Task in cell below)</td></tr></tbody>
-                    </table>
-                  </div>
+                    <div className="flex items-center gap-2 font-semibold text-slate-600"><TableIcon className="h-5 w-5" /><h3>Tabular List (Build / Eco)</h3></div>
+                    <ul className="text-sm space-y-2 list-disc pl-5">
+                        <li><strong>Standard Headers</strong>: The system scans for columns like "Date", "Operative", "Address", and "Task".</li>
+                        <li><strong>Merged Cells</strong>: If you leave a cell blank, the system automatically carries down the information from the row above.</li>
+                    </ul>
                 </div>
               </div>
             </ScrollArea>
@@ -248,8 +316,8 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
       {!dryRun ? (
         <Card>
           <CardHeader>
-            <CardTitle>Verify Planner</CardTitle>
-            <CardDescription>Upload your planner to run a safe diagnostic test. Only current and future work will be synchronized.</CardDescription>
+            <CardTitle>Upload Planner</CardTitle>
+            <CardDescription>Drag and drop your spreadsheet to run a diagnostic test. No database changes will be made until you confirm.</CardDescription>
           </CardHeader>
           <CardContent>
             <FileUploader onImportComplete={handleImportComplete} onFileSelect={() => setDryRun(null)} userProfile={userProfile} />
@@ -259,3 +327,5 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
     </div>
   );
 }
+
+import { Separator } from '../ui/separator';

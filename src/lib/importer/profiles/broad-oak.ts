@@ -3,46 +3,30 @@ import { type PlannerProfile, type StandardShift, type ImportError, type UserMap
 
 /**
  * Robust Battleship Parser for Broad Oak Gas
- * 1. Identifies blocks defined by colored/dark dividers in Column A.
- * 2. Extracts site address from Column A using address scoring.
- * 3. Scans columns F+ for date headers.
- * 4. Uses stateful vertical scanning to associate names with tasks in cells below.
+ * 
+ * STRUCTURE:
+ * - Property Section → Date Column → Work Cell
+ * - Property info in Column A (Site Ref + Address).
+ * - Dates run horizontally across columns.
+ * - Work entries contain operative names (e.g., "Task - NAME").
  */
 export class BroadOakProfile implements PlannerProfile {
   id = 'broad-oak';
   name = 'Broad Oak Gas (Battleship)';
-  description = 'Grid-based layout with site blocks in Col A and dates across the top (Col F+).';
+  description = 'Horizontal dates, property sections, and embedded operative names.';
 
   detect(workbook: ExcelJS.Workbook): boolean {
     const sheet = workbook.worksheets.find(s => s.state !== 'hidden');
     if (!sheet) return false;
     
-    // Look for a row that contains multiple date objects in F+
-    for (let r = 1; r <= 20; r++) {
+    // Look for horizontal dates which is a signature of Battleship
+    for (let r = 1; r <= 10; r++) {
       const row = sheet.getRow(r);
       let dateCount = 0;
-      for (let c = 6; c <= 50; c++) {
+      for (let c = 1; c <= 30; c++) {
         if (this.toValidDate(row.getCell(c).value)) dateCount++;
       }
       if (dateCount >= 3) return true;
-    }
-
-    // Fallback: check for dividers
-    for (let r = 1; r <= 30; r++) {
-      if (this.isDividerRow(sheet.getRow(r))) return true;
-    }
-
-    return false;
-  }
-
-  private isDividerRow(row: ExcelJS.Row): boolean {
-    const cell = row.getCell(1);
-    // Any cell in Column A with a non-white fill is likely a divider
-    const fill = cell.fill as ExcelJS.FillPattern;
-    if (fill?.type === 'pattern' && fill.fgColor) {
-      const argb = String(fill.fgColor.argb || '');
-      // Ignore white/transparent
-      return argb !== 'FFFFFFFF' && argb !== '' && argb !== '00000000';
     }
     return false;
   }
@@ -52,163 +36,202 @@ export class BroadOakProfile implements PlannerProfile {
     const errors: ImportError[] = [];
 
     for (const sheet of workbook.worksheets.filter(ws => ws.state !== 'hidden')) {
-      const bounds = this.getUsedBounds(sheet);
-      if (!bounds) continue;
+      errors.push({ 
+        sheet: sheet.name, 
+        message: `Scanning sheet: ${sheet.name}`, 
+        severity: 'info', 
+        code: 'SCAN_START' 
+      });
 
-      // 1. Identify dividers to define blocks
-      const dividers: number[] = [];
-      for (let r = bounds.startRow; r <= bounds.endRow; r++) {
-        if (this.isDividerRow(sheet.getRow(r))) dividers.push(r);
+      // 1. Identify Date Columns (Horizontal)
+      const dateColumns: { col: number, date: Date }[] = [];
+      let dateHeaderRow = -1;
+
+      for (let r = 1; r <= 15; r++) {
+        const row = sheet.getRow(r);
+        const tempDates: { col: number, date: Date }[] = [];
+        for (let c = 1; c <= 100; c++) {
+          const date = this.toValidDate(row.getCell(c).value);
+          if (date) tempDates.push({ col: c, date });
+        }
+        if (tempDates.length >= 3) {
+          dateColumns.push(...tempDates);
+          dateHeaderRow = r;
+          break;
+        }
       }
 
-      // 2. Process each block
-      for (let i = 0; i < dividers.length; i++) {
-        const startRow = dividers[i];
-        const endRow = dividers[i + 1] ? dividers[i + 1] - 1 : bounds.endRow;
+      if (dateColumns.length === 0) {
+        errors.push({ 
+          sheet: sheet.name, 
+          message: 'No horizontal date header found in first 15 rows.', 
+          severity: 'warning', 
+          code: 'NO_DATES' 
+        });
+        continue;
+      }
 
-        // A. Extract Site Address from Column A
-        const address = this.findBestAddress(sheet, startRow, endRow);
-        if (!address) continue;
+      errors.push({ 
+        sheet: sheet.name, 
+        message: `Found ${dateColumns.length} date columns (F+).`, 
+        severity: 'info', 
+        code: 'DATES_FOUND' 
+      });
 
-        // B. Dynamically find the Date Header row in this block
-        const dateHeader = this.findDateRow(sheet, startRow, endRow);
-        if (!dateHeader) continue;
+      // 2. Iterate Rows to find Property Sections and Work Cells
+      let currentAddress = '';
+      let currentSiteRef = '';
+      let propertyFoundInSheet = 0;
 
-        // C. Process each date column
-        for (const { col, date } of dateHeader.cols) {
-          let currentOperative: string | null = null;
-          let currentTasks: string[] = [];
-          let currentType: 'am' | 'pm' | 'all-day' = 'all-day';
-          let sourceCell = '';
+      sheet.eachRow((row, rowNumber) => {
+        // Skip header rows
+        if (rowNumber <= dateHeaderRow) return;
 
-          // Stateful Vertical Scan within the column
-          for (let r = dateHeader.row + 1; r <= endRow; r++) {
-            const cell = sheet.getRow(r).getCell(col);
-            const rawText = this.getCellText(cell);
-            if (!rawText) continue;
+        // Check Column A for Property Info (Site Ref or Address with Postcode)
+        const cellA = row.getCell(1);
+        const cellAText = this.getCellText(cellA);
+        
+        // Property Logic: Site Ref (E00000) or Address Pattern
+        const siteRefMatch = cellAText.match(/\b(E\d{5,6})\b/i);
+        const postcodeMatch = cellAText.match(/\b([A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i);
 
-            const userMatch = this.findUserInString(rawText, userMap);
-
-            if (userMatch) {
-              // If we already have a user, push the previous shift before starting new one
-              if (currentOperative) {
-                shifts.push(this.createShift(date, currentOperative, address, sheet.name, currentTasks, currentType, sourceCell));
-              }
-
-              currentOperative = userMatch.name;
-              currentType = userMatch.type;
-              sourceCell = cell.address;
-              currentTasks = [];
-              if (userMatch.task) currentTasks.push(userMatch.task);
-            } else if (currentOperative) {
-              // Accumulate task description found in cells below name
-              currentTasks.push(rawText);
-            }
-          }
-
-          // Push the final shift for this column
-          if (currentOperative) {
-            shifts.push(this.createShift(date, currentOperative, address, sheet.name, currentTasks, currentType, sourceCell));
-          }
+        if (siteRefMatch || postcodeMatch) {
+          currentSiteRef = siteRefMatch ? siteRefMatch[1].toUpperCase() : currentSiteRef;
+          currentAddress = cellAText.trim();
+          propertyFoundInSheet++;
+          
+          errors.push({ 
+            row: rowNumber, 
+            sheet: sheet.name, 
+            message: `Detected Property Section: ${currentAddress.substring(0, 30)}...`, 
+            severity: 'info', 
+            code: 'PROPERTY_FOUND' 
+          });
+          return;
         }
+
+        // If no property context yet, we can't assign shifts
+        if (!currentAddress) return;
+
+        // 3. Scan Date Columns for Work
+        dateColumns.forEach(({ col, date }) => {
+          const cell = row.getCell(col);
+          const cellValue = this.getCellText(cell);
+          
+          if (!cellValue || cellValue.length < 3) return;
+
+          // Attempt to extract operative and task
+          const extraction = this.extractShiftData(cellValue, userMap);
+          
+          if (extraction) {
+            shifts.push({
+              date,
+              operative: extraction.user.originalName,
+              operativeUid: extraction.user.uid,
+              address: currentAddress,
+              contract: extraction.contract || currentSiteRef || sheet.name,
+              task: extraction.task,
+              descriptionOfWorks: cellValue,
+              type: extraction.type,
+              eNumber: currentSiteRef,
+              sourceCell: cell.address,
+              sourceSheet: sheet.name
+            });
+          } else {
+            // Diagnostic for potentially missed names
+            errors.push({
+              row: rowNumber,
+              cell: cell.address,
+              sheet: sheet.name,
+              message: `Work found but no recognized operative name detected in: "${cellValue.substring(0, 20)}..."`,
+              severity: 'debug',
+              code: 'OPERATIVE_MISSING',
+              rawValues: cellValue
+            });
+          }
+        });
+      });
+
+      if (propertyFoundInSheet === 0) {
+        errors.push({ 
+          sheet: sheet.name, 
+          message: 'No property sections detected in Column A (Looking for Site Ref/Postcode).', 
+          severity: 'warning', 
+          code: 'LAYOUT_MISMATCH' 
+        });
       }
     }
 
     return { shifts, errors };
   }
 
-  private createShift(date: Date, op: string, addr: string, contract: string, tasks: string[], type: 'am' | 'pm' | 'all-day', cell: string): StandardShift {
+  private extractShiftData(text: string, userMap: UserMapEntry[]) {
+    const cleanText = text.toLowerCase();
+    
+    // Find matching user by scanning their full name within the text
+    const matchedUser = userMap.find(u => {
+      const name = u.originalName.toLowerCase();
+      // Look for full name as a whole word boundary
+      const regex = new RegExp(`\\b${name}\\b`, 'i');
+      return regex.test(cleanText);
+    });
+
+    if (!matchedUser) return null;
+
+    // Determine type (AM/PM)
+    let type: 'am' | 'pm' | 'all-day' = 'all-day';
+    if (cleanText.includes('am ') || cleanText.startsWith('am')) type = 'am';
+    else if (cleanText.includes('pm ') || cleanText.startsWith('pm')) type = 'pm';
+
+    // Extract task by removing the operative's name and type indicators
+    let task = text;
+    const nameRegex = new RegExp(`-?\\s*${matchedUser.originalName}\\s*`, 'gi');
+    const typeRegex = /\b(am|pm)\b/gi;
+    
+    task = task.replace(nameRegex, '').replace(typeRegex, '').trim();
+    // Clean up trailing/leading separators
+    if (task.startsWith('-')) task = task.substring(1).trim();
+    if (task.endsWith('-')) task = task.substring(0, task.length - 1).trim();
+
     return {
-      date,
-      operative: op,
-      address: addr,
-      contract: contract,
-      task: tasks.join(' / ').trim() || 'General Works',
-      descriptionOfWorks: tasks.join('\n'),
+      user: matchedUser,
+      task: task || 'General Works',
       type,
-      sourceCell: cell,
-      sourceSheet: contract
+      contract: ''
     };
   }
 
-  private findUserInString(text: string, userMap: UserMapEntry[]) {
-    const clean = text.toLowerCase().replace(/\s+/g, ' ').trim();
-    
-    // Detect Type
-    let type: 'am' | 'pm' | 'all-day' = 'all-day';
-    let task = text;
-    if (clean.startsWith('am ')) { type = 'am'; task = text.substring(3); }
-    else if (clean.startsWith('pm ')) { type = 'pm'; task = text.substring(3); }
-
-    for (const user of userMap) {
-      const parts = user.originalName.toLowerCase().split(' ');
-      const allPartsMatched = parts.every(p => {
-        const regex = new RegExp(`\\b${p.substring(0, 4)}`, 'i');
-        return regex.test(clean);
-      });
-
-      if (allPartsMatched) {
-        // Clean the name out of the task
-        parts.forEach(p => {
-            const r = new RegExp(`-?\\s*\\b${p.substring(0, 4)}[a-z]*\\s*`, 'gi');
-            task = task.replace(r, '');
-        });
-        return { name: user.originalName, type, task: task.replace(/^[-–\s]+|[-–\s]+$/g, '').trim() };
-      }
-    }
-    return null;
-  }
-
-  private findBestAddress(sheet: ExcelJS.Worksheet, start: number, end: number): string | null {
-    let best = null;
-    let max = -1;
-    for (let r = start; r <= end; r++) {
-      const text = this.getCellText(sheet.getRow(r).getCell(1));
-      if (!text || text.length < 5) continue;
-      let score = 0;
-      if (/\b\d+\b/.test(text)) score += 10;
-      if (/[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}/i.test(text)) score += 20;
-      if (/MANAGER|TLO|ORDERING|SCHEME|LIVE/i.test(text)) score -= 20000;
-      if (score > max && score > 0) { max = score; best = text; }
-    }
-    return best;
-  }
-
-  private findDateRow(sheet: ExcelJS.Worksheet, start: number, end: number) {
-    for (let r = start; r <= Math.min(start + 8, end); r++) {
-      const cols: { col: number, date: Date }[] = [];
-      const row = sheet.getRow(r);
-      for (let c = 6; c <= 100; c++) {
-        const date = this.toValidDate(row.getCell(c).value);
-        if (date) cols.push({ col: c, date });
-      }
-      if (cols.length >= 2) return { row: r, cols };
-    }
-    return null;
-  }
-
   private toValidDate(val: any): Date | null {
+    if (!val) return null;
     if (val instanceof Date && !isNaN(val.getTime())) {
       return new Date(Date.UTC(val.getFullYear(), val.getMonth(), val.getDate(), 12));
     }
-    if (typeof val === 'number' && val > 44000 && val < 60000) {
+    // Excel Serial
+    if (typeof val === 'number' && val > 40000 && val < 60000) {
       const d = new Date((val - 25569) * 86400 * 1000);
       return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12));
+    }
+    // Strings
+    if (typeof val === 'string') {
+      const parts = val.split(/[/-]/);
+      if (parts.length === 3) {
+        let d, m, y;
+        if (parts[0].length === 4) { [y, m, d] = parts.map(Number); }
+        else { [d, m, y] = parts.map(Number); }
+        if (y < 100) y += 2000;
+        const date = new Date(Date.UTC(y, m - 1, d, 12));
+        return isNaN(date.getTime()) ? null : date;
+      }
     }
     return null;
   }
 
   private getCellText(cell: ExcelJS.Cell): string {
     const v = cell.isMerged ? cell.master.value : cell.value;
-    return v ? String(v).trim() : '';
-  }
-
-  private getUsedBounds(ws: ExcelJS.Worksheet) {
-    let minRow = Infinity, maxRow = 0;
-    ws.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-      minRow = Math.min(minRow, rowNumber);
-      maxRow = Math.max(maxRow, rowNumber);
-    });
-    return isFinite(minRow) ? { startRow: minRow, endRow: maxRow } : null;
+    if (!v) return '';
+    if (typeof v === 'object' && 'richText' in v) {
+      return v.richText.map(t => t.text).join('').trim();
+    }
+    return String(v).trim();
   }
 }
