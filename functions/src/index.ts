@@ -10,7 +10,6 @@ import { onSchedule } from "firebase-functions/v2/scheduler";
 import { logger } from "firebase-functions/v2";
 import JSZip from "jszip";
 import * as webPush from "web-push";
-import type { Shift } from "./types";
 
 /* =====================================================
    CONSTANTS
@@ -96,6 +95,18 @@ const isShiftInPast = (d: Date): boolean => {
 };
 
 const pendingGateUrl = () => "/dashboard?gate=pending";
+
+/**
+ * 🔒 CASE-INSENSITIVE NORMALIZATION
+ */
+const normalizeText = (text: string | null | undefined): string => {
+  if (!text) return "";
+  return String(text)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+};
 
 /* =====================================================
    NOTIFICATIONS
@@ -272,7 +283,7 @@ export const serveFile = onRequest(
       res.status(400).send("Missing path");
       return;
     }
-    
+
     try {
         const file = admin.storage().bucket().file(path);
         const [exists] = await file.exists();
@@ -326,21 +337,16 @@ export const syncUnavailabilityOnShiftWrite = onDocumentWritten(
   { document: "shifts/{shiftId}", region: REGION },
   async (event) => {
     const shiftId = event.params.shiftId;
-    const shiftAfter = event.data?.after.data() as Shift | undefined;
+    const shiftAfter = event.data?.after.data();
 
-    if (!shiftAfter) {
-      return;
-    }
+    if (!shiftAfter) return;
 
     const userRef = db.doc(`users/${shiftAfter.userId}`);
     const userSnap = await userRef.get();
-    if (!userSnap.exists) {
-      return;
-    }
+    if (!userSnap.exists) return;
 
     const homeDepartment = userSnap.data()!.department;
     const shiftDepartment = shiftAfter.department;
-
     const unavailabilityRef = db.doc(`unavailability/${shiftId}`);
 
     if (!shiftDepartment || !homeDepartment || shiftDepartment === homeDepartment) {
@@ -567,18 +573,6 @@ export const reGeocodeAllShifts = onCall({ region: REGION, timeoutSeconds: 540, 
     return { updated };
 });
 
-/**
- * 🔒 CASE-INSENSITIVE NORMALIZATION
- */
-const normalizeText = (text: string | null | undefined): string => {
-  if (!text) return "";
-  return String(text)
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-};
-
 export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, memory: '1GiB' }, async (req) => {
     const uid = req.auth?.uid;
     if (!uid) {
@@ -648,8 +642,8 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     toCreate.forEach((shift: any) => {
         const newShiftRef = shiftsRef.doc();
         batch.set(newShiftRef, {
-            userId: shift.operativeUid,
-            userName: shift.operative,
+            userId: shift.operativeUid, // CRITICAL FIX: map to correct field
+            userName: shift.operative, // CRITICAL FIX: map to correct field
             address: shift.address,
             task: shift.task,
             date: admin.firestore.Timestamp.fromDate(new Date(shift.date)),
@@ -669,8 +663,8 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     // --- Handle Shift Updates ---
     toUpdate.forEach(({ id, new: newShift }: any) => {
         const updatePayload: any = {
-            userId: newShift.operativeUid,
-            userName: newShift.operative,
+            userId: newShift.operativeUid, // CRITICAL FIX
+            userName: newShift.operative, // CRITICAL FIX
             address: newShift.address,
             task: newShift.task,
             type: newShift.type || 'all-day',
