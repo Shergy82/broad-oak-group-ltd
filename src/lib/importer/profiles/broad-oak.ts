@@ -15,24 +15,7 @@ export class BroadOakProfile implements PlannerProfile {
   private eNumberRegex = /\b[BE]\d{5,}\b/i;
 
   detect(workbook: ExcelJS.Workbook): boolean {
-    return workbook.worksheets.some(sheet => {
-      if (sheet.state === 'hidden') return false;
-      let found = false;
-      // Check first 100 rows for the marker
-      for (let i = 1; i <= 100; i++) {
-        const row = sheet.getRow(i);
-        // Check columns A, B, C for the marker
-        for (let j = 1; j <= 3; j++) {
-          const val = row.getCell(j).value?.toString().toUpperCase() || '';
-          if (val.includes('SITE MANAGER') || val.includes('TECHNICAL MANAGER')) {
-            found = true;
-            break;
-          }
-        }
-        if (found) break;
-      }
-      return found;
-    });
+    return workbook.worksheets.some(sheet => this.detectSheet(sheet));
   }
 
   async parse(workbook: ExcelJS.Workbook, userMap: UserMapEntry[]): Promise<{ shifts: StandardShift[], errors: ImportError[] }> {
@@ -43,29 +26,44 @@ export class BroadOakProfile implements PlannerProfile {
     const sheet = workbook.worksheets.find(s => this.detectSheet(s));
 
     if (!sheet) {
-        errors.push({ message: "No valid planning sheet found. Look for 'SITE MANAGER' labels.", severity: 'error', code: 'NO_VALID_SHEET' });
+        errors.push({ 
+          message: "Parser could not find a worksheet with 'SITE MANAGER' labels in columns A-C.", 
+          severity: 'error', 
+          code: 'NO_VALID_SHEET' 
+        });
+        // Log skipped sheets for technical debugging
+        workbook.worksheets.forEach(s => {
+          if (s.state !== 'hidden') {
+            errors.push({ message: `Skipped sheet: "${s.name}" - No marker found.`, severity: 'debug', code: 'SHEET_SKIPPED' });
+          }
+        });
         return { shifts, errors };
     }
+
+    errors.push({ message: `Processing active sheet: "${sheet.name}"`, severity: 'info', code: 'SHEET_START' });
 
     // 1. Identify all Divider Rows
     const dividerRows: number[] = [];
     sheet.eachRow((row, rowNumber) => {
       const colA = row.getCell(1).value?.toString().toUpperCase() || '';
-      if (colA.includes('SITE MANAGER') || colA.includes('TECHNICAL MANAGER')) {
+      const colB = row.getCell(2).value?.toString().toUpperCase() || '';
+      if (colA.includes('SITE MANAGER') || colB.includes('SITE MANAGER') || colA.includes('TECHNICAL MANAGER')) {
         dividerRows.push(rowNumber);
       }
     });
 
     if (dividerRows.length === 0) {
-        errors.push({ message: "No property sections identified. Ensure 'SITE MANAGER' is in Column A.", severity: 'error', code: 'NO_DIVIDERS' });
+        errors.push({ message: "No property sections identified. Scanner looked for 'SITE MANAGER' in Column A/B.", severity: 'error', code: 'NO_DIVIDERS' });
         return { shifts, errors };
     }
+
+    errors.push({ message: `Found ${dividerRows.length} property sections.`, severity: 'info', code: 'SECTIONS_FOUND' });
 
     // 2. Process each Block
     for (let i = 0; i < dividerRows.length; i++) {
       const startRow = dividerRows[i];
       const nextDividerRow = dividerRows[i + 1];
-      const endRow = nextDividerRow ? nextDividerRow - 1 : Math.max(sheet.rowCount, startRow + 20);
+      const endRow = nextDividerRow ? nextDividerRow - 1 : Math.min(sheet.rowCount, startRow + 50);
 
       // --- Pass 1: Scan block for Metadata ---
       let blockAddress = "";
@@ -77,12 +75,14 @@ export class BroadOakProfile implements PlannerProfile {
       for (let r = startRow; r <= endRow; r++) {
         const row = sheet.getRow(r);
         const colA = row.getCell(1).value?.toString() || '';
+        const colB = row.getCell(2).value?.toString() || '';
         const colC = row.getCell(3).value?.toString() || '';
         const colD = row.getCell(4).value?.toString() || '';
 
         // Manager
-        if (colA.toUpperCase().includes('SITE MANAGER')) {
-          blockManager = colA.split(':')[1]?.trim() || colA.split('MANAGER')[1]?.trim() || blockManager;
+        if (colA.toUpperCase().includes('SITE MANAGER') || colB.toUpperCase().includes('SITE MANAGER')) {
+          const val = colA || colB;
+          blockManager = val.split(':')[1]?.trim() || val.split('MANAGER')[1]?.trim() || blockManager;
         }
 
         // Scheme
@@ -90,25 +90,31 @@ export class BroadOakProfile implements PlannerProfile {
           blockScheme = colD.trim() || blockScheme;
         }
 
-        // Address & E-Ref Logic
-        if (colA.trim()) {
-           const eMatch = colA.match(this.eNumberRegex);
-           if (eMatch) blockENumber = eMatch[0];
-           
-           if (this.postcodeRegex.test(colA)) {
-               blockAddress = colA.trim();
-           } else if (!blockAddress && !colA.toUpperCase().includes('SITE MANAGER') && !colA.toUpperCase().includes('PHONE')) {
-               blockAddress = colA.trim();
-           }
-        }
+        // Address & E-Ref Logic (Check A and B)
+        [colA, colB].forEach(val => {
+            if (!val || val.trim().length < 3) return;
+            const eMatch = val.match(this.eNumberRegex);
+            if (eMatch) blockENumber = eMatch[0];
+            
+            if (this.postcodeRegex.test(val)) {
+                blockAddress = val.trim();
+            } else if (!blockAddress && !val.toUpperCase().includes('SITE MANAGER') && !val.toUpperCase().includes('PHONE')) {
+                blockAddress = val.trim();
+            }
+        });
 
-        // Dates
+        // Dates - Scan every row in block for potential date headers (Columns F+)
         row.eachCell((cell, colNumber) => {
             if (colNumber >= 6) { 
                 const date = this.parseDate(cell.value);
                 if (date) dateColumnMap.set(colNumber, date);
             }
         });
+      }
+
+      if (dateColumnMap.size === 0) {
+          errors.push({ message: `Section starting at row ${startRow} has no detectable dates in columns F+.`, severity: 'debug', code: 'NO_DATES_IN_SECTION', row: startRow });
+          continue;
       }
 
       // --- Pass 2: Extract Shifts ---
@@ -123,8 +129,8 @@ export class BroadOakProfile implements PlannerProfile {
           const text = cellValue.toString().trim();
           if (text.length < 3) return;
 
-          // Pattern Shield
-          if (this.isHeaderJunk(cellValue)) return;
+          // Pattern Shield: Ignore cells that just contain headers or the date itself
+          if (this.isHeaderJunk(cellValue, date)) return;
 
           const match = this.extractOperativeAndTask(text, userMap);
           if (match) {
@@ -132,8 +138,8 @@ export class BroadOakProfile implements PlannerProfile {
                 errors.push({
                     row: r,
                     cell: `${this.getColumnLetter(colNumber)}${r}`,
-                    message: "Work found but site address could not be identified in this panel.",
-                    severity: 'error',
+                    message: `Work entry "${text}" found but no address was identified in this section.`,
+                    severity: 'warning',
                     code: 'MISSING_ADDRESS',
                     rawValues: { text, date }
                 });
@@ -144,7 +150,7 @@ export class BroadOakProfile implements PlannerProfile {
               date,
               address: blockAddress,
               eNumber: blockENumber,
-              contract: blockScheme || "Gas Service",
+              contract: blockScheme || "Gas Works",
               manager: blockManager,
               operative: match.user.originalName,
               operativeUid: match.user.uid,
@@ -155,12 +161,12 @@ export class BroadOakProfile implements PlannerProfile {
               sourceSheet: sheet.name
             });
           } else {
-            // Check for potential work entries that failed matching
-            if (text.match(/[-–—]/) && text.length > 5) {
+            // Only flag as error if it looks like a real task (contains hyphen or long text)
+            if (text.includes('-') || text.includes('–') || text.includes('—') || text.length > 10) {
                 errors.push({
                     row: r,
                     cell: `${this.getColumnLetter(colNumber)}${r}`,
-                    message: `Operative name not recognized in text: "${text}"`,
+                    message: `Operative name not found in cell: "${text}"`,
                     severity: 'warning',
                     code: 'USER_NOT_FOUND',
                     rawValues: { text, address: blockAddress, date }
@@ -177,52 +183,76 @@ export class BroadOakProfile implements PlannerProfile {
   private detectSheet(sheet: ExcelJS.Worksheet): boolean {
     if (sheet.state === 'hidden') return false;
     let found = false;
+    // Check first 50 rows, columns A-C for "SITE MANAGER"
     for (let i = 1; i <= 50; i++) {
-        const val = sheet.getRow(i).getCell(1).value?.toString().toUpperCase() || '';
-        if (val.includes('SITE MANAGER') || val.includes('TECHNICAL MANAGER')) {
-            found = true;
-            break;
+        const row = sheet.getRow(i);
+        for (let j = 1; j <= 3; j++) {
+            const val = row.getCell(j).value?.toString().toUpperCase() || '';
+            if (val.includes('SITE MANAGER') || val.includes('TECHNICAL MANAGER')) {
+                found = true;
+                break;
+            }
         }
+        if (found) break;
     }
     return found;
   }
 
   private extractOperativeAndTask(text: string, userMap: UserMapEntry[]) {
-    // Support standard hyphen, en-dash, and em-dash
+    // 1. Split by various hyphen types
     const parts = text.split(/[-–—]/).map(p => p.trim());
-    if (parts.length < 2) return null;
-
-    const potentialName = parts[parts.length - 1].toUpperCase();
-    const cleanPotentialName = potentialName.replace(/\b(AM|PM)\b/g, '').trim();
-
+    
+    // 2. Multi-Strategy matching
     for (const user of userMap) {
       const userName = user.originalName.toUpperCase();
-      // Fuzzy matching: name is inside cell or cell part is inside name
-      if (cleanPotentialName.includes(userName) || userName.includes(cleanPotentialName)) {
-        let task = parts.slice(0, -1).join(' ').trim();
-        
-        let type: 'am' | 'pm' | 'all-day' = 'all-day';
-        const taskUpper = task.toUpperCase();
-        if (taskUpper.startsWith('AM ') || taskUpper.includes(' AM')) type = 'am';
-        else if (taskUpper.startsWith('PM ') || taskUpper.includes(' PM')) type = 'pm';
+      const normUser = user.normalizedName;
 
-        task = task.replace(/\b(AM|PM)\b/gi, '').replace(/^\s*[-:–—]\s*/, '').trim();
+      // Strategy A: Check parts (Standard Task - NAME)
+      if (parts.length >= 2) {
+          const lastPart = parts[parts.length - 1].toUpperCase();
+          if (lastPart.includes(userName) || userName.includes(lastPart)) {
+              return this.finalizeMatch(parts.slice(0, -1).join(' - '), user);
+          }
+      }
 
-        return { user, task: task || "General Works", type };
+      // Strategy B: Full text search (NAME - Task or Task NAME)
+      const textUpper = text.toUpperCase();
+      if (textUpper.includes(userName)) {
+          let task = text.replace(new RegExp(user.originalName, 'gi'), '').replace(/[-–—]/g, '').trim();
+          return this.finalizeMatch(task, user);
       }
     }
+    
     return null;
   }
 
-  private isHeaderJunk(val: any): boolean {
-    if (val instanceof Date) return true;
+  private finalizeMatch(rawTask: string, user: UserMapEntry) {
+    let task = rawTask || "General Works";
+    let type: 'am' | 'pm' | 'all-day' = 'all-day';
+    
+    const taskUpper = task.toUpperCase();
+    if (taskUpper.includes('AM')) type = 'am';
+    else if (taskUpper.includes('PM')) type = 'pm';
+
+    // Clean AM/PM markers from task
+    task = task.replace(/\b(AM|PM)\b/gi, '').replace(/^\s*[-:–—]\s*/, '').trim();
+
+    return { user, task: task || "General Works", type };
+  }
+
+  private isHeaderJunk(val: any, columnDate: Date): boolean {
+    if (!val) return true;
     const str = val.toString().toUpperCase();
     
-    // Skip if it looks like a header label or just a year/day
-    const junk = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER', 'JAN', 'FEB', 'MAR', 'APR', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+    // If cell contains the date itself
+    if (val instanceof Date) return true;
     
+    // If string matches month names or day names
+    const junk = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER', 'JAN', 'FEB', 'MAR', 'APR', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
     if (junk.includes(str)) return true;
-    if (str.length === 4 && !isNaN(parseInt(str))) return true; // Just a year
+
+    // Check if it's just the day number of the date
+    if (str === columnDate.getDate().toString()) return true;
     
     return false;
   }
