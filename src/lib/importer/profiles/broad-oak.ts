@@ -8,7 +8,7 @@ import { type PlannerProfile, type StandardShift, type ImportError, type UserMap
 export class BroadOakProfile implements PlannerProfile {
   id = 'broad-oak';
   name = 'Gas/Build Planner';
-  description = 'Hierarchical extraction: Groups rows by dividers and identifies the property address from the last cell in Column A of that section.';
+  description = 'Hierarchical extraction: Identifies property address from the last cell in Column A within a project section.';
 
   private eNumberRegex = /\b[BE]\d{5,}\b/i;
 
@@ -16,9 +16,10 @@ export class BroadOakProfile implements PlannerProfile {
     return workbook.worksheets.some(sheet => {
         if (sheet.state === 'hidden') return false;
         let found = false;
-        for (let i = 1; i <= 30; i++) {
+        // Scan more rows to be safe
+        for (let i = 1; i <= 50; i++) {
             const rowText = sheet.getRow(i).values?.toString().toUpperCase() || '';
-            if (rowText.includes('SITE MANAGER') || rowText.includes('DIVIDING LINE') || rowText.includes('GAS PLANNER')) {
+            if (rowText.includes('SITE MANAGER') || rowText.includes('DIVIDING LINE')) {
                 found = true;
                 break;
             }
@@ -31,6 +32,7 @@ export class BroadOakProfile implements PlannerProfile {
     const shifts: StandardShift[] = [];
     const errors: ImportError[] = [];
     
+    // Find the primary sheet (usually the first visible one with project markers)
     const sheet = workbook.worksheets.find(s => s.state !== 'hidden' && this.detectSheet(s)) || workbook.worksheets.find(s => s.state !== 'hidden');
 
     if (!sheet) {
@@ -38,17 +40,18 @@ export class BroadOakProfile implements PlannerProfile {
         return { shifts, errors };
     }
 
-    // 1. Map Global Date Headers (Search wider range to be safe)
+    // 1. Map Global Date Headers (Cols F+)
     const dateColumnMap = new Map<number, Date>();
     let dateRowIndex = -1;
 
+    // Scan top rows for the master date headers
     for (let r = 1; r <= 40; r++) {
         const row = sheet.getRow(r);
         let datesInRow = 0;
         const tempMap = new Map<number, Date>();
         
         row.eachCell((cell, colNumber) => {
-            if (colNumber >= 6) {
+            if (colNumber >= 6) { // Headers start at F
                 const date = this.parseDate(cell.value);
                 if (date) {
                     tempMap.set(colNumber, date);
@@ -57,6 +60,7 @@ export class BroadOakProfile implements PlannerProfile {
             }
         });
 
+        // Use the row with the most dates as our header row
         if (datesInRow > (dateColumnMap.size || 0)) {
             dateRowIndex = r;
             dateColumnMap.clear();
@@ -65,7 +69,7 @@ export class BroadOakProfile implements PlannerProfile {
     }
 
     if (dateColumnMap.size === 0) {
-        errors.push({ message: "No date headers found (Cols F+). Check if row 1-40 has dates.", severity: 'error', code: 'NO_DATES' });
+        errors.push({ message: "No dates found in columns F onwards.", severity: 'error', code: 'NO_DATES' });
         return { shifts, errors };
     }
 
@@ -78,22 +82,23 @@ export class BroadOakProfile implements PlannerProfile {
       }
     });
 
+    // If no dividers found, process the whole sheet as one block
     if (dividerRows.length === 0) {
         dividerRows.push(dateRowIndex + 1);
     }
 
-    // 3. Process Blocks
+    // 3. Process Project Blocks
     for (let i = 0; i < dividerRows.length; i++) {
       const startRow = dividerRows[i];
       const nextDividerRow = dividerRows[i + 1];
       const endRow = nextDividerRow ? nextDividerRow - 1 : sheet.rowCount;
 
+      // Pass 1: Extract Metadata (Address is the LAST populated box in Col A before the next divider)
       let blockAddress = "";
       let blockENumber = "";
       let blockManager = "";
       let blockScheme = "";
 
-      // Pass 1: Scan for Metadata (Address is LAST box in Col A)
       for (let r = startRow; r <= endRow; r++) {
         const row = sheet.getRow(r);
         const colA = row.getCell(1).value?.toString().trim();
@@ -107,6 +112,7 @@ export class BroadOakProfile implements PlannerProfile {
             blockScheme = row.getCell(4).value?.toString().trim() || blockScheme;
         }
 
+        // Address is always the last box in Column A
         if (colA && colA.length > 5 && !colA.toUpperCase().includes('MANAGER') && !colA.toUpperCase().includes('DIVIDING')) {
             blockAddress = colA;
             const eMatch = colA.match(this.eNumberRegex);
@@ -117,7 +123,7 @@ export class BroadOakProfile implements PlannerProfile {
         }
       }
 
-      // Pass 2: Extract Work Cells
+      // Pass 2: Extract Work Cells within the block
       for (let r = startRow; r <= endRow; r++) {
         const row = sheet.getRow(r);
 
@@ -126,7 +132,10 @@ export class BroadOakProfile implements PlannerProfile {
           if (!cell.value) return;
 
           const text = cell.value.toString().trim();
-          if (text.length < 3 || this.isHeaderJunk(cell.value, date)) return;
+          if (text.length < 3) return;
+
+          // Junk Filter: Ignore dates repeated in cells
+          if (this.isHeaderJunk(cell.value, date)) return;
 
           const match = this.extractOperativeAndTask(text, userMap);
           if (match) {
@@ -134,7 +143,7 @@ export class BroadOakProfile implements PlannerProfile {
                 errors.push({
                     row: r,
                     cell: `${this.getColumnLetter(colNumber)}${r}`,
-                    message: "Found shift but no address identified in this section.",
+                    message: "Found work but no address found in Column A for this section.",
                     severity: 'warning',
                     code: 'MISSING_ADDRESS',
                 });
@@ -178,6 +187,7 @@ export class BroadOakProfile implements PlannerProfile {
     for (const user of userMap) {
       const name = user.originalName.toUpperCase();
       
+      // Strategy 1: Delimiter based (Name usually at end)
       if (hyphens.test(text)) {
           const parts = text.split(hyphens).map(p => p.trim());
           const lastPart = parts[parts.length - 1].toUpperCase();
@@ -186,6 +196,7 @@ export class BroadOakProfile implements PlannerProfile {
           }
       }
 
+      // Strategy 2: Simple inclusion
       if (textUpper.includes(name)) {
           const task = text.replace(new RegExp(user.originalName, 'gi'), '').replace(hyphens, '').trim();
           return this.finalizeMatch(task, user);
@@ -197,8 +208,10 @@ export class BroadOakProfile implements PlannerProfile {
   private finalizeMatch(rawTask: string, user: UserMapEntry) {
     let task = rawTask || "General Works";
     let type: 'am' | 'pm' | 'all-day' = 'all-day';
+    
     if (task.toUpperCase().includes('AM')) type = 'am';
     else if (task.toUpperCase().includes('PM')) type = 'pm';
+
     task = task.replace(/\b(AM|PM)\b/gi, '').replace(/^\s*[-:–—]\s*/, '').trim();
     return { user, task: task || "General Works", type };
   }
