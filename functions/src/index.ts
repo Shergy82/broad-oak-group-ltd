@@ -647,13 +647,19 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     // --- Handle Shift Creation ---
     toCreate.forEach((shift: any) => {
         const newShiftRef = shiftsRef.doc();
-        // 🔒 FIX: Explicitly map operativeUid to userId and operative to userName
-        const { operativeUid, operative, ...rest } = shift;
         batch.set(newShiftRef, {
-            ...rest,
-            userId: operativeUid,
-            userName: operative,
+            userId: shift.operativeUid,
+            userName: shift.operative,
+            address: shift.address,
+            task: shift.task,
             date: admin.firestore.Timestamp.fromDate(new Date(shift.date)),
+            type: shift.type || 'all-day',
+            eNumber: shift.eNumber || '',
+            contract: shift.contract || '',
+            manager: shift.manager || '',
+            notes: shift.notes || '',
+            plannerName: shift.plannerName || '',
+            department: shift.department || department || '',
             status: 'pending-confirmation',
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             source: 'import',
@@ -662,13 +668,12 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
 
     // --- Handle Shift Updates ---
     toUpdate.forEach(({ id, new: newShift }: any) => {
-        // 🔒 FIX: Map operativeUid to userId and operative to userName
         const updatePayload: any = {
             userId: newShift.operativeUid,
             userName: newShift.operative,
             address: newShift.address,
             task: newShift.task,
-            type: newShift.type,
+            type: newShift.type || 'all-day',
             eNumber: newShift.eNumber || '',
             manager: newShift.manager || '',
             notes: newShift.notes || '',
