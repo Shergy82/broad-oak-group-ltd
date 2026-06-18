@@ -23,10 +23,9 @@ import {
   ChevronDown,
   X,
   UploadCloud,
-  FileIcon,
   HelpCircle,
 } from 'lucide-react';
-import type { Shift, UserProfile, ShiftStatus } from '@/types';
+import type { Shift, UserProfile } from '@/types';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
 import {
@@ -34,14 +33,10 @@ import {
   DropdownMenuContent,
   DropdownMenuCheckboxItem,
   DropdownMenuTrigger,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '../ui/scroll-area';
-import { cn, getCorrectedLocalDate } from '@/lib/utils';
-import { parseGasWorkbook, parseBuildWorkbook, type ImportType, type ParsedGasShift, type DiagnosticIssue } from '@/lib/exceljs-parser';
-import { isValid, startOfToday } from 'date-fns';
-
+import { cn } from '@/lib/utils';
+import { parseGasWorkbook, parseBuildWorkbook, type ImportType, type DiagnosticIssue } from '@/lib/exceljs-parser';
 
 export type ParsedShift = Omit<
   Shift,
@@ -62,7 +57,7 @@ type UserMapEntry = {
 };
 
 export interface FailedShift {
-  date: Date | null;
+  date: string | null;
   projectAddress: string;
   cellContent: string;
   reason: string;
@@ -93,13 +88,10 @@ function normalizeText(text: string | null | undefined): string {
 const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; type?: string }): string => {
   const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
   if (!d || isNaN(d.getTime())) return `invalid-${shift.userId}-${Math.random()}`;
-  // 🔒 MIDDAY UTC ANCHOR
   const dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-  // 🔒 TASK-FREE KEY: Only who, when, and where
   const addr = normalizeText(shift.address.replace(/\b[BE]\d+\S*\b/gi, ''));
   return `${dateStr}-${shift.userId}-${addr}-${shift.type || 'all'}`;
 };
-
 
 interface FileUploaderProps {
   onImportComplete: (failedShifts: FailedShift[], onConfirm: () => Promise<void>, dryRunResult?: DryRunResult) => void;
@@ -109,7 +101,7 @@ interface FileUploaderProps {
   importType: ImportType;
 }
 
-const LOCAL_STORAGE_KEY = 'shiftImport_selectedSheets_v2';
+const LOCAL_STORAGE_KEY = 'shiftImport_selectedSheets_v3';
 
 export function FileUploader({ onImportComplete, onFileSelect, userProfile, importDepartment, importType }: FileUploaderProps) {
   const [file, setFile] = useState<File | null>(null);
@@ -128,8 +120,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
     setSelectedSheets([]);
     setError(null);
     setUploadProgress(null);
-    const fileInput = document.getElementById('shift-file-input') as HTMLInputElement;
-    if (fileInput) fileInput.value = '';
     onFileSelect();
   };
 
@@ -153,117 +143,88 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
     reader.readAsArrayBuffer(selectedFile);
   };
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = event.target.files?.[0];
-    if (selectedFile) processFile(selectedFile);
-  };
-
-  const toggleSheet = (sheetName: string) => {
-    const next = selectedSheets.includes(sheetName) ? selectedSheets.filter((s) => s !== sheetName) : [...selectedSheets, sheetName];
-    setSelectedSheets(next);
-    try { localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(next)); } catch (e) {}
-  };
-
   const runImport = useCallback(
     async (commitChanges: boolean) => {
-      const firestore = db;
-      if (!file || !firestore) { setError('Please select a file first.'); return; }
+      if (!file || !db) return;
       setIsUploading(true);
-      setUploadProgress('Reading file...');
+      setUploadProgress('Analyzing data...');
       setError(null);
-      const currentPlannerName = normalizePlannerName(file.name);
+      const currentPlanner = normalizePlannerName(file.name);
 
       const reader = new FileReader();
       reader.onload = async (e) => {
         try {
           const data = e.target?.result;
           if (!(data instanceof ArrayBuffer)) throw new Error('Could not read file.');
-          const usersSnapshot = await getDocs(collection(firestore, 'users'));
+          
+          const usersSnapshot = await getDocs(collection(db, 'users'));
           const userMap: UserMapEntry[] = usersSnapshot.docs.map((d) => {
             const u = d.data() as UserProfile;
-            return { uid: d.id, normalizedName: normalizeText(u.name), originalName: u.name, department: u.department, accountType: u.accountType };
+            return { uid: d.id, normalizedName: normalizeText(u.name), originalName: u.name, department: u.department };
           });
           
           const finalDept = importType === 'GAS' ? 'Gas' : importDepartment;
           const result = importType === 'GAS' ? await parseGasWorkbook(Buffer.from(data), userMap) : await parseBuildWorkbook(Buffer.from(data), userMap, selectedSheets);
 
-          const allShiftsFromExcel = result.parsed.map((p: any) => ({
-            date: new Date(p.shiftDate),
-            address: p.siteAddress,
-            task: p.task,
-            userId: p.user.uid,
-            userName: p.user.originalName,
-            type: p.type,
-            manager: p.manager || '',
-            contract: p.contract || '',
-            department: finalDept,
-            notes: p.notes || '',
-            eNumber: p.eNumber || '',
-            plannerName: currentPlannerName, 
-          }));
+          const excelShifts = result.parsed.map(p => ({ ...p, date: new Date(p.shiftDate), plannerName: currentPlanner }));
+          const excelKeys = new Set(excelShifts.map(s => getShiftKey(s)));
 
-          const existingShiftsSnapshot = await getDocs(query(collection(firestore, 'shifts'), where('department', '==', finalDept)));
-          const existingShiftsMap = new Map<string, Shift>();
-          existingShiftsSnapshot.docs.forEach((doc) => {
-            const shiftData = { id: doc.id, ...doc.data() } as Shift;
-            const key = getShiftKey(shiftData as any);
-            if (!existingShiftsMap.has(key)) existingShiftsMap.set(key, shiftData);
+          const existingSnapshot = await getDocs(query(collection(db, 'shifts'), where('department', '==', finalDept)));
+          const existingMap = new Map<string, Shift>();
+          existingSnapshot.docs.forEach(d => {
+            const s = { id: d.id, ...d.data() } as Shift;
+            existingMap.set(getShiftKey(s as any), s);
           });
-
-          const excelShiftsMap = new Map<string, ParsedShift>();
-          allShiftsFromExcel.forEach(s => excelShiftsMap.set(getShiftKey(s as any), s));
 
           const toCreate: ParsedShift[] = [], toUpdate: { old: Shift; new: ParsedShift }[] = [], toDelete: Shift[] = [];
           const protectedStatuses = ['completed', 'incomplete', 'rejected', 'on-site'];
 
-          for (const [key, excelShift] of excelShiftsMap.entries()) {
-            const existing = existingShiftsMap.get(key);
-            if (!existing) toCreate.push(excelShift);
-            else if (!protectedStatuses.includes(existing.status)) {
-              if (normalizeText(existing.task) !== normalizeText(excelShift.task) || existing.type !== excelShift.type) {
-                toUpdate.push({ old: existing, new: excelShift });
-              }
+          excelShifts.forEach(ex => {
+            const key = getShiftKey(ex);
+            const ext = existingMap.get(key);
+            if (!ext) toCreate.push(ex as any);
+            else if (!protectedStatuses.includes(ext.status)) {
+                if (normalizeText(ext.task) !== normalizeText(ex.task) || ext.type !== ex.type) {
+                    toUpdate.push({ old: ext, new: ex as any });
+                }
             }
-          }
+          });
 
-          for (const [key, existing] of existingShiftsMap.entries()) {
-            const samePlanner = normalizePlannerName(existing.plannerName) === currentPlannerName;
-            if (samePlanner && !excelShiftsMap.has(key) && !protectedStatuses.includes(existing.status) && existing.source !== 'manual') {
-                toDelete.push(existing);
+          existingMap.forEach((ext, key) => {
+            const samePlanner = normalizePlannerName(ext.plannerName) === currentPlanner;
+            if (samePlanner && !excelKeys.has(key) && !protectedStatuses.includes(ext.status) && ext.source !== 'manual') {
+                toDelete.push(ext);
             }
-          }
+          });
 
           const onConfirm = async () => {
-            if (!functions) throw new Error("Functions not ready.");
+            if (!functions) return;
             await httpsCallable(functions, 'reconcileShifts')({
               toCreate: toCreate.map(s => ({ ...s, date: s.date.toISOString() })),
               toUpdate: toUpdate.map(u => ({ id: u.old.id, new: { ...u.new, date: u.new.date.toISOString() } })),
               toDelete: toDelete.map(s => ({ id: s.id })),
               department: finalDept
             });
-            toast({ title: 'Import Complete' });
+            toast({ title: 'Import Successful' });
           };
 
           if (!commitChanges) {
             onImportComplete(result.failures as any[], onConfirm, { toCreate, toUpdate, toDelete, failed: result.failures as any[], diagnostics: result.diagnostics });
-            setIsUploading(false);
-            setUploadProgress(null);
-            return;
+          } else {
+            await onConfirm();
+            handleClear();
           }
-          await onConfirm();
-          onImportComplete(result.failures as any[], onConfirm);
-          handleClear();
         } catch (err: any) {
-          console.error('Import crash:', err);
+          console.error('Import error:', err);
           if (err.message?.includes('time value')) {
-            setError(`Data Quality Diagnostic Error: Your spreadsheet contains non-date data (likely a phone number) in a date column.\n\nInstructions: Columns F onwards should ONLY contain valid dates. Check row 4 or 5 of your sheets for phone numbers.`);
-          } else setError(err?.message || 'Processing error.');
+            setError(`Data Quality Alert: A phone number was detected in a date column (F onwards).\n\nAction: Remove any non-date text from row 4 or 5 of your sheets.`);
+          } else setError(err.message || 'Import failed.');
           onImportComplete([], async () => {}, undefined);
         } finally { setIsUploading(false); setUploadProgress(null); }
       };
       reader.readAsArrayBuffer(file);
     },
-    [file, selectedSheets, toast, onImportComplete, onFileSelect, userProfile, importDepartment, importType]
+    [file, selectedSheets, toast, onImportComplete, onFileSelect, importDepartment, importType]
   );
 
   return (
@@ -271,45 +232,36 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
       {error && (
         <Alert variant="destructive">
           <FileWarning className="h-4 w-4" />
-          <AlertTitle className="flex items-center gap-2">Import Error <HelpCircle className="h-4 w-4" /></AlertTitle>
-          <AlertDescription style={{ whiteSpace: 'pre-wrap' }} className="text-xs leading-relaxed">{error}</AlertDescription>
+          <AlertTitle className="flex items-center gap-2">Processing Error <HelpCircle className="h-4 w-4" /></AlertTitle>
+          <AlertDescription className="text-xs whitespace-pre-wrap">{error}</AlertDescription>
         </Alert>
       )}
-      <div className="space-y-4">
-        {!file ? (
-          <div onDrop={(e) => { e.preventDefault(); setIsDragOver(false); if(e.dataTransfer.files?.[0]) processFile(e.dataTransfer.files[0]); }} onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }} onDragLeave={() => setIsDragOver(false)} className={cn('flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-lg text-center transition-colors h-48', isDragOver && 'border-primary bg-primary/10')}>
-            <UploadCloud className="h-12 w-12 text-muted-foreground" />
-            <h3 className="mt-2 text-sm font-medium">Drag & drop Excel file here</h3>
-            <Input id="shift-file-input" type="file" accept=".xlsx, .xls, .xlsm" className="sr-only" onChange={handleFileChange} />
-            <Button asChild variant="link" className="mt-2"><Label htmlFor="shift-file-input" className="cursor-pointer">Browse file</Label></Button>
+      {!file ? (
+        <div onDrop={(e) => { e.preventDefault(); setIsDragOver(false); if(e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]); }} onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }} onDragLeave={() => setIsDragOver(false)} className={cn('flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-lg h-48 transition-colors', isDragOver && 'border-primary bg-primary/10')}>
+          <UploadCloud className="h-12 w-12 text-muted-foreground" />
+          <h3 className="mt-2 text-sm font-medium">Drag & drop Excel file here</h3>
+          <Input id="shift-file-input" type="file" accept=".xlsx,.xls,.xlsm" className="sr-only" onChange={(e) => e.target.files?.[0] && processFile(e.target.files[0])} />
+          <Button asChild variant="link" className="mt-2"><Label htmlFor="shift-file-input" className="cursor-pointer">Browse file</Label></Button>
+        </div>
+      ) : (
+        <div className="p-4 border rounded-lg space-y-4 bg-muted/30">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium truncate max-w-[250px]">{file.name}</span>
+            <Button variant="ghost" size="icon" onClick={handleClear}><X className="h-4 w-4" /></Button>
           </div>
-        ) : (
-          <div className="p-4 border rounded-lg space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3"><FileIcon className="h-6 w-6 text-primary" /><div><p className="text-sm font-medium">{file.name}</p></div></div>
-              <Button variant="ghost" size="icon" onClick={handleClear} className="text-muted-foreground"><X className="h-5 w-5" /></Button>
-            </div>
-            {importType === 'BUILD' && sheetNames.length > 0 && (
-              <div className="space-y-2">
-                <Label>Select Sheets</Label>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild><Button variant="outline" className="w-full justify-between"><span className="truncate">{selectedSheets.length} sheets selected</span><ChevronDown className="h-4 w-4 opacity-50" /></Button></DropdownMenuTrigger>
-                  <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)]"><ScrollArea className="h-72">{sheetNames.map((name) => (<DropdownMenuCheckboxItem key={name} checked={selectedSheets.includes(name)} onCheckedChange={() => toggleSheet(name)} onSelect={(e) => e.preventDefault()}>{name}</DropdownMenuCheckboxItem>))}</ScrollArea></DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            )}
-          </div>
-        )}
-        {file && (
+          {importType === 'BUILD' && sheetNames.length > 0 && (
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild><Button variant="outline" className="w-full justify-between">{selectedSheets.length} sheets selected <ChevronDown className="ml-2 h-4 w-4" /></Button></DropdownMenuTrigger>
+                <DropdownMenuContent className="w-[300px]"><ScrollArea className="h-72">{sheetNames.map(n => (<DropdownMenuCheckboxItem key={n} checked={selectedSheets.includes(n)} onCheckedChange={(c) => setSelectedSheets(p => c ? [...p, n] : p.filter(s => s !== n))} onSelect={e => e.preventDefault()}>{n}</DropdownMenuCheckboxItem>))}</ScrollArea></DropdownMenuContent>
+            </DropdownMenu>
+          )}
           <div className="flex flex-col sm:flex-row gap-4 pt-2">
-            <div className="flex items-center space-x-2"><Checkbox id="dry-run" checked={isDryRun} onCheckedChange={(c) => setIsDryRun(!!c)} /><Label htmlFor="dry-run">Dry Run</Label></div>
-            <Button onClick={() => runImport(isDryRun === false)} disabled={!file || isUploading} className="w-full sm:w-auto min-w-[140px]">
-              {isUploading ? <Spinner /> : isDryRun ? <><TestTube2 className="mr-2 h-4 w-4" /> Run Test</> : <><Upload className="mr-2 h-4 w-4" /> Import Shifts</>}
-            </Button>
-            {uploadProgress && <span className="text-xs text-muted-foreground animate-pulse">{uploadProgress}</span>}
+            <div className="flex items-center space-x-2"><Checkbox id="dry-run" checked={isDryRun} onCheckedChange={(c) => setIsDryRun(!!c)} /><Label htmlFor="dry-run">Dry Run (Test Only)</Label></div>
+            <Button onClick={() => runImport(!isDryRun)} disabled={isUploading} className="flex-1">{isUploading ? <Spinner /> : isDryRun ? <><TestTube2 className="mr-2 h-4 w-4" /> Run Test</> : <><Upload className="mr-2 h-4 w-4" /> Final Import</>}</Button>
           </div>
-        )}
-      </div>
+          {uploadProgress && <p className="text-xs text-center text-muted-foreground animate-pulse">{uploadProgress}</p>}
+        </div>
+      )}
     </div>
   );
 }

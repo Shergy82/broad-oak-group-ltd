@@ -66,55 +66,26 @@ function normalizeWhitespace(s: string | null | undefined): string {
   return String(s).replace(/[ \t]+/g, " ").replace(/\s*\n\s*/g, " ").trim();
 }
 
-/**
- * 🔒 ROBUST NORMALIZATION (SHARED)
- */
 function normalizeText(text: string | null | undefined): string {
   if (!text) return "";
   let t = String(text).toLowerCase();
-  
-  // 🔒 STRIP PHONE NUMBERS from addresses to ensure key stability
   t = t.replace(/\b(0\d{3,4}\s*\d{5,6}|07\d{3}\s*\d{6}|\+44\s*\d{4}\s*\d{6})\b/g, '');
-  t = t.replace(/\s*\d{10,12}\b/g, ''); 
-  
-  return t
-    .replace(/[^a-z0-9]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return t.replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
 }
 
-/**
- * 🔒 MERGED CELL AWARE TEXT EXTRACTION
- */
 function getCellText(cell: ExcelJS.Cell | null | undefined): string {
   if (!cell) return "";
-  
   const master = cell.isMerged ? cell.master : cell;
   const val = master.value;
-  
   if (val === null || val === undefined) return "";
-  
   if (typeof val === 'object' && 'result' in val) {
     const res = (val as any).result;
     if (res === null || res === undefined) return "";
-    if (res instanceof Date) return res.toISOString();
     return String(res).trim();
   }
-
-  if (typeof val === 'object' && 'richText' in val && Array.isArray((val as any).richText)) {
-    return (val as any).richText.map((v: any) => v.text || '').join('').trim();
-  }
-  
-  try {
-    return (master.text || String(val)).trim();
-  } catch (e) {
-    return String(val || "").trim();
-  }
+  return String(master.text || val).trim();
 }
 
-/**
- * 🔒 MERGED CELL AWARE VALUE EXTRACTION
- */
 function getCellValue(cell: ExcelJS.Cell | null | undefined): any {
   if (!cell) return null;
   const master = cell.isMerged ? cell.master : cell;
@@ -124,7 +95,7 @@ function getCellValue(cell: ExcelJS.Cell | null | undefined): any {
 }
 
 /**
- * 🔒 FUZZY WORD-WISE MATCHING (GAS ROBUST)
+ * 🔒 FUZZY WORD-WISE MATCHING
  */
 function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: UserMapEntry[]; reason?: string } {
     const normalizedInput = normalizeText(nameChunk);
@@ -163,34 +134,19 @@ function parseExcelCellAsDate(cell: ExcelJS.Cell): { date: Date | null, diagnost
       d = new Date(Date.UTC(v.getFullYear(), v.getMonth(), v.getDate()));
     } else if (typeof v === "number" && v > 20000) {
       if (v > 60000) {
-        return { date: null, diagnostic: `Large number (${v}) likely a contact number.` };
+        return { date: null, diagnostic: `Likely a contact number.` };
       }
       const rawDate = new Date((v - 25569) * 86400 * 1000);
       d = new Date(Date.UTC(rawDate.getUTCFullYear(), rawDate.getUTCMonth(), rawDate.getUTCDate()));
-    } else {
-      const text = getCellText(cell);
-      if (text) {
-        const ukMatch = text.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);
-        if (ukMatch) {
-            const day = parseInt(ukMatch[1], 10);
-            const month = parseInt(ukMatch[2], 10) - 1;
-            let year = parseInt(ukMatch[3], 10);
-            if (year < 100) year += 2000;
-            d = new Date(Date.UTC(year, month, day));
-        }
-      }
     }
 
     if (d && !isNaN(d.getTime())) {
-      // 🔒 REALITY FILTER: 2024-2035
       if (d.getUTCFullYear() < 2024 || d.getUTCFullYear() > 2035) {
-        return { date: null, diagnostic: `Date in ${cell.address} resolves to year ${d.getUTCFullYear()}.` };
+        return { date: null, diagnostic: `Resolves to year ${d.getUTCFullYear()}.` };
       }
       return { date: new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12, 0, 0)) };
     }
-  } catch (e) {
-    console.error("Date parse error:", e);
-  }
+  } catch (e) {}
   return { date: null };
 }
 
@@ -202,9 +158,8 @@ function toISODate(dt: Date | null): string {
 function isNonShiftText(text: string): boolean {
   const t = text.trim().toLowerCase();
   if (/^\d{4}-\d{2}-\d{2}/.test(t)) return true;
-  if (/^\d+$/.test(t)) return true;
-  const strictHeaders = ["date", "task", "name", "operative", "address", "scheme", "manager", "ordering"];
-  return strictHeaders.some(h => t.includes(h)) || /^\+?\d[\d\s-]{7,}$/.test(t);
+  const noise = ["date", "task", "name", "operative", "address", "scheme", "manager"];
+  return noise.some(h => t.includes(h)) || /^\+?\d[\d\s-]{7,}$/.test(t);
 }
 
 /* =========================
@@ -257,22 +212,14 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
 
       const { address: siteAddress } = addressResult;
       const eNumber = siteAddress.match(/\b([BE]\d+\S*)\b/i)?.[1].toUpperCase() || '';
-      
-      let manager = '';
-      let contract = sheet.name;
-      let notesSet = new Set<string>();
+      let manager = '', contract = sheet.name;
 
-      for (let r = Math.max(1, header.row - 6); r <= Math.min(blockEnd, header.row + 6); r++) {
+      for (let r = Math.max(1, header.row - 6); r <= header.row; r++) {
           const row = sheet.getRow(r);
           for (let c = 1; c <= 5; c++) {
               const text = getCellText(row.getCell(c));
-              if (!text) continue;
               if (text.toUpperCase().includes('SCHEME:')) contract = text.split(/scheme:/i)[1]?.trim() || contract;
-              if (text.toUpperCase().includes('MANAGER')) {
-                  const cleaned = text.replace(/(site manager|technical manager|job manager)\s*:?/i, '').trim();
-                  if (!manager) manager = cleaned.split('\n')[0];
-                  notesSet.add(text);
-              }
+              if (text.toUpperCase().includes('MANAGER')) manager = text.replace(/(site manager|technical manager|job manager)\s*:?/i, '').trim().split('\n')[0];
           }
       }
 
@@ -289,15 +236,13 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
                   if (matched.length === 1) {
                       parsed.push({
                           siteAddress, shiftDate: isoDate, task, type,
-                          user: matched[0], manager, eNumber, contract,
-                          notes: Array.from(notesSet).join('\n'), department: 'Gas',
+                          user: matched[0], manager, eNumber, contract, department: 'Gas',
                           source: { sheetName: sheet.name, cellRef: cell.address }
                       });
                   } else {
                       failures.push({
-                          reason: reason || 'Unknown error', siteAddress, shiftDate: isoDate,
-                          operativeNameRaw: name, sheetName: sheet.name,
-                          cellRef: cell.address, cellContent: text
+                          reason: reason || 'Match error', siteAddress, shiftDate: isoDate,
+                          operativeNameRaw: name, sheetName: sheet.name, cellRef: cell.address, cellContent: text
                       });
                   }
               }
@@ -325,15 +270,11 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
     const used = getUsedBounds(sheet);
     if (!used) continue;
 
-    let dateRowIdx = -1;
-    let dateCols: { col: number, isoDate: string }[] = [];
-    
+    let dateRowIdx = -1, dateCols: { col: number, isoDate: string }[] = [];
     for (let r = 1; r <= 50; r++) {
-        // 🔒 COLUMN F BOUNDARY
         const res = getDateColumns(sheet, used, r, 6);
         if (res.cols.length >= 2) { dateRowIdx = r; dateCols = res.cols; break; }
     }
-
     if (dateRowIdx === -1) continue;
 
     let currentAddress = "", currentENumber = "";
@@ -370,7 +311,7 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
 }
 
 /* =========================
-   UTILS
+   CORE UTILS
 ========================= */
 
 function getUsedBounds(ws: ExcelJS.Worksheet): UsedBounds | null {
@@ -391,10 +332,7 @@ type UsedBounds = { startRow: number; endRow: number; startCol: number; endCol: 
 function isBlackDivider(row: ExcelJS.Row): boolean {
     for (let c = 1; c <= 5; c++) {
         const fill = row.getCell(c).fill as any;
-        if (fill?.type === 'pattern') {
-            const color = fill.fgColor?.argb || fill.fgColor?.theme;
-            if (color === 'FF000000' || color === '000000' || fill.fgColor?.indexed === 64) return true;
-        }
+        if (fill?.type === 'pattern' && (fill.fgColor?.argb === 'FF000000' || fill.fgColor?.indexed === 64)) return true;
     }
     return false;
 }
@@ -411,16 +349,15 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, start: numb
     const score = (text: string) => {
         if (!text || text.length < 5) return 0;
         const up = text.toUpperCase();
-        const noise = ['MATERIALS', 'MANAGER', 'TLO', 'ORDERING', 'TECHNICAL', 'RESPONSIBLE', 'SCHEME'];
         // 🔒 METADATA PENALTY
-        if (noise.some(n => up.includes(n))) return -20000;
+        if (['ORDERING', 'MANAGER', 'TLO', 'TECHNICAL', 'RESPONSIBLE'].some(n => up.includes(n))) return -20000;
         let s = Math.min(text.length, 50);
         if (/\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) s += 10000;
         if (/\d+/.test(text)) s += 500;
         return s;
     };
     let best = { text: "", score: -Infinity };
-    for (let r = start; r <= end; r++) {
+    for (let r = Math.max(1, start - 5); r <= end; r++) {
         const row = ws.getRow(r);
         for (let c = 1; c <= 3; c++) {
             const t = getCellText(row.getCell(c));
@@ -431,9 +368,9 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, start: numb
     return best.score >= 50 ? { address: normalizeWhitespace(best.text) } : null;
 }
 
-function getDateColumns(ws: ExcelJS.Worksheet, used: UsedBounds, rowIdx: number, startColIdx: number): { cols: Array<{ col: number; isoDate: string }>, diagnostics: DiagnosticIssue[] } {
+function getDateColumns(ws: ExcelJS.Worksheet, used: UsedBounds, rowIdx: number, startCol: number): { cols: Array<{ col: number; isoDate: string }>, diagnostics: DiagnosticIssue[] } {
   const cols = [], diagnostics: DiagnosticIssue[] = [];
-  for (let c = Math.max(used.startCol, startColIdx); c <= used.endCol; c++) {
+  for (let c = Math.max(used.startCol, startCol); c <= used.endCol; c++) {
     const cell = ws.getRow(rowIdx).getCell(c);
     const res = parseExcelCellAsDate(cell);
     if (res.date) cols.push({ col: c, isoDate: toISODate(res.date) });
@@ -443,8 +380,7 @@ function getDateColumns(ws: ExcelJS.Worksheet, used: UsedBounds, rowIdx: number,
 }
 
 function extractGasTaskAndNames(text: string): { task: string; names: string[]; type: 'am' | 'pm' | 'all-day' } {
-    let raw = normalizeWhitespace(text);
-    let type: 'am' | 'pm' | 'all-day' = 'all-day';
+    let raw = normalizeWhitespace(text), type: 'am' | 'pm' | 'all-day' = 'all-day';
     if (/^AM\b/i.test(raw)) { type = 'am'; raw = raw.substring(2).trim(); }
     else if (/^PM\b/i.test(raw)) { type = 'pm'; raw = raw.substring(2).trim(); }
     const sep = /[-\–\—]/g;
@@ -458,10 +394,7 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
 
 function extractBuildAddressFromRow(row: ExcelJS.Row): { address: string; eNumber: string } | null {
   const text = getCellText(row.getCell(1));
-  if (!text || text.length < 3) return null;
-  const up = text.toUpperCase();
-  const noise = ['MATERIALS', 'MANAGER', 'TLO', 'SCHEME', 'CONTRACT'];
-  if (noise.some(n => up.includes(n)) || /^\d{1,2}[\/\-\.]/.test(text)) return null;
+  if (!text || text.length < 3 || ['MATERIALS', 'MANAGER', 'TLO'].some(n => text.toUpperCase().includes(n))) return null;
   const rawAddr = normalizeWhitespace(text);
   const eMatch = rawAddr.match(/\b([BE]\d+\S*)\b/i);
   return { address: eMatch ? rawAddr.replace(eMatch[0], '').trim().replace(/^[:\-\s]+/, '') : rawAddr, eNumber: eMatch?.[1].toUpperCase() || '' };
