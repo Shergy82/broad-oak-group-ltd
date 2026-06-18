@@ -641,8 +641,8 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     toCreate.forEach((shift: any) => {
         const newShiftRef = shiftsRef.doc();
         batch.set(newShiftRef, {
-            userId: shift.operativeUid, // Preserve correction: map to correct field
-            userName: shift.operative, // Preserve correction: map to correct field
+            userId: shift.operativeUid, // 🔒 CRITICAL: Map to correct database field
+            userName: shift.operative, // 🔒 CRITICAL: Map to correct database field
             address: shift.address,
             task: shift.task,
             date: admin.firestore.Timestamp.fromDate(new Date(shift.date)),
@@ -662,8 +662,8 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     // --- Handle Shift Updates ---
     toUpdate.forEach(({ id, new: newShift }: any) => {
         const updatePayload: any = {
-            userId: newShift.operativeUid, // Preserve correction
-            userName: newShift.operative, // Preserve correction
+            userId: newShift.operativeUid, // 🔒 CRITICAL: Map to correct database field
+            userName: newShift.operative, // 🔒 CRITICAL: Map to correct database field
             address: newShift.address,
             task: newShift.task,
             type: newShift.type || 'all-day',
