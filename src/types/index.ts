@@ -26,6 +26,10 @@ export interface Shift {
   contract?: string;
   department?: string;
   notes?: string;
+  room?: string;
+  descriptionOfWorks?: string;
+  startTime?: string;
+  endTime?: string;
   plannerName?: string;
   createdAt: Timestamp;
   confirmedAt?: Timestamp;
@@ -202,6 +206,24 @@ export interface Unavailability {
   reason: 'Holiday' | 'Sickness' | 'Other' | 'Cross-Department Work';
   createdAt: Timestamp;
   shiftId?: string;
+}
+
+/* =========================
+   Import Logging
+   ========================= */
+
+export interface ImportLog {
+  id: string;
+  fileName: string;
+  importerUid: string;
+  importerName: string;
+  profileId: string;
+  rowCount: number;
+  shiftCount: number;
+  errorCount: number;
+  warningCount: number;
+  timestamp: Timestamp;
+  result: 'success' | 'failed' | 'cancelled';
 }
 
 /* =========================
