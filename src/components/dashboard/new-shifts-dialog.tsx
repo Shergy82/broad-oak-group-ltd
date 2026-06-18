@@ -11,7 +11,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Spinner } from '@/components/shared/spinner';
 import type { Shift } from '@/types';
 import { format } from 'date-fns';
-import { CheckCircle2, ThumbsDown, AlertTriangle, Gift } from 'lucide-react';
+import { CheckCircle2, ThumbsDown, Gift } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
@@ -98,17 +98,28 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-12 px-4">
-                      <Checkbox checked={selectedShiftIds.size > 0 && selectedShiftIds.size === sortedShifts.length} onCheckedChange={handleToggleAll} />
+                      <Checkbox 
+                        checked={sortedShifts.length > 0 && selectedShiftIds.size === sortedShifts.length} 
+                        onCheckedChange={handleToggleAll} 
+                      />
                     </TableHead>
-                    <TableHead>Date</TableHead><TableHead>Task</TableHead><TableHead>Address</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Task</TableHead>
+                    <TableHead>Address</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {sortedShifts.map(shift => (
                     <TableRow key={shift.id}>
-                      <TableCell className="px-4"><Checkbox checked={selectedShiftIds.has(shift.id)} onCheckedChange={() => handleToggleRow(shift.id)} /></TableCell>
+                      <TableCell className="px-4">
+                        <Checkbox 
+                          checked={selectedShiftIds.has(shift.id)} 
+                          onCheckedChange={() => handleToggleRow(shift.id)} 
+                        />
+                      </TableCell>
                       <TableCell>{format(getCorrectedLocalDate(shift.date), 'dd/MM/yy')}</TableCell>
-                      <TableCell>{shift.task}</TableCell><TableCell>{shift.address}</TableCell>
+                      <TableCell className="text-xs font-medium">{shift.task}</TableCell>
+                      <TableCell className="text-xs">{shift.address}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -116,9 +127,13 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
             </div>
           </ScrollArea>
           <DialogFooter className="sm:justify-between gap-2">
-            <Button variant="destructive" onClick={() => setIsRejectDialogOpen(true)} disabled={isLoading || selectedShiftIds.size === 0}><ThumbsDown className="mr-2 h-4 w-4" /> Reject</Button>
+            <Button variant="destructive" onClick={() => setIsRejectDialogOpen(true)} disabled={isLoading || selectedShiftIds.size === 0}>
+              <ThumbsDown className="mr-2 h-4 w-4" /> Reject Selected
+            </Button>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => handleUpdate(sortedShifts.filter(s => selectedShiftIds.has(s.id)), 'confirmed')} disabled={isLoading || selectedShiftIds.size === 0}>Accept Selected</Button>
+              <Button variant="outline" onClick={() => handleUpdate(sortedShifts.filter(s => selectedShiftIds.has(s.id)), 'confirmed')} disabled={isLoading || selectedShiftIds.size === 0}>
+                Accept Selected
+              </Button>
               <Button onClick={() => handleUpdate(sortedShifts, 'confirmed')} disabled={isLoading}>
                 {isLoading ? <Spinner /> : <><CheckCircle2 className="mr-2 h-4 w-4" /> Accept All ({shifts.length})</>}
               </Button>
@@ -129,8 +144,16 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
       <Dialog open={isRejectDialogOpen} onOpenChange={setIsRejectDialogOpen}>
         <DialogContent>
             <DialogHeader><DialogTitle>Reason for Rejection</DialogTitle></DialogHeader>
-            <div className="py-4 space-y-2"><Label>Reason</Label><Textarea value={rejectionNote} onChange={e => setRejectionNote(e.target.value)} placeholder="e.g., Cannot make this date" /></div>
-            <DialogFooter><Button variant="outline" onClick={() => setIsRejectDialogOpen(false)}>Cancel</Button><Button variant="destructive" onClick={() => handleUpdate(sortedShifts.filter(s => selectedShiftIds.has(s.id)), 'rejected', rejectionNote)} disabled={isLoading || !rejectionNote.trim()}>Confirm Rejection</Button></DialogFooter>
+            <div className="py-4 space-y-2">
+              <Label>Reason</Label>
+              <Textarea value={rejectionNote} onChange={e => setRejectionNote(e.target.value)} placeholder="e.g., Already booked, vehicle issues..." />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsRejectDialogOpen(false)}>Cancel</Button>
+              <Button variant="destructive" onClick={() => handleUpdate(sortedShifts.filter(s => selectedShiftIds.has(s.id)), 'rejected', rejectionNote)} disabled={isLoading || !rejectionNote.trim()}>
+                Confirm Rejection
+              </Button>
+            </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

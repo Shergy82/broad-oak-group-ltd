@@ -23,6 +23,7 @@ interface FileUploaderProps {
       toUpdate: { id: string; old: Shift; new: StandardShift }[];
       toDelete: Shift[];
       toUnchanged: Shift[];
+      profileId: string;
     }
   ) => void;
   onFileSelect: () => void;
@@ -30,20 +31,20 @@ interface FileUploaderProps {
 }
 
 /**
- * 🔒 IDENTITY KEY GENERATION
+ * 🔒 ROBUST IDENTITY KEY GENERATION (Frontend)
  * Used to uniquely identify a shift: Dept + User + Date + Normalized Address + Shift Type.
  */
 function getShiftIdentityKey(shift: any, department: string): string {
-  const dept = normalizeText(department);
+  const dept = String(department || '').toLowerCase().trim();
   const userId = String(shift.userId || shift.operativeUid || '').trim();
   const dateStr = getShiftDayKey(shift.date);
-  const address = normalizeText(shift.address);
-  const type = normalizeText(shift.type || 'all-day');
+  const address = normalizeAddress(shift.address);
+  const type = String(shift.type || 'all-day').toLowerCase().trim();
 
   return [dept, userId, dateStr, address, type].join('|');
 }
 
-function normalizeText(text: string | null | undefined): string {
+function normalizeAddress(text: string | null | undefined): string {
   if (!text) return '';
   return String(text)
     .toLowerCase()
@@ -59,12 +60,15 @@ function getShiftDayKey(value: any): string {
     d = value;
   } else if (typeof value?.toDate === 'function') {
     d = value.toDate();
+  } else if (typeof value === 'object' && value.seconds) {
+    d = new Date(value.seconds * 1000);
   } else {
     d = new Date(value);
   }
   
   if (isNaN(d.getTime())) return 'invalid-date';
 
+  // Use UTC to avoid timezone shifts during comparison
   return [
     d.getUTCFullYear(),
     String(d.getUTCMonth() + 1).padStart(2, '0'),
@@ -81,7 +85,7 @@ function isTodayOrFuture(value: any): boolean {
 }
 
 function hasDataChanged(existing: any, incoming: StandardShift): boolean {
-  const norm = (val: any) => normalizeText(String(val || '').trim());
+  const norm = (val: any) => String(val || '').toLowerCase().replace(/\s+/g, ' ').trim();
   
   return (
     norm(existing.task) !== norm(incoming.task) ||
@@ -110,15 +114,15 @@ export function FileUploader({
 
     /**
      * 🔒 SMART SCOPING
-     * Strips extensions, version numbers (v1, v2), and copy markers (1)
+     * Strips version numbers (v1, v2) and copy markers (1)
      * so that "Planner v2.xlsx" cross-references "Planner v1.xlsx".
      */
     const profileId = file.name
       .toLowerCase()
-      .replace(/\.[^/.]+$/, "") // remove extension
-      .replace(/[\s\-_]v\d+$/i, "") // remove v1, v2, v20
-      .replace(/\s\(\d+\)$/, "") // remove (1), (2)
-      .replace(/[^a-z0-9]/g, "-") // sanitize
+      .replace(/\.[^/.]+$/, "") 
+      .replace(/[\s\-_]v\d+$/i, "") 
+      .replace(/\s\(\d+\)$/, "") 
+      .replace(/[^a-z0-9]/g, "-") 
       .trim();
 
     const reader = new FileReader();
@@ -127,7 +131,7 @@ export function FileUploader({
         const buffer = e.target?.result;
         if (!(buffer instanceof ArrayBuffer)) throw new Error('Could not read file.');
 
-        // 1. Fetch search context
+        // 1. Fetch user search context
         const usersSnap = await getDocs(collection(db, 'users'));
         const userMap: UserMapEntry[] = usersSnap.docs.map(doc => {
           const u = doc.data() as any;
@@ -139,15 +143,15 @@ export function FileUploader({
           };
         });
 
-        // 2. Parse workbook
+        // 2. Parse workbook using detected profile
         const parseResult = await parseWorkbook(Buffer.from(buffer), userMap);
         
-        // 3. Filter for Today+ and attach department
+        // 3. Filter for active shifts and attach metadata
         const incomingShifts = parseResult.shifts
           .filter(s => isTodayOrFuture(s.date))
           .map(s => ({ ...s, department, plannerName: profileId }));
 
-        // 4. SCOPED SYNC: Fetch only shifts previously created by THIS planner stream
+        // 4. SCOPED SYNC: Fetch existing shifts from THIS planner stream only
         const existingSnap = await getDocs(
           query(
             collection(db, 'shifts'), 
@@ -166,7 +170,7 @@ export function FileUploader({
           }
         });
 
-        // 5. Compare logic
+        // 5. Categorize incoming shifts
         const toCreate: StandardShift[] = [];
         const toUpdate: { id: string; old: Shift; new: StandardShift }[] = [];
         const toUnchanged: Shift[] = [];
@@ -188,7 +192,7 @@ export function FileUploader({
           }
         });
 
-        // 6. Identify deletions (In DB from THIS planner but missing from current file)
+        // 6. Identify deletions (In DB from this planner but missing from current file)
         const toDelete: Shift[] = [];
         existingMap.forEach(existing => {
           if (!consumedExistingIds.has(existing.id)) {
@@ -205,10 +209,9 @@ export function FileUploader({
           profileId,
         });
 
-        // Reset input for immediate re-use
-        if (fileInputRef.current) {
-          fileInputRef.current.value = '';
-        }
+        // Clear input for immediate reuse
+        if (fileInputRef.current) fileInputRef.current.value = '';
+
       } catch (err: any) {
         console.error('Processing error:', err);
         setError(err.message || 'An unexpected error occurred.');
