@@ -68,6 +68,9 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
 
     const hasChanges = (dryRun.toCreate?.length || 0) > 0 || (dryRun.toUpdate?.length || 0) > 0 || (dryRun.toDelete?.length || 0) > 0;
     
+    /**
+     * 🔒 CHRONOLOGICAL SORTING
+     */
     const dateSort = (a: any, b: any) => {
       const getT = (i: any) => {
         const item = i.new || i; // Handle update wrapper

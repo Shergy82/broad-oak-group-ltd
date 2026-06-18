@@ -72,9 +72,17 @@ export interface DryRunResult {
   diagnostics?: DiagnosticIssue[];
 }
 
+/**
+ * 🔒 PLANNER SCOPE NORMALIZER
+ * Strips extensions and download numbers like (43) or (1)
+ */
 function normalizePlannerName(name: string | null | undefined): string {
   if (!name) return "";
-  return name.replace(/\.[^/.]+$/, "").replace(/\s*\(\d+\)$/, "").toLowerCase().trim();
+  return name
+    .replace(/\.[^/.]+$/, "") // remove extension
+    .replace(/\s*\(\d+\)$/, "") // remove trailing (number)
+    .toLowerCase()
+    .trim();
 }
 
 function normalizeText(text: string | null | undefined): string {
@@ -85,6 +93,11 @@ function normalizeText(text: string | null | undefined): string {
   return t.replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
 }
 
+/**
+ * 🔒 STABLE IDENTITY KEY
+ * Identify shifts by Who + When + Where. 
+ * Task description is EXCLUDED so updates are recognized as edits.
+ */
 const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; type?: string }): string => {
   const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
   if (!d || isNaN(d.getTime())) return `invalid-${shift.userId}-${Math.random()}`;
@@ -155,7 +168,8 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
       setIsUploading(true);
       setUploadProgress('Analyzing data...');
       setError(null);
-      const currentPlanner = normalizePlannerName(file.name);
+      
+      const currentPlannerNormalized = normalizePlannerName(file.name);
 
       const reader = new FileReader();
       reader.onload = async (e) => {
@@ -172,7 +186,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           const finalDept = importType === 'GAS' ? 'Gas' : importDepartment;
           const result = importType === 'GAS' ? await parseGasWorkbook(Buffer.from(data), userMap) : await parseBuildWorkbook(Buffer.from(data), userMap, selectedSheets);
 
-          const excelShifts = result.parsed.map(p => ({ ...p, date: new Date(p.shiftDate), plannerName: currentPlanner }));
+          const excelShifts = result.parsed.map(p => ({ ...p, date: new Date(p.shiftDate), plannerName: file.name }));
           const excelKeys = new Set(excelShifts.map(s => getShiftKey(s)));
 
           // Fetch only shifts for this department to optimize comparison
@@ -193,16 +207,21 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
                 toCreate.push(ex as any);
             } else if (!protectedStatuses.includes(ext.status)) {
                 // Identity match (Key matches) but content changed (Task/Note)
+                // This correctly identifies "Updates" now that task isn't in the key
                 if (normalizeText(ext.task) !== normalizeText(ex.task) || ext.type !== ex.type) {
                     toUpdate.push({ old: ext, new: ex as any });
                 }
             }
           });
 
-          // Deletion scope is strictly limited to the current planner (ignoring version numbers like (3))
+          /**
+           * 🔒 PLANNER SCOPE SHIELD
+           * Only delete shifts that were imported from variations of THIS planner.
+           * e.g. "Unitas (43)" should only replace work from "Unitas".
+           */
           existingMap.forEach((ext, key) => {
-            const extPlanner = normalizePlannerName(ext.plannerName);
-            const isSamePlanner = extPlanner === currentPlanner;
+            const extPlannerNorm = normalizePlannerName(ext.plannerName);
+            const isSamePlanner = extPlannerNorm === currentPlannerNormalized;
             
             if (isSamePlanner && !excelKeys.has(key) && !protectedStatuses.includes(ext.status) && ext.source !== 'manual') {
                 toDelete.push(ext);
