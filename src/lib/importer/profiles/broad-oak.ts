@@ -3,13 +3,13 @@ import ExcelJS from 'exceljs';
 import { type PlannerProfile, type StandardShift, type ImportError, type UserMapEntry } from '../types';
 
 /**
- * Broad Oak Gas (Battleship) Profile - HIERARCHICAL REBUILD
- * Logic: Property Section (Col A) -> Date Column (Header Row) -> Work Cell (Grid)
+ * Broad Oak Gas (Battleship) Profile - BLOCK-BASED REBUILD
+ * Logic: Identify Section Boundaries -> Extract Block Address -> Map Shifts
  */
 export class BroadOakProfile implements PlannerProfile {
   id = 'broad-oak';
   name = 'Broad Oak Gas (Battleship)';
-  description = 'Hierarchical extraction: Properties in Col A, Dates in Col F+, Operatives embedded in grid cells.';
+  description = 'Hierarchical extraction: Groups rows by site dividers, finds address within block, then maps grid shifts.';
 
   private postcodeRegex = /\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b/i;
   private eNumberRegex = /\bE\d{5,}\b/i;
@@ -18,15 +18,16 @@ export class BroadOakProfile implements PlannerProfile {
     const sheet = workbook.worksheets.find(s => s.state !== 'hidden');
     if (!sheet) return false;
 
-    let dateCount = 0;
+    let markerFound = false;
     sheet.eachRow((row, rowNumber) => {
       if (rowNumber > 20) return;
-      row.eachCell((cell, colIndex) => {
-        if (colIndex >= 6 && this.parseDate(cell.value)) dateCount++;
-      });
+      const colA = row.getCell(1).value?.toString().toUpperCase() || '';
+      if (colA.includes('SITE MANAGER') || colA.includes('TECHNICAL MANAGER')) {
+        markerFound = true;
+      }
     });
 
-    return dateCount >= 3;
+    return markerFound;
   }
 
   async parse(workbook: ExcelJS.Workbook, userMap: UserMapEntry[]): Promise<{ shifts: StandardShift[], errors: ImportError[] }> {
@@ -35,127 +36,143 @@ export class BroadOakProfile implements PlannerProfile {
     const sheet = workbook.worksheets.find(s => s.state !== 'hidden');
     if (!sheet) return { shifts: [], errors: [] };
 
-    // 1. Find the Date Header Row (Row with highest density of dates in Col F+)
-    let dateRowNumber = -1;
-    let maxDates = 0;
-    const dateColumnMap = new Map<number, Date>();
-
+    // 1. Identify all Divider Rows (Starts of Site Blocks)
+    const dividerRows: number[] = [];
     sheet.eachRow((row, rowNumber) => {
-      if (rowNumber > 30) return;
-      let rowDates = 0;
-      row.eachCell((cell, colIndex) => {
-        if (colIndex >= 6 && this.parseDate(cell.value)) rowDates++;
-      });
-      if (rowDates > maxDates) {
-        maxDates = rowDates;
-        dateRowNumber = rowNumber;
+      const colA = row.getCell(1).value?.toString().toUpperCase() || '';
+      if (colA.includes('SITE MANAGER') || colA.includes('TECHNICAL MANAGER')) {
+        dividerRows.push(rowNumber);
       }
     });
 
-    if (dateRowNumber === -1) {
-      errors.push({ message: "No horizontal date headers detected (Column F onwards).", severity: 'error', code: 'NO_DATES' });
+    if (dividerRows.length === 0) {
+      errors.push({ message: "No 'SITE MANAGER' dividers found in Column A.", severity: 'error', code: 'NO_DIVIDERS' });
       return { shifts: [], errors };
     }
 
-    // Map columns to dates
-    sheet.getRow(dateRowNumber).eachCell((cell, colNumber) => {
-      if (colNumber >= 6) {
-        const date = this.parseDate(cell.value);
-        if (date) dateColumnMap.set(colNumber, date);
-      }
-    });
+    // 2. Process each Block (from one divider to the next)
+    for (let i = 0; i < dividerRows.length; i++) {
+      const startRow = dividerRows[i];
+      const endRow = dividerRows[i + 1] ? dividerRows[i + 1] - 1 : sheet.rowCount;
 
-    // 2. Scan Rows and Maintain Property State
-    let currentAddress = "";
-    let currentENumber = "";
-    let currentManager = "";
-    let currentScheme = "";
+      // --- Block Pass 1: Find Address Anchor and Metadata ---
+      let blockAddress = "";
+      let blockENumber = "";
+      let blockManager = "";
+      let blockScheme = "";
+      const dateColumnMap = new Map<number, Date>();
 
-    sheet.eachRow((row, rowNumber) => {
-      // Skip headers
-      if (rowNumber <= dateRowNumber) return;
+      for (let r = startRow; i <= endRow; r++) {
+        const row = sheet.getRow(r);
+        const colA = row.getCell(1).value?.toString() || '';
+        const colC = row.getCell(3).value?.toString() || '';
+        const colD = row.getCell(4).value?.toString() || '';
 
-      const colA = row.getCell(1).value?.toString() || '';
-      const colC = row.getCell(3).value?.toString() || '';
-      const colD = row.getCell(4).value?.toString() || '';
+        // Capture Address/E-ref (Prioritize rows with Postcodes)
+        if (this.postcodeRegex.test(colA) || this.eNumberRegex.test(colA)) {
+          blockAddress = colA.trim();
+          const eMatch = colA.match(this.eNumberRegex);
+          if (eMatch) blockENumber = eMatch[0];
+        }
 
-      // Check for Property Identifiers in Col A
-      const hasPostcode = this.postcodeRegex.test(colA);
-      const hasENumber = this.eNumberRegex.test(colA);
+        // Capture Manager
+        if (colA.toUpperCase().includes('SITE MANAGER')) {
+          blockManager = colA.split(':')[1]?.trim() || "";
+        }
 
-      if (hasPostcode || hasENumber) {
-        currentAddress = colA.trim();
-        const eMatch = colA.match(this.eNumberRegex);
-        currentENumber = eMatch ? eMatch[0] : "";
-      }
+        // Capture Scheme from Column C/D
+        if (colC.toUpperCase().includes('SCHEME') || colC.toUpperCase().includes('CONTRACT')) {
+          blockScheme = colD.trim() || "";
+        }
 
-      // Check for Metadata (Manager/Scheme)
-      if (colA.toUpperCase().includes('SITE MANAGER')) {
-        currentManager = colD || "";
-      }
-      if (colC.toUpperCase().includes('SCHEME') || colC.toUpperCase().includes('CONTRACT')) {
-        currentScheme = colD || "";
-      }
-
-      // 3. Scan Date Columns (F+) for Work Cells
-      dateColumnMap.forEach((date, colNumber) => {
-        const cell = row.getCell(colNumber);
-        const cellValue = cell.value;
-        if (!cellValue) return;
-
-        const cellCoord = `${this.getColumnLetter(colNumber)}${rowNumber}`;
-
-        // SHIELD: Skip if the cell is just a date object or string repeat of the header
-        if (this.isDateOrHeaderRepeat(cellValue, date)) return;
-
-        const text = cellValue.toString().trim();
-        if (text.length < 3) return;
-
-        // EXTRACTION: Split by hyphen and match operative
-        const match = this.extractOperativeAndTask(text, userMap);
-
-        if (match) {
-          shifts.push({
-            date,
-            address: currentAddress || "Unknown Address",
-            eNumber: currentENumber,
-            contract: currentScheme || "General",
-            manager: currentManager,
-            operative: match.user.originalName,
-            operativeUid: match.user.uid,
-            task: match.task,
-            descriptionOfWorks: text,
-            type: match.type,
-            sourceCell: `${sheet.name}!${cellCoord}`,
-            sourceSheet: sheet.name
-          });
-        } else {
-          // Flag as "Not Imported"
-          errors.push({
-            row: rowNumber,
-            cell: cellCoord,
-            message: `Operative not recognized in text: "${text.substring(0, 50)}..."`,
-            severity: 'warning',
-            code: 'USER_NOT_FOUND',
-            rawValues: { text, address: currentAddress, date }
+        // Capture Dates (Check Row startRow specifically for horizontal headers)
+        if (r === startRow) {
+          row.eachCell((cell, colNumber) => {
+            if (colNumber >= 6) {
+              const date = this.parseDate(cell.value);
+              if (date) dateColumnMap.set(colNumber, date);
+            }
           });
         }
-      });
-    });
+      }
+
+      // --- Block Pass 2: Extract Shifts ---
+      for (let r = startRow; r <= endRow; r++) {
+        const row = sheet.getRow(r);
+
+        dateColumnMap.forEach((date, colNumber) => {
+          const cell = row.getCell(colNumber);
+          const cellValue = cell.value;
+          if (!cellValue) return;
+
+          const cellCoord = `${this.getColumnLetter(colNumber)}${r}`;
+
+          // SHIELD: Skip if cell is just a date repetition (the "329 Not Imported" bug)
+          if (this.isDateOrHeaderRepeat(cellValue, date)) return;
+
+          const text = cellValue.toString().trim();
+          if (text.length < 3) return;
+
+          // EXTRACT: Match Operative Name from Text
+          const match = this.extractOperativeAndTask(text, userMap);
+
+          if (match) {
+            if (!blockAddress) {
+                // If we found an operative but still no address in the block, 
+                // it's a structural error in the sheet.
+                errors.push({
+                    row: r,
+                    cell: cellCoord,
+                    message: "Operative found but no site address detected in this section.",
+                    severity: 'warning',
+                    code: 'MISSING_ADDRESS',
+                    rawValues: { text, date }
+                });
+                return;
+            }
+
+            shifts.push({
+              date,
+              address: blockAddress,
+              eNumber: blockENumber,
+              contract: blockScheme || "General",
+              manager: blockManager,
+              operative: match.user.originalName,
+              operativeUid: match.user.uid,
+              task: match.task,
+              descriptionOfWorks: text,
+              type: match.type,
+              sourceCell: `${sheet.name}!${cellCoord}`,
+              sourceSheet: sheet.name
+            });
+          } else {
+            // Only flag as "Not Imported" if it looks like a work entry (contains common task words or a hyphen)
+            if (text.includes('-') || text.length > 5) {
+                errors.push({
+                  row: r,
+                  cell: cellCoord,
+                  message: `Operative name not recognized in text: "${text.substring(0, 30)}..."`,
+                  severity: 'warning',
+                  code: 'USER_NOT_FOUND',
+                  rawValues: { text, address: blockAddress, date }
+                });
+            }
+          }
+        });
+      }
+    }
 
     return { shifts, errors };
   }
 
   private extractOperativeAndTask(text: string, userMap: UserMapEntry[]) {
-    const parts = text.split('-').map(p => p.trim());
     const upperText = text.toUpperCase();
 
-    // Check every user against the text
     for (const user of userMap) {
       const name = user.originalName.toUpperCase();
       if (upperText.includes(name)) {
         let task = text;
-        // Clean the task by removing the name and separators
+        // Clean the task by removing the name and prefixes
         task = task.replace(new RegExp(user.originalName, 'gi'), '')
                    .replace(/^[Aa][Mm]\s+/, '')
                    .replace(/^[Pp][Mm]\s+/, '')
@@ -175,14 +192,18 @@ export class BroadOakProfile implements PlannerProfile {
 
   private isDateOrHeaderRepeat(val: any, columnDate: Date): boolean {
     if (val instanceof Date) return true;
-    if (typeof val === 'number') return true; // Likely a serial date
+    if (typeof val === 'number') return true; 
     
     const str = val.toString().toUpperCase();
-    // Common date header strings to ignore
-    if (str.includes('2026') || str.includes('2025')) return true;
-    if (str.includes('JUN') || str.includes('JUL') || str.includes('AUG')) return true;
+    // Ignore strings that look like date headers (e.g., "Thu Jun 18")
+    const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+    const days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
     
-    return false;
+    const hasMonth = months.some(m => str.includes(m));
+    const hasDay = days.some(d => str.includes(d));
+    const hasYear = str.includes('202');
+
+    return (hasMonth && hasDay) || (hasMonth && hasYear);
   }
 
   private parseDate(val: any): Date | null {
