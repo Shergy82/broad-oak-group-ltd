@@ -77,8 +77,8 @@ exports.reconcileShifts = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 
     }
     await assertAdminOrManager(uid);
     const data = req.data;
-    const { toCreate = [], department } = data;
-    if (!Array.isArray(toCreate) || !department) {
+    const { toCreate = [], toUpdate = [], toDelete = [], department } = data;
+    if (!Array.isArray(toCreate) || !Array.isArray(toUpdate) || !Array.isArray(toDelete) || !department) {
         throw new https_1.HttpsError("invalid-argument", "Invalid payload. Expected toCreate array and department.");
     }
     const shiftsRef = db.collection("shifts");
@@ -155,7 +155,7 @@ exports.reconcileShifts = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 
             return;
         existingByKey.set(shiftKey(existing), doc);
     });
-    const importedFutureShifts = toCreate.filter((shift) => {
+    const importedFutureShifts = [...toCreate, ...toUpdate.map((u) => u.new)].filter((shift) => {
         if (!shift.operativeUid) {
             throw new https_1.HttpsError("invalid-argument", `Missing operativeUid for ${shift.operative || "unknown operative"} at ${shift.address || "unknown address"}.`);
         }
@@ -236,12 +236,12 @@ exports.reconcileShifts = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 
         }
     }
     // Delete future imported shifts missing from latest import
-    existingByKey.forEach((doc, key) => {
-        if (!importedKeys.has(key)) {
-            batch.delete(doc.ref);
-            deletedCount++;
-        }
-    });
+    for (const shift of toDelete) {
+        if (!shift.id)
+            continue;
+        batch.delete(shiftsRef.doc(shift.id));
+        deletedCount++;
+    }
     await batch.commit();
     return {
         success: true,

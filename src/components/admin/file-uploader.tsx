@@ -148,7 +148,6 @@ export function FileUploader({
           }
         });
 
-        // 🔒 Robust Query: Find ALL imported shifts for this planner
         const existingSnap = await getDocs(
           query(
             collection(db, 'shifts'),
@@ -202,7 +201,6 @@ export function FileUploader({
           profileId: plannerName,
         });
 
-        // 🔄 Reset file input so same file can be selected again
         if (fileInputRef.current) {
           fileInputRef.current.value = '';
         }
@@ -245,7 +243,7 @@ export function FileUploader({
             <div className="bg-primary/10 p-4 rounded-full mb-4">
               <UploadCloud className="h-8 w-8 text-primary" />
             </div>
-            <h3 className="text-lg font-semibold">{title}</h3>
+            <h3 className="text-lg font-semibold">Upload {title}</h3>
             <p className="text-sm text-muted-foreground mb-4 text-center">Identifying addresses and assigning staff.</p>
             <Input 
               ref={fileInputRef}

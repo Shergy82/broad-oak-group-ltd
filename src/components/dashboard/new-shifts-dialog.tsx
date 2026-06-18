@@ -11,7 +11,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Spinner } from '@/components/shared/spinner';
 import type { Shift } from '@/types';
 import { format } from 'date-fns';
-import { CheckCheck, Gift, ThumbsDown, AlertTriangle } from 'lucide-react';
+import { CheckCheck, Gift, ThumbsDown, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';

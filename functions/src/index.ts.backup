@@ -62,9 +62,9 @@ export const reconcileShifts = onCall(
     await assertAdminOrManager(uid);
 
     const data = req.data as any;
-    const { toCreate = [], toUpdate = [], toDelete = [], department } = data;
+    const { toCreate = [], department } = data;
 
-    if (!Array.isArray(toCreate) || !Array.isArray(toUpdate) || !Array.isArray(toDelete) || !department) {
+    if (!Array.isArray(toCreate) || !department) {
       throw new HttpsError(
         "invalid-argument",
         "Invalid payload. Expected toCreate array and department."
@@ -167,7 +167,7 @@ export const reconcileShifts = onCall(
       existingByKey.set(shiftKey(existing), doc);
     });
 
-    const importedFutureShifts = [...toCreate, ...toUpdate.map((u: any) => u.new)].filter((shift: any) => {
+    const importedFutureShifts = toCreate.filter((shift: any) => {
       if (!shift.operativeUid) {
         throw new HttpsError(
           "invalid-argument",
@@ -263,12 +263,12 @@ export const reconcileShifts = onCall(
     }
 
     // Delete future imported shifts missing from latest import
-    for (const shift of toDelete) {
-      if (!shift.id) continue;
-    
-      batch.delete(shiftsRef.doc(shift.id));
-      deletedCount++;
-    }
+    existingByKey.forEach((doc, key) => {
+      if (!importedKeys.has(key)) {
+        batch.delete(doc.ref);
+        deletedCount++;
+      }
+    });
 
     await batch.commit();
 
