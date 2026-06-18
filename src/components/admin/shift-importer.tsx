@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { FileUploader, type FailedShift, type DryRunResult } from './file-uploader';
 import type { UserProfile } from '@/types';
@@ -11,7 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from '../ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { format, isValid } from 'date-fns';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { db } from '@/lib/firebase';
+import { collection, getDocs } from 'firebase/firestore';
 import { Label } from '../ui/label';
 import type { ImportType } from '@/lib/exceljs-parser';
 
@@ -29,6 +30,16 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
   const [isConfirmed, setIsConfirmed] = useState(false);
   const [importDepartment, setImportDepartment] = useState(userProfile.department || 'Gas');
   const [importType, setImportType] = useState<ImportType>('GAS');
+  const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
+
+  useEffect(() => {
+    if (!db) return;
+    getDocs(collection(db, 'users')).then(snap => {
+      setAllUsers(snap.docs.map(d => ({ uid: d.id, ...d.data() } as UserProfile)));
+    });
+  }, []);
+
+  const userNameMap = useMemo(() => new Map(allUsers.map(u => [u.uid, u.name])), [allUsers]);
 
   const handleImportComplete = (failedShifts: FailedShift[], onConfirm: () => Promise<void>, dryRunResult?: DryRunResult) => {
     setImportResults({ failedShifts, onConfirm, dryRunResult });
@@ -122,13 +133,6 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
       </Tabs>
     );
   };
-
-  // Helper map for deletions tab
-  const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
-  useMemo(() => {
-    getDocs(collection(db, 'users')).then(snap => setAllUsers(snap.docs.map(d => ({ uid: d.id, ...d.data() } as UserProfile))));
-  }, []);
-  const userNameMap = useMemo(() => new Map(allUsers.map(u => [u.uid, u.name])), [allUsers]);
 
   return (
     <div className="space-y-6">
