@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
@@ -116,7 +117,8 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
   const renderDryRunResults = (dryRun: DryRunResult) => {
     const notImported = (dryRun.errors || []).filter(err => 
         err.severity === 'error' || 
-        ['OPERATIVE_MISSING', 'PROPERTY_MISSING', 'USER_NOT_FOUND', 'INVALID_DATE', 'MISSING_OPERATIVE', 'NO_WORK_DETAILS'].includes(err.code)
+        err.severity === 'warning' ||
+        ['OPERATIVE_MISSING', 'PROPERTY_MISSING', 'USER_NOT_FOUND', 'INVALID_DATE', 'MISSING_ADDRESS'].includes(err.code)
     );
     const technicalLogs = (dryRun.errors || []).filter(err => !notImported.includes(err));
 
@@ -239,10 +241,9 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                             <TableHeader className="sticky top-0 bg-background z-10">
                                 <TableRow>
                                     <TableHead>Date</TableHead>
-                                    <TableHead>Address</TableHead>
-                                    <TableHead>Description</TableHead>
-                                    <TableHead>Operative Found</TableHead>
-                                    <TableHead>Reason</TableHead>
+                                    <TableHead>Cell</TableHead>
+                                    <TableHead>Work Found</TableHead>
+                                    <TableHead>Reason Not Imported</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -252,13 +253,12 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                                     return (
                                         <TableRow key={i} className="bg-red-50/50">
                                             <TableCell className="text-[10px]">{date ? format(date, 'dd/MM/yy') : 'N/A'}</TableCell>
-                                            <TableCell className="text-[10px] truncate max-w-[120px]">{raw.address || 'N/A'}</TableCell>
-                                            <TableCell className="text-[10px] truncate max-w-[150px] italic">"{raw.text || err.message}"</TableCell>
-                                            <TableCell className="text-[10px] font-bold">{raw.operative || 'None'}</TableCell>
+                                            <TableCell className="text-[10px] font-bold">{err.cell || '?'}</TableCell>
+                                            <TableCell className="text-[10px] truncate max-w-[200px] italic">"{raw.text || 'Empty'}"</TableCell>
                                             <TableCell className="text-[10px] font-semibold text-red-700">{err.message}</TableCell>
                                         </TableRow>
                                     );
-                                }) : <TableRow><TableCell colSpan={5} className="text-center py-10 text-muted-foreground">No problematic rows found.</TableCell></TableRow>}
+                                }) : <TableRow><TableCell colSpan={4} className="text-center py-10 text-muted-foreground">No problematic entries found.</TableCell></TableRow>}
                             </TableBody>
                         </Table>
                     </ScrollArea>
@@ -285,7 +285,6 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                 </div>
             </div>
 
-            {/* Hidden Technical Log Section */}
             <div className="pt-8 mt-8 border-t">
                 <Button 
                     variant="outline" 
@@ -342,14 +341,6 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                         <li><strong>Shift Types</strong>: Start text with "AM" or "PM" for partial shifts; otherwise, "All Day" is assumed.</li>
                     </ul>
                 </div>
-                <Separator />
-                <div className="space-y-3">
-                    <div className="flex items-center gap-2 font-semibold text-slate-600"><TableIcon className="h-5 w-5" /><h3>Tabular List (Build / Eco)</h3></div>
-                    <ul className="text-sm space-y-2 list-disc pl-5">
-                        <li><strong>Standard Headers</strong>: The system scans for columns like "Date", "Operative", "Address", and "Task".</li>
-                        <li><strong>Merged Cells</strong>: If you leave a cell blank, the system automatically carries down the information from the row above.</li>
-                    </ul>
-                </div>
               </div>
             </ScrollArea>
           </DialogContent>
@@ -370,5 +361,3 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
     </div>
   );
 }
-
-import { Separator } from '../ui/separator';
