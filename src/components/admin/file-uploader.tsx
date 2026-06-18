@@ -36,6 +36,7 @@ import {
 import { ScrollArea } from '../ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { parseGasWorkbook, parseBuildWorkbook, type ImportType, type DiagnosticIssue } from '@/lib/exceljs-parser';
+import { startOfToday, isBefore } from 'date-fns';
 
 export type ParsedShift = Omit<
   Shift,
@@ -170,6 +171,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
       setError(null);
       
       const currentPlannerNormalized = normalizePlannerName(file.name);
+      const today = startOfToday();
 
       const reader = new FileReader();
       reader.onload = async (e) => {
@@ -207,7 +209,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
                 toCreate.push(ex as any);
             } else if (!protectedStatuses.includes(ext.status)) {
                 // Identity match (Key matches) but content changed (Task/Note)
-                // This correctly identifies "Updates" now that task isn't in the key
                 if (normalizeText(ext.task) !== normalizeText(ex.task) || ext.type !== ex.type) {
                     toUpdate.push({ old: ext, new: ex as any });
                 }
@@ -215,16 +216,23 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           });
 
           /**
-           * 🔒 PLANNER SCOPE SHIELD
-           * Only delete shifts that were imported from variations of THIS planner.
-           * e.g. "Unitas (43)" should only replace work from "Unitas".
+           * 🔒 PLANNER SCOPE & FUTURE SHIELD
+           * Only delete shifts that:
+           * 1. Were imported from variations of THIS planner.
+           * 2. Are scheduled for TODAY OR FUTURE (Ignore the past).
            */
           existingMap.forEach((ext, key) => {
             const extPlannerNorm = normalizePlannerName(ext.plannerName);
             const isSamePlanner = extPlannerNorm === currentPlannerNormalized;
             
             if (isSamePlanner && !excelKeys.has(key) && !protectedStatuses.includes(ext.status) && ext.source !== 'manual') {
-                toDelete.push(ext);
+                const shiftDateRaw = (ext.date as any).toDate ? (ext.date as Timestamp).toDate() : (ext.date as Date);
+                const correctedDate = new Date(Date.UTC(shiftDateRaw.getFullYear(), shiftDateRaw.getMonth(), shiftDateRaw.getDate()));
+                
+                // Only delete if it's today or in the future
+                if (!isBefore(correctedDate, today)) {
+                    toDelete.push(ext);
+                }
             }
           });
 
