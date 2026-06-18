@@ -24,7 +24,9 @@ import {
     XCircle,
     UserCheck,
     MapPin,
-    Search
+    Search,
+    Eye,
+    EyeOff
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -48,6 +50,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
   const { user } = useAuth();
   const [dryRun, setDryRun] = useState<DryRunResult | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [showTechnicalLog, setShowTechnicalLog] = useState(false);
   const { toast } = useToast();
   
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
@@ -111,8 +114,12 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
   };
 
   const renderDryRunResults = (dryRun: DryRunResult) => {
-    const totalChanges = (dryRun.toCreate?.length || 0) + (dryRun.toUpdate?.length || 0) + (dryRun.toDelete?.length || 0);
-    
+    const notImported = (dryRun.errors || []).filter(err => 
+        err.severity === 'error' || 
+        ['OPERATIVE_MISSING', 'PROPERTY_MISSING', 'USER_NOT_FOUND', 'INVALID_DATE', 'MISSING_OPERATIVE', 'NO_WORK_DETAILS'].includes(err.code)
+    );
+    const technicalLogs = (dryRun.errors || []).filter(err => !notImported.includes(err));
+
     const dateSort = (a: any, b: any) => {
         const itemA = a.new || a;
         const itemB = b.new || b;
@@ -124,7 +131,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
     const sortedNew = [...(dryRun.toCreate || [])].sort(dateSort);
     const sortedUpdates = [...(dryRun.toUpdate || [])].sort(dateSort);
     const sortedDeletions = [...(dryRun.toDelete || [])].sort(dateSort);
-    const diagnosticLogs = [...(dryRun.errors || [])].sort((a,b) => (a.row || 0) - (b.row || 0));
+    const sortedNotImported = [...notImported].sort((a,b) => (a.row || 0) - (b.row || 0));
 
     return (
         <div className="space-y-6">
@@ -141,18 +148,18 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                     <CardHeader className="p-3"><CardTitle className="text-xs text-amber-700 uppercase">Deletions</CardTitle></CardHeader>
                     <CardContent className="p-3 pt-0"><p className="text-2xl font-bold text-amber-700">{sortedDeletions.length}</p></CardContent>
                 </Card>
-                <Card className="bg-slate-50 border-slate-200">
-                    <CardHeader className="p-3"><CardTitle className="text-xs text-slate-700 uppercase">Diagnostic</CardTitle></CardHeader>
-                    <CardContent className="p-3 pt-0"><p className="text-2xl font-bold text-slate-700">{diagnosticLogs.length}</p></CardContent>
+                <Card className={cn(sortedNotImported.length > 0 ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-200")}>
+                    <CardHeader className="p-3"><CardTitle className={cn("text-xs uppercase", sortedNotImported.length > 0 ? "text-red-700" : "text-slate-700")}>Not Imported</CardTitle></CardHeader>
+                    <CardContent className="p-3 pt-0"><p className={cn("text-2xl font-bold", sortedNotImported.length > 0 ? "text-red-700" : "text-slate-700")}>{sortedNotImported.length}</p></CardContent>
                 </Card>
             </div>
 
-            <Tabs defaultValue={totalChanges > 0 ? "create" : "diag"} className="w-full">
+            <Tabs defaultValue={sortedNew.length > 0 ? "create" : sortedNotImported.length > 0 ? "failed" : "update"} className="w-full">
                 <TabsList className="grid w-full grid-cols-4">
                     <TabsTrigger value="create">New ({sortedNew.length})</TabsTrigger>
                     <TabsTrigger value="update">Updates ({sortedUpdates.length})</TabsTrigger>
                     <TabsTrigger value="delete">Deletions ({sortedDeletions.length})</TabsTrigger>
-                    <TabsTrigger value="diag">Diagnostic Log</TabsTrigger>
+                    <TabsTrigger value="failed" className={cn(sortedNotImported.length > 0 && "text-red-600")}>Not Imported ({sortedNotImported.length})</TabsTrigger>
                 </TabsList>
                 
                 <TabsContent value="create">
@@ -226,53 +233,89 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                     </ScrollArea>
                 </TabsContent>
 
-                <TabsContent value="diag">
-                    <ScrollArea className="h-[400px] border rounded-md p-4">
-                        <div className="space-y-4">
-                            <h3 className="font-bold flex items-center gap-2"><FileSearch className="h-5 w-5" /> Detailed Extraction Log</h3>
-                            <p className="text-xs text-muted-foreground">Review this log to see exactly how the importer read your file.</p>
-                            
-                            {diagnosticLogs.map((err, i) => (
-                                <div key={i} className={cn(
-                                    "p-3 border-l-4 rounded-r-md text-xs mb-2",
-                                    err.severity === 'error' ? "bg-red-50 border-red-500" : 
-                                    err.severity === 'warning' ? "bg-amber-50 border-amber-500" :
-                                    err.severity === 'info' ? "bg-blue-50 border-blue-500" :
-                                    "bg-slate-50 border-slate-300"
-                                )}>
-                                    <div className="flex justify-between items-center mb-1">
-                                        <Badge variant={err.severity === 'error' ? 'destructive' : 'outline'} className="text-[9px] uppercase">{err.code}</Badge>
-                                        <span className="text-[10px] text-muted-foreground">{err.sheet}{err.cell ? ` | ${err.cell}` : err.row ? ` | Row ${err.row}` : ''}</span>
-                                    </div>
-                                    <p className="font-medium">{err.message}</p>
-                                    {err.rawValues && (
-                                        <p className="mt-1 text-[10px] opacity-70 italic font-mono bg-white/50 p-1 rounded">Detected Value: "{err.rawValues}"</p>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
+                <TabsContent value="failed">
+                    <ScrollArea className="h-[400px] border rounded-md">
+                        <Table>
+                            <TableHeader className="sticky top-0 bg-background z-10">
+                                <TableRow>
+                                    <TableHead>Date</TableHead>
+                                    <TableHead>Address</TableHead>
+                                    <TableHead>Description</TableHead>
+                                    <TableHead>Operative Found</TableHead>
+                                    <TableHead>Reason</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {sortedNotImported.length > 0 ? sortedNotImported.map((err, i) => {
+                                    const raw = err.rawValues || {};
+                                    const date = raw.date ? (raw.date instanceof Date ? raw.date : new Date(raw.date)) : null;
+                                    return (
+                                        <TableRow key={i} className="bg-red-50/50">
+                                            <TableCell className="text-[10px]">{date ? format(date, 'dd/MM/yy') : 'N/A'}</TableCell>
+                                            <TableCell className="text-[10px] truncate max-w-[120px]">{raw.address || 'N/A'}</TableCell>
+                                            <TableCell className="text-[10px] truncate max-w-[150px] italic">"{raw.text || err.message}"</TableCell>
+                                            <TableCell className="text-[10px] font-bold">{raw.operative || 'None'}</TableCell>
+                                            <TableCell className="text-[10px] font-semibold text-red-700">{err.message}</TableCell>
+                                        </TableRow>
+                                    );
+                                }) : <TableRow><TableCell colSpan={5} className="text-center py-10 text-muted-foreground">No problematic rows found.</TableCell></TableRow>}
+                            </TableBody>
+                        </Table>
                     </ScrollArea>
                 </TabsContent>
             </Tabs>
 
             <div className="flex justify-between items-center bg-muted/50 p-4 rounded-lg border">
                 <div className="flex items-center gap-3">
-                    {totalChanges > 0 ? (
+                    {sortedNew.length + sortedUpdates.length > 0 ? (
                         <div className="p-2 bg-green-100 rounded-full"><CheckCircle className="text-green-600 h-6 w-6" /></div>
                     ) : (
                         <div className="p-2 bg-amber-100 rounded-full"><AlertCircle className="text-amber-600 h-6 w-6" /></div>
                     )}
                     <div>
-                        <p className="font-bold">{totalChanges > 0 ? "Synchronization Ready" : "No Changes Found"}</p>
-                        <p className="text-xs text-muted-foreground">Synchronizing variation copy: {dryRun.profileId}</p>
+                        <p className="font-bold">{(sortedNew.length + sortedUpdates.length + sortedDeletions.length) > 0 ? "Synchronization Ready" : "No Changes Found"}</p>
+                        <p className="text-xs text-muted-foreground">Contract identified as: {dryRun.profileId}</p>
                     </div>
                 </div>
                 <div className="flex gap-3">
                     <Button variant="ghost" onClick={() => setDryRun(null)}>Discard</Button>
-                    <Button onClick={handleFinalPublish} disabled={isPublishing || totalChanges === 0}>
+                    <Button onClick={handleFinalPublish} disabled={isPublishing || (sortedNew.length + sortedUpdates.length + sortedDeletions.length === 0)}>
                         {isPublishing ? <Spinner /> : <><RotateCw className="mr-2 h-4 w-4" /> Publish Changes</>}
                     </Button>
                 </div>
+            </div>
+
+            {/* Hidden Technical Log Section */}
+            <div className="pt-8 mt-8 border-t">
+                <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => setShowTechnicalLog(!showTechnicalLog)}
+                    className="text-muted-foreground"
+                >
+                    {showTechnicalLog ? <><EyeOff className="mr-2 h-4 w-4" /> Hide Technical Log</> : <><Eye className="mr-2 h-4 w-4" /> Show Technical Log</>}
+                </Button>
+
+                {showTechnicalLog && (
+                    <Card className="mt-4">
+                        <CardHeader className="py-3 bg-muted/30">
+                            <CardTitle className="text-sm flex items-center gap-2 font-mono"><FileSearch className="h-4 w-4" /> Diagnostic Engine Trace</CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-0">
+                            <ScrollArea className="h-[300px]">
+                                <div className="p-4 space-y-1">
+                                    {technicalLogs.map((log, i) => (
+                                        <div key={i} className="text-[10px] font-mono flex gap-4 border-b border-muted py-1">
+                                            <span className="text-muted-foreground w-20 shrink-0">[{log.code}]</span>
+                                            <span className="text-muted-foreground w-24 shrink-0">{log.sheet}{log.cell ? `/${log.cell}` : ''}</span>
+                                            <span>{log.message}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </ScrollArea>
+                        </CardContent>
+                    </Card>
+                )}
             </div>
         </div>
     );

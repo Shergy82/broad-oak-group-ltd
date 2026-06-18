@@ -73,7 +73,7 @@ export class BroadOakProfile implements PlannerProfile {
 
       errors.push({ 
         sheet: sheet.name, 
-        message: `Found ${dateColumns.length} date columns (F+).`, 
+        message: `Found ${dateColumns.length} date columns.`, 
         severity: 'info', 
         code: 'DATES_FOUND' 
       });
@@ -87,11 +87,10 @@ export class BroadOakProfile implements PlannerProfile {
         // Skip header rows
         if (rowNumber <= dateHeaderRow) return;
 
-        // Check Column A for Property Info (Site Ref or Address with Postcode)
+        // Check Column A for Property Info
         const cellA = row.getCell(1);
         const cellAText = this.getCellText(cellA);
         
-        // Property Logic: Site Ref (E00000) or Address Pattern
         const siteRefMatch = cellAText.match(/\b(E\d{5,6})\b/i);
         const postcodeMatch = cellAText.match(/\b([A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2})\b/i);
 
@@ -110,9 +109,6 @@ export class BroadOakProfile implements PlannerProfile {
           return;
         }
 
-        // If no property context yet, we can't assign shifts
-        if (!currentAddress) return;
-
         // 3. Scan Date Columns for Work
         dateColumns.forEach(({ col, date }) => {
           const cell = row.getCell(col);
@@ -120,10 +116,22 @@ export class BroadOakProfile implements PlannerProfile {
           
           if (!cellValue || cellValue.length < 3) return;
 
-          // Attempt to extract operative and task
           const extraction = this.extractShiftData(cellValue, userMap);
           
           if (extraction) {
+            if (!currentAddress) {
+                errors.push({
+                    row: rowNumber,
+                    cell: cell.address,
+                    sheet: sheet.name,
+                    message: 'No address found for this work cell.',
+                    severity: 'error',
+                    code: 'PROPERTY_MISSING',
+                    rawValues: { date, text: cellValue }
+                });
+                return;
+            }
+
             shifts.push({
               date,
               operative: extraction.user.originalName,
@@ -138,15 +146,15 @@ export class BroadOakProfile implements PlannerProfile {
               sourceSheet: sheet.name
             });
           } else {
-            // Diagnostic for potentially missed names
+            // This is a "Not Imported" item
             errors.push({
               row: rowNumber,
               cell: cell.address,
               sheet: sheet.name,
-              message: `Work found but no recognized operative name detected in: "${cellValue.substring(0, 20)}..."`,
-              severity: 'debug',
+              message: `Operative not matched to a user.`,
+              severity: 'error',
               code: 'OPERATIVE_MISSING',
-              rawValues: cellValue
+              rawValues: { date, address: currentAddress, text: cellValue }
             });
           }
         });
@@ -155,7 +163,7 @@ export class BroadOakProfile implements PlannerProfile {
       if (propertyFoundInSheet === 0) {
         errors.push({ 
           sheet: sheet.name, 
-          message: 'No property sections detected in Column A (Looking for Site Ref/Postcode).', 
+          message: 'No property sections detected in Column A.', 
           severity: 'warning', 
           code: 'LAYOUT_MISMATCH' 
         });
@@ -168,28 +176,23 @@ export class BroadOakProfile implements PlannerProfile {
   private extractShiftData(text: string, userMap: UserMapEntry[]) {
     const cleanText = text.toLowerCase();
     
-    // Find matching user by scanning their full name within the text
     const matchedUser = userMap.find(u => {
       const name = u.originalName.toLowerCase();
-      // Look for full name as a whole word boundary
       const regex = new RegExp(`\\b${name}\\b`, 'i');
       return regex.test(cleanText);
     });
 
     if (!matchedUser) return null;
 
-    // Determine type (AM/PM)
     let type: 'am' | 'pm' | 'all-day' = 'all-day';
     if (cleanText.includes('am ') || cleanText.startsWith('am')) type = 'am';
     else if (cleanText.includes('pm ') || cleanText.startsWith('pm')) type = 'pm';
 
-    // Extract task by removing the operative's name and type indicators
     let task = text;
     const nameRegex = new RegExp(`-?\\s*${matchedUser.originalName}\\s*`, 'gi');
     const typeRegex = /\b(am|pm)\b/gi;
     
     task = task.replace(nameRegex, '').replace(typeRegex, '').trim();
-    // Clean up trailing/leading separators
     if (task.startsWith('-')) task = task.substring(1).trim();
     if (task.endsWith('-')) task = task.substring(0, task.length - 1).trim();
 
@@ -206,12 +209,10 @@ export class BroadOakProfile implements PlannerProfile {
     if (val instanceof Date && !isNaN(val.getTime())) {
       return new Date(Date.UTC(val.getFullYear(), val.getMonth(), val.getDate(), 12));
     }
-    // Excel Serial
     if (typeof val === 'number' && val > 40000 && val < 60000) {
       const d = new Date((val - 25569) * 86400 * 1000);
       return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12));
     }
-    // Strings
     if (typeof val === 'string') {
       const parts = val.split(/[/-]/);
       if (parts.length === 3) {
