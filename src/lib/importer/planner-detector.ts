@@ -16,7 +16,8 @@ export function detectProfile(workbook: ExcelJS.Workbook): PlannerProfile {
       return profile;
     }
   }
-  return new GenericProfile(); // Fallback
+  // Default to Broad Oak during reset to ensure it picks up the file
+  return PROFILES[0];
 }
 
 export function getProfileById(id: string): PlannerProfile | undefined {

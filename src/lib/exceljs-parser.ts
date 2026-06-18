@@ -10,6 +10,9 @@ export interface UnifiedParseResult {
   profileId: string;
 }
 
+/**
+ * Entry point for Excel parsing - RESET
+ */
 export async function parseWorkbook(fileBuffer: Buffer, userMap: UserMapEntry[]): Promise<UnifiedParseResult> {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(fileBuffer);
