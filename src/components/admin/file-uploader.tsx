@@ -16,6 +16,8 @@ import type { UserProfile, Shift } from '@/types';
 import { Label } from '../ui/label';
 
 interface FileUploaderProps {
+  title: string;
+  department: string;
   onImportComplete: (
     result: UnifiedParseResult & {
       toCreate: StandardShift[];
@@ -29,7 +31,6 @@ interface FileUploaderProps {
 
 function normalizeText(text: string | null | undefined): string {
   if (!text) return '';
-
   return String(text)
     .toLowerCase()
     .replace(/[^a-z0-9]/g, ' ')
@@ -46,54 +47,30 @@ function normalizePlannerName(fileName: string): string {
 }
 
 function toDate(value: any): Date {
-  if (!value) {
-    throw new Error('Invalid date: empty value');
-  }
-
+  if (!value) throw new Error('Invalid date: empty value');
   if (value instanceof Date) {
-    if (Number.isNaN(value.getTime())) {
-      throw new Error('Invalid date: bad Date object');
-    }
-
+    if (Number.isNaN(value.getTime())) throw new Error('Invalid date: bad Date object');
     return value;
   }
-
   if (typeof value?.toDate === 'function') {
     const d = value.toDate();
-
-    if (Number.isNaN(d.getTime())) {
-      throw new Error('Invalid date: bad Firestore Timestamp');
-    }
-
+    if (Number.isNaN(d.getTime())) throw new Error('Invalid date: bad Firestore Timestamp');
     return d;
   }
-
-  if (typeof value === 'object' && typeof value.seconds === 'number') {
-    return new Date(value.seconds * 1000);
-  }
-
-  if (typeof value === 'object' && typeof value._seconds === 'number') {
-    return new Date(value._seconds * 1000);
-  }
-
+  if (typeof value === 'object' && typeof value.seconds === 'number') return new Date(value.seconds * 1000);
+  if (typeof value === 'object' && typeof value._seconds === 'number') return new Date(value._seconds * 1000);
   const d = new Date(value);
-
-  if (Number.isNaN(d.getTime())) {
-    throw new Error(`Invalid date: ${JSON.stringify(value)}`);
-  }
-
+  if (Number.isNaN(d.getTime())) throw new Error(`Invalid date: ${JSON.stringify(value)}`);
   return d;
 }
 
 function todayStart(): Date {
   const now = new Date();
-
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
 }
 
 function dayKey(value: any): string {
   const d = toDate(value);
-
   return [
     d.getFullYear(),
     String(d.getMonth() + 1).padStart(2, '0'),
@@ -103,22 +80,17 @@ function dayKey(value: any): string {
 
 function shiftKey(shift: any, department: string): string {
   const userId = shift.userId || shift.operativeUid || '';
-
   return [department, userId, dayKey(shift.date)].join('|');
 }
 
 function clean(value: any): string {
   if (value === null || value === undefined) return '';
-
-  return String(value);
+  return String(value).trim();
 }
 
 function hasChanged(existing: any, incoming: StandardShift): boolean {
   return (
     clean(existing.userId) !== clean(incoming.operativeUid) ||
-    clean(existing.userName) !== clean(incoming.operative) ||
-    clean(existing.operativeUid) !== clean(incoming.operativeUid) ||
-    clean(existing.operative) !== clean(incoming.operative) ||
     clean(existing.address) !== clean(incoming.address) ||
     clean(existing.task) !== clean(incoming.task) ||
     clean(existing.type || 'all-day') !== clean(incoming.type || 'all-day') ||
@@ -129,6 +101,8 @@ function hasChanged(existing: any, incoming: StandardShift): boolean {
 }
 
 export function FileUploader({
+  title,
+  department,
   onImportComplete,
   onFileSelect,
   userProfile,
@@ -144,23 +118,16 @@ export function FileUploader({
     onFileSelect();
 
     const reader = new FileReader();
-
     reader.onload = async (e) => {
       try {
         const buffer = e.target?.result;
+        if (!(buffer instanceof ArrayBuffer)) throw new Error('Could not read file.');
 
-        if (!(buffer instanceof ArrayBuffer)) {
-          throw new Error('Could not read file.');
-        }
-
-        const department = userProfile.department || 'Gas';
         const plannerName = normalizePlannerName(file.name);
-
         const usersSnap = await getDocs(collection(db, 'users'));
 
         const userMap: UserMapEntry[] = usersSnap.docs.map((doc) => {
           const u = doc.data() as any;
-
           return {
             uid: u.authUid || u.fireAuthUid || doc.id,
             originalName: u.name,
@@ -170,12 +137,14 @@ export function FileUploader({
         });
 
         const parseResult = await parseWorkbook(Buffer.from(buffer), userMap);
-
         const start = todayStart();
 
         const parsedFutureShifts = parseResult.shifts.filter((shift) => {
-          const d = toDate(shift.date);
-          return d >= start;
+          try {
+            return toDate(shift.date) >= start;
+          } catch {
+            return false;
+          }
         });
 
         const existingSnap = await getDocs(
@@ -188,24 +157,13 @@ export function FileUploader({
         );
 
         const existingByKey = new Map<string, { id: string; data: any }>();
-
         existingSnap.docs.forEach((doc) => {
           const data = doc.data() as any;
-          let existingDate: Date;
-
           try {
-            existingDate = toDate(data.date);
-          } catch {
-            return;
-          }
-
-          if (existingDate < start) return;
-
-          const key = shiftKey(data, department);
-          existingByKey.set(key, {
-            id: doc.id,
-            data,
-          });
+            if (toDate(data.date) >= start) {
+              existingByKey.set(shiftKey(data, department), { id: doc.id, data });
+            }
+          } catch {}
         });
 
         const incomingKeys = new Set<string>();
@@ -213,41 +171,20 @@ export function FileUploader({
         const toUpdate: { id: string; old: Shift; new: StandardShift }[] = [];
 
         for (const shift of parsedFutureShifts) {
-          if (!shift.operativeUid) {
-            continue;
-          }
-
+          if (!shift.operativeUid) continue;
           const key = shiftKey(shift, department);
           incomingKeys.add(key);
-
           const existing = existingByKey.get(key);
-
           if (!existing) {
             toCreate.push(shift);
-            continue;
-          }
-
-          if (hasChanged(existing.data, shift)) {
-            toUpdate.push({
-              id: existing.id,
-              old: {
-                id: existing.id,
-                ...existing.data,
-              } as Shift,
-              new: shift,
-            });
+          } else if (hasChanged(existing.data, shift)) {
+            toUpdate.push({ id: existing.id, old: { id: existing.id, ...existing.data } as Shift, new: shift });
           }
         }
 
         const toDelete: Shift[] = [];
-
         existingByKey.forEach((existing, key) => {
-          if (!incomingKeys.has(key)) {
-            toDelete.push({
-              id: existing.id,
-              ...existing.data,
-            } as Shift);
-          }
+          if (!incomingKeys.has(key)) toDelete.push({ id: existing.id, ...existing.data } as Shift);
         });
 
         onImportComplete({
@@ -260,12 +197,11 @@ export function FileUploader({
         });
       } catch (err: any) {
         console.error('Processing error:', err);
-        setError(err.message || 'An unexpected error occurred during processing.');
+        setError(err.message || 'An unexpected error occurred.');
       } finally {
         setIsProcessing(false);
       }
     };
-
     reader.readAsArrayBuffer(file);
   };
 
@@ -275,68 +211,34 @@ export function FileUploader({
         <Alert variant="destructive">
           <FileWarning className="h-4 w-4" />
           <AlertTitle>Processing Error</AlertTitle>
-          <AlertDescription className="text-xs whitespace-pre-wrap">
-            {error}
-          </AlertDescription>
+          <AlertDescription className="text-xs whitespace-pre-wrap">{error}</AlertDescription>
         </Alert>
       )}
 
       <div
-        onDrop={(e) => {
-          e.preventDefault();
-          setIsDragOver(false);
-
-          if (e.dataTransfer.files[0]) {
-            processFile(e.dataTransfer.files[0]);
-          }
-        }}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setIsDragOver(true);
-        }}
+        onDrop={(e) => { e.preventDefault(); setIsDragOver(false); if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]); }}
+        onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
         onDragLeave={() => setIsDragOver(false)}
         className={cn(
           'flex flex-col items-center justify-center p-8 border-2 border-dashed rounded-xl h-64 transition-all',
-          isDragOver
-            ? 'border-primary bg-primary/5'
-            : 'border-muted-foreground/20 hover:border-primary/40'
+          isDragOver ? 'border-primary bg-primary/5' : 'border-muted-foreground/20 hover:border-primary/40'
         )}
       >
         {isProcessing ? (
           <div className="flex flex-col items-center gap-3">
             <Spinner size="lg" />
-            <p className="text-sm font-medium animate-pulse">
-              Mapping operatives...
-            </p>
+            <p className="text-sm font-medium animate-pulse">Mapping operatives...</p>
           </div>
         ) : (
           <>
             <div className="bg-primary/10 p-4 rounded-full mb-4">
               <UploadCloud className="h-8 w-8 text-primary" />
             </div>
-
-            <h3 className="text-lg font-semibold">Upload Gas Planner</h3>
-
-            <p className="text-sm text-muted-foreground mb-4 text-center">
-              Identifying addresses and assigning staff.
-            </p>
-
-            <Input
-              id="shift-file-input"
-              type="file"
-              accept=".xlsx,.xls,.xlsm"
-              className="sr-only"
-              onChange={(e) => {
-                if (e.target.files?.[0]) {
-                  processFile(e.target.files[0]);
-                }
-              }}
-            />
-
+            <h3 className="text-lg font-semibold">{title}</h3>
+            <p className="text-sm text-muted-foreground mb-4 text-center">Identifying addresses and assigning staff.</p>
+            <Input id={`shift-file-input-${department}`} type="file" accept=".xlsx,.xls,.xlsm" className="sr-only" onChange={(e) => { if (e.target.files?.[0]) processFile(e.target.files[0]); }} />
             <Button asChild variant="outline">
-              <Label htmlFor="shift-file-input" className="cursor-pointer">
-                Select Excel File
-              </Label>
+              <Label htmlFor={`shift-file-input-${department}`} className="cursor-pointer">Select Excel File</Label>
             </Button>
           </>
         )}
