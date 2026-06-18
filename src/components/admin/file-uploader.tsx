@@ -34,7 +34,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '../ui/scroll-area';
-import { cn } from '@/lib/utils';
+import { cn, getCorrectedLocalDate } from '@/lib/utils';
 import { parseGasWorkbook, parseBuildWorkbook, type ImportType, type DiagnosticIssue } from '@/lib/exceljs-parser';
 import { startOfToday, isBefore } from 'date-fns';
 
@@ -75,7 +75,6 @@ export interface DryRunResult {
 
 /**
  * 🔒 PLANNER SCOPE NORMALIZER
- * Strips extensions and download numbers like (43) or (1)
  */
 function normalizePlannerName(name: string | null | undefined): string {
   if (!name) return "";
@@ -89,27 +88,19 @@ function normalizePlannerName(name: string | null | undefined): string {
 function normalizeText(text: string | null | undefined): string {
   if (!text) return "";
   let t = String(text).toLowerCase();
-  // Strip phone numbers
   t = t.replace(/\b(0\d{3,4}\s*\d{5,6}|07\d{3}\s*\d{6}|\+44\s*\d{4}\s*\d{6})\b/g, '');
   return t.replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
 }
 
 /**
  * 🔒 STABLE IDENTITY KEY
- * Identify shifts by Who + When + Where. 
- * Task description is EXCLUDED so updates are recognized as edits.
  */
 const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; type?: string }): string => {
   const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
   if (!d || isNaN(d.getTime())) return `invalid-${shift.userId}-${Math.random()}`;
-  
-  // Force date to ISO string for absolute stability
   const dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-  
-  // Clean address for matching: remove E-numbers/B-numbers and postcodes
   const cleanAddr = (shift.address || "").replace(/\b[BE]\d+\S*\b/gi, '').replace(/\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/gi, '');
   const addrNorm = normalizeText(cleanAddr);
-  
   return `${dateStr}-${shift.userId}-${addrNorm}-${shift.type || 'all'}`;
 };
 
@@ -188,14 +179,10 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           const finalDept = importType === 'GAS' ? 'Gas' : importDepartment;
           const result = importType === 'GAS' ? await parseGasWorkbook(Buffer.from(data), userMap) : await parseBuildWorkbook(Buffer.from(data), userMap, selectedSheets);
 
-          /**
-           * 🔒 CORE DATA MAPPING
-           * Maps parser fields (siteAddress, user.originalName) to app fields (address, userName)
-           */
           const excelShifts: (ParsedShift & { plannerName: string })[] = result.parsed.map(p => ({ 
             ...p, 
-            address: p.siteAddress, // Map siteAddress to address
-            userName: p.user.originalName, // Map user.originalName to userName
+            address: p.siteAddress,
+            userName: p.user.originalName,
             userId: p.user.uid,
             date: new Date(p.shiftDate), 
             plannerName: file.name 
@@ -225,22 +212,14 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             }
           });
 
-          /**
-           * 🔒 PLANNER SCOPE & FUTURE SHIELD
-           * Only delete shifts that:
-           * 1. Were imported from variations of THIS planner.
-           * 2. Are scheduled for TODAY OR FUTURE (Ignore the past).
-           */
           existingMap.forEach((ext, key) => {
             const extPlannerNorm = normalizePlannerName(ext.plannerName);
             const isSamePlanner = extPlannerNorm === currentPlannerNormalized;
             
             if (isSamePlanner && !excelKeys.has(key) && !protectedStatuses.includes(ext.status) && ext.source !== 'manual') {
-                const shiftDateRaw = (ext.date as any).toDate ? (ext.date as Timestamp).toDate() : (ext.date as Date);
-                const correctedDate = new Date(Date.UTC(shiftDateRaw.getFullYear(), shiftDateRaw.getMonth(), shiftDateRaw.getDate()));
-                
-                // Only delete if it's today or in the future
-                if (!isBefore(correctedDate, today)) {
+                const shiftDate = getCorrectedLocalDate(ext.date);
+                // 🔒 FUTURE ONLY RULE: Never delete historical data
+                if (!isBefore(shiftDate, today)) {
                     toDelete.push(ext);
                 }
             }

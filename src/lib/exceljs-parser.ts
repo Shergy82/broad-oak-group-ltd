@@ -124,7 +124,7 @@ function findUsersInMap(nameChunk: string, userMap: UserMapEntry[]): { users: Us
 }
 
 /**
- * 🔒 TIMEZONE-STABLE DATE PARSING (REALITY FILTER)
+ * 🔒 TIMEZONE-STABLE DATE PARSING
  */
 function parseExcelCellAsDate(cell: ExcelJS.Cell): { date: Date | null, diagnostic?: string } {
   try {
@@ -134,20 +134,14 @@ function parseExcelCellAsDate(cell: ExcelJS.Cell): { date: Date | null, diagnost
     if (v instanceof Date && !isNaN(v.getTime())) {
       d = new Date(Date.UTC(v.getFullYear(), v.getMonth(), v.getDate()));
     } else if (typeof v === "number" && v > 20000) {
-      // 🔒 PHONE NUMBER SHIELD: Serial dates above 60,000 are past the year 2064
-      if (v > 60000) {
-        return { date: null, diagnostic: `Likely a contact number or ID.` };
-      }
+      if (v > 60000) return { date: null, diagnostic: `Likely a contact number or ID.` };
       const rawDate = new Date((v - 25569) * 86400 * 1000);
       d = new Date(Date.UTC(rawDate.getUTCFullYear(), rawDate.getUTCMonth(), rawDate.getUTCDate()));
     }
 
     if (d && !isNaN(d.getTime())) {
-      // Reality check: ignore dates before 2024 or after 2035
-      if (d.getUTCFullYear() < 2024 || d.getUTCFullYear() > 2035) {
-        return { date: null, diagnostic: `Date resolves to year ${d.getUTCFullYear()}.` };
-      }
-      // Force to Midday UTC for absolute identity stability
+      if (d.getUTCFullYear() < 2024 || d.getUTCFullYear() > 2035) return { date: null, diagnostic: `Year ${d.getUTCFullYear()} is out of range.` };
+      // Midday UTC for absolute stability
       return { date: new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12, 0, 0)) };
     }
   } catch (e) {}
@@ -167,7 +161,7 @@ function isNonShiftText(text: string): boolean {
 }
 
 /* =========================
-   GAS PARSER
+   GAS PARSER (STATEFUL BATTLESHIP)
 ========================= */
 
 export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry[]): Promise<ParseResult> {
@@ -187,9 +181,26 @@ export async function parseGasWorkbook(fileBuffer: Buffer, userMap: UserMapEntry
   const today = toISODate(new Date());
   return { 
     parsed: allParsed.filter(s => s.shiftDate >= today), 
-    failures: allFailures.filter(f => !f.shiftDate || f.shiftDate >= today),
+    failures: allFailures, // Return failures for all to help debugging
     diagnostics: allDiagnostics
   };
+}
+
+function isBlackDivider(row: ExcelJS.Row): boolean {
+    const cell = row.getCell(1);
+    const fill = cell.fill as ExcelJS.FillPattern;
+    if (fill?.type === 'pattern' && fill.fgColor) {
+        const color = fill.fgColor.argb || (fill.fgColor as any).indexed;
+        if (color === 'FF000000' || color === 64) return true;
+        // Dark check for gray lines
+        if (typeof color === 'string' && color.startsWith('FF')) {
+            const r = parseInt(color.substring(2, 4), 16);
+            const g = parseInt(color.substring(4, 6), 16);
+            const b = parseInt(color.substring(6, 8), 16);
+            if (r + g + b < 100) return true;
+        }
+    }
+    return false;
 }
 
 function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): ParseResult {
@@ -200,64 +211,144 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
   const used = getUsedBounds(sheet);
   if (!used) return { parsed: [], failures: [], diagnostics: [] };
 
-  const dateRows: Array<{ row: number; dateCols: Array<{ col: number; isoDate: string }> }> = [];
-  for (let r = used.startRow; r <= Math.min(used.endRow, 100); r++) {
-      // 🔒 COLUMN F BOUNDARY: Ignore columns A-E (1-5) for dates
-      const res = getDateColumns(sheet, used, r, 6);
-      if (res.cols.length >= 2) dateRows.push({ row: r, dateCols: res.cols });
-      if (res.diagnostics) diagnostics.push(...res.diagnostics);
+  // 1. Identify all divider rows (Start of Blocks)
+  const dividers: number[] = [];
+  for (let r = used.startRow; r <= used.endRow; r++) {
+    if (isBlackDivider(sheet.getRow(r))) {
+      dividers.push(r);
+    }
   }
 
-  for (let i = 0; i < dateRows.length; i++) {
-      const header = dateRows[i];
-      const blockEnd = findBlockEnd(sheet, header.row, used.endRow, dateRows[i+1]?.row);
-      const addressResult = extractSiteAddress(sheet, used, header.row, blockEnd);
-      if (!addressResult) continue;
+  // 2. Process Blocks
+  for (let i = 0; i < dividers.length; i++) {
+    const startRow = dividers[i];
+    const endRow = dividers[i + 1] ? dividers[i + 1] - 1 : used.endRow;
 
-      const { address: siteAddress } = addressResult;
-      const eNumber = siteAddress.match(/\b([BE]\d+\S*)\b/i)?.[1].toUpperCase() || '';
-      let manager = '', contract = sheet.name;
+    // a. Extract Address from block
+    const blockAddress = extractAddressFromBlock(sheet, startRow, endRow);
+    if (!blockAddress) continue;
+    const eNumber = blockAddress.match(/\b([BE]\d+\S*)\b/i)?.[1].toUpperCase() || '';
 
-      // Extract metadata (Manager/Scheme)
-      for (let r = Math.max(1, header.row - 6); r <= header.row; r++) {
-          const row = sheet.getRow(r);
-          for (let c = 1; c <= 5; c++) {
-              const text = getCellText(row.getCell(c));
-              if (text.toUpperCase().includes('SCHEME:')) contract = text.split(/scheme:/i)[1]?.trim() || contract;
-              if (text.toUpperCase().includes('MANAGER')) manager = text.replace(/(site manager|technical manager|job manager)\s*:?/i, '').trim().split('\n')[0];
-          }
-      }
+    // b. Find Date Header Row (Blue row usually)
+    let dateRowIdx = -1;
+    let dateCols: { col: number, isoDate: string }[] = [];
+    for (let r = startRow; r <= Math.min(startRow + 10, endRow); r++) {
+        // Search Column F onwards
+        const res = getDateColumns(sheet, used, r, 6);
+        if (res.cols.length >= 2) {
+            dateRowIdx = r;
+            dateCols = res.cols;
+            break;
+        }
+    }
+    if (dateRowIdx === -1) continue;
 
-      for (let r = header.row + 1; r <= blockEnd; r++) {
-          const row = sheet.getRow(r);
-          for (const { col, isoDate } of header.dateCols) {
-              const cell = row.getCell(col);
-              const text = getCellText(cell);
-              if (!text || isNonShiftText(text)) continue;
+    // c. Stateful Column Scan (The "Battleship" Fix)
+    for (const { col, isoDate } of dateCols) {
+        let currentUsers: UserMapEntry[] = [];
+        let currentTaskLines: string[] = [];
+        let currentType: 'am' | 'pm' | 'all-day' = 'all-day';
+        let currentCellRef = '';
 
-              const { task, names, type } = extractGasTaskAndNames(text);
-              if (names.length === 0) continue;
+        const flush = () => {
+            if (currentUsers.length > 0) {
+                const combinedTask = currentTaskLines.join('\n').trim() || "Work";
+                for (const user of currentUsers) {
+                    parsed.push({
+                        siteAddress: blockAddress, shiftDate: isoDate, task: combinedTask,
+                        type: currentType, user, manager: "", eNumber, 
+                        contract: sheet.name, department: 'Gas',
+                        source: { sheetName: sheet.name, cellRef: currentCellRef }
+                    });
+                }
+            }
+        };
 
-              for (const name of names) {
-                  const { users: matched, reason } = findUsersInMap(name, userMap);
-                  if (matched.length === 1) {
-                      parsed.push({
-                          siteAddress, shiftDate: isoDate, task, type,
-                          user: matched[0], manager, eNumber, contract, department: 'Gas',
-                          source: { sheetName: sheet.name, cellRef: cell.address }
-                      });
-                  } else {
-                      failures.push({
-                          reason: reason || 'Match error', siteAddress, shiftDate: isoDate,
-                          operativeNameRaw: name, sheetName: sheet.name, cellRef: cell.address, cellContent: text
-                      });
-                  }
-              }
-          }
-      }
+        for (let r = dateRowIdx + 1; r <= endRow; r++) {
+            const cell = sheet.getRow(r).getCell(col);
+            const text = getCellText(cell);
+            if (!text) continue;
+
+            const { names, task: lineTask, type } = extractGasTaskAndNames(text, userMap);
+
+            if (names.length > 0) {
+                // If we found a NEW name, it marks the start of a NEW context
+                flush();
+                
+                const matchedUsers: UserMapEntry[] = [];
+                for (const name of names) {
+                    const { users, reason } = findUsersInMap(name, userMap);
+                    if (users.length === 1) matchedUsers.push(users[0]);
+                    else if (name.length > 2) {
+                        failures.push({
+                            reason: reason || 'Match failed', siteAddress: blockAddress,
+                            shiftDate: isoDate, operativeNameRaw: name, sheetName: sheet.name,
+                            cellRef: cell.address, cellContent: text
+                        });
+                    }
+                }
+
+                currentUsers = matchedUsers;
+                currentTaskLines = lineTask ? [lineTask] : [];
+                currentType = type;
+                currentCellRef = cell.address;
+            } else if (currentUsers.length > 0) {
+                // Continuation of current user's task
+                currentTaskLines.push(text);
+                if (type !== 'all-day') currentType = type;
+            }
+        }
+        flush(); // End of block flush
+    }
   }
 
   return { parsed, failures, diagnostics };
+}
+
+function extractAddressFromBlock(sheet: ExcelJS.Worksheet, start: number, end: number): string | null {
+    let best = { text: "", score: -1 };
+    for (let r = start; r <= end; r++) {
+        const text = getCellText(sheet.getRow(r).getCell(1));
+        if (!text || text.length < 5) continue;
+        const up = text.toUpperCase();
+        if (['MANAGER', 'TECHNICAL', 'ORDERING', 'TLO', 'RESPONSIBLE'].some(w => up.includes(w))) continue;
+        
+        let score = text.length;
+        if (/\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) score += 1000;
+        if (/\b[BE]\d+/.test(text)) score += 500;
+        if (score > best.score) best = { text, score };
+    }
+    return best.score > 0 ? normalizeWhitespace(best.text) : null;
+}
+
+function extractGasTaskAndNames(text: string, userMap: UserMapEntry[]): { task: string; names: string[]; type: 'am' | 'pm' | 'all-day' } {
+    let raw = normalizeWhitespace(text);
+    let type: 'am' | 'pm' | 'all-day' = 'all-day';
+
+    if (/\bAM\b/i.test(raw)) type = 'am';
+    else if (/\bPM\b/i.test(raw)) type = 'pm';
+
+    const cleanRaw = raw.replace(/\b(AM|PM)\b/gi, '').trim();
+    const separators = /[-\–\—]/;
+    
+    if (!separators.test(cleanRaw)) {
+        // No separator. Check if whole text is a name
+        const { users } = findUsersInMap(cleanRaw, userMap);
+        if (users.length > 0) return { task: "", names: [cleanRaw], type };
+        return { task: cleanRaw, names: [], type };
+    }
+
+    const parts = cleanRaw.split(separators).map(s => s.trim()).filter(Boolean);
+    const names: string[] = [];
+    const taskParts: string[] = [];
+
+    for (const part of parts) {
+        const { users } = findUsersInMap(part, userMap);
+        if (users.length > 0) names.push(part);
+        else taskParts.push(part);
+    }
+
+    return { task: taskParts.join(' - '), names, type };
 }
 
 /* =========================
@@ -287,7 +378,7 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
     let currentAddress = "", currentENumber = "";
     for (let r = dateRowIdx + 1; r <= used.endRow; r++) {
         const row = sheet.getRow(r);
-        if (isBlackDivider(row)) { currentAddress = ""; currentENumber = ""; continue; }
+        if (isDividerRow(row)) { currentAddress = ""; currentENumber = ""; continue; }
         const rowAddr = extractBuildAddressFromRow(row);
         if (rowAddr) { currentAddress = rowAddr.address; currentENumber = rowAddr.eNumber; }
         if (!currentAddress) continue;
@@ -297,7 +388,7 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
             const cell = row.getCell(col);
             const text = getCellText(cell);
             if (!text || isNonShiftText(text)) continue;
-            const { task, names, type } = extractBuildTaskAndNames(text);
+            const { names, task, type } = extractGasTaskAndNames(text, userMap);
             for (const name of names) {
                 const { users: matched, reason } = findUsersInMap(name, userMap);
                 if (matched.length === 1) {
@@ -315,6 +406,14 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
     }
   }
   return { parsed: allParsed, failures: allFailures };
+}
+
+function extractBuildAddressFromRow(row: ExcelJS.Row): { address: string; eNumber: string } | null {
+  const text = getCellText(row.getCell(1));
+  if (!text || text.length < 3 || ['MATERIALS', 'MANAGER', 'TLO'].some(n => text.toUpperCase().includes(n))) return null;
+  const rawAddr = normalizeWhitespace(text);
+  const eMatch = rawAddr.match(/\b([BE]\d+\S*)\b/i);
+  return { address: eMatch ? rawAddr.replace(eMatch[0], '').trim().replace(/^[:\-\s]+/, '') : rawAddr, eNumber: eMatch?.[1].toUpperCase() || '' };
 }
 
 /* =========================
@@ -336,43 +435,12 @@ function getUsedBounds(ws: ExcelJS.Worksheet): UsedBounds | null {
 
 type UsedBounds = { startRow: number; endRow: number; startCol: number; endCol: number };
 
-function isBlackDivider(row: ExcelJS.Row): boolean {
-    for (let c = 1; c <= 5; c++) {
-        const fill = row.getCell(c).fill as any;
-        if (fill?.type === 'pattern' && (fill.fgColor?.argb === 'FF000000' || fill.fgColor?.indexed === 64)) return true;
-    }
-    return false;
-}
-
 function findBlockEnd(ws: ExcelJS.Worksheet, start: number, max: number, nextStart?: number): number {
   let end = nextStart ? nextStart - 1 : max;
   for (let r = start + 1; r < (nextStart || max); r++) {
     if (isBlackDivider(ws.getRow(r))) { end = r - 1; break; }
   }
   return end;
-}
-
-function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, start: number, end: number): { address: string } | null {
-    const score = (text: string) => {
-        if (!text || text.length < 5) return 0;
-        const up = text.toUpperCase();
-        // 🔒 METADATA SHIELD: -20k points for labels
-        if (['ORDERING', 'MANAGER', 'TLO', 'TECHNICAL', 'RESPONSIBLE', 'SITE:'].some(n => up.includes(n))) return -20000;
-        let s = Math.min(text.length, 50);
-        if (/\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) s += 10000;
-        if (/\d+/.test(text)) s += 500;
-        return s;
-    };
-    let best = { text: "", score: -Infinity };
-    for (let r = Math.max(1, start - 5); r <= end; r++) {
-        const row = ws.getRow(r);
-        for (let c = 1; c <= 3; c++) {
-            const t = getCellText(row.getCell(c));
-            const sc = score(t);
-            if (sc > best.score) best = { text: t, score: sc };
-        }
-    }
-    return best.score >= 50 ? { address: normalizeWhitespace(best.text) } : null;
 }
 
 function getDateColumns(ws: ExcelJS.Worksheet, used: UsedBounds, rowIdx: number, startCol: number): { cols: Array<{ col: number; isoDate: string }>, diagnostics: DiagnosticIssue[] } {
@@ -384,36 +452,4 @@ function getDateColumns(ws: ExcelJS.Worksheet, used: UsedBounds, rowIdx: number,
     else if (res.diagnostic) diagnostics.push({ cellRef: cell.address, sheetName: ws.name, value: getCellText(cell), reason: res.diagnostic });
   }
   return { cols, diagnostics };
-}
-
-function extractGasTaskAndNames(text: string): { task: string; names: string[]; type: 'am' | 'pm' | 'all-day' } {
-    let raw = normalizeWhitespace(text), type: 'am' | 'pm' | 'all-day' = 'all-day';
-    if (/^AM\b/i.test(raw)) { type = 'am'; raw = raw.substring(2).trim(); }
-    else if (/^PM\b/i.test(raw)) { type = 'pm'; raw = raw.substring(2).trim(); }
-    const sep = /[-\–\—]/g;
-    let match, last = -1;
-    while ((match = sep.exec(raw)) !== null) last = match.index;
-    if (last === -1) return { task: "Work", names: [], type };
-    const task = raw.substring(0, last).trim() || "Work";
-    const names = raw.substring(last + 1).split(/[,&\/\+\\]| and /i).map(s => s.trim()).filter(n => n.length > 1 && !/\d/.test(n));
-    return { task, names, type };
-}
-
-function extractBuildAddressFromRow(row: ExcelJS.Row): { address: string; eNumber: string } | null {
-  const text = getCellText(row.getCell(1));
-  if (!text || text.length < 3 || ['MATERIALS', 'MANAGER', 'TLO'].some(n => text.toUpperCase().includes(n))) return null;
-  const rawAddr = normalizeWhitespace(text);
-  const eMatch = rawAddr.match(/\b([BE]\d+\S*)\b/i);
-  return { address: eMatch ? rawAddr.replace(eMatch[0], '').trim().replace(/^[:\-\s]+/, '') : rawAddr, eNumber: eMatch?.[1].toUpperCase() || '' };
-}
-
-function extractBuildTaskAndNames(text: string): { task: string; names: string[]; type: 'am' | 'pm' | 'all-day' } {
-    let raw = normalizeWhitespace(text), type: 'am' | 'pm' | 'all-day' = 'all-day';
-    if (/^AM\b/i.test(raw)) { type = 'am'; raw = raw.substring(2).trim(); }
-    else if (/^PM\b/i.test(raw)) { type = 'pm'; raw = raw.substring(2).trim(); }
-    const sep = /[-\–\—]/g;
-    let match, last = -1;
-    while ((match = sep.exec(raw)) !== null) last = match.index;
-    if (last === -1) return { task: "Work", names: raw.length > 1 ? [raw] : [], type };
-    return { task: raw.substring(0, last).trim() || "Work", names: raw.substring(last + 1).split(/[,&\/\+\\]| and /i).map(s => s.trim()).filter(Boolean), type };
 }
