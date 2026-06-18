@@ -77,6 +77,19 @@ export interface DryRunResult {
 }
 
 /**
+ * 🔒 PLANNER NAME NORMALIZATION
+ * Strips extensions and trailing download counts like (1), (43), etc.
+ */
+function normalizePlannerName(name: string | null | undefined): string {
+  if (!name) return "";
+  return name
+    .replace(/\.[^/.]+$/, "") // strip extension
+    .replace(/\s*\(\d+\)$/, "") // strip trailing (1), (43)
+    .toLowerCase()
+    .trim();
+}
+
+/**
  * 🔒 ROBUST NORMALIZATION (STABLE KEY GENERATION)
  */
 function normalizeText(text: string | null | undefined): string {
@@ -107,7 +120,7 @@ const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: s
   const dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
   
   // Strip phone numbers and B/E prefixes from address for the key to ensure stability
-  const addr = normalizeText(shift.address.replace(/\b[BE]\d+\b/gi, ''));
+  const addr = normalizeText(shift.address.replace(/\b[BE]\d+\S*\b/gi, ''));
   const typePart = shift.type ? `-${shift.type}` : '';
   
   return `${dateStr}-${shift.userId}-${addr}${typePart}`;
@@ -217,10 +230,8 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
       setUploadProgress('Reading file...');
       setError(null);
 
-      const rawFilename = file.name.replace(/\.[^/.]+$/, "");
-      const currentPlannerName = importType === 'BUILD' 
-        ? rawFilename.replace(/\s*\(?\d+\)?$/, "").replace(/\s*-\s*copy$/i, "").trim()
-        : rawFilename;
+      // 🔒 PLANNER NAME NORMALIZATION
+      const currentPlannerName = normalizePlannerName(file.name);
 
       const reader = new FileReader();
       reader.onload = async (e) => {
@@ -293,12 +304,10 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             cellRef: f.cellRef || ''
           }));
 
-          // 🔒 CONTRACT SCOPING: Identify which contracts are in this file to limit deletions
-          // Normalized set of contract names found in the spreadsheet
+          // 🔒 CONTRACT SCOPING: Identify which contracts are in this file to limit fallback deletions
           const contractsInCurrentFile = new Set<string>();
           allShiftsFromExcel.forEach(s => { 
             if (s.contract) {
-                // Strip download numbers e.g. "Unitas (43)" -> "unitas"
                 const norm = s.contract.toLowerCase().replace(/\s*\(\d+\)$/, '').trim();
                 contractsInCurrentFile.add(norm);
             }
@@ -358,12 +367,18 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             }
           }
 
-          // 2. Find Deletions (Limited to SCOPE of imported contracts)
+          // 2. Find Deletions (🔒 ISOLATED TO PLANNER SCOPE)
           for (const [key, existingShift] of existingShiftsMap.entries()) {
-            const currentShiftContract = (existingShift.contract || '').toLowerCase().replace(/\s*\(\d+\)$/, '').trim();
-            const contractMatch = currentShiftContract && contractsInCurrentFile.has(currentShiftContract);
+            const existingPlanner = normalizePlannerName(existingShift.plannerName);
             
-            if (contractMatch && !excelShiftsMap.has(key) && !protectedStatuses.includes(existingShift.status) && existingShift.source !== 'manual') {
+            // 🔒 SCOPE SHIELD: Only delete if the shift came from this specific planner (or a variation of it)
+            // Fallback: if existing shift has no planner name, check if contract matches (for legacy support)
+            const isSamePlanner = existingPlanner === currentPlannerName;
+            const isContractMatch = !existingPlanner && existingShift.contract && contractsInCurrentFile.has(existingShift.contract.toLowerCase().replace(/\s*\(\d+\)$/, '').trim());
+            
+            const isInScope = isSamePlanner || isContractMatch;
+            
+            if (isInScope && !excelShiftsMap.has(key) && !protectedStatuses.includes(existingShift.status) && existingShift.source !== 'manual') {
               const shiftDate = getCorrectedLocalDate(existingShift.date as any);
               if (shiftDate >= importTodayLocal) {
                 toDelete.push(existingShift);
