@@ -14,6 +14,7 @@ import { parseWorkbook, type UnifiedParseResult } from '@/lib/exceljs-parser';
 import { type UserMapEntry, type StandardShift } from '@/lib/importer/types';
 import type { UserProfile, Shift } from '@/types';
 import { Label } from '../ui/label';
+import { format } from 'date-fns';
 
 interface FileUploaderProps {
   title: string;
@@ -70,18 +71,17 @@ function todayStart(): Date {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
 }
 
-function dayKey(value: any): string {
-  const d = toDate(value);
-  return [
-    d.getFullYear(),
-    String(d.getMonth() + 1).padStart(2, '0'),
-    String(d.getDate()).padStart(2, '0'),
-  ].join('-');
-}
-
-function shiftKey(shift: any, department: string): string {
+/**
+ * Robust Shift Key: Identifies a unique slot for an operative.
+ * Used to distinguish between Existing, New, and Updated shifts.
+ */
+function getShiftKey(shift: any, department: string): string {
   const userId = shift.userId || shift.operativeUid || '';
-  return [department, userId, dayKey(shift.date)].join('|');
+  const dateStr = format(toDate(shift.date), 'yyyy-MM-dd');
+  const normalizedAddr = normalizeText(shift.address);
+  const type = shift.type || 'all-day';
+  
+  return [department, userId, dateStr, normalizedAddr, type].join('|');
 }
 
 function clean(value: any): string {
@@ -91,13 +91,11 @@ function clean(value: any): string {
 
 function hasChanged(existing: any, incoming: StandardShift): boolean {
   return (
-    clean(existing.userId) !== clean(incoming.operativeUid) ||
-    clean(existing.address) !== clean(incoming.address) ||
     clean(existing.task) !== clean(incoming.task) ||
-    clean(existing.type || 'all-day') !== clean(incoming.type || 'all-day') ||
     clean(existing.eNumber) !== clean(incoming.eNumber) ||
     clean(existing.contract) !== clean(incoming.contract) ||
-    clean(existing.manager) !== clean(incoming.manager)
+    clean(existing.manager) !== clean(incoming.manager) ||
+    clean(existing.descriptionOfWorks) !== clean(incoming.descriptionOfWorks)
   );
 }
 
@@ -140,6 +138,7 @@ export function FileUploader({
         const parseResult = await parseWorkbook(Buffer.from(buffer), userMap);
         const start = todayStart();
 
+        // Filter only today and future shifts for comparison
         const parsedFutureShifts = parseResult.shifts.filter((shift) => {
           try {
             return toDate(shift.date) >= start;
@@ -148,12 +147,12 @@ export function FileUploader({
           }
         });
 
+        // Fetch existing imported shifts for this department to detect changes/duplicates
         const existingSnap = await getDocs(
           query(
             collection(db, 'shifts'),
             where('department', '==', department),
-            where('source', '==', 'import'),
-            where('profileId', '==', plannerName)
+            where('source', '==', 'import')
           )
         );
 
@@ -162,7 +161,7 @@ export function FileUploader({
           const data = doc.data() as any;
           try {
             if (toDate(data.date) >= start) {
-              existingByKey.set(shiftKey(data, department), { id: doc.id, data });
+              existingByKey.set(getShiftKey(data, department), { id: doc.id, data });
             }
           } catch {}
         });
@@ -174,21 +173,38 @@ export function FileUploader({
 
         for (const shift of parsedFutureShifts) {
           if (!shift.operativeUid) continue;
-          const key = shiftKey(shift, department);
+          
+          const key = getShiftKey(shift, department);
           incomingKeys.add(key);
+          
           const existing = existingByKey.get(key);
+          
           if (!existing) {
             toCreate.push(shift);
           } else if (hasChanged(existing.data, shift)) {
-            toUpdate.push({ id: existing.id, old: { id: existing.id, ...existing.data } as Shift, new: shift });
+            toUpdate.push({ 
+              id: existing.id, 
+              old: { id: existing.id, ...existing.data } as Shift, 
+              new: shift 
+            });
           } else {
             toUnchanged.push({ id: existing.id, ...existing.data } as Shift);
           }
         }
 
+        // Identify deletions: Shifts in DB for this specific PLANNER that are no longer in the file
         const toDelete: Shift[] = [];
-        existingByKey.forEach((existing, key) => {
-          if (!incomingKeys.has(key)) toDelete.push({ id: existing.id, ...existing.data } as Shift);
+        existingSnap.docs.forEach((doc) => {
+          const data = doc.data() as any;
+          const key = getShiftKey(data, department);
+          // Only suggest deletion if it belongs to this specific planner file and is missing from current scan
+          if (data.profileId === plannerName && !incomingKeys.has(key)) {
+            try {
+              if (toDate(data.date) >= start) {
+                toDelete.push({ id: doc.id, ...data } as Shift);
+              }
+            } catch {}
+          }
         });
 
         onImportComplete({

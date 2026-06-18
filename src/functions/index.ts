@@ -1,4 +1,3 @@
-
 /* =====================================================
    IMPORTS
 ===================================================== */
@@ -583,25 +582,42 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     if (!data || typeof data !== "object") {
         throw new HttpsError("invalid-argument", "Request data must be an object.");
     }
-    const { toCreate = [], toUpdate = [], toDelete = [], department, profileId } = data as any;
+    
+    const { 
+        toCreate = [], 
+        toUpdate = [], 
+        toDelete = [], 
+        department,
+        profileId
+    } = data as any;
 
-    if (!department || !profileId) {
-        throw new HttpsError('invalid-argument', 'Missing department or profileId.');
+    if (!Array.isArray(toCreate) || !Array.isArray(toUpdate) || !Array.isArray(toDelete) || !department) {
+        throw new HttpsError('invalid-argument', 'Invalid payload. Expected toCreate, toUpdate, toDelete arrays and department.');
     }
 
     const batch = db.batch();
     const projectsRef = db.collection('projects');
     const shiftsRef = db.collection('shifts');
 
+    // Helper for standardized keys
+    const dayKey = (d: any) => {
+      const date = new Date(d);
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    };
+    const normalizeAddress = (addr: string | null | undefined): string => {
+      if (!addr) return "";
+      return String(addr).toLowerCase().replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
+    };
+
     // 1. Sync Projects
     const allProjectsSnap = await projectsRef.where('department', '==', department).get();
     const existingProjects = new Map();
-    allProjectsSnap.forEach(d => existingProjects.set(normalizeText(d.data().address), d.ref));
+    allProjectsSnap.forEach(d => existingProjects.set(normalizeAddress(d.data().address), d.ref));
 
     const allImportedShifts = [...toCreate, ...toUpdate.map((u: any) => u.new)];
     const importedAddresses = new Map();
     allImportedShifts.forEach((s: any) => {
-        if (s.address) importedAddresses.set(normalizeText(s.address), s);
+        if (s.address) importedAddresses.set(normalizeAddress(s.address), s);
     });
 
     const userSnap = await db.collection("users").doc(uid).get();
@@ -628,7 +644,10 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     // 2. Create Shifts
     toCreate.forEach((shift: any) => {
         if (!shift.operativeUid) {
-            throw new HttpsError("invalid-argument", `Missing operativeUid for ${shift.operative}`);
+            throw new HttpsError(
+                "invalid-argument",
+                `Cannot create shift because operativeUid is missing for ${shift.operative || "unknown operative"} at ${shift.address || "unknown address"}.`
+            );
         }
         
         const newShiftRef = shiftsRef.doc();
@@ -646,16 +665,20 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             status: 'pending',
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             source: 'import',
-            profileId: profileId,
-            plannerName: profileId
+            plannerName: profileId || '',
+            profileId: profileId || ''
         });
     });
 
     // 3. Update Shifts
     toUpdate.forEach(({ id, new: newShift }: any) => {
         if (!newShift.operativeUid) {
-            throw new HttpsError("invalid-argument", `Missing operativeUid for ${newShift.operative}`);
+            throw new HttpsError(
+                "invalid-argument",
+                `Cannot update shift because operativeUid is missing for ${newShift.operative || "unknown operative"} at ${newShift.address || "unknown address"}.`
+            );
         }
+
         batch.update(shiftsRef.doc(id), {
             userId: newShift.operativeUid,
             userName: newShift.operative,
@@ -667,8 +690,8 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             contract: newShift.contract || '',
             manager: newShift.manager || '',
             department: department,
-            plannerName: profileId,
-            profileId: profileId,
+            plannerName: profileId || '',
+            profileId: profileId || '',
             updatedAt: admin.firestore.FieldValue.serverTimestamp()
         });
     });
@@ -682,7 +705,7 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     
     return {
         success: true,
-        message: `Schedule Sync Complete: ${toCreate.length} created, ${toUpdate.length} updated, ${toDelete.length} deleted.`
+        message: `Schedule Sync Complete: ${toCreate.length} requested, ${toUpdate.length} updated, ${toDelete.length} deleted.`
     };
 });
 
