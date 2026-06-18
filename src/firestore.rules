@@ -121,6 +121,11 @@ service cloud.firestore {
         allow write: if isPrivilegedUser(request.auth.uid);
     }
 
+    // ---- IMPORT LOGS ----
+    match /import_logs/{logId} {
+      allow read, create: if isPrivilegedUser(request.auth.uid);
+    }
+
     // ---- COLLECTION GROUP QUERIES ----
      match /{path=**}/materialPurchases/{purchaseId} {
         allow read: if isOwner(request.auth.uid) || (signedIn() && userDepartment(request.auth.uid) == resource.data.department);

@@ -1,3 +1,4 @@
+
 /* =====================================================
    IMPORTS
 ===================================================== */
@@ -93,6 +94,18 @@ const isShiftInPast = (d: Date): boolean => {
 };
 
 const pendingGateUrl = () => "/dashboard?gate=pending";
+
+/**
+ * 🔒 CASE-INSENSITIVE NORMALIZATION
+ */
+const normalizeText = (text: string | null | undefined): string => {
+  if (!text) return "";
+  return String(text)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+};
 
 /* =====================================================
    NOTIFICATIONS
@@ -581,52 +594,47 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     const shiftsRef = db.collection('shifts');
 
     // --- Handle Project Creation/Update ---
+    // 🔒 Fetch all projects for the department to perform case-insensitive matching
+    const allProjectsSnap = await projectsRef.where('department', '==', department).get();
+    const existingProjectsByAddr = new Map<string, any>();
+    allProjectsSnap.forEach(d => {
+        const p = d.data();
+        existingProjectsByAddr.set(normalizeText(p.address), { ...p, id: d.id, ref: d.ref });
+    });
+
     const allImportedShifts = [...toCreate, ...toUpdate.map((u: any) => u.new)];
     const projectInfoFromImport = new Map<string, any>();
     allImportedShifts.forEach((shift: any) => {
         if (shift.address) {
-            projectInfoFromImport.set(shift.address, shift);
+            projectInfoFromImport.set(normalizeText(shift.address), shift);
         }
     });
 
-    if (projectInfoFromImport.size > 0) {
-        const projectAddresses = Array.from(projectInfoFromImport.keys());
-        for (let i = 0; i < projectAddresses.length; i += 30) {
-            const chunk = projectAddresses.slice(i, i + 30);
-            const existingProjectsSnap = await projectsRef.where('address', 'in', chunk).get();
+    const userSnap = await db.collection("users").doc(uid).get();
+    const userProfile = userSnap.data();
 
-            const foundAddresses = new Set<string>();
-            existingProjectsSnap.forEach(docSnap => {
-                const project = docSnap.data();
-                foundAddresses.add(project.address);
-                const importInfo = projectInfoFromImport.get(project.address);
-                if (importInfo && project.contract !== importInfo.contract) {
-                    batch.update(docSnap.ref, { contract: importInfo.contract });
-                }
-            });
-
-            const userSnap = await db.collection("users").doc(uid).get();
-            const userProfile = userSnap.data();
-
-            chunk.forEach(address => {
-                if (!foundAddresses.has(address)) {
-                    const info = projectInfoFromImport.get(address);
-                    if (info) {
-                        const reviewDate = new Date();
-                        reviewDate.setDate(reviewDate.getDate() + 28);
-                        batch.set(db.collection('projects').doc(), {
-                            address: info.address,
-                            eNumber: info.eNumber || '',
-                            manager: info.manager || '',
-                            contract: info.contract || '',
-                            department: info.department || department || '',
-                            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                            createdBy: userProfile?.name || 'System Import',
-                            creatorId: uid,
-                            nextReviewDate: admin.firestore.Timestamp.fromDate(reviewDate),
-                        });
-                    }
-                }
+    for (const [normAddr, shiftInfo] of projectInfoFromImport.entries()) {
+        const existingProject = existingProjectsByAddr.get(normAddr);
+        
+        if (existingProject) {
+            // Update contract if it changed (case-insensitive check)
+            if (normalizeText(existingProject.contract) !== normalizeText(shiftInfo.contract)) {
+                batch.update(existingProject.ref, { contract: shiftInfo.contract });
+            }
+        } else {
+            // Create new project
+            const reviewDate = new Date();
+            reviewDate.setDate(reviewDate.getDate() + 28);
+            batch.set(db.collection('projects').doc(), {
+                address: shiftInfo.address,
+                eNumber: shiftInfo.eNumber || '',
+                manager: shiftInfo.manager || '',
+                contract: shiftInfo.contract || '',
+                department: shiftInfo.department || department || '',
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                createdBy: userProfile?.name || 'System Import',
+                creatorId: uid,
+                nextReviewDate: admin.firestore.Timestamp.fromDate(reviewDate),
             });
         }
     }
@@ -654,6 +662,7 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             notes: newShift.notes || '',
             contract: newShift.contract || '',
             department: newShift.department || department || '',
+            plannerName: newShift.plannerName || '',
         };
         
         // GAS ONLY: Do not reset status to 'pending-confirmation' if already accepted/active

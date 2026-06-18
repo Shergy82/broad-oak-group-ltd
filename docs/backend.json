@@ -125,6 +125,21 @@
         }
       },
       "required": ["id", "text"]
+    },
+    "ImportLog": {
+      "title": "Import Log",
+      "description": "Stores history of shift imports.",
+      "type": "object",
+      "properties": {
+        "fileName": { "type": "string" },
+        "importerUid": { "type": "string" },
+        "importerName": { "type": "string" },
+        "newCount": { "type": "number" },
+        "updateCount": { "type": "number" },
+        "deleteCount": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "result": { "type": "string" }
+      }
     }
   },
   "auth": {
@@ -154,6 +169,12 @@
         "$ref": "#/entities/EvidenceChecklist"
       },
       "description": "Stores the evidence checklists for each contract."
+    },
+    "/import_logs/{logId}": {
+      "schema": {
+        "$ref": "#/entities/ImportLog"
+      },
+      "description": "Logs of shift import operations."
     }
   }
 }
