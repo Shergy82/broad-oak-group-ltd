@@ -14,7 +14,6 @@ import { parseWorkbook, type UnifiedParseResult } from '@/lib/exceljs-parser';
 import { type UserMapEntry, type StandardShift } from '@/lib/importer/types';
 import type { UserProfile, Shift } from '@/types';
 import { Label } from '../ui/label';
-import { format } from 'date-fns';
 
 interface FileUploaderProps {
   title: string;
@@ -50,37 +49,24 @@ function normalizePlannerName(fileName: string): string {
 
 function toDate(value: any): Date {
   if (!value) throw new Error('Invalid date: empty value');
-  if (value instanceof Date) {
-    if (Number.isNaN(value.getTime())) throw new Error('Invalid date: bad Date object');
-    return value;
-  }
-  if (typeof value?.toDate === 'function') {
-    const d = value.toDate();
-    if (Number.isNaN(d.getTime())) throw new Error('Invalid date: bad Firestore Timestamp');
-    return d;
-  }
+  if (value instanceof Date) return value;
+  if (typeof value?.toDate === 'function') return value.toDate();
   if (typeof value === 'object' && typeof value.seconds === 'number') return new Date(value.seconds * 1000);
-  if (typeof value === 'object' && typeof value._seconds === 'number') return new Date(value._seconds * 1000);
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) throw new Error(`Invalid date: ${JSON.stringify(value)}`);
   return d;
 }
 
-function todayStart(): Date {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+function getShiftDayKey(value: any): string {
+  const d = toDate(value);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 }
 
-/**
- * Robust Shift Key: Identifies a unique slot for an operative.
- * Used to distinguish between Existing, New, and Updated shifts.
- */
 function getShiftKey(shift: any, department: string): string {
   const userId = shift.userId || shift.operativeUid || '';
-  const dateStr = format(toDate(shift.date), 'yyyy-MM-dd');
+  const dateStr = getShiftDayKey(shift.date);
   const normalizedAddr = normalizeText(shift.address);
   const type = shift.type || 'all-day';
-  
   return [department, userId, dateStr, normalizedAddr, type].join('|');
 }
 
@@ -94,8 +80,7 @@ function hasChanged(existing: any, incoming: StandardShift): boolean {
     clean(existing.task) !== clean(incoming.task) ||
     clean(existing.eNumber) !== clean(incoming.eNumber) ||
     clean(existing.contract) !== clean(incoming.contract) ||
-    clean(existing.manager) !== clean(incoming.manager) ||
-    clean(existing.descriptionOfWorks) !== clean(incoming.descriptionOfWorks)
+    clean(existing.manager) !== clean(incoming.manager)
   );
 }
 
@@ -136,18 +121,17 @@ export function FileUploader({
         });
 
         const parseResult = await parseWorkbook(Buffer.from(buffer), userMap);
-        const start = todayStart();
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
 
-        // Filter only today and future shifts for comparison
         const parsedFutureShifts = parseResult.shifts.filter((shift) => {
           try {
-            return toDate(shift.date) >= start;
+            return toDate(shift.date) >= today;
           } catch {
             return false;
           }
         });
 
-        // Fetch existing imported shifts for this department to detect changes/duplicates
         const existingSnap = await getDocs(
           query(
             collection(db, 'shifts'),
@@ -160,7 +144,7 @@ export function FileUploader({
         existingSnap.docs.forEach((doc) => {
           const data = doc.data() as any;
           try {
-            if (toDate(data.date) >= start) {
+            if (toDate(data.date) >= today) {
               existingByKey.set(getShiftKey(data, department), { id: doc.id, data });
             }
           } catch {}
@@ -192,15 +176,13 @@ export function FileUploader({
           }
         }
 
-        // Identify deletions: Shifts in DB for this specific PLANNER that are no longer in the file
         const toDelete: Shift[] = [];
         existingSnap.docs.forEach((doc) => {
           const data = doc.data() as any;
           const key = getShiftKey(data, department);
-          // Only suggest deletion if it belongs to this specific planner file and is missing from current scan
           if (data.profileId === plannerName && !incomingKeys.has(key)) {
             try {
-              if (toDate(data.date) >= start) {
+              if (toDate(data.date) >= today) {
                 toDelete.push({ id: doc.id, ...data } as Shift);
               }
             } catch {}
