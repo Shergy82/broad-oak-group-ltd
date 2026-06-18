@@ -14,6 +14,8 @@ import { format, isValid } from 'date-fns';
 import { db } from '@/lib/firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { Label } from '../ui/label';
+import { Input } from '../ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { ImportType } from '@/lib/exceljs-parser';
 
 interface ShiftImporterProps {
