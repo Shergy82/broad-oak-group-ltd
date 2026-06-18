@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, where } from 'firebase/firestore';
@@ -23,6 +23,7 @@ interface FileUploaderProps {
       toCreate: StandardShift[];
       toUpdate: { id: string; old: Shift; new: StandardShift }[];
       toDelete: Shift[];
+      toUnchanged: Shift[];
     }
   ) => void;
   onFileSelect: () => void;
@@ -110,6 +111,7 @@ export function FileUploader({
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   const processFile = async (file: File) => {
@@ -169,6 +171,7 @@ export function FileUploader({
         const incomingKeys = new Set<string>();
         const toCreate: StandardShift[] = [];
         const toUpdate: { id: string; old: Shift; new: StandardShift }[] = [];
+        const toUnchanged: Shift[] = [];
 
         for (const shift of parsedFutureShifts) {
           if (!shift.operativeUid) continue;
@@ -179,6 +182,8 @@ export function FileUploader({
             toCreate.push(shift);
           } else if (hasChanged(existing.data, shift)) {
             toUpdate.push({ id: existing.id, old: { id: existing.id, ...existing.data } as Shift, new: shift });
+          } else {
+            toUnchanged.push({ id: existing.id, ...existing.data } as Shift);
           }
         }
 
@@ -193,8 +198,14 @@ export function FileUploader({
           toCreate,
           toUpdate,
           toDelete,
+          toUnchanged,
           profileId: plannerName,
         });
+
+        // 🔄 Reset file input so same file can be selected again
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
       } catch (err: any) {
         console.error('Processing error:', err);
         setError(err.message || 'An unexpected error occurred.');
@@ -236,7 +247,14 @@ export function FileUploader({
             </div>
             <h3 className="text-lg font-semibold">{title}</h3>
             <p className="text-sm text-muted-foreground mb-4 text-center">Identifying addresses and assigning staff.</p>
-            <Input id={`shift-file-input-${department}`} type="file" accept=".xlsx,.xls,.xlsm" className="sr-only" onChange={(e) => { if (e.target.files?.[0]) processFile(e.target.files[0]); }} />
+            <Input 
+              ref={fileInputRef}
+              id={`shift-file-input-${department}`} 
+              type="file" 
+              accept=".xlsx,.xls,.xlsm" 
+              className="sr-only" 
+              onChange={(e) => { if (e.target.files?.[0]) processFile(e.target.files[0]); }} 
+            />
             <Button asChild variant="outline">
               <Label htmlFor={`shift-file-input-${department}`} className="cursor-pointer">Select Excel File</Label>
             </Button>

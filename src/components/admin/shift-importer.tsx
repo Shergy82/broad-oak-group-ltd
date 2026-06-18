@@ -12,7 +12,7 @@ import { type StandardShift } from '@/lib/importer/types';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CheckCircle, Info, RotateCw } from 'lucide-react';
+import { CheckCircle, Info, RotateCw, History } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { format } from 'date-fns';
@@ -23,6 +23,7 @@ interface DryRunResult extends UnifiedParseResult {
   toCreate: StandardShift[];
   toUpdate: { id: string; old: Shift; new: StandardShift }[];
   toDelete: Shift[];
+  toUnchanged: Shift[];
 }
 
 interface ShiftImporterProps {
@@ -113,59 +114,79 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
     const notImported = (dryRun.errors || []).filter(e => e.severity === 'error' || e.severity === 'warning');
     return (
       <div className="space-y-6">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Card className="bg-green-50 border-green-200"><CardHeader className="p-3"><CardTitle className="text-xs text-green-700 uppercase">New</CardTitle></CardHeader><CardContent className="p-3 pt-0"><p className="text-2xl font-bold text-green-700">{dryRun.toCreate.length}</p></CardContent></Card>
-          <Card className="bg-blue-50 border-blue-200"><CardHeader className="p-3"><CardTitle className="text-xs text-blue-700 uppercase">Updates</CardTitle></CardHeader><CardContent className="p-3 pt-0"><p className="text-2xl font-bold text-blue-700">{dryRun.toUpdate.length}</p></CardContent></Card>
-          <Card className="bg-amber-50 border-amber-200"><CardHeader className="p-3"><CardTitle className="text-xs text-amber-700 uppercase">Deletions</CardTitle></CardHeader><CardContent className="p-3 pt-0"><p className="text-2xl font-bold text-amber-700">{dryRun.toDelete.length}</p></CardContent></Card>
-          <Card className={cn(notImported.length > 0 ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200')}><CardHeader className="p-3"><CardTitle className={cn('text-xs uppercase', notImported.length > 0 ? 'text-red-700' : 'text-slate-700')}>Issues</CardTitle></CardHeader><CardContent className="p-3 pt-0"><p className={cn('text-2xl font-bold', notImported.length > 0 && 'text-red-700')}>{notImported.length}</p></CardContent></Card>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <Card className="bg-green-50 border-green-200"><CardHeader className="p-3"><CardTitle className="text-[10px] text-green-700 uppercase">New</CardTitle></CardHeader><CardContent className="p-3 pt-0"><p className="text-2xl font-bold text-green-700">{dryRun.toCreate.length}</p></CardContent></Card>
+          <Card className="bg-blue-50 border-blue-200"><CardHeader className="p-3"><CardTitle className="text-[10px] text-blue-700 uppercase">Updates</CardTitle></CardHeader><CardContent className="p-3 pt-0"><p className="text-2xl font-bold text-blue-700">{dryRun.toUpdate.length}</p></CardContent></Card>
+          <Card className="bg-amber-50 border-amber-200"><CardHeader className="p-3"><CardTitle className="text-[10px] text-amber-700 uppercase">Deletions</CardTitle></CardHeader><CardContent className="p-3 pt-0"><p className="text-2xl font-bold text-amber-700">{dryRun.toDelete.length}</p></CardContent></Card>
+          <Card className="bg-slate-50 border-slate-200"><CardHeader className="p-3"><CardTitle className="text-[10px] text-slate-700 uppercase">Existing</CardTitle></CardHeader><CardContent className="p-3 pt-0"><p className="text-2xl font-bold text-slate-700">{dryRun.toUnchanged.length}</p></CardContent></Card>
+          <Card className={cn(notImported.length > 0 ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200')}><CardHeader className="p-3"><CardTitle className={cn('text-[10px] uppercase', notImported.length > 0 ? 'text-red-700' : 'text-slate-700')}>Issues</CardTitle></CardHeader><CardContent className="p-3 pt-0"><p className={cn('text-2xl font-bold', notImported.length > 0 && 'text-red-700')}>{notImported.length}</p></CardContent></Card>
         </div>
+
         <Tabs defaultValue="create" className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="create">New ({dryRun.toCreate.length})</TabsTrigger>
-            <TabsTrigger value="update">Updates ({dryRun.toUpdate.length})</TabsTrigger>
-            <TabsTrigger value="delete">Deletions ({dryRun.toDelete.length})</TabsTrigger>
-            <TabsTrigger value="failed" className={cn(notImported.length > 0 && 'text-red-600')}>Issues ({notImported.length})</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-5 h-auto">
+            <TabsTrigger value="create" className="text-[10px]">New ({dryRun.toCreate.length})</TabsTrigger>
+            <TabsTrigger value="update" className="text-[10px]">Updates ({dryRun.toUpdate.length})</TabsTrigger>
+            <TabsTrigger value="delete" className="text-[10px]">Remove ({dryRun.toDelete.length})</TabsTrigger>
+            <TabsTrigger value="synced" className="text-[10px]">Synced ({dryRun.toUnchanged.length})</TabsTrigger>
+            <TabsTrigger value="failed" className={cn('text-[10px]', notImported.length > 0 && 'text-red-600')}>Issues ({notImported.length})</TabsTrigger>
           </TabsList>
+          
           <TabsContent value="create">
-            <ScrollArea className="h-[400px] border rounded-md">
+            <ScrollArea className="h-[300px] border rounded-md">
               <Table>
-                <TableHeader className="sticky top-0 bg-background z-10"><TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Address</TableHead><TableHead>Task</TableHead></TableRow></TableHeader>
+                <TableHeader className="sticky top-0 bg-background z-10"><TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Address</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {dryRun.toCreate.length > 0 ? dryRun.toCreate.map((s, i) => (
-                    <TableRow key={i}><TableCell className="text-xs">{format(getDateForDisplay(s.date), 'dd/MM/yy')}</TableCell><TableCell className="font-semibold text-xs text-primary">{s.operative}</TableCell><TableCell className="text-[10px] truncate max-w-[150px]">{s.address}</TableCell><TableCell className="text-[10px] italic">{s.task}</TableCell></TableRow>
-                  )) : <TableRow><TableCell colSpan={4} className="text-center py-10 text-muted-foreground">No new shifts.</TableCell></TableRow>}
+                    <TableRow key={i}><TableCell className="text-xs">{format(getDateForDisplay(s.date), 'dd/MM/yy')}</TableCell><TableCell className="font-semibold text-xs text-primary">{s.operative}</TableCell><TableCell className="text-[10px] truncate max-w-[150px]">{s.address}</TableCell></TableRow>
+                  )) : <TableRow><TableCell colSpan={3} className="text-center py-10 text-muted-foreground">No new shifts.</TableCell></TableRow>}
                 </TableBody>
               </Table>
             </ScrollArea>
           </TabsContent>
+
           <TabsContent value="update">
-            <ScrollArea className="h-[400px] border rounded-md">
+            <ScrollArea className="h-[300px] border rounded-md">
               <Table>
-                <TableHeader className="sticky top-0 bg-background z-10"><TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Change</TableHead></TableRow></TableHeader>
+                <TableHeader className="sticky top-0 bg-background z-10"><TableRow><TableHead>User</TableHead><TableHead>Address</TableHead><TableHead>Change</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {dryRun.toUpdate.length > 0 ? dryRun.toUpdate.map((u, i) => (
-                    <TableRow key={i}><TableCell className="text-xs">{format(getDateForDisplay(u.new.date), 'dd/MM/yy')}</TableCell><TableCell className="text-xs">{u.new.operative}</TableCell><TableCell className="text-[10px] text-blue-700">{u.new.task}</TableCell></TableRow>
+                    <TableRow key={i}><TableCell className="text-xs">{u.new.operative}</TableCell><TableCell className="text-[10px]">{u.new.address}</TableCell><TableCell className="text-[10px] text-blue-700 italic">{u.new.task}</TableCell></TableRow>
                   )) : <TableRow><TableCell colSpan={3} className="text-center py-10 text-muted-foreground">No updates.</TableCell></TableRow>}
                 </TableBody>
               </Table>
             </ScrollArea>
           </TabsContent>
+
           <TabsContent value="delete">
-             <ScrollArea className="h-[400px] border rounded-md">
+             <ScrollArea className="h-[300px] border rounded-md">
               <Table>
                 <TableHeader className="sticky top-0 bg-background z-10"><TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Address</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {dryRun.toDelete.length > 0 ? dryRun.toDelete.map((s, i) => (
-                    <TableRow key={i} className="bg-amber-50"><TableCell className="text-xs">{format(getDateForDisplay(s.date), 'dd/MM/yy')}</TableCell><TableCell className="text-xs">{userNameMap.get(s.userId) || s.userName}</TableCell><TableCell className="text-[10px]">{s.address}</TableCell></TableRow>
+                    <TableRow key={i} className="bg-amber-50/50"><TableCell className="text-xs">{format(getDateForDisplay(s.date), 'dd/MM/yy')}</TableCell><TableCell className="text-xs">{userNameMap.get(s.userId) || s.userName}</TableCell><TableCell className="text-[10px]">{s.address}</TableCell></TableRow>
                   )) : <TableRow><TableCell colSpan={3} className="text-center py-10 text-muted-foreground">No deletions.</TableCell></TableRow>}
                 </TableBody>
               </Table>
             </ScrollArea>
           </TabsContent>
-          <TabsContent value="failed">
-            <ScrollArea className="h-[400px] border rounded-md">
+
+          <TabsContent value="synced">
+             <ScrollArea className="h-[300px] border rounded-md">
               <Table>
-                <TableHeader className="sticky top-0 bg-background z-10"><TableRow><TableHead>Cell</TableHead><TableHead>Reason</TableHead></TableRow></TableHeader>
+                <TableHeader className="sticky top-0 bg-background z-10"><TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Address</TableHead></TableRow></TableHeader>
+                <TableBody>
+                  {dryRun.toUnchanged.length > 0 ? dryRun.toUnchanged.map((s, i) => (
+                    <TableRow key={i} className="opacity-60"><TableCell className="text-xs">{format(getDateForDisplay(s.date), 'dd/MM/yy')}</TableCell><TableCell className="text-xs">{userNameMap.get(s.userId) || s.userName}</TableCell><TableCell className="text-[10px]">{s.address}</TableCell></TableRow>
+                  )) : <TableRow><TableCell colSpan={3} className="text-center py-10 text-muted-foreground">No matching shifts found in system.</TableCell></TableRow>}
+                </TableBody>
+              </Table>
+            </ScrollArea>
+          </TabsContent>
+
+          <TabsContent value="failed">
+            <ScrollArea className="h-[300px] border rounded-md">
+              <Table>
+                <TableHeader className="sticky top-0 bg-background z-10"><TableRow><TableHead>Location</TableHead><TableHead>Reason</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {notImported.length > 0 ? notImported.map((err, i) => (
                     <TableRow key={i} className="bg-red-50/50"><TableCell className="text-[10px] font-bold">{err.cell || '?'}</TableCell><TableCell className="text-[10px] font-semibold text-red-700">{err.message}</TableCell></TableRow>
@@ -175,9 +196,15 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
             </ScrollArea>
           </TabsContent>
         </Tabs>
+
         <div className="flex justify-between items-center bg-muted/50 p-4 rounded-lg border">
-          <div><p className="font-bold">Summary Ready</p><p className="text-xs text-muted-foreground">Profile: {dryRun.profileName}</p></div>
-          <div className="flex gap-3"><Button variant="ghost" onClick={() => setDryRun(null)}>Discard</Button><Button onClick={handleFinalPublish} disabled={isPublishing}>{isPublishing ? <Spinner /> : <><RotateCw className="mr-2 h-4 w-4" /> Publish Changes</>}</Button></div>
+          <Button variant="ghost" onClick={() => setDryRun(null)}>Discard & Reset</Button>
+          <div className="flex items-center gap-3">
+            <p className="text-xs font-medium text-muted-foreground">Ready to sync {dryRun.toCreate.length + dryRun.toUpdate.length + dryRun.toDelete.length} changes</p>
+            <Button onClick={handleFinalPublish} disabled={isPublishing}>
+                {isPublishing ? <Spinner /> : <><RotateCw className="mr-2 h-4 w-4" /> Publish Changes</>}
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -185,11 +212,35 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
 
   return (
     <div className="space-y-6">
-      <Card><CardHeader><CardTitle>Upload Gas Planner</CardTitle><CardDescription>Only Today and Future shifts will be affected.</CardDescription></CardHeader>
-        <CardContent><FileUploader title="Upload Gas Planner" department="Gas" onImportComplete={handleImportComplete} onFileSelect={() => setDryRun(null)} userProfile={userProfile} /></CardContent>
+      <Card>
+        <CardHeader>
+            <CardTitle>Upload Gas Planner</CardTitle>
+            <CardDescription>Only Today and Future shifts will be affected.</CardDescription>
+        </CardHeader>
+        <CardContent>
+            <FileUploader 
+                title="Gas Battleship" 
+                department="Gas" 
+                onImportComplete={handleImportComplete} 
+                onFileSelect={() => setDryRun(null)} 
+                userProfile={userProfile} 
+            />
+        </CardContent>
       </Card>
-      <Card><CardHeader><CardTitle>Upload Build Planner</CardTitle><CardDescription>Only Today and Future shifts will be affected.</CardDescription></CardHeader>
-        <CardContent><FileUploader title="Upload Build Planner" department="Build" onImportComplete={handleImportComplete} onFileSelect={() => setDryRun(null)} userProfile={userProfile} /></CardContent>
+      <Card>
+        <CardHeader>
+            <CardTitle>Upload Build Planner</CardTitle>
+            <CardDescription>Only Today and Future shifts will be affected.</CardDescription>
+        </CardHeader>
+        <CardContent>
+            <FileUploader 
+                title="Build Battleship" 
+                department="Build" 
+                onImportComplete={handleImportComplete} 
+                onFileSelect={() => setDryRun(null)} 
+                userProfile={userProfile} 
+            />
+        </CardContent>
       </Card>
     </div>
   );
