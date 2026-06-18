@@ -152,7 +152,7 @@ export class BroadOakProfile implements PlannerProfile {
               contract: blockScheme || "Gas Works",
               manager: blockManager,
               operative: match.user.originalName,
-              operativeUid: match.user.uid, // This is the Auth UID
+              operativeUid: match.user.uid, // Correct UID from UserMap
               task: match.task,
               descriptionOfWorks: text,
               type: match.type,
