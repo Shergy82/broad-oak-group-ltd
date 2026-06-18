@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
@@ -30,57 +29,67 @@ interface FileUploaderProps {
   userProfile: UserProfile;
 }
 
+/**
+ * 🔒 IDENTITY KEY GENERATION
+ * Used to uniquely identify a shift: Dept + User + Date + Normalized Address + Shift Type.
+ */
+function getShiftIdentityKey(shift: any, department: string): string {
+  const dept = normalizeText(department);
+  const userId = String(shift.userId || shift.operativeUid || '').trim();
+  const dateStr = getShiftDayKey(shift.date);
+  const address = normalizeText(shift.address);
+  const type = normalizeText(shift.type || 'all-day');
+
+  return [dept, userId, dateStr, address, type].join('|');
+}
+
 function normalizeText(text: string | null | undefined): string {
   if (!text) return '';
   return String(text)
     .toLowerCase()
+    .replace(/&/g, ' and ')
     .replace(/[^a-z0-9]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-function normalizePlannerName(fileName: string): string {
-  return normalizeText(
-    fileName
-      .replace(/\.[^/.]+$/, '')
-      .replace(/\s*\(\d+\)\s*$/, '')
-  );
-}
-
-function toDate(value: any): Date {
-  if (!value) throw new Error('Invalid date: empty value');
-  if (value instanceof Date) return value;
-  if (typeof value?.toDate === 'function') return value.toDate();
-  if (typeof value === 'object' && typeof value.seconds === 'number') return new Date(value.seconds * 1000);
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) throw new Error(`Invalid date: ${JSON.stringify(value)}`);
-  return d;
-}
-
 function getShiftDayKey(value: any): string {
-  const d = toDate(value);
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+  let d: Date;
+  if (value instanceof Date) {
+    d = value;
+  } else if (typeof value?.toDate === 'function') {
+    d = value.toDate();
+  } else {
+    d = new Date(value);
+  }
+  
+  if (isNaN(d.getTime())) return 'invalid-date';
+
+  // Use local components for identity matching to match Excel entry intent
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, '0'),
+    String(d.getDate()).padStart(2, '0'),
+  ].join('-');
 }
 
-function getShiftKey(shift: any, department: string): string {
-  const userId = shift.userId || shift.operativeUid || '';
-  const dateStr = getShiftDayKey(shift.date);
-  const normalizedAddr = normalizeText(shift.address);
-  const type = shift.type || 'all-day';
-  return [department, userId, dateStr, normalizedAddr, type].join('|');
+function isTodayOrFuture(value: any): boolean {
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const todayKey = getShiftDayKey(now);
+  const shiftKey = getShiftDayKey(value);
+  return shiftKey >= todayKey;
 }
 
-function clean(value: any): string {
-  if (value === null || value === undefined) return '';
-  return String(value).trim();
-}
-
-function hasChanged(existing: any, incoming: StandardShift): boolean {
+function hasDataChanged(existing: any, incoming: StandardShift): boolean {
+  const norm = (val: any) => normalizeText(String(val || '').trim());
+  
   return (
-    clean(existing.task) !== clean(incoming.task) ||
-    clean(existing.eNumber) !== clean(incoming.eNumber) ||
-    clean(existing.contract) !== clean(incoming.contract) ||
-    clean(existing.manager) !== clean(incoming.manager)
+    norm(existing.task) !== norm(incoming.task) ||
+    norm(existing.manager) !== norm(incoming.manager) ||
+    norm(existing.contract) !== norm(incoming.contract) ||
+    norm(existing.eNumber) !== norm(incoming.eNumber) ||
+    norm(existing.notes) !== norm(incoming.notes)
   );
 }
 
@@ -89,7 +98,6 @@ export function FileUploader({
   department,
   onImportComplete,
   onFileSelect,
-  userProfile,
 }: FileUploaderProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -107,98 +115,83 @@ export function FileUploader({
         const buffer = e.target?.result;
         if (!(buffer instanceof ArrayBuffer)) throw new Error('Could not read file.');
 
-        const plannerName = normalizePlannerName(file.name);
+        // 1. Fetch search context
         const usersSnap = await getDocs(collection(db, 'users'));
-
-        const userMap: UserMapEntry[] = usersSnap.docs.map((doc) => {
+        const userMap: UserMapEntry[] = usersSnap.docs.map(doc => {
           const u = doc.data() as any;
           return {
             uid: u.authUid || u.fireAuthUid || doc.id,
             originalName: u.name,
-            normalizedName: (u.name || '').toLowerCase().replace(/[^a-z]/g, ''),
+            normalizedName: normalizeText(u.name).replace(/[^a-z0-9]/g, ''),
             department: u.department,
           };
         });
 
+        // 2. Parse workbook
         const parseResult = await parseWorkbook(Buffer.from(buffer), userMap);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        
+        // 3. Filter for Today+ and attach department
+        const incomingShifts = parseResult.shifts
+          .filter(s => isTodayOrFuture(s.date))
+          .map(s => ({ ...s, department }));
 
-        const parsedFutureShifts = parseResult.shifts.filter((shift) => {
-          try {
-            return toDate(shift.date) >= today;
-          } catch {
-            return false;
+        // 4. Fetch existing DB shifts for reconciliation
+        const existingSnap = await getDocs(
+          query(collection(db, 'shifts'), where('department', '==', department))
+        );
+        
+        const existingMap = new Map<string, Shift>();
+        existingSnap.docs.forEach(docSnap => {
+          const data = docSnap.data();
+          if (isTodayOrFuture(data.date)) {
+            const key = getShiftIdentityKey(data, department);
+            existingMap.set(key, { id: docSnap.id, ...data } as Shift);
           }
         });
 
-        const existingSnap = await getDocs(
-          query(
-            collection(db, 'shifts'),
-            where('department', '==', department),
-            where('source', '==', 'import')
-          )
-        );
-
-        const existingByKey = new Map<string, { id: string; data: any }>();
-        existingSnap.docs.forEach((doc) => {
-          const data = doc.data() as any;
-          try {
-            if (toDate(data.date) >= today) {
-              existingByKey.set(getShiftKey(data, department), { id: doc.id, data });
-            }
-          } catch {}
-        });
-
-        const incomingKeys = new Set<string>();
+        // 5. Compare logic
         const toCreate: StandardShift[] = [];
         const toUpdate: { id: string; old: Shift; new: StandardShift }[] = [];
         const toUnchanged: Shift[] = [];
+        const consumedExistingIds = new Set<string>();
 
-        for (const shift of parsedFutureShifts) {
-          if (!shift.operativeUid) continue;
-          
-          const key = getShiftKey(shift, department);
-          incomingKeys.add(key);
-          
-          const existing = existingByKey.get(key);
-          
+        incomingShifts.forEach(incoming => {
+          const key = getShiftIdentityKey(incoming, department);
+          const existing = existingMap.get(key);
+
           if (!existing) {
-            toCreate.push(shift);
-          } else if (hasChanged(existing.data, shift)) {
-            toUpdate.push({ 
-              id: existing.id, 
-              old: { id: existing.id, ...existing.data } as Shift, 
-              new: shift 
-            });
+            toCreate.push(incoming);
           } else {
-            toUnchanged.push({ id: existing.id, ...existing.data } as Shift);
+            consumedExistingIds.add(existing.id);
+            if (hasDataChanged(existing, incoming)) {
+              toUpdate.push({ id: existing.id, old: existing, new: incoming });
+            } else {
+              toUnchanged.push(existing);
+            }
           }
-        }
+        });
 
+        // 6. Identify deletions (In DB but missing from Excel)
         const toDelete: Shift[] = [];
-        existingSnap.docs.forEach((doc) => {
-          const data = doc.data() as any;
-          const key = getShiftKey(data, department);
-          if (data.profileId === plannerName && !incomingKeys.has(key)) {
-            try {
-              if (toDate(data.date) >= today) {
-                toDelete.push({ id: doc.id, ...data } as Shift);
-              }
-            } catch {}
+        existingMap.forEach(existing => {
+          if (!consumedExistingIds.has(existing.id)) {
+            // Safety: Only delete shifts that were originally from an import
+            if (existing.source === 'import') {
+              toDelete.push(existing);
+            }
           }
         });
 
         onImportComplete({
           ...parseResult,
-          shifts: parsedFutureShifts,
           toCreate,
           toUpdate,
           toDelete,
           toUnchanged,
-          profileId: plannerName,
+          profileId: file.name.toLowerCase().replace(/[^a-z0-9]/g, '-'),
         });
 
+        // ✅ RESET INPUT so same file can be uploaded twice
         if (fileInputRef.current) {
           fileInputRef.current.value = '';
         }
@@ -217,7 +210,7 @@ export function FileUploader({
       {error && (
         <Alert variant="destructive">
           <FileWarning className="h-4 w-4" />
-          <AlertTitle>Processing Error</AlertTitle>
+          <AlertTitle>Import Error</AlertTitle>
           <AlertDescription className="text-xs whitespace-pre-wrap">{error}</AlertDescription>
         </Alert>
       )}
@@ -234,7 +227,7 @@ export function FileUploader({
         {isProcessing ? (
           <div className="flex flex-col items-center gap-3">
             <Spinner size="lg" />
-            <p className="text-sm font-medium animate-pulse">Analyzing schedule...</p>
+            <p className="text-sm font-medium animate-pulse text-muted-foreground">Scanning spreadsheet...</p>
           </div>
         ) : (
           <>
@@ -242,17 +235,21 @@ export function FileUploader({
               <UploadCloud className="h-8 w-8 text-primary" />
             </div>
             <h3 className="text-lg font-semibold">Upload {title}</h3>
-            <p className="text-sm text-muted-foreground mb-4 text-center">Identifying addresses and assigning staff.</p>
-            <Input 
+            <p className="text-sm text-muted-foreground mb-4 text-center px-4">
+              Drag your workbook here or click below to start identifying shifts.
+            </p>
+            <Input
               ref={fileInputRef}
-              id={`shift-file-input-${department}`} 
-              type="file" 
-              accept=".xlsx,.xls,.xlsm" 
-              className="sr-only" 
-              onChange={(e) => { if (e.target.files?.[0]) processFile(e.target.files[0]); }} 
+              id={`shift-file-input-${department}`}
+              type="file"
+              accept=".xlsx,.xls,.xlsm"
+              className="sr-only"
+              onChange={(e) => { if (e.target.files?.[0]) processFile(e.target.files[0]); }}
             />
             <Button asChild variant="outline">
-              <Label htmlFor={`shift-file-input-${department}`} className="cursor-pointer">Select Excel File</Label>
+              <Label htmlFor={`shift-file-input-${department}`} className="cursor-pointer">
+                Choose Excel File
+              </Label>
             </Button>
           </>
         )}
