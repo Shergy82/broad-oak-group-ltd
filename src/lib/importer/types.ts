@@ -31,16 +31,9 @@ export interface ImportError {
   cell?: string;
   sheet?: string;
   message: string;
-  severity: 'error' | 'warning';
+  severity: 'error' | 'warning' | 'info' | 'debug';
   code: string;
-}
-
-export interface ImportPreviewData {
-  shifts: StandardShift[];
-  errors: ImportError[];
-  profile: PlannerProfile;
-  operatives: Set<string>;
-  fileName: string;
+  rawValues?: any;
 }
 
 export interface PlannerProfile {
