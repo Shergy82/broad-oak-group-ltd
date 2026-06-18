@@ -4,28 +4,33 @@ import { type PlannerProfile, type StandardShift, type ImportError, type UserMap
 
 /**
  * Broad Oak Gas (Battleship) Profile
- * Logic: Identify Section Boundaries -> Extract Block Address -> Map Shifts
+ * Logic: Identify Section Boundaries -> Extract Block Metadata -> Map Grid Shifts
  */
 export class BroadOakProfile implements PlannerProfile {
   id = 'broad-oak';
   name = 'Broad Oak Gas (Battleship)';
-  description = 'Hierarchical extraction: Groups rows by SITE MANAGER dividers, finds address within block, then maps grid shifts from Column F.';
+  description = 'Hierarchical extraction: Groups rows by SITE MANAGER dividers, finds address within block, then maps grid shifts from Column F onwards.';
 
   private postcodeRegex = /\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b/i;
-  private eNumberRegex = /\bE\d{5,}\b/i;
+  private eNumberRegex = /\b[BE]\d{5,}\b/i;
 
   detect(workbook: ExcelJS.Workbook): boolean {
-    // Look in all visible sheets
     return workbook.worksheets.some(sheet => {
       if (sheet.state === 'hidden') return false;
       let found = false;
-      sheet.eachRow((row, rowNumber) => {
-        if (rowNumber > 50) return;
-        const val = row.getCell(1).value?.toString().toUpperCase() || '';
-        if (val.includes('SITE MANAGER') || val.includes('TECHNICAL MANAGER')) {
-          found = true;
+      // Check first 100 rows for the marker
+      for (let i = 1; i <= 100; i++) {
+        const row = sheet.getRow(i);
+        // Check columns A, B, C for the marker
+        for (let j = 1; j <= 3; j++) {
+          const val = row.getCell(j).value?.toString().toUpperCase() || '';
+          if (val.includes('SITE MANAGER') || val.includes('TECHNICAL MANAGER')) {
+            found = true;
+            break;
+          }
         }
-      });
+        if (found) break;
+      }
       return found;
     });
   }
@@ -34,23 +39,15 @@ export class BroadOakProfile implements PlannerProfile {
     const shifts: StandardShift[] = [];
     const errors: ImportError[] = [];
     
-    const sheet = workbook.worksheets.find(s => {
-        if (s.state === 'hidden') return false;
-        let found = false;
-        s.eachRow((row, rowNumber) => {
-          if (rowNumber > 50) return;
-          const val = row.getCell(1).value?.toString().toUpperCase() || '';
-          if (val.includes('SITE MANAGER') || val.includes('TECHNICAL MANAGER')) found = true;
-        });
-        return found;
-    });
+    // Find the first visible sheet that looks like a Battleship planner
+    const sheet = workbook.worksheets.find(s => this.detectSheet(s));
 
     if (!sheet) {
-        errors.push({ message: "No sheet with 'SITE MANAGER' markers found.", severity: 'error', code: 'NO_VALID_SHEET' });
+        errors.push({ message: "No valid planning sheet found. Look for 'SITE MANAGER' labels.", severity: 'error', code: 'NO_VALID_SHEET' });
         return { shifts, errors };
     }
 
-    // 1. Identify all Divider Rows (Starts of Site Blocks)
+    // 1. Identify all Divider Rows
     const dividerRows: number[] = [];
     sheet.eachRow((row, rowNumber) => {
       const colA = row.getCell(1).value?.toString().toUpperCase() || '';
@@ -60,17 +57,17 @@ export class BroadOakProfile implements PlannerProfile {
     });
 
     if (dividerRows.length === 0) {
-        errors.push({ message: "No 'SITE MANAGER' divider rows found.", severity: 'error', code: 'NO_DIVIDERS' });
+        errors.push({ message: "No property sections identified. Ensure 'SITE MANAGER' is in Column A.", severity: 'error', code: 'NO_DIVIDERS' });
         return { shifts, errors };
     }
 
-    // 2. Process each Block (Two-Pass Strategy)
+    // 2. Process each Block
     for (let i = 0; i < dividerRows.length; i++) {
       const startRow = dividerRows[i];
       const nextDividerRow = dividerRows[i + 1];
-      const endRow = nextDividerRow ? nextDividerRow - 1 : sheet.rowCount;
+      const endRow = nextDividerRow ? nextDividerRow - 1 : Math.max(sheet.rowCount, startRow + 20);
 
-      // --- Pass 1: Scan block for Address, Dates, Manager, and Scheme ---
+      // --- Pass 1: Scan block for Metadata ---
       let blockAddress = "";
       let blockENumber = "";
       let blockManager = "";
@@ -83,40 +80,38 @@ export class BroadOakProfile implements PlannerProfile {
         const colC = row.getCell(3).value?.toString() || '';
         const colD = row.getCell(4).value?.toString() || '';
 
-        // Capture Manager
+        // Manager
         if (colA.toUpperCase().includes('SITE MANAGER')) {
           blockManager = colA.split(':')[1]?.trim() || colA.split('MANAGER')[1]?.trim() || blockManager;
         }
 
-        // Capture Scheme
+        // Scheme
         if (colC.toUpperCase().includes('SCHEME') || colC.toUpperCase().includes('CONTRACT')) {
           blockScheme = colD.trim() || blockScheme;
         }
 
-        // Capture Address & E-Ref from Column A Panel
+        // Address & E-Ref Logic
         if (colA.trim()) {
            const eMatch = colA.match(this.eNumberRegex);
            if (eMatch) blockENumber = eMatch[0];
            
            if (this.postcodeRegex.test(colA)) {
                blockAddress = colA.trim();
-           } else if (!blockAddress && !colA.toUpperCase().includes('SITE MANAGER')) {
+           } else if (!blockAddress && !colA.toUpperCase().includes('SITE MANAGER') && !colA.toUpperCase().includes('PHONE')) {
                blockAddress = colA.trim();
            }
         }
 
-        // Capture Dates (Horizontal)
+        // Dates
         row.eachCell((cell, colNumber) => {
-            if (colNumber >= 6) { // Grid starts at F
+            if (colNumber >= 6) { 
                 const date = this.parseDate(cell.value);
-                if (date) {
-                    dateColumnMap.set(colNumber, date);
-                }
+                if (date) dateColumnMap.set(colNumber, date);
             }
         });
       }
 
-      // --- Pass 2: Extract work entries from the Grid ---
+      // --- Pass 2: Extract Shifts ---
       for (let r = startRow; r <= endRow; r++) {
         const row = sheet.getRow(r);
 
@@ -128,7 +123,7 @@ export class BroadOakProfile implements PlannerProfile {
           const text = cellValue.toString().trim();
           if (text.length < 3) return;
 
-          // SHIELD: Skip if cell is just a date repetition junk
+          // Pattern Shield
           if (this.isHeaderJunk(cellValue)) return;
 
           const match = this.extractOperativeAndTask(text, userMap);
@@ -137,7 +132,7 @@ export class BroadOakProfile implements PlannerProfile {
                 errors.push({
                     row: r,
                     cell: `${this.getColumnLetter(colNumber)}${r}`,
-                    message: "Found work entry but could not identify the Site Address in this section.",
+                    message: "Work found but site address could not be identified in this panel.",
                     severity: 'error',
                     code: 'MISSING_ADDRESS',
                     rawValues: { text, date }
@@ -160,12 +155,12 @@ export class BroadOakProfile implements PlannerProfile {
               sourceSheet: sheet.name
             });
           } else {
-            // Flag unrecognized operatives that look like work entries
-            if (text.includes('-') && text.length > 5) {
+            // Check for potential work entries that failed matching
+            if (text.match(/[-–—]/) && text.length > 5) {
                 errors.push({
                     row: r,
                     cell: `${this.getColumnLetter(colNumber)}${r}`,
-                    message: `Found task but operative name was not recognized: "${text}"`,
+                    message: `Operative name not recognized in text: "${text}"`,
                     severity: 'warning',
                     code: 'USER_NOT_FOUND',
                     rawValues: { text, address: blockAddress, date }
@@ -179,8 +174,22 @@ export class BroadOakProfile implements PlannerProfile {
     return { shifts, errors };
   }
 
+  private detectSheet(sheet: ExcelJS.Worksheet): boolean {
+    if (sheet.state === 'hidden') return false;
+    let found = false;
+    for (let i = 1; i <= 50; i++) {
+        const val = sheet.getRow(i).getCell(1).value?.toString().toUpperCase() || '';
+        if (val.includes('SITE MANAGER') || val.includes('TECHNICAL MANAGER')) {
+            found = true;
+            break;
+        }
+    }
+    return found;
+  }
+
   private extractOperativeAndTask(text: string, userMap: UserMapEntry[]) {
-    const parts = text.split('-').map(p => p.trim());
+    // Support standard hyphen, en-dash, and em-dash
+    const parts = text.split(/[-–—]/).map(p => p.trim());
     if (parts.length < 2) return null;
 
     const potentialName = parts[parts.length - 1].toUpperCase();
@@ -188,6 +197,7 @@ export class BroadOakProfile implements PlannerProfile {
 
     for (const user of userMap) {
       const userName = user.originalName.toUpperCase();
+      // Fuzzy matching: name is inside cell or cell part is inside name
       if (cleanPotentialName.includes(userName) || userName.includes(cleanPotentialName)) {
         let task = parts.slice(0, -1).join(' ').trim();
         
@@ -196,7 +206,7 @@ export class BroadOakProfile implements PlannerProfile {
         if (taskUpper.startsWith('AM ') || taskUpper.includes(' AM')) type = 'am';
         else if (taskUpper.startsWith('PM ') || taskUpper.includes(' PM')) type = 'pm';
 
-        task = task.replace(/\b(AM|PM)\b/gi, '').replace(/^\s*[-:]\s*/, '').trim();
+        task = task.replace(/\b(AM|PM)\b/gi, '').replace(/^\s*[-:–—]\s*/, '').trim();
 
         return { user, task: task || "General Works", type };
       }
@@ -208,12 +218,11 @@ export class BroadOakProfile implements PlannerProfile {
     if (val instanceof Date) return true;
     const str = val.toString().toUpperCase();
     
-    const months = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER', 'JAN', 'FEB', 'MAR', 'APR', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
-    const days = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+    // Skip if it looks like a header label or just a year/day
+    const junk = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER', 'JAN', 'FEB', 'MAR', 'APR', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
     
-    if (days.includes(str)) return true;
-    if (months.includes(str)) return true;
-    if (str.includes('2026') || str.includes('2025')) return true;
+    if (junk.includes(str)) return true;
+    if (str.length === 4 && !isNaN(parseInt(str))) return true; // Just a year
     
     return false;
   }
@@ -228,7 +237,8 @@ export class BroadOakProfile implements PlannerProfile {
             const m = parseInt(match[2], 10) - 1;
             let y = parseInt(match[3], 10);
             if (y < 100) y += 2000;
-            return new Date(y, m, d);
+            const date = new Date(y, m, d);
+            return isNaN(date.getTime()) ? null : date;
         }
     }
     return null;
