@@ -115,13 +115,73 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
           </Card>
         </TabsContent>
         <TabsContent value="create">
-          <ScrollArea className="h-80 border rounded-md"><Table><TableHeader className="sticky top-0 bg-background"><TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Address</TableHead></TableRow></TableHeader><TableBody>{sortedCreate.map((s, i) => (<TableRow key={i}><TableCell>{safeFormatDate(s.date)}</TableCell><TableCell className="font-semibold">{s.userName}</TableCell><TableCell className="text-xs">{s.address}</TableCell></TableRow>))}</TableBody></Table></ScrollArea>
+          <ScrollArea className="h-80 border rounded-md">
+            <Table>
+              <TableHeader className="sticky top-0 bg-background">
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>User</TableHead>
+                  <TableHead>Address</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sortedCreate.map((s, i) => (
+                  <TableRow key={i}>
+                    <TableCell>{safeFormatDate(s.date)}</TableCell>
+                    <TableCell className="font-semibold">{s.userName}</TableCell>
+                    <TableCell className="text-xs">{s.address}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </ScrollArea>
         </TabsContent>
         <TabsContent value="update">
-          <ScrollArea className="h-80 border rounded-md"><Table><TableHeader className="sticky top-0 bg-background"><TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Changes</TableHead></TableRow></TableHeader><TableBody>{sortedUpdate.map((u, i) => (<TableRow key={i}><TableCell>{safeFormatDate(u.new.date)}</TableCell><TableCell className="font-semibold">{u.new.userName}</TableCell><TableCell className="text-xs"><p className="line-through text-muted-foreground">{u.old.task}</p><p className="font-bold text-blue-600">{u.new.task}</p></TableCell></TableRow>))}</TableBody></Table></ScrollArea>
+          <ScrollArea className="h-80 border rounded-md">
+            <Table>
+              <TableHeader className="sticky top-0 bg-background">
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>User</TableHead>
+                  <TableHead>Changes</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sortedUpdate.map((u, i) => (
+                  <TableRow key={i}>
+                    <TableCell>{safeFormatDate(u.new.date)}</TableCell>
+                    <TableCell className="font-semibold">{u.new.userName}</TableCell>
+                    <TableCell className="text-xs">
+                      <p className="line-through text-muted-foreground">{u.old.task}</p>
+                      <p className="font-bold text-blue-600">{u.new.task}</p>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </ScrollArea>
         </TabsContent>
         <TabsContent value="delete">
-          <ScrollArea className="h-80 border rounded-md"><Table><TableHeader className="sticky top-0 bg-background"><TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Address</TableHead></TableRow></TableHeader><TableBody>{sortedDelete.map((s, i) => (<TableRow key={i}><TableCell>{safeFormatDate(s.date)}</TableCell><TableCell>{userNameMap.get(s.userId) || s.userName || 'Unknown'}</TableCell><TableCell className="text-xs text-muted-foreground">{s.address}</TableCell></TableRow>))}</TableBody></Table></ScrollArea>
+          <ScrollArea className="h-80 border rounded-md">
+            <Table>
+              <TableHeader className="sticky top-0 bg-background">
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>User</TableHead>
+                  <TableHead>Address</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sortedDelete.map((s, i) => (
+                  <TableRow key={i}>
+                    <TableCell>{safeFormatDate(s.date)}</TableCell>
+                    <TableCell>{userNameMap.get(s.userId) || s.userName || 'Unknown'}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{s.address}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </ScrollArea>
         </TabsContent>
         <TabsContent value="failed">
           <div className="space-y-4">
@@ -129,10 +189,16 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
              {diagnostics.length > 0 && (
                 <div className="space-y-2">
                     <h4 className="text-xs font-bold uppercase text-amber-700 flex items-center gap-1"><AlertCircle className="h-3 w-3" /> Fix these specific cells in your Excel file</h4>
-                    <div className="border rounded-md"><Table><TableHeader><TableRow><TableHead>Cell</TableHead><TableHead>Value</TableHead><TableHead>Issue</TableHead></TableRow></TableHeader><TableBody>{diagnostics.slice(0, 10).map((d, i) => (<TableRow key={i} className="bg-amber-50/30"><TableCell className="font-mono font-bold">{d.cellRef}</TableCell><TableCell className="text-xs truncate max-w-[100px]">{d.value}</TableCell><TableCell className="text-xs text-destructive">{d.reason}</TableCell></TableRow>))}</TableBody></Table></div>
+                    <div className="border rounded-md"><Table><TableHeader><TableRow><TableHead>Cell</TableHead>UserMapEntry<TableHead>Value</TableHead><TableHead>Issue</TableHead></TableRow></TableHeader><TableBody>{diagnostics.slice(0, 10).map((d, i) => (<TableRow key={i} className="bg-amber-50/30"><TableCell className="font-mono font-bold">{d.cellRef}</TableCell><TableCell className="text-xs truncate max-w-[100px]">{d.value}</TableCell><TableCell className="text-xs text-destructive">{d.reason}</TableCell></TableRow>))}</TableBody></Table></div>
                 </div>
              )}
-             <ScrollArea className="h-64 border rounded-md"><Table><TableHeader className="sticky top-0 bg-background"><TableRow><TableHead>Cell</TableHead><TableHead>Reason</TableHead><TableHead>Content</TableHead></TableRow></TableHeader><TableBody>{sortedFailed.map((f, i) => (<TableRow key={i}><TableCell className="font-mono">{f.cellRef}</TableCell><TableCell className="text-destructive font-medium">{f.reason}</TableCell><TableCell className="text-xs opacity-50">{f.cellContent}</TableCell></TableRow>))}</TableBody></Table></ScrollArea>
+             <ScrollArea className="h-64 border rounded-md"><Table><TableHeader className="sticky top-0 bg-background"><TableRow><TableHead>Cell</TableHead><TableHead>Reason</TableHead><TableHead>Content</TableHead></TableRow></TableHeader><TableBody>{sortedFailed.map((f, i) => (
+               <TableRow key={i}>
+                 <TableCell className="font-mono">{f.cellRef}</TableCell>
+                 <TableCell className="text-destructive font-medium">{f.reason}</TableCell>
+                 <TableCell className="text-xs opacity-50">{f.cellContent}</TableCell>
+               </TableRow>
+             ))}</TableBody></Table></ScrollArea>
           </div>
         </TabsContent>
       </Tabs>

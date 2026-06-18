@@ -103,7 +103,7 @@ const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: s
   const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
   if (!d || isNaN(d.getTime())) return `invalid-${shift.userId}-${Math.random()}`;
   
-  // Use Midday UTC to prevent any timezone shifts during comparison
+  // Force date to ISO string for absolute stability
   const dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
   
   // Clean address for matching: remove E-numbers/B-numbers and postcodes
@@ -188,10 +188,21 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           const finalDept = importType === 'GAS' ? 'Gas' : importDepartment;
           const result = importType === 'GAS' ? await parseGasWorkbook(Buffer.from(data), userMap) : await parseBuildWorkbook(Buffer.from(data), userMap, selectedSheets);
 
-          const excelShifts = result.parsed.map(p => ({ ...p, date: new Date(p.shiftDate), plannerName: file.name }));
+          /**
+           * 🔒 CORE DATA MAPPING
+           * Maps parser fields (siteAddress, user.originalName) to app fields (address, userName)
+           */
+          const excelShifts: (ParsedShift & { plannerName: string })[] = result.parsed.map(p => ({ 
+            ...p, 
+            address: p.siteAddress, // Map siteAddress to address
+            userName: p.user.originalName, // Map user.originalName to userName
+            userId: p.user.uid,
+            date: new Date(p.shiftDate), 
+            plannerName: file.name 
+          }));
+          
           const excelKeys = new Set(excelShifts.map(s => getShiftKey(s)));
 
-          // Fetch only shifts for this department to optimize comparison
           const existingSnapshot = await getDocs(query(collection(db, 'shifts'), where('department', '==', finalDept)));
           const existingMap = new Map<string, Shift>();
           existingSnapshot.docs.forEach(d => {
@@ -208,7 +219,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             if (!ext) {
                 toCreate.push(ex as any);
             } else if (!protectedStatuses.includes(ext.status)) {
-                // Identity match (Key matches) but content changed (Task/Note)
                 if (normalizeText(ext.task) !== normalizeText(ex.task) || ext.type !== ex.type) {
                     toUpdate.push({ old: ext, new: ex as any });
                 }
@@ -255,11 +265,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           }
         } catch (err: any) {
           console.error('Import error:', err);
-          if (err.message?.includes('time value')) {
-            setError(`Data Quality Alert: A phone number was detected in a date column.\n\nAction: Ensure columns F onwards only contain dates in row 4 or 5.`);
-          } else {
-            setError(err.message || 'Import failed.');
-          }
+          setError(err.message || 'Import failed.');
           onImportComplete([], async () => {}, undefined);
         } finally { 
           setIsUploading(false); 
