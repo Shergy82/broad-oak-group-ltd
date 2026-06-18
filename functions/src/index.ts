@@ -67,7 +67,7 @@ const assertIsOwner = async (uid: string) => {
 const assertAdminOrManager = async (uid: string) => {
   const snap = await db.collection("users").doc(uid).get();
   const role = snap.data()?.role;
-  // Included TLO in the allowed roles for reconciliation
+  // Explicitly allow TLO for reconciliation
   if (!["admin", "owner", "manager", "TLO"].includes(role)) {
     throw new HttpsError("permission-denied", "Insufficient permissions for this action.");
   }
@@ -578,7 +578,6 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     if (!uid) {
         throw new HttpsError("unauthenticated", "Authentication required");
     }
-    // Updated to include TLO role
     await assertAdminOrManager(uid);
 
     const data = req.data;
@@ -642,8 +641,8 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     toCreate.forEach((shift: any) => {
         const newShiftRef = shiftsRef.doc();
         batch.set(newShiftRef, {
-            userId: shift.operativeUid, // CRITICAL FIX: map to correct field
-            userName: shift.operative, // CRITICAL FIX: map to correct field
+            userId: shift.operativeUid, // Preserve correction: map to correct field
+            userName: shift.operative, // Preserve correction: map to correct field
             address: shift.address,
             task: shift.task,
             date: admin.firestore.Timestamp.fromDate(new Date(shift.date)),
@@ -663,8 +662,8 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     // --- Handle Shift Updates ---
     toUpdate.forEach(({ id, new: newShift }: any) => {
         const updatePayload: any = {
-            userId: newShift.operativeUid, // CRITICAL FIX
-            userName: newShift.operative, // CRITICAL FIX
+            userId: newShift.operativeUid, // Preserve correction
+            userName: newShift.operative, // Preserve correction
             address: newShift.address,
             task: newShift.task,
             type: newShift.type || 'all-day',
