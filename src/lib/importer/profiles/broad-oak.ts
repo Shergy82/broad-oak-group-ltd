@@ -4,7 +4,8 @@ import { type PlannerProfile, type StandardShift, type ImportError, type UserMap
 
 /**
  * Broad Oak Gas (Battleship) Profile
- * Hierarchical extraction: Property Panel (A) -> Date Column (F+) -> Work Cell
+ * Block-based extraction: Detects "SITE MANAGER" blocks, finds the address,
+ * then maps horizontal date columns to vertical work entries.
  */
 export class BroadOakProfile implements PlannerProfile {
   id = 'broad-oak';
@@ -16,8 +17,9 @@ export class BroadOakProfile implements PlannerProfile {
     if (!sheet) return false;
 
     let markerFound = false;
+    // Scan up to 100 rows to find the start of the grid
     sheet.eachRow((row, rowNumber) => {
-      if (rowNumber > 20) return;
+      if (markerFound || rowNumber > 100) return;
       const colA = row.getCell(1).value?.toString().toUpperCase() || '';
       if (colA.includes('SITE MANAGER') || colA.includes('TECHNICAL MANAGER')) {
         markerFound = true;
@@ -32,87 +34,139 @@ export class BroadOakProfile implements PlannerProfile {
     const sheet = workbook.worksheets.find(s => s.state !== 'hidden');
     if (!sheet) return { shifts: [], errors: [] };
 
-    let currentAddress = "";
-    let currentENumber = "";
-    let currentScheme = "";
-    let currentManager = "";
-    let dateColumnMap = new Map<number, Date>();
+    // Step 1: Group rows into visual "Site Blocks"
+    const blocks: ExcelJS.Row[][] = [];
+    let currentBlockRows: ExcelJS.Row[] = [];
 
-    sheet.eachRow((row, rowNumber) => {
-      const colA = row.getCell(1).value?.toString() || '';
-      const colC = row.getCell(3).value?.toString() || '';
-      const colD = row.getCell(4).value?.toString() || '';
+    sheet.eachRow((row) => {
+      const colA = row.getCell(1).value?.toString().toUpperCase() || '';
+      // New block starts at Site Manager marker
+      if (colA.includes('SITE MANAGER') || colA.includes('TECHNICAL MANAGER')) {
+        if (currentBlockRows.length > 0) blocks.push(currentBlockRows);
+        currentBlockRows = [row];
+      } else if (currentBlockRows.length > 0) {
+        currentBlockRows.push(row);
+      }
+    });
+    if (currentBlockRows.length > 0) blocks.push(currentBlockRows);
 
-      // 1. Detect New Block / Marker Row
-      if (colA.toUpperCase().includes('SITE MANAGER') || colA.toUpperCase().includes('TECHNICAL MANAGER')) {
-        // Reset block context
-        currentAddress = "";
-        currentENumber = "";
-        currentScheme = "";
-        currentManager = colD || ""; // Manager usually in Col D
-        
-        // Scan for dates in THIS row starting at Col F
-        dateColumnMap = new Map<number, Date>();
-        for (let i = 6; i <= 30; i++) {
-          const date = this.parseDate(row.getCell(i).value);
-          if (date) dateColumnMap.set(i, date);
-        }
-        return;
+    // Step 2: Process each block independently
+    for (const block of blocks) {
+      const markerRow = block[0];
+      const dateColumnMap = new Map<number, Date>();
+
+      // Identify Date Columns from the marker row (Starts at Column F)
+      for (let i = 6; i <= 50; i++) {
+        const date = this.parseDate(markerRow.getCell(i).value);
+        if (date) dateColumnMap.set(i, date);
       }
 
-      // 2. Extract Property Metadata (Yellow Panel)
-      // Look for Scheme
-      if (colC.toUpperCase().includes('SCHEME')) {
-        currentScheme = colD || "";
-      }
+      if (dateColumnMap.size === 0) continue;
 
-      // Look for Property Anchor (Postcode or E-Number)
+      // Identify Property Metadata for this specific block
+      let blockAddress = "";
+      let blockENumber = "";
+      let blockScheme = "";
+      let blockManager = "";
+
       const postcodeRegex = /[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}/i;
       const eNumberRegex = /\bE\d{5,}\b/i;
-      
-      if (postcodeRegex.test(colA)) {
-        currentAddress = colA.trim();
-        const eMatch = colA.match(eNumberRegex);
-        if (eMatch) currentENumber = eMatch[0];
+
+      // Scan Column A, C, D in this block for metadata
+      for (const row of block) {
+        const colA = row.getCell(1).value?.toString() || '';
+        const colC = row.getCell(3).value?.toString() || '';
+        const colD = row.getCell(4).value?.toString() || '';
+
+        if (colA.toUpperCase().includes('SITE MANAGER')) {
+            blockManager = colD || "";
+        }
+
+        if (colC.toUpperCase().includes('SCHEME')) {
+          blockScheme = colD || "";
+        }
+
+        // The address is the row containing the postcode
+        if (postcodeRegex.test(colA)) {
+          blockAddress = colA.trim();
+          const eMatch = colA.match(eNumberRegex);
+          if (eMatch) blockENumber = eMatch[0];
+        }
       }
 
-      // 3. Scan Grid Cells (Col F+)
-      if (dateColumnMap.size > 0 && currentAddress) {
+      // Fallback: If no postcode row found, take the last non-empty row in Col A of the block
+      if (!blockAddress) {
+          for (let i = block.length - 1; i >= 0; i--) {
+              const val = block[i].getCell(1).value?.toString().trim();
+              if (val && val.length > 8 && !val.includes('MANAGER')) {
+                  blockAddress = val;
+                  const eMatch = val.match(eNumberRegex);
+                  if (eMatch) blockENumber = eMatch[0];
+                  break;
+              }
+          }
+      }
+
+      // Step 3: Extract shifts from the grid (Columns F+)
+      for (const row of block) {
         dateColumnMap.forEach((date, colIndex) => {
           const cellValue = row.getCell(colIndex).value?.toString().trim();
-          if (!cellValue || !cellValue.includes('-')) return;
+          if (!cellValue) return;
+
+          // Skip if the cell is just the header date itself
+          if (this.isHeaderCell(cellValue, date)) return;
+
+          // Per instructions: Non-empty cell under a date is a shift
+          // Must contain a hyphen to separate Task - Operative
+          if (!cellValue.includes('-')) {
+             errors.push({
+                 row: row.number,
+                 cell: this.getColumnLetter(colIndex) + row.number,
+                 message: "No operative separator (-) found",
+                 severity: 'debug',
+                 code: 'MISSING_HYPHEN',
+                 rawValues: { text: cellValue, address: blockAddress, date }
+             });
+             return;
+          }
 
           const parsed = this.parseWorkCell(cellValue, userMap);
           if (parsed) {
             shifts.push({
               date,
-              address: currentAddress,
-              eNumber: currentENumber,
-              contract: currentScheme || "General",
-              manager: currentManager,
+              address: blockAddress || "Unknown Address",
+              eNumber: blockENumber,
+              contract: blockScheme || "General",
+              manager: blockManager,
               operative: parsed.operativeName,
-              operativeUid: parsed.user?.uid, // THIS IS THE DOCUMENT ID
+              operativeUid: parsed.user?.uid,
               task: parsed.task,
               descriptionOfWorks: cellValue,
               type: parsed.type,
-              sourceCell: `${sheet.name}!${this.getColumnLetter(colIndex)}${rowNumber}`,
+              sourceCell: `${sheet.name}!${this.getColumnLetter(colIndex)}${row.number}`,
               sourceSheet: sheet.name
             });
           } else {
             errors.push({
-              row: rowNumber,
-              cell: `${this.getColumnLetter(colIndex)}${rowNumber}`,
+              row: row.number,
+              cell: `${this.getColumnLetter(colIndex)}${row.number}`,
               message: `Operative not recognized: "${cellValue}"`,
               severity: 'warning',
               code: 'USER_NOT_FOUND',
-              rawValues: { text: cellValue, address: currentAddress, date }
+              rawValues: { text: cellValue, address: blockAddress, date }
             });
           }
         });
       }
-    });
+    }
 
     return { shifts, errors };
+  }
+
+  private isHeaderCell(val: string, date: Date): boolean {
+      const d1 = this.parseDate(val);
+      if (!d1) return false;
+      return d1.getTime() === date.getTime();
   }
 
   private parseWorkCell(text: string, userMap: UserMapEntry[]) {
@@ -127,6 +181,7 @@ export class BroadOakProfile implements PlannerProfile {
       cleanText = cleanText.substring(3).trim();
     }
 
+    // Split Task - Operative
     const parts = cleanText.split('-');
     const namePart = parts.pop()?.trim() || "";
     const taskPart = parts.join('-').trim() || "General Works";
@@ -140,9 +195,8 @@ export class BroadOakProfile implements PlannerProfile {
 
   private matchUser(name: string, userMap: UserMapEntry[]): UserMapEntry | null {
     if (!name) return null;
-    // Clean and normalize the name for fuzzy matching
-    const cleanName = name.toLowerCase().replace(/[^a-z]/g, '');
-    return userMap.find(u => u.normalizedName === cleanName) || null;
+    const normalized = name.toLowerCase().replace(/[^a-z]/g, '');
+    return userMap.find(u => u.normalizedName === normalized) || null;
   }
 
   private parseDate(val: any): Date | null {
