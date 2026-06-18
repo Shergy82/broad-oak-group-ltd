@@ -67,7 +67,7 @@ const assertIsOwner = async (uid: string) => {
 const assertAdminOrManager = async (uid: string) => {
   const snap = await db.collection("users").doc(uid).get();
   const role = snap.data()?.role;
-  if (!["admin", "owner", "manager"].includes(role)) {
+  if (!["admin", "owner", "manager", "TLO"].includes(role)) {
     throw new HttpsError("permission-denied", "Insufficient permissions");
   }
 };
@@ -583,97 +583,97 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     if (!data || typeof data !== "object") {
         throw new HttpsError("invalid-argument", "Request data must be an object.");
     }
-    const { toCreate, toUpdate, toDelete, department } = data as any;
+    const { toCreate = [], toUpdate = [], toDelete = [], department, profileId } = data as any;
 
-    if (!Array.isArray(toCreate) || !Array.isArray(toUpdate) || !Array.isArray(toDelete) || !department) {
-        throw new HttpsError('invalid-argument', 'Invalid payload.');
+    if (!department || !profileId) {
+        throw new HttpsError('invalid-argument', 'Missing department or profileId.');
     }
 
     const batch = db.batch();
     const projectsRef = db.collection('projects');
     const shiftsRef = db.collection('shifts');
 
-    // --- Handle Project Creation/Update ---
-    // 🔒 Fetch all projects for the department to perform case-insensitive matching
+    // 1. Sync Projects
     const allProjectsSnap = await projectsRef.where('department', '==', department).get();
-    const existingProjectsByAddr = new Map<string, any>();
-    allProjectsSnap.forEach(d => {
-        const p = d.data();
-        existingProjectsByAddr.set(normalizeText(p.address), { ...p, id: d.id, ref: d.ref });
-    });
+    const existingProjects = new Map();
+    allProjectsSnap.forEach(d => existingProjects.set(normalizeText(d.data().address), d.ref));
 
     const allImportedShifts = [...toCreate, ...toUpdate.map((u: any) => u.new)];
-    const projectInfoFromImport = new Map<string, any>();
-    allImportedShifts.forEach((shift: any) => {
-        if (shift.address) {
-            projectInfoFromImport.set(normalizeText(shift.address), shift);
-        }
+    const importedAddresses = new Map();
+    allImportedShifts.forEach((s: any) => {
+        if (s.address) importedAddresses.set(normalizeText(s.address), s);
     });
 
     const userSnap = await db.collection("users").doc(uid).get();
-    const userProfile = userSnap.data();
+    const currentUserProfile = userSnap.data();
 
-    for (const [normAddr, shiftInfo] of projectInfoFromImport.entries()) {
-        const existingProject = existingProjectsByAddr.get(normAddr);
-        
-        if (existingProject) {
-            // Update contract if it changed (case-insensitive check)
-            if (normalizeText(existingProject.contract) !== normalizeText(shiftInfo.contract)) {
-                batch.update(existingProject.ref, { contract: shiftInfo.contract });
-            }
-        } else {
-            // Create new project
+    for (const [normAddr, info] of importedAddresses.entries()) {
+        if (!existingProjects.has(normAddr)) {
             const reviewDate = new Date();
             reviewDate.setDate(reviewDate.getDate() + 28);
-            batch.set(db.collection('projects').doc(), {
-                address: shiftInfo.address,
-                eNumber: shiftInfo.eNumber || '',
-                manager: shiftInfo.manager || '',
-                contract: shiftInfo.contract || '',
-                department: shiftInfo.department || department || '',
+            batch.set(projectsRef.doc(), {
+                address: info.address,
+                eNumber: info.eNumber || '',
+                manager: info.manager || '',
+                contract: info.contract || '',
+                department: department,
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                createdBy: userProfile?.name || 'System Import',
+                createdBy: currentUserProfile?.name || 'System Import',
                 creatorId: uid,
                 nextReviewDate: admin.firestore.Timestamp.fromDate(reviewDate),
             });
         }
     }
 
-    // --- Handle Shift Creation ---
+    // 2. Create Shifts
     toCreate.forEach((shift: any) => {
+        if (!shift.operativeUid) {
+            throw new HttpsError("invalid-argument", `Missing operativeUid for ${shift.operative}`);
+        }
+        
         const newShiftRef = shiftsRef.doc();
         batch.set(newShiftRef, {
-            ...shift,
+            userId: shift.operativeUid,
+            userName: shift.operative,
+            address: shift.address,
+            task: shift.task,
             date: admin.firestore.Timestamp.fromDate(new Date(shift.date)),
-            status: 'pending-confirmation',
+            type: shift.type || 'all-day',
+            eNumber: shift.eNumber || '',
+            contract: shift.contract || '',
+            manager: shift.manager || '',
+            department: department,
+            status: 'pending',
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             source: 'import',
+            profileId: profileId,
+            plannerName: profileId
         });
     });
 
-    // --- Handle Shift Updates ---
+    // 3. Update Shifts
     toUpdate.forEach(({ id, new: newShift }: any) => {
-        const updatePayload: any = {
+        if (!newShift.operativeUid) {
+            throw new HttpsError("invalid-argument", `Missing operativeUid for ${newShift.operative}`);
+        }
+        batch.update(shiftsRef.doc(id), {
+            userId: newShift.operativeUid,
+            userName: newShift.operative,
             address: newShift.address,
             task: newShift.task,
-            type: newShift.type,
+            date: admin.firestore.Timestamp.fromDate(new Date(newShift.date)),
+            type: newShift.type || 'all-day',
             eNumber: newShift.eNumber || '',
-            manager: newShift.manager || '',
-            notes: newShift.notes || '',
             contract: newShift.contract || '',
-            department: newShift.department || department || '',
-            plannerName: newShift.plannerName || '',
-        };
-        
-        // GAS ONLY: Do not reset status to 'pending-confirmation' if already accepted/active
-        if (department !== 'Gas') {
-            updatePayload.status = 'pending-confirmation';
-        }
-        
-        batch.update(shiftsRef.doc(id), updatePayload);
+            manager: newShift.manager || '',
+            department: department,
+            plannerName: profileId,
+            profileId: profileId,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
     });
 
-    // --- Handle Shift Deletions ---
+    // 4. Delete Shifts
     toDelete.forEach((shift: any) => {
         batch.delete(shiftsRef.doc(shift.id));
     });
@@ -682,7 +682,7 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     
     return {
         success: true,
-        message: `Processed: ${toCreate.length} created, ${toUpdate.length} updated, ${toDelete.length} deleted.`
+        message: `Schedule Sync Complete: ${toCreate.length} created, ${toUpdate.length} updated, ${toDelete.length} deleted.`
     };
 });
 

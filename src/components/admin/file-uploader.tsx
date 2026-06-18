@@ -112,7 +112,6 @@ export function FileUploader({
   const [error, setError] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { toast } = useToast();
 
   const processFile = async (file: File) => {
     setIsProcessing(true);
@@ -149,6 +148,7 @@ export function FileUploader({
           }
         });
 
+        // 🔒 Robust Query: Find ALL imported shifts for this planner
         const existingSnap = await getDocs(
           query(
             collection(db, 'shifts'),
@@ -238,7 +238,7 @@ export function FileUploader({
         {isProcessing ? (
           <div className="flex flex-col items-center gap-3">
             <Spinner size="lg" />
-            <p className="text-sm font-medium animate-pulse">Mapping operatives...</p>
+            <p className="text-sm font-medium animate-pulse">Analyzing schedule...</p>
           </div>
         ) : (
           <>

@@ -219,7 +219,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
         </CardHeader>
         <CardContent>
             <FileUploader 
-                title="Gas Battleship" 
+                title="Gas Planner" 
                 department="Gas" 
                 onImportComplete={handleImportComplete} 
                 onFileSelect={() => setDryRun(null)} 
@@ -234,7 +234,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
         </CardHeader>
         <CardContent>
             <FileUploader 
-                title="Build Battleship" 
+                title="Build Planner" 
                 department="Build" 
                 onImportComplete={handleImportComplete} 
                 onFileSelect={() => setDryRun(null)} 
