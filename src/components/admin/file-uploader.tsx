@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState } from 'react';
@@ -43,7 +44,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
         const userMap: UserMapEntry[] = usersSnap.docs.map(doc => {
           const u = doc.data() as any;
           return {
-            // CRITICAL: We MUST use the UID the user logs in with
+            // CRITICAL: Ensure we get a valid UID for dashboard filtering
             uid: u.authUid || u.fireAuthUid || doc.id,
             originalName: u.name,
             normalizedName: (u.name || "").toLowerCase().replace(/[^a-z]/g, ''),

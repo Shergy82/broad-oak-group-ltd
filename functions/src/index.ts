@@ -89,8 +89,7 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     // 2. Create Shifts
     toCreate.forEach((shift: any) => {
         if (!shift.operativeUid) {
-            logger.error("Skipping shift creation: No operativeUid", shift);
-            return;
+            throw new HttpsError("invalid-argument", `Shift for ${shift.operative || 'unknown'} has no operativeUid. User matching failed.`);
         }
         
         const newShiftRef = shiftsRef.doc();
@@ -105,7 +104,7 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             contract: shift.contract || '',
             manager: shift.manager || '',
             department: department,
-            status: 'pending-confirmation',
+            status: 'pending', // CHANGED: Standard status for dashboard visibility
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             source: 'import',
             plannerName: shift.plannerName || ''
@@ -114,6 +113,11 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
 
     // 3. Update Shifts
     toUpdate.forEach(({ id, new: newShift }: any) => {
+        if (!newShift.operativeUid) {
+            logger.error(`Skipping update for shift ${id}: Missing operativeUid`);
+            return;
+        }
+
         batch.update(shiftsRef.doc(id), {
             userId: newShift.operativeUid,
             userName: newShift.operative,
