@@ -3,27 +3,27 @@ import ExcelJS from 'exceljs';
 import { type PlannerProfile, type StandardShift, type ImportError, type UserMapEntry } from '../types';
 
 /**
- * Broad Oak Gas (Battleship) Profile - REBUILT
- * Hierarchical extraction: Property Section -> Date Column -> Work Cell
+ * Broad Oak Gas (Battleship) Profile - HIERARCHICAL REBUILD
+ * Logic: Property Section (Col A) -> Date Column (Header Row) -> Work Cell (Grid)
  */
 export class BroadOakProfile implements PlannerProfile {
   id = 'broad-oak';
   name = 'Broad Oak Gas (Battleship)';
-  description = 'Hierarchical property sections with horizontal dates and embedded names.';
+  description = 'Hierarchical extraction: Properties in Col A, Dates in Col F+, Operatives embedded in grid cells.';
+
+  private postcodeRegex = /\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b/i;
+  private eNumberRegex = /\bE\d{5,}\b/i;
 
   detect(workbook: ExcelJS.Workbook): boolean {
     const sheet = workbook.worksheets.find(s => s.state !== 'hidden');
     if (!sheet) return false;
 
     let dateCount = 0;
-    // Look for a row containing horizontal dates (the hallmark of Battleship)
     sheet.eachRow((row, rowNumber) => {
-      if (dateCount > 2 || rowNumber > 20) return;
-      let rowDates = 0;
-      row.eachCell(cell => {
-        if (this.parseDate(cell.value)) rowDates++;
+      if (rowNumber > 20) return;
+      row.eachCell((cell, colIndex) => {
+        if (colIndex >= 6 && this.parseDate(cell.value)) dateCount++;
       });
-      if (rowDates > dateCount) dateCount = rowDates;
     });
 
     return dateCount >= 3;
@@ -35,7 +35,7 @@ export class BroadOakProfile implements PlannerProfile {
     const sheet = workbook.worksheets.find(s => s.state !== 'hidden');
     if (!sheet) return { shifts: [], errors: [] };
 
-    // 1. Identify the Date Header Row
+    // 1. Find the Date Header Row (Row with highest density of dates in Col F+)
     let dateRowNumber = -1;
     let maxDates = 0;
     const dateColumnMap = new Map<number, Date>();
@@ -43,8 +43,8 @@ export class BroadOakProfile implements PlannerProfile {
     sheet.eachRow((row, rowNumber) => {
       if (rowNumber > 30) return;
       let rowDates = 0;
-      row.eachCell(cell => {
-        if (this.parseDate(cell.value)) rowDates++;
+      row.eachCell((cell, colIndex) => {
+        if (colIndex >= 6 && this.parseDate(cell.value)) rowDates++;
       });
       if (rowDates > maxDates) {
         maxDates = rowDates;
@@ -53,67 +53,66 @@ export class BroadOakProfile implements PlannerProfile {
     });
 
     if (dateRowNumber === -1) {
-      errors.push({ message: "Could not find a row containing date headers.", severity: 'error', code: 'NO_DATES' });
+      errors.push({ message: "No horizontal date headers detected (Column F onwards).", severity: 'error', code: 'NO_DATES' });
       return { shifts: [], errors };
     }
 
-    // 2. Map Columns to Dates
-    const headerRow = sheet.getRow(dateRowNumber);
-    headerRow.eachCell((cell, colNumber) => {
-      const date = this.parseDate(cell.value);
-      if (date) dateColumnMap.set(colNumber, date);
+    // Map columns to dates
+    sheet.getRow(dateRowNumber).eachCell((cell, colNumber) => {
+      if (colNumber >= 6) {
+        const date = this.parseDate(cell.value);
+        if (date) dateColumnMap.set(colNumber, date);
+      }
     });
 
-    // 3. Iterate Rows to extract Properties and Shifts
+    // 2. Scan Rows and Maintain Property State
     let currentAddress = "";
     let currentENumber = "";
-    let currentScheme = "";
     let currentManager = "";
-
-    const postcodeRegex = /[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}/i;
-    const eNumberRegex = /\bE\d{5,}\b/i;
+    let currentScheme = "";
 
     sheet.eachRow((row, rowNumber) => {
-      // Skip the header row and anything above it
+      // Skip headers
       if (rowNumber <= dateRowNumber) return;
 
       const colA = row.getCell(1).value?.toString() || '';
       const colC = row.getCell(3).value?.toString() || '';
       const colD = row.getCell(4).value?.toString() || '';
 
-      // Detection: Is this a property row?
-      // We look for Site Refs (E...) or Postcodes in Column A
-      const hasPostcode = postcodeRegex.test(colA);
-      const hasENumber = eNumberRegex.test(colA);
+      // Check for Property Identifiers in Col A
+      const hasPostcode = this.postcodeRegex.test(colA);
+      const hasENumber = this.eNumberRegex.test(colA);
 
       if (hasPostcode || hasENumber) {
         currentAddress = colA.trim();
-        const eMatch = colA.match(eNumberRegex);
+        const eMatch = colA.match(this.eNumberRegex);
         currentENumber = eMatch ? eMatch[0] : "";
       }
 
-      // Capture Scheme/Manager metadata if present
-      if (colC.toUpperCase().includes('SCHEME')) {
-          currentScheme = colD || "";
-      }
+      // Check for Metadata (Manager/Scheme)
       if (colA.toUpperCase().includes('SITE MANAGER')) {
-          currentManager = colD || "";
+        currentManager = colD || "";
+      }
+      if (colC.toUpperCase().includes('SCHEME') || colC.toUpperCase().includes('CONTRACT')) {
+        currentScheme = colD || "";
       }
 
-      // 4. Scan Work Cells for this row
+      // 3. Scan Date Columns (F+) for Work Cells
       dateColumnMap.forEach((date, colNumber) => {
         const cell = row.getCell(colNumber);
-        const cellValue = cell.value?.toString().trim();
-        
+        const cellValue = cell.value;
         if (!cellValue) return;
-
-        // Skip if the cell is just the header date repeated
-        if (this.isHeaderRepeat(cellValue, date)) return;
 
         const cellCoord = `${this.getColumnLetter(colNumber)}${rowNumber}`;
 
-        // Extraction: Find operative embedded in text
-        const match = this.findOperative(cellValue, userMap);
+        // SHIELD: Skip if the cell is just a date object or string repeat of the header
+        if (this.isDateOrHeaderRepeat(cellValue, date)) return;
+
+        const text = cellValue.toString().trim();
+        if (text.length < 3) return;
+
+        // EXTRACTION: Split by hyphen and match operative
+        const match = this.extractOperativeAndTask(text, userMap);
 
         if (match) {
           shifts.push({
@@ -125,20 +124,20 @@ export class BroadOakProfile implements PlannerProfile {
             operative: match.user.originalName,
             operativeUid: match.user.uid,
             task: match.task,
-            descriptionOfWorks: cellValue,
+            descriptionOfWorks: text,
             type: match.type,
             sourceCell: `${sheet.name}!${cellCoord}`,
             sourceSheet: sheet.name
           });
-        } else if (cellValue.length > 3) {
-          // If the cell has content but we can't find a user, it's a "Not Imported" candidate
+        } else {
+          // Flag as "Not Imported"
           errors.push({
             row: rowNumber,
             cell: cellCoord,
-            message: `Operative not recognized in text: "${cellValue}"`,
+            message: `Operative not recognized in text: "${text.substring(0, 50)}..."`,
             severity: 'warning',
             code: 'USER_NOT_FOUND',
-            rawValues: { text: cellValue, address: currentAddress, date }
+            rawValues: { text, address: currentAddress, date }
           });
         }
       });
@@ -147,28 +146,26 @@ export class BroadOakProfile implements PlannerProfile {
     return { shifts, errors };
   }
 
-  private findOperative(text: string, userMap: UserMapEntry[]) {
-    const cleanText = text.replace(/\s+/g, ' ').trim();
-    const upperText = cleanText.toUpperCase();
-    
-    // Look for names in the text
-    // Broad Oak planners often use "Task - Name" or "Task Name"
+  private extractOperativeAndTask(text: string, userMap: UserMapEntry[]) {
+    const parts = text.split('-').map(p => p.trim());
+    const upperText = text.toUpperCase();
+
+    // Check every user against the text
     for (const user of userMap) {
       const name = user.originalName.toUpperCase();
       if (upperText.includes(name)) {
-        // Found a match!
+        let task = text;
+        // Clean the task by removing the name and separators
+        task = task.replace(new RegExp(user.originalName, 'gi'), '')
+                   .replace(/^[Aa][Mm]\s+/, '')
+                   .replace(/^[Pp][Mm]\s+/, '')
+                   .replace(/^\s*[-:]\s*/, '')
+                   .replace(/\s*[-:]\s*$/, '')
+                   .trim();
+
         let type: 'am' | 'pm' | 'all-day' = 'all-day';
         if (upperText.startsWith('AM ')) type = 'am';
         else if (upperText.startsWith('PM ')) type = 'pm';
-
-        // Extract task by stripping metadata
-        let task = cleanText
-          .replace(new RegExp(user.originalName, 'gi'), '')
-          .replace(/^[Aa][Mm]\s+/, '')
-          .replace(/^[Pp][Mm]\s+/, '')
-          .replace(/^\s*-\s*/, '')
-          .replace(/\s*-\s*$/, '')
-          .trim();
 
         return { user, task: task || "General Works", type };
       }
@@ -176,9 +173,16 @@ export class BroadOakProfile implements PlannerProfile {
     return null;
   }
 
-  private isHeaderRepeat(val: string, date: Date): boolean {
-      const d = this.parseDate(val);
-      return d ? d.getTime() === date.getTime() : false;
+  private isDateOrHeaderRepeat(val: any, columnDate: Date): boolean {
+    if (val instanceof Date) return true;
+    if (typeof val === 'number') return true; // Likely a serial date
+    
+    const str = val.toString().toUpperCase();
+    // Common date header strings to ignore
+    if (str.includes('2026') || str.includes('2025')) return true;
+    if (str.includes('JUN') || str.includes('JUL') || str.includes('AUG')) return true;
+    
+    return false;
   }
 
   private parseDate(val: any): Date | null {
