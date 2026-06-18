@@ -19,7 +19,6 @@ import {
   Upload,
   FileWarning,
   TestTube2,
-  Sheet,
   ChevronDown,
   X,
   UploadCloud,
@@ -81,6 +80,7 @@ function normalizePlannerName(name: string | null | undefined): string {
 function normalizeText(text: string | null | undefined): string {
   if (!text) return "";
   let t = String(text).toLowerCase();
+  // Strip phone numbers
   t = t.replace(/\b(0\d{3,4}\s*\d{5,6}|07\d{3}\s*\d{6}|\+44\s*\d{4}\s*\d{6})\b/g, '');
   return t.replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -88,9 +88,15 @@ function normalizeText(text: string | null | undefined): string {
 const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; type?: string }): string => {
   const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
   if (!d || isNaN(d.getTime())) return `invalid-${shift.userId}-${Math.random()}`;
+  
+  // Use Midday UTC to prevent any timezone shifts during comparison
   const dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-  const addr = normalizeText(shift.address.replace(/\b[BE]\d+\S*\b/gi, ''));
-  return `${dateStr}-${shift.userId}-${addr}-${shift.type || 'all'}`;
+  
+  // Clean address for matching: remove E-numbers/B-numbers and postcodes
+  const cleanAddr = (shift.address || "").replace(/\b[BE]\d+\S*\b/gi, '').replace(/\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/gi, '');
+  const addrNorm = normalizeText(cleanAddr);
+  
+  return `${dateStr}-${shift.userId}-${addrNorm}-${shift.type || 'all'}`;
 };
 
 interface FileUploaderProps {
@@ -169,6 +175,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           const excelShifts = result.parsed.map(p => ({ ...p, date: new Date(p.shiftDate), plannerName: currentPlanner }));
           const excelKeys = new Set(excelShifts.map(s => getShiftKey(s)));
 
+          // Fetch only shifts for this department to optimize comparison
           const existingSnapshot = await getDocs(query(collection(db, 'shifts'), where('department', '==', finalDept)));
           const existingMap = new Map<string, Shift>();
           existingSnapshot.docs.forEach(d => {
@@ -182,17 +189,22 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           excelShifts.forEach(ex => {
             const key = getShiftKey(ex);
             const ext = existingMap.get(key);
-            if (!ext) toCreate.push(ex as any);
-            else if (!protectedStatuses.includes(ext.status)) {
+            if (!ext) {
+                toCreate.push(ex as any);
+            } else if (!protectedStatuses.includes(ext.status)) {
+                // Identity match (Key matches) but content changed (Task/Note)
                 if (normalizeText(ext.task) !== normalizeText(ex.task) || ext.type !== ex.type) {
                     toUpdate.push({ old: ext, new: ex as any });
                 }
             }
           });
 
+          // Deletion scope is strictly limited to the current planner (ignoring version numbers like (3))
           existingMap.forEach((ext, key) => {
-            const samePlanner = normalizePlannerName(ext.plannerName) === currentPlanner;
-            if (samePlanner && !excelKeys.has(key) && !protectedStatuses.includes(ext.status) && ext.source !== 'manual') {
+            const extPlanner = normalizePlannerName(ext.plannerName);
+            const isSamePlanner = extPlanner === currentPlanner;
+            
+            if (isSamePlanner && !excelKeys.has(key) && !protectedStatuses.includes(ext.status) && ext.source !== 'manual') {
                 toDelete.push(ext);
             }
           });
@@ -217,10 +229,15 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
         } catch (err: any) {
           console.error('Import error:', err);
           if (err.message?.includes('time value')) {
-            setError(`Data Quality Alert: A phone number was detected in a date column (F onwards).\n\nAction: Remove any non-date text from row 4 or 5 of your sheets.`);
-          } else setError(err.message || 'Import failed.');
+            setError(`Data Quality Alert: A phone number was detected in a date column.\n\nAction: Ensure columns F onwards only contain dates in row 4 or 5.`);
+          } else {
+            setError(err.message || 'Import failed.');
+          }
           onImportComplete([], async () => {}, undefined);
-        } finally { setIsUploading(false); setUploadProgress(null); }
+        } finally { 
+          setIsUploading(false); 
+          setUploadProgress(null); 
+        }
       };
       reader.readAsArrayBuffer(file);
     },

@@ -69,6 +69,7 @@ function normalizeWhitespace(s: string | null | undefined): string {
 function normalizeText(text: string | null | undefined): string {
   if (!text) return "";
   let t = String(text).toLowerCase();
+  // Strip phone numbers / IDs
   t = t.replace(/\b(0\d{3,4}\s*\d{5,6}|07\d{3}\s*\d{6}|\+44\s*\d{4}\s*\d{6})\b/g, '');
   return t.replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -133,17 +134,20 @@ function parseExcelCellAsDate(cell: ExcelJS.Cell): { date: Date | null, diagnost
     if (v instanceof Date && !isNaN(v.getTime())) {
       d = new Date(Date.UTC(v.getFullYear(), v.getMonth(), v.getDate()));
     } else if (typeof v === "number" && v > 20000) {
+      // 🔒 PHONE NUMBER SHIELD: Serial dates above 60,000 are past the year 2064
       if (v > 60000) {
-        return { date: null, diagnostic: `Likely a contact number.` };
+        return { date: null, diagnostic: `Likely a contact number or ID.` };
       }
       const rawDate = new Date((v - 25569) * 86400 * 1000);
       d = new Date(Date.UTC(rawDate.getUTCFullYear(), rawDate.getUTCMonth(), rawDate.getUTCDate()));
     }
 
     if (d && !isNaN(d.getTime())) {
+      // Reality check: ignore dates before 2024 or after 2035
       if (d.getUTCFullYear() < 2024 || d.getUTCFullYear() > 2035) {
-        return { date: null, diagnostic: `Resolves to year ${d.getUTCFullYear()}.` };
+        return { date: null, diagnostic: `Date resolves to year ${d.getUTCFullYear()}.` };
       }
+      // Force to Midday UTC for absolute identity stability
       return { date: new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12, 0, 0)) };
     }
   } catch (e) {}
@@ -198,7 +202,7 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
 
   const dateRows: Array<{ row: number; dateCols: Array<{ col: number; isoDate: string }> }> = [];
   for (let r = used.startRow; r <= Math.min(used.endRow, 100); r++) {
-      // 🔒 COLUMN F BOUNDARY: Ignore columns A-E (1-5)
+      // 🔒 COLUMN F BOUNDARY: Ignore columns A-E (1-5) for dates
       const res = getDateColumns(sheet, used, r, 6);
       if (res.cols.length >= 2) dateRows.push({ row: r, dateCols: res.cols });
       if (res.diagnostics) diagnostics.push(...res.diagnostics);
@@ -214,6 +218,7 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
       const eNumber = siteAddress.match(/\b([BE]\d+\S*)\b/i)?.[1].toUpperCase() || '';
       let manager = '', contract = sheet.name;
 
+      // Extract metadata (Manager/Scheme)
       for (let r = Math.max(1, header.row - 6); r <= header.row; r++) {
           const row = sheet.getRow(r);
           for (let c = 1; c <= 5; c++) {
@@ -231,6 +236,8 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
               if (!text || isNonShiftText(text)) continue;
 
               const { task, names, type } = extractGasTaskAndNames(text);
+              if (names.length === 0) continue;
+
               for (const name of names) {
                   const { users: matched, reason } = findUsersInMap(name, userMap);
                   if (matched.length === 1) {
@@ -349,8 +356,8 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, start: numb
     const score = (text: string) => {
         if (!text || text.length < 5) return 0;
         const up = text.toUpperCase();
-        // 🔒 METADATA PENALTY
-        if (['ORDERING', 'MANAGER', 'TLO', 'TECHNICAL', 'RESPONSIBLE'].some(n => up.includes(n))) return -20000;
+        // 🔒 METADATA SHIELD: -20k points for labels
+        if (['ORDERING', 'MANAGER', 'TLO', 'TECHNICAL', 'RESPONSIBLE', 'SITE:'].some(n => up.includes(n))) return -20000;
         let s = Math.min(text.length, 50);
         if (/\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) s += 10000;
         if (/\d+/.test(text)) s += 500;
