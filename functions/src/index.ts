@@ -49,10 +49,15 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     await assertAdminOrManager(uid);
 
     const data = req.data as any;
-    const { toCreate, toUpdate, toDelete, department } = data;
+    const { 
+      toCreate = [], 
+      toUpdate = [], 
+      toDelete = [], 
+      department 
+    } = data;
 
-    if (!Array.isArray(toCreate) || !department) {
-        throw new HttpsError('invalid-argument', 'Missing toCreate or department.');
+    if (!Array.isArray(toCreate) || !Array.isArray(toUpdate) || !Array.isArray(toDelete) || !department) {
+        throw new HttpsError('invalid-argument', 'Invalid payload. Expected toCreate, toUpdate, toDelete arrays and department.');
     }
 
     const batch = db.batch();
@@ -89,7 +94,7 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     // 2. Create Shifts
     toCreate.forEach((shift: any) => {
         if (!shift.operativeUid) {
-            throw new HttpsError("invalid-argument", `Shift for ${shift.operative || 'unknown'} has no operativeUid. User matching failed.`);
+            throw new HttpsError("invalid-argument", `Cannot create shift because operativeUid is missing for ${shift.operative || "unknown operative"} at ${shift.address || "unknown address"}.`);
         }
         
         const newShiftRef = shiftsRef.doc();
@@ -104,7 +109,7 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             contract: shift.contract || '',
             manager: shift.manager || '',
             department: department,
-            status: 'pending', // CHANGED: Standard status for dashboard visibility
+            status: 'pending', // Standard status for dashboard visibility
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             source: 'import',
             plannerName: shift.plannerName || ''
@@ -142,7 +147,7 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     
     return {
         success: true,
-        message: `Schedule Sync Complete: ${toCreate.length} created, ${toUpdate.length} updated.`
+        message: `Schedule Sync Complete: ${toCreate.length} created, ${toUpdate.length} updated, ${toDelete.length} deleted.`
     };
 });
 
