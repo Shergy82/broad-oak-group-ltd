@@ -210,6 +210,19 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
 
         return <div className="space-y-1">{changes}</div>;
     };
+
+    const dateSort = (a: any, b: any) => {
+        const getT = (item: any) => {
+            const d = item.date instanceof Date ? item.date : (item.date?.toDate ? item.date.toDate() : new Date(item.date));
+            return (d && !isNaN(d.getTime())) ? d.getTime() : Infinity;
+        }
+        return getT(a) - getT(b);
+    };
+
+    const sortedCreate = [...dryRun.toCreate].sort(dateSort);
+    const sortedUpdate = [...dryRun.toUpdate].sort((a,b) => dateSort(a.new, b.new));
+    const sortedDelete = [...dryRun.toDelete].sort(dateSort);
+    const sortedFailed = [...dryRun.failed].sort(dateSort);
     
     return (
         <Tabs defaultValue={defaultTab} className="w-full">
@@ -270,7 +283,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                             <Table>
                                 <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Task</TableHead><TableHead>Address</TableHead></TableRow></TableHeader>
                                 <TableBody>
-                                  {dryRun.toCreate.map((s, i) => (
+                                  {sortedCreate.map((s, i) => (
                                       <TableRow key={i}>
                                         <TableCell>{safeFormatDate(s.date)}</TableCell>
                                         <TableCell>{s.userName}</TableCell>
@@ -300,7 +313,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {dryRun.toUpdate.map((u,i) => (
+                                    {sortedUpdate.map((u,i) => (
                                         <TableRow key={i}>
                                             <TableCell>{safeFormatDate(u.new.date)}</TableCell>
                                             <TableCell>{u.new.userName}</TableCell>
@@ -322,7 +335,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                             <Table>
                                 <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Task</TableHead><TableHead>Address</TableHead></TableRow></TableHeader>
                                 <TableBody>
-                                  {dryRun.toDelete.map((s,i) => (
+                                  {sortedDelete.map((s,i) => (
                                       <TableRow key={i}>
                                         <TableCell>{safeFormatDate(s.date)}</TableCell>
                                         <TableCell>{s.userName}</TableCell>
@@ -358,7 +371,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                             <Table>
                                 <TableHeader><TableRow><TableHead>Sheet</TableHead><TableHead>Cell</TableHead><TableHead>Content</TableHead><TableHead>Reason</TableHead></TableRow></TableHeader>
                                 <TableBody>
-                                    {dryRun.failed.map((f, i) => <TableRow key={i}>
+                                    {sortedFailed.map((f, i) => <TableRow key={i}>
                                         <TableCell>{f.sheetName}</TableCell>
                                         <TableCell>{f.cellRef}</TableCell>
                                         <TableCell><span className="text-xs font-mono bg-muted p-1 rounded">{f.cellContent}</span></TableCell>

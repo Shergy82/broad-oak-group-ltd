@@ -192,8 +192,9 @@ function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
       }
     }
 
-    if (d && !isNaN(d.getTime()) && d.getUTCFullYear() >= 2020 && d.getUTCFullYear() <= 2050) {
-      return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+    if (d && !isNaN(d.getTime()) && d.getUTCFullYear() >= 2024 && d.getUTCFullYear() <= 2035) {
+      // 🔒 MIDDAY ANCHOR: Prevent timezone flipping the date in the identity key
+      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12, 0, 0));
     }
   } catch (e) {
     console.error("Error parsing excel cell as date:", e);
@@ -203,9 +204,9 @@ function parseExcelCellAsDate(cell: ExcelJS.Cell): Date | null {
 
 function toISODate(dt: Date | null): string {
   if (!dt || isNaN(dt.getTime())) return "";
-  const y = dt.getFullYear();
-  const m = String(dt.getMonth() + 1).padStart(2, '0');
-  const d = String(dt.getDate()).padStart(2, '0');
+  const y = dt.getUTCFullYear();
+  const m = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(dt.getUTCDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
 
@@ -230,7 +231,8 @@ function isNonShiftText(text: string): boolean {
     "waiting on",
     "totals",
     "weekly summary",
-    "operative"
+    "operative",
+    "materials ordering"
   ];
 
   const strictHeaders = [
@@ -287,7 +289,8 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
 
   const dateHeaderRows: Array<{ row: number; dateCols: Array<{ col: number; isoDate: string }> }> = [];
   for (let r = used.startRow; r <= used.endRow; r++) {
-      const dateCols = getDateColumns(sheet, used, r, 3);
+      // 🔒 GAS BOUNDARY: Only look for dates in Column F onwards
+      const dateCols = getDateColumns(sheet, used, r, 6);
       if (dateCols.length >= 2) {
           dateHeaderRows.push({ row: r, dateCols });
       }
@@ -315,7 +318,7 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
       const { address: rawAddr } = addressResult;
       const eNumMatch = rawAddr.match(/\b([BE]\d+\S*)\b/i);
       const eNumber = eNumMatch ? eNumMatch[1].toUpperCase() : '';
-      const siteAddress = rawAddr; // Keep full address including prefixes like "Gale" or "Hall"
+      const siteAddress = rawAddr;
 
       let manager = '';
       let contract = sheetName;
@@ -325,39 +328,28 @@ function parseGasSheet(sheet: ExcelJS.Worksheet, userMap: UserMapEntry[]): Parse
       const metadataEnd = Math.min(blockEnd, header.row + 6);
       for (let r = metadataStart; r <= metadataEnd; r++) {
           const row = sheet.getRow(r);
-          for (let c = 1; c <= 10; c++) {
-              const cell = row.getCell(c);
-              const text = getCellText(cell);
+          for (let c = 1; c <= 5; c++) {
+              const text = getCellText(row.getCell(c));
               if (!text) continue;
               const upper = text.toUpperCase();
               
+              if (upper.includes('SCHEME:')) {
+                  const sameCellScheme = text.split(/scheme:/i)[1]?.trim();
+                  if (sameCellScheme) contract = sameCellScheme;
+              }
+              
               const isMetadata = 
-                upper.includes('SITE MANAGER') || 
-                upper.includes('RESPONSIBLE PERSON') || 
-                upper.includes('TECHNICAL MANAGER') || 
-                upper.includes('JOB MANAGER') ||
+                upper.includes('MANAGER') || 
                 upper.includes('TLO') || 
-                upper.includes('PLANNER') || 
-                upper.includes('CONTACT') ||
-                upper.includes('ASBESTOS') ||
+                upper.includes('ORDERING') ||
+                upper.includes('TECHNICAL') ||
                 upper.includes('VARIATION');
 
               if (isMetadata) {
                   notesSet.add(text);
-                  if (upper.includes('SITE MANAGER') || upper.includes('RESPONSIBLE PERSON') || upper.includes('TECHNICAL MANAGER') || upper.includes('JOB MANAGER')) {
-                      const cleaned = text.replace(/(site manager|responsible person|technical manager|job manager)\s*:?/i, '').trim();
+                  if (upper.includes('MANAGER') || upper.includes('TLO') || upper.includes('ORDERING')) {
+                      const cleaned = text.replace(/(site manager|responsible person|technical manager|job manager|materials ordering|tlo)\s*:?/i, '').trim();
                       if (!manager) manager = cleaned.split('\n')[0].trim();
-                  }
-              }
-
-              if (upper.includes('SCHEME:')) {
-                  notesSet.add(text);
-                  const sameCellScheme = text.split(/scheme:/i)[1]?.trim();
-                  if (sameCellScheme) {
-                    contract = sameCellScheme;
-                  } else {
-                    const nextVal = getCellText(row.getCell(c + 1));
-                    if (nextVal) contract = nextVal;
                   }
               }
           }
@@ -436,7 +428,6 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
     let dateCols: { col: number, isoDate: string }[] = [];
     
     // 🔒 BUILD SCAN: Find date header row, only looking at Column F (6) onwards.
-    // This bypasses Address/Info/Pricing columns.
     for (let r = 1; r <= 50; r++) {
         const row = sheet.getRow(r);
         const tempCols: { col: number, isoDate: string }[] = [];
@@ -474,7 +465,6 @@ export async function parseBuildWorkbook(fileBuffer: Buffer, userMap: UserMapEnt
 
         if (!currentAddress) continue;
 
-        // 🔒 BUILD SCAN: Only process columns identified as date columns (F/6 onwards)
         for (const { col, isoDate } of dateCols) {
             if (isoDate && isoDate < today) continue;
 
@@ -559,7 +549,6 @@ function isBlackDivider(row: ExcelJS.Row): boolean {
  * 🔒 BUILD SPECIFIC ADDRESS EXTRACTOR
  */
 function extractBuildAddressFromRow(row: ExcelJS.Row): { address: string; eNumber: string } | null {
-  // 🔒 BUILD FIX: Scan only Column 1 (A) for addresses
   const text = getCellText(row.getCell(1));
   if (!text || text.length < 3) return null;
 
@@ -572,7 +561,6 @@ function extractBuildAddressFromRow(row: ExcelJS.Row): { address: string; eNumbe
   ];
   if (noise.some(n => upper.includes(n))) return null;
 
-  // Skip if it looks like a date or just a number
   if (/^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}/.test(text)) return null;
   if (/^\d+$/.test(text)) return null;
 
@@ -602,7 +590,6 @@ function extractBuildTaskAndNames(text: string): { task: string; names: string[]
     }
 
     if (lastIdx === -1) {
-        // BUILD SPECIFIC: If no dash, treat whole cell as potential names
         if (raw.length < 2 || /^\d+$/.test(raw)) return { task: "Work", names: [], type };
         return { task: "Work", names: [raw], type };
     }
@@ -620,11 +607,14 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
     const scoreAddress = (text: string) => {
         if (!text || text.length < 5) return 0;
         const upper = text.toUpperCase();
-        const noise = ['MATERIALS', 'MANAGER', 'TLO', 'MEASURES', 'SCHEME', 'PULSE', 'WEEK COMM', 'REMEDIAL', 'START DATE', 'SITE MANAGER', 'TECHNICAL MANAGER', 'JOB MANAGER', 'RESPONSIBLE PERSON'];
-        if (noise.some(n => upper.includes(n))) return -500;
+        
+        // 🔒 METADATA PENALTY: Prevent ordering personnel from being used as addresses
+        const noise = ['MATERIALS', 'MANAGER', 'TLO', 'MEASURES', 'SCHEME', 'PULSE', 'WEEK COMM', 'REMEDIAL', 'START DATE', 'ORDERING', 'TECHNICAL', 'RESPONSIBLE'];
+        if (noise.some(n => upper.includes(n))) return -20000;
+        
         let score = Math.min(text.length, 50);
-        if (/\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) score += 2000;
-        if (/\d+/.test(text)) score += 500;
+        if (/\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/i.test(text)) score += 10000; // Postcode bonus
+        if (/\d+/.test(text)) score += 500; // House number bonus
         return score;
     };
 
@@ -640,7 +630,7 @@ function extractSiteAddress(ws: ExcelJS.Worksheet, used: UsedBounds, startRow: n
     return best.score >= 50 ? { address: normalizeWhitespace(best.text), row: best.row } : null;
 }
 
-function getDateColumns(ws: ExcelJS.Worksheet, used: UsedBounds, dateRowIdx: number, matrixStartCol = 3): Array<{ col: number; isoDate: string }> {
+function getDateColumns(ws: ExcelJS.Worksheet, used: UsedBounds, dateRowIdx: number, matrixStartCol = 6): Array<{ col: number; isoDate: string }> {
   const cols = [];
   const startCol = Math.max(used.startCol, matrixStartCol);
   for (let c = startCol; c <= used.endCol; c++) {
@@ -675,9 +665,5 @@ function extractGasTaskAndNames(text: string): { task: string; names: string[]; 
         return n.length > 1;
     });
     
-    const uniqueNames = Array.from(new Set(names.map(n => n.toLowerCase()))).map(lowName => {
-        return names.find(n => n.toLowerCase() === lowName)!;
-    });
-
-    return { task, names: uniqueNames, type };
+    return { task, names, type };
 }

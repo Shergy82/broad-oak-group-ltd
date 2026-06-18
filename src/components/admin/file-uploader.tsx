@@ -94,49 +94,22 @@ function normalizeText(text: string | null | undefined): string {
 }
 
 /**
- * 🔒 GAS SPECIFIC ADDRESS NORMALIZER (PREFIX AWARE)
- * Isolates the core property identity by ignoring everything before the house number.
- */
-function normalizeGasAddressCore(text: string | null | undefined): string {
-  if (!text) return "";
-  let t = String(text).toLowerCase();
-  
-  // Remove B/E numbers
-  t = t.replace(/\b[be]\d+\S*\b/gi, '');
-  
-  // Strip postcodes
-  t = t.replace(/\b[a-z]{1,2}\d{1,2}\s*\d[a-z]{2}\b/gi, '');
-
-  // Find the first digit (house number) and keep only that onwards
-  const firstDigit = t.search(/\d/);
-  if (firstDigit !== -1) {
-    t = t.substring(firstDigit);
-  }
-
-  return t.replace(/[^a-z0-9]/g, "").trim();
-}
-
-/**
  * 🔒 STABLE IDENTITY KEY GENERATION
- * Crucial: Identity = [Date-UTC] + [UserId] + [CoreAddress] + [Type].
+ * Crucial: Identity = [Date-Midday-UTC] + [UserId] + [NormalizedAddress] + [AM/PM Type].
  * TASK DESCRIPTION is EXCLUDED to ensure changes result in an UPDATE instead of a DELETE/CREATE.
  */
-const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; task?: string; type?: string; department?: string }): string => {
+const getShiftKey = (shift: { userId: string; date: Date | Timestamp; address: string; type?: string }): string => {
   const d = (shift.date as any).toDate ? (shift.date as Timestamp).toDate() : (shift.date as Date);
   
   if (!d || isNaN(d.getTime())) return `invalid-date-${shift.userId}-${Math.random()}`;
 
-  // 🔒 UTC SYNC: Always use UTC components to prevent 1-day drift
+  // 🔒 UTC SYNC: Always use Midday UTC to prevent 1-day drift from local clock offsets
   const dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
   
-  // Normalize address based on department
-  const addr = shift.department === 'Gas' ? normalizeGasAddressCore(shift.address) : normalizeText(shift.address);
-  
-  // Type is included to allow split shifts (AM/PM) at the same house
+  const addr = normalizeText(shift.address);
   const typePart = shift.type ? `-${shift.type}` : '';
-  const deptPrefix = shift.department === 'Gas' ? 'gas' : 'build';
   
-  return `${deptPrefix}-${dateStr}-${shift.userId}-${addr}${typePart}`;
+  return `${dateStr}-${shift.userId}-${addr}${typePart}`;
 };
 
 
@@ -319,15 +292,9 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             cellRef: f.cellRef || ''
           }));
 
-          // Deduplicate within the Excel data itself
-          const uniqueShiftsMap = new Map<string, ParsedShift>();
-          for (const shift of allShiftsFromExcel) {
-            const key = getShiftKey(shift as any);
-            if (!uniqueShiftsMap.has(key)) {
-              uniqueShiftsMap.set(key, shift);
-            }
-          }
-          allShiftsFromExcel = Array.from(uniqueShiftsMap.values());
+          // 🔒 CONTRACT SCOPING: Identify which contracts are in this file to limit deletions
+          const contractsInCurrentFile = new Set<string>();
+          allShiftsFromExcel.forEach(s => { if (s.contract) contractsInCurrentFile.add(normalizeText(s.contract)); });
 
           setUploadProgress('Comparing with existing data...');
           const existingShiftsQuery = query(
@@ -345,7 +312,6 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             if (!shiftData.userId || !shiftData.date || !shiftData.address) return;
             
             const key = getShiftKey(shiftData as any);
-            // Deduplicate DB records in memory (keep latest status)
             if (!existingShiftsMap.has(key)) {
                 existingShiftsMap.set(key, shiftData);
             }
@@ -362,7 +328,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
           
           const protectedStatuses: ShiftStatus[] = ['completed', 'incomplete', 'rejected', 'on-site'];
 
-          // 1. Find New & Updates (Stable Correlation)
+          // 1. Find New & Updates
           for (const [key, excelShift] of excelShiftsMap.entries()) {
             const existingShift = existingShiftsMap.get(key);
             if (!existingShift) {
@@ -384,27 +350,17 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
             }
           }
 
-          // 2. Find Deletions
+          // 2. Find Deletions (Limited to SCOPE of imported contracts)
           for (const [key, existingShift] of existingShiftsMap.entries()) {
-            const isFromThisPlanner = importType === 'BUILD'
-              ? (existingShift.plannerName || '').replace(/\s*\(?\d+\)?$/, "").replace(/\s*-\s*copy$/i, "").trim() === currentPlannerName
-              : existingShift.plannerName === currentPlannerName;
-
-            if (isFromThisPlanner && !excelShiftsMap.has(key) && !protectedStatuses.includes(existingShift.status) && existingShift.source !== 'manual') {
+            const contractMatch = existingShift.contract && contractsInCurrentFile.has(normalizeText(existingShift.contract));
+            
+            if (contractMatch && !excelShiftsMap.has(key) && !protectedStatuses.includes(existingShift.status) && existingShift.source !== 'manual') {
               const shiftDate = getCorrectedLocalDate(existingShift.date as any);
               if (shiftDate >= importTodayLocal) {
                 toDelete.push(existingShift);
               }
             }
           }
-
-          const dateSort = (a: any, b: any) => {
-            const getT = (item: any) => {
-                const d = item.date instanceof Date ? item.date : (item.date?.toDate ? item.date.toDate() : new Date(item.date));
-                return (d && !isNaN(d.getTime())) ? d.getTime() : Infinity;
-            }
-            return getT(a) - getT(b);
-          };
 
           const onConfirm = async () => {
             try {
@@ -427,10 +383,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile, impo
 
           if (!commitChanges) {
             onImportComplete(allFailedShifts, onConfirm, { 
-                toCreate: toCreate.sort(dateSort), 
-                toUpdate: toUpdate.sort((a,b) => dateSort(a.new, b.new)), 
-                toDelete: toDelete.sort(dateSort), 
-                failed: allFailedShifts.sort(dateSort)
+                toCreate, toUpdate, toDelete, failed: allFailedShifts
             });
             setIsUploading(false);
             setUploadProgress(null);
