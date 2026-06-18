@@ -1,21 +1,41 @@
+
 import { type StandardShift, type ImportError, type UserMapEntry } from './types';
 
 /**
- * Validation Engine - RESET
- * Logic to be implemented step-by-step.
+ * Validates extracted shifts for data integrity.
  */
 export function validateShifts(shifts: StandardShift[], userMap: UserMapEntry[]): ImportError[] {
   const errors: ImportError[] = [];
   
-  // Minimal placeholder validation
   shifts.forEach((shift, index) => {
-    if (!shift.date) {
+    if (!shift.date || isNaN(shift.date.getTime())) {
       errors.push({
         row: index + 1,
-        message: 'Missing date.',
+        message: 'Invalid shift date.',
         severity: 'error',
-        code: 'MISSING_DATE'
+        code: 'INVALID_DATE',
+        rawValues: shift
       });
+    }
+
+    if (!shift.operativeUid) {
+        errors.push({
+            row: index + 1,
+            message: `Operative "${shift.operative}" not found in database.`,
+            severity: 'error',
+            code: 'USER_NOT_FOUND',
+            rawValues: shift
+        });
+    }
+
+    if (!shift.address || shift.address === "Unknown Address") {
+        errors.push({
+            row: index + 1,
+            message: 'No property address associated with this work cell.',
+            severity: 'error',
+            code: 'MISSING_ADDRESS',
+            rawValues: shift
+        });
     }
   });
 
