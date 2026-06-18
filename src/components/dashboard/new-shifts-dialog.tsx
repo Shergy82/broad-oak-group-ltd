@@ -119,7 +119,9 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
             <Button variant="destructive" onClick={() => setIsRejectDialogOpen(true)} disabled={isLoading || selectedShiftIds.size === 0}><ThumbsDown className="mr-2 h-4 w-4" /> Reject</Button>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => handleUpdate(sortedShifts.filter(s => selectedShiftIds.has(s.id)), 'confirmed')} disabled={isLoading || selectedShiftIds.size === 0}>Accept Selected</Button>
-              <Button onClick={() => handleUpdate(sortedShifts, 'confirmed')} disabled={isLoading}><CheckCircle2 className="mr-2 h-4 w-4" /> Accept All ({shifts.length})</Button>
+              <Button onClick={() => handleUpdate(sortedShifts, 'confirmed')} disabled={isLoading}>
+                {isLoading ? <Spinner /> : <><CheckCircle2 className="mr-2 h-4 w-4" /> Accept All ({shifts.length})</>}
+              </Button>
             </div>
           </DialogFooter>
         </DialogContent>

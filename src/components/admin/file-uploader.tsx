@@ -65,11 +65,10 @@ function getShiftDayKey(value: any): string {
   
   if (isNaN(d.getTime())) return 'invalid-date';
 
-  // Use local components for identity matching to match Excel entry intent
   return [
-    d.getFullYear(),
-    String(d.getMonth() + 1).padStart(2, '0'),
-    String(d.getDate()).padStart(2, '0'),
+    d.getUTCFullYear(),
+    String(d.getUTCMonth() + 1).padStart(2, '0'),
+    String(d.getUTCDate()).padStart(2, '0'),
   ].join('-');
 }
 
@@ -109,6 +108,9 @@ export function FileUploader({
     setError(null);
     onFileSelect();
 
+    // 🔒 Standardize Source ID based on filename
+    const profileId = file.name.toLowerCase().replace(/[^a-z0-9]/g, '-');
+
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {
@@ -122,7 +124,7 @@ export function FileUploader({
           return {
             uid: u.authUid || u.fireAuthUid || doc.id,
             originalName: u.name,
-            normalizedName: normalizeText(u.name).replace(/[^a-z0-9]/g, ''),
+            normalizedName: (u.name || "").toLowerCase().replace(/[^a-z0-9]/g, ''),
             department: u.department,
           };
         });
@@ -133,11 +135,16 @@ export function FileUploader({
         // 3. Filter for Today+ and attach department
         const incomingShifts = parseResult.shifts
           .filter(s => isTodayOrFuture(s.date))
-          .map(s => ({ ...s, department }));
+          .map(s => ({ ...s, department, plannerName: profileId }));
 
-        // 4. Fetch existing DB shifts for reconciliation
+        // 4. SCOPED SYNC: Fetch only shifts previously created by THIS planner
         const existingSnap = await getDocs(
-          query(collection(db, 'shifts'), where('department', '==', department))
+          query(
+            collection(db, 'shifts'), 
+            where('department', '==', department),
+            where('plannerName', '==', profileId),
+            where('source', '==', 'import')
+          )
         );
         
         const existingMap = new Map<string, Shift>();
@@ -171,14 +178,11 @@ export function FileUploader({
           }
         });
 
-        // 6. Identify deletions (In DB but missing from Excel)
+        // 6. Identify deletions (In DB from THIS planner but missing from current file)
         const toDelete: Shift[] = [];
         existingMap.forEach(existing => {
           if (!consumedExistingIds.has(existing.id)) {
-            // Safety: Only delete shifts that were originally from an import
-            if (existing.source === 'import') {
-              toDelete.push(existing);
-            }
+            toDelete.push(existing);
           }
         });
 
@@ -188,10 +192,10 @@ export function FileUploader({
           toUpdate,
           toDelete,
           toUnchanged,
-          profileId: file.name.toLowerCase().replace(/[^a-z0-9]/g, '-'),
+          profileId,
         });
 
-        // ✅ RESET INPUT so same file can be uploaded twice
+        // Reset input for immediate re-use
         if (fileInputRef.current) {
           fileInputRef.current.value = '';
         }

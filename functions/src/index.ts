@@ -28,12 +28,8 @@ const REGION = "europe-west2";
 const assertAdminOrManager = async (uid: string) => {
   const snap = await db.collection("users").doc(uid).get();
   const role = snap.data()?.role;
-
   if (!["admin", "owner", "manager", "TLO"].includes(role)) {
-    throw new HttpsError(
-      "permission-denied",
-      "Insufficient permissions for this action."
-    );
+    throw new HttpsError("permission-denied", "Insufficient permissions for this action.");
   }
 };
 
@@ -50,308 +46,136 @@ const normalizeText = (text: string | null | undefined): string => {
    SHIFT RECONCILIATION (SYNC ENGINE)
 ===================================================== */
 
-export const reconcileShifts = onCall(
-  { region: REGION, timeoutSeconds: 300, memory: "1GiB" },
-  async (req) => {
+export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, memory: '1GiB' }, async (req) => {
     const uid = req.auth?.uid;
-
-    if (!uid) {
-      throw new HttpsError("unauthenticated", "Authentication required");
-    }
-
+    if (!uid) throw new HttpsError("unauthenticated", "Authentication required");
     await assertAdminOrManager(uid);
 
     const data = req.data as any;
-    const { toCreate = [], toUpdate = [], toDelete = [], department } = data;
+    const { 
+        toCreate = [], 
+        toUpdate = [], 
+        toDelete = [], 
+        department,
+        profileId
+    } = data;
 
-    if (!Array.isArray(toCreate) || !Array.isArray(toUpdate) || !Array.isArray(toDelete) || !department) {
-      throw new HttpsError(
-        "invalid-argument",
-        "Invalid payload. Expected toCreate array and department."
-      );
-    }
+    if (!department) throw new HttpsError('invalid-argument', 'Missing department.');
+    if (!profileId) throw new HttpsError('invalid-argument', 'Missing planner identity (profileId).');
 
-    const shiftsRef = db.collection("shifts");
-    const projectsRef = db.collection("projects");
     const batch = db.batch();
+    const shiftsRef = db.collection('shifts');
+    const projectsRef = db.collection('projects');
 
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    // 1. Sync Projects
+    const allProjectsSnap = await projectsRef.where('department', '==', department).get();
+    const existingProjects = new Map();
+    allProjectsSnap.forEach(d => existingProjects.set(normalizeText(d.data().address), d.ref));
 
-    const toDate = (value: any): Date => {
-      if (!value) {
-        throw new HttpsError("invalid-argument", "Invalid date: empty value");
-      }
-    
-      if (value instanceof Date) {
-        if (Number.isNaN(value.getTime())) {
-          throw new HttpsError("invalid-argument", "Invalid date: bad Date object");
+    const allImportedShifts = [...toCreate, ...toUpdate.map((u: any) => u.new)];
+    const importedAddresses = new Map();
+    allImportedShifts.forEach((s: any) => { if (s.address) importedAddresses.set(normalizeText(s.address), s); });
+
+    for (const [normAddr, info] of importedAddresses.entries()) {
+        if (!existingProjects.has(normAddr)) {
+            const reviewDate = new Date();
+            reviewDate.setDate(reviewDate.getDate() + 28);
+            batch.set(projectsRef.doc(), {
+                address: info.address,
+                eNumber: info.eNumber || '',
+                manager: info.manager || '',
+                contract: info.contract || '',
+                department: department,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                creatorId: uid,
+                nextReviewDate: admin.firestore.Timestamp.fromDate(reviewDate),
+            });
         }
-        return value;
-      }
-    
-      if (typeof value?.toDate === "function") {
-        const d = value.toDate();
-        if (Number.isNaN(d.getTime())) {
-          throw new HttpsError("invalid-argument", "Invalid date: bad Firestore Timestamp");
-        }
-        return d;
-      }
-    
-      if (typeof value === "object" && typeof value.seconds === "number") {
-        return new Date(value.seconds * 1000);
-      }
-    
-      if (typeof value === "object" && typeof value._seconds === "number") {
-        return new Date(value._seconds * 1000);
-      }
-    
-      const d = new Date(value);
-    
-      if (Number.isNaN(d.getTime())) {
-        throw new HttpsError(
-          "invalid-argument",
-          `Invalid date: ${JSON.stringify(value)}`
-        );
-      }
-    
-      return d;
-    };
-
-    const dayKey = (value: any): string => {
-      const d = toDate(value);
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    };
-
-    const shiftKey = (shift: any): string => {
-      const userId = shift.userId || shift.operativeUid || "";
-      return [
-        department,
-        userId,
-        dayKey(shift.date),
-        shift.type || "all-day",
-      ].join("|");
-    };
-
-    const hasChanged = (existing: any, incoming: any): boolean => {
-      return (
-        (existing.userId || "") !== incoming.operativeUid ||
-        (existing.userName || "") !== incoming.operative ||
-        (existing.operativeUid || "") !== incoming.operativeUid ||
-        (existing.operative || "") !== incoming.operative ||
-        (existing.address || "") !== (incoming.address || "") ||
-        (existing.task || "") !== (incoming.task || "") ||
-        (existing.type || "all-day") !== (incoming.type || "all-day") ||
-        (existing.eNumber || "") !== (incoming.eNumber || "") ||
-        (existing.contract || "") !== (incoming.contract || "") ||
-        (existing.manager || "") !== (incoming.manager || "") ||
-        (existing.sourceCell || "") !== (incoming.sourceCell || "") ||
-        (existing.sourceSheet || "") !== (incoming.sourceSheet || "") ||
-        (existing.descriptionOfWorks || "") !== (incoming.descriptionOfWorks || "")
-      );
-    };
-
-    const futureImportedShiftsSnap = await shiftsRef
-      .where("department", "==", department)
-      .where("source", "==", "import")
-      .get();
-
-    const existingByKey = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
-
-    futureImportedShiftsSnap.docs.forEach((doc) => {
-      const existing = doc.data();
-      const existingDate = existing.date?.toDate?.();
-
-      if (!existingDate || existingDate < todayStart) return;
-
-      existingByKey.set(shiftKey(existing), doc);
-    });
-
-    const importedFutureShifts = [...toCreate, ...toUpdate.map((u: any) => u.new)].filter((shift: any) => {
-      if (!shift.operativeUid) {
-        throw new HttpsError(
-          "invalid-argument",
-          `Missing operativeUid for ${shift.operative || "unknown operative"} at ${shift.address || "unknown address"}.`
-        );
-      }
-
-      return toDate(shift.date) >= todayStart;
-    });
-
-    const importedKeys = new Set<string>();
-
-    let createdCount = 0;
-    let updatedCount = 0;
-    let deletedCount = 0;
-    let unchangedCount = 0;
-
-    // Project sync
-    const allProjectsSnap = await projectsRef.where("department", "==", department).get();
-    const existingProjects = new Set<string>();
-
-    allProjectsSnap.forEach((doc) => {
-      existingProjects.add(normalizeText(doc.data().address));
-    });
-
-    for (const shift of importedFutureShifts) {
-      const projectKey = normalizeText(shift.address);
-
-      if (projectKey && !existingProjects.has(projectKey)) {
-        const reviewDate = new Date();
-        reviewDate.setDate(reviewDate.getDate() + 28);
-
-        batch.set(projectsRef.doc(), {
-          address: shift.address,
-          eNumber: shift.eNumber || "",
-          manager: shift.manager || "",
-          contract: shift.contract || "",
-          department,
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          creatorId: uid,
-          nextReviewDate: admin.firestore.Timestamp.fromDate(reviewDate),
-        });
-
-        existingProjects.add(projectKey);
-      }
     }
 
-    // Create or update
-    for (const shift of importedFutureShifts) {
-      const key = shiftKey(shift);
-      importedKeys.add(key);
-
-      const existingDoc = existingByKey.get(key);
-
-      const payload = {
-        userId: shift.operativeUid,
-        userName: shift.operative,
-        operativeUid: shift.operativeUid,
-        operative: shift.operative,
-        address: shift.address,
-        task: shift.task,
-        date: admin.firestore.Timestamp.fromDate(toDate(shift.date)),
-        type: shift.type || "all-day",
-        eNumber: shift.eNumber || "",
-        contract: shift.contract || "",
-        manager: shift.manager || "",
-        department,
-        status: "pending-confirmation",
-        source: "import",
-        plannerName: shift.plannerName || "",
-        profileId: shift.plannerName || "",
-        sourceCell: shift.sourceCell || "",
-        sourceSheet: shift.sourceSheet || "",
-        descriptionOfWorks: shift.descriptionOfWorks || "",
-        importKey: key,
-      };
-
-      if (!existingDoc) {
+    // 2. Create Shifts
+    toCreate.forEach((shift: any) => {
+        if (!shift.operativeUid) {
+            throw new HttpsError('invalid-argument', `Cannot create shift: operativeUid is missing for ${shift.operative} at ${shift.address}.`);
+        }
+        
         batch.set(shiftsRef.doc(), {
-          ...payload,
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            userId: shift.operativeUid, 
+            userName: shift.operative,
+            address: shift.address,
+            task: shift.task,
+            date: admin.firestore.Timestamp.fromDate(new Date(shift.date)),
+            type: shift.type || 'all-day',
+            eNumber: shift.eNumber || '',
+            contract: shift.contract || '',
+            manager: shift.manager || '',
+            department: department,
+            status: 'pending', 
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            source: 'import',
+            plannerName: profileId
         });
-        createdCount++;
-      } else if (hasChanged(existingDoc.data(), shift)) {
-        batch.update(existingDoc.ref, {
-          ...payload,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-        updatedCount++;
-      } else {
-        unchangedCount++;
-      }
-    }
+    });
 
-    // Delete future imported shifts missing from latest import
-    for (const shift of toDelete) {
-      if (!shift.id) continue;
-    
-      batch.delete(shiftsRef.doc(shift.id));
-      deletedCount++;
-    }
+    // 3. Update Shifts
+    toUpdate.forEach(({ id, new: n }: any) => {
+        if (!n.operativeUid) throw new HttpsError('invalid-argument', `Cannot update shift ${id}: missing operativeUid.`);
+        
+        batch.update(shiftsRef.doc(id), {
+            userId: n.operativeUid,
+            userName: n.operative,
+            address: n.address,
+            task: n.task,
+            date: admin.firestore.Timestamp.fromDate(new Date(n.date)),
+            type: n.type || 'all-day',
+            eNumber: n.eNumber || '',
+            contract: n.contract || '',
+            manager: n.manager || '',
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            plannerName: profileId
+        });
+    });
+
+    // 4. Delete Shifts (ONLY those from THIS specific planner)
+    toDelete.forEach((s: any) => { 
+        if (s.id) {
+            batch.delete(shiftsRef.doc(s.id)); 
+        }
+    });
 
     await batch.commit();
-
-    return {
-      success: true,
-      message: `Schedule Sync Complete: ${createdCount} created, ${updatedCount} updated, ${deletedCount} deleted, ${unchangedCount} unchanged.`,
-      createdCount,
-      updatedCount,
-      deletedCount,
-      unchangedCount,
+    return { 
+        success: true,
+        message: `Schedule Sync Complete: ${toCreate.length} created, ${toUpdate.length} updated, ${toDelete.length} removed.`
     };
-  }
-);
+});
 
-/* =====================================================
-   OTHER FUNCTIONS (SERVE FILE, USER MGMT, ETC)
-===================================================== */
-
-export const serveFile = onRequest(
-  { region: REGION, cors: true },
-  async (req, res) => {
+export const serveFile = onRequest({ region: REGION, cors: true }, async (req, res) => {
     const path = req.query.path as string;
-
-    if (!path) {
-      res.status(400).send("Missing path");
-      return;
-    }
-
+    if (!path) { res.status(400).send("Missing path"); return; }
     try {
-      const file = admin.storage().bucket().file(path);
-      const [exists] = await file.exists();
-
-      if (!exists) {
-        res.status(404).send("Not found");
-        return;
-      }
-
-      const [metadata] = await file.getMetadata();
-
-      res.setHeader(
-        "Content-Type",
-        metadata.contentType || "application/octet-stream"
-      );
-
-      res.setHeader(
-        "Content-Disposition",
-        `inline; filename="${encodeURIComponent(metadata.name || "download")}"`
-      );
-
-      file.createReadStream().pipe(res);
-    } catch (error) {
-      logger.error("serveFile failed", error);
-      res.status(500).send("Error serving file");
-    }
-  }
-);
+        const file = admin.storage().bucket().file(path);
+        const [exists] = await file.exists();
+        if (!exists) { res.status(404).send("Not found"); return; }
+        file.createReadStream().pipe(res);
+    } catch(error) { res.status(500).send("Error serving file"); }
+});
 
 export const deleteUser = onCall({ region: REGION }, async (req) => {
   const data = req.data as any;
-
-  if (!req.auth?.uid) {
-    throw new HttpsError("unauthenticated", "Auth required");
-  }
-
+  if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Auth required");
   await admin.auth().deleteUser(data.uid);
-  await db.collection("users").doc(data.uid).delete();
-
+  await db.collection('users').doc(data.uid).delete();
   return { success: true };
 });
 
 export const setUserStatus = onCall({ region: REGION }, async (req) => {
-  const data = req.data as any;
-
-  await admin.auth().updateUser(data.uid, { disabled: data.disabled });
-
-  await db.collection("users").doc(data.uid).update({
-    status: data.newStatus,
-    department: data.department || "",
-  });
-
-  return { success: true };
+    const data = req.data as any;
+    await admin.auth().updateUser(data.uid, { disabled: data.disabled });
+    await db.collection('users').doc(data.uid).update({ status: data.newStatus, department: data.department || '' });
+    return { success: true };
 });
 
 export const getVapidPublicKey = onCall({ region: REGION }, () => {
-  return { publicKey: process.env.WEBPUSH_PUBLIC_KEY || "" };
+    return { publicKey: process.env.WEBPUSH_PUBLIC_KEY || "" };
 });
