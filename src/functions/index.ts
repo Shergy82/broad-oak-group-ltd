@@ -11,12 +11,6 @@ import JSZip from "jszip";
 import * as webPush from "web-push";
 
 /* =====================================================
-   CONSTANTS
-===================================================== */
-
-const REGION = "europe-west2";
-
-/* =====================================================
    BOOTSTRAP
 ===================================================== */
 
@@ -25,29 +19,7 @@ if (admin.apps.length === 0) {
 }
 
 const db = admin.firestore();
-
-/* =====================================================
-   ENV
-===================================================== */
-
-const WEBPUSH_PUBLIC_KEY = process.env.WEBPUSH_PUBLIC_KEY ?? "";
-const WEBPUSH_PRIVATE_KEY = process.env.WEBPUSH_PRIVATE_KEY ?? "";
-
-/* =====================================================
-   VAPID CONFIG
-===================================================== */
-
-if (WEBPUSH_PUBLIC_KEY && WEBPUSH_PRIVATE_KEY) {
-  try {
-    webPush.setVapidDetails(
-      "mailto:example@yourdomain.org",
-      WEBPUSH_PUBLIC_KEY,
-      WEBPUSH_PRIVATE_KEY
-    );
-  } catch (err) {
-    logger.error("Failed to configure VAPID", err);
-  }
-}
+const REGION = "europe-west2";
 
 /* =====================================================
    HELPERS
@@ -57,17 +29,22 @@ const assertAdminOrManager = async (uid: string) => {
   const snap = await db.collection("users").doc(uid).get();
   const role = snap.data()?.role;
   if (!["admin", "owner", "manager", "TLO"].includes(role)) {
-    throw new HttpsError("permission-denied", "Insufficient permissions.");
+    throw new HttpsError("permission-denied", "Insufficient permissions for this action.");
   }
 };
 
 const normalizeText = (text: string | null | undefined): string => {
   if (!text) return "";
-  return String(text).toLowerCase().replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
+  return String(text)
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 };
 
 /* =====================================================
-   RECONCILE SHIFTS (SYNC ENGINE)
+   SHIFT RECONCILIATION (SYNC ENGINE)
 ===================================================== */
 
 export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, memory: '1GiB' }, async (req) => {
@@ -76,13 +53,41 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     await assertAdminOrManager(uid);
 
     const data = req.data as any;
-    const { toCreate = [], toUpdate = [], toDelete = [], department, profileId } = data;
+    const { 
+        toCreate = [], 
+        toUpdate = [], 
+        toDelete = [], 
+        department,
+        profileId
+    } = data;
 
     if (!department) throw new HttpsError('invalid-argument', 'Missing department.');
+    if (!profileId) throw new HttpsError('invalid-argument', 'Missing planner identity (profileId).');
 
     const batch = db.batch();
     const shiftsRef = db.collection('shifts');
     const projectsRef = db.collection('projects');
+
+    const dayKey = (value: any) => {
+        let d: Date;
+        if (value instanceof Date) d = value;
+        else if (typeof value?.toDate === 'function') d = value.toDate();
+        else d = new Date(value);
+        
+        return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+    };
+
+    /**
+     * 🔒 ROBUST IDENTITY KEY (Backend)
+     * Matches frontend getShiftIdentityKey exactly.
+     */
+    const getShiftKey = (shift: any) => {
+        const userId = shift.userId || shift.operativeUid || "";
+        const dateStr = dayKey(shift.date);
+        const addr = normalizeText(shift.address);
+        const type = normalizeText(shift.type || "all-day");
+        return [department.toLowerCase(), userId, dateStr, addr, type].join("|");
+    };
 
     // 1. Sync Projects
     const allProjectsSnap = await projectsRef.where('department', '==', department).get();
@@ -112,9 +117,14 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
 
     // 2. Create Shifts
     toCreate.forEach((shift: any) => {
-        if (!shift.operativeUid) throw new HttpsError('invalid-argument', `Missing UID for ${shift.operative}`);
+        if (!shift.operativeUid) {
+            throw new HttpsError('invalid-argument', `Cannot create shift: operativeUid is missing for ${shift.operative} at ${shift.address}.`);
+        }
+        
+        const key = getShiftKey(shift);
+        
         batch.set(shiftsRef.doc(), {
-            userId: shift.operativeUid,
+            userId: shift.operativeUid, 
             userName: shift.operative,
             address: shift.address,
             task: shift.task,
@@ -124,15 +134,20 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             contract: shift.contract || '',
             manager: shift.manager || '',
             department: department,
-            status: 'pending',
+            status: 'pending', 
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             source: 'import',
-            profileId: profileId || ''
+            plannerName: profileId,
+            importKey: key
         });
     });
 
     // 3. Update Shifts
     toUpdate.forEach(({ id, new: n }: any) => {
+        if (!n.operativeUid) throw new HttpsError('invalid-argument', `Cannot update shift ${id}: missing operativeUid.`);
+        
+        const key = getShiftKey(n);
+
         batch.update(shiftsRef.doc(id), {
             userId: n.operativeUid,
             userName: n.operative,
@@ -143,15 +158,24 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             eNumber: n.eNumber || '',
             contract: n.contract || '',
             manager: n.manager || '',
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            plannerName: profileId,
+            importKey: key
         });
     });
 
     // 4. Delete Shifts
-    toDelete.forEach((s: any) => { batch.delete(shiftsRef.doc(s.id)); });
+    toDelete.forEach((s: any) => { 
+        if (s.id) {
+            batch.delete(shiftsRef.doc(s.id)); 
+        }
+    });
 
     await batch.commit();
-    return { success: true };
+    return { 
+        success: true,
+        message: `Schedule Sync Complete: ${toCreate.length} created, ${toUpdate.length} updated, ${toDelete.length} removed.`
+    };
 });
 
 export const serveFile = onRequest({ region: REGION, cors: true }, async (req, res) => {
@@ -162,7 +186,7 @@ export const serveFile = onRequest({ region: REGION, cors: true }, async (req, r
         const [exists] = await file.exists();
         if (!exists) { res.status(404).send("Not found"); return; }
         file.createReadStream().pipe(res);
-    } catch(error) { res.status(500).send("Error"); }
+    } catch(error) { res.status(500).send("Error serving file"); }
 });
 
 export const deleteUser = onCall({ region: REGION }, async (req) => {
@@ -181,5 +205,5 @@ export const setUserStatus = onCall({ region: REGION }, async (req) => {
 });
 
 export const getVapidPublicKey = onCall({ region: REGION }, () => {
-    return { publicKey: WEBPUSH_PUBLIC_KEY };
+    return { publicKey: process.env.WEBPUSH_PUBLIC_KEY || "" };
 });

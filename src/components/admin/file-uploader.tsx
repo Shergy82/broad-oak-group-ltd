@@ -108,8 +108,18 @@ export function FileUploader({
     setError(null);
     onFileSelect();
 
-    // 🔒 Standardize Source ID based on filename
-    const profileId = file.name.toLowerCase().replace(/[^a-z0-9]/g, '-');
+    /**
+     * 🔒 SMART SCOPING
+     * Strips extensions, version numbers (v1, v2), and copy markers (1)
+     * so that "Planner v2.xlsx" cross-references "Planner v1.xlsx".
+     */
+    const profileId = file.name
+      .toLowerCase()
+      .replace(/\.[^/.]+$/, "") // remove extension
+      .replace(/[\s\-_]v\d+$/i, "") // remove v1, v2, v20
+      .replace(/\s\(\d+\)$/, "") // remove (1), (2)
+      .replace(/[^a-z0-9]/g, "-") // sanitize
+      .trim();
 
     const reader = new FileReader();
     reader.onload = async (e) => {
@@ -137,7 +147,7 @@ export function FileUploader({
           .filter(s => isTodayOrFuture(s.date))
           .map(s => ({ ...s, department, plannerName: profileId }));
 
-        // 4. SCOPED SYNC: Fetch only shifts previously created by THIS planner
+        // 4. SCOPED SYNC: Fetch only shifts previously created by THIS planner stream
         const existingSnap = await getDocs(
           query(
             collection(db, 'shifts'), 
