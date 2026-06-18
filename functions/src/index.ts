@@ -647,8 +647,12 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     // --- Handle Shift Creation ---
     toCreate.forEach((shift: any) => {
         const newShiftRef = shiftsRef.doc();
+        // 🔒 FIX: Explicitly map operativeUid to userId and operative to userName
+        const { operativeUid, operative, ...rest } = shift;
         batch.set(newShiftRef, {
-            ...shift,
+            ...rest,
+            userId: operativeUid,
+            userName: operative,
             date: admin.firestore.Timestamp.fromDate(new Date(shift.date)),
             status: 'pending-confirmation',
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -658,7 +662,10 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
 
     // --- Handle Shift Updates ---
     toUpdate.forEach(({ id, new: newShift }: any) => {
+        // 🔒 FIX: Map operativeUid to userId and operative to userName
         const updatePayload: any = {
+            userId: newShift.operativeUid,
+            userName: newShift.operative,
             address: newShift.address,
             task: newShift.task,
             type: newShift.type,
