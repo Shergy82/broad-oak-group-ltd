@@ -4,18 +4,17 @@
 import { useState } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, where, Timestamp } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/shared/spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { UploadCloud, FileWarning, HelpCircle } from 'lucide-react';
+import { UploadCloud, FileWarning } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { parseWorkbook, type UnifiedParseResult } from '@/lib/exceljs-parser';
 import { type UserMapEntry, type StandardShift } from '@/lib/importer/types';
-import type { UserProfile, Shift } from '@/types';
+import type { UserProfile } from '@/types';
 import { Label } from '../ui/label';
-import { startOfToday } from 'date-fns';
 
 interface FileUploaderProps {
   onImportComplete: (result: UnifiedParseResult & { toCreate: StandardShift[], toUpdate: any[], toDelete: any[] }) => void;
@@ -49,13 +48,14 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
         if (!(buffer instanceof ArrayBuffer)) throw new Error('Could not read file.');
 
         // 1. Setup User Map (Ensuring UID is mapped to Auth UID)
+        // 🔒 CRITICAL FIX: Align with user document fields (authUid/fireAuthUid)
         const usersSnap = await getDocs(collection(db, 'users'));
         const userMap: UserMapEntry[] = usersSnap.docs.map(doc => {
-          const u = doc.data() as UserProfile;
+          const u = doc.data() as any;
           return {
-            uid: u.uid || doc.id, // Ensure we use the actual Auth UID
+            uid: u.authUid || u.fireAuthUid || doc.id, // Ensure we use the actual Auth UID for dashboard matching
             originalName: u.name,
-            normalizedName: u.name.toLowerCase().replace(/[^a-z]/g, ''),
+            normalizedName: (u.name || "").toLowerCase().replace(/[^a-z]/g, ''),
             department: u.department
           };
         });
@@ -63,7 +63,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
         // 2. Parse the Workbook
         const parseResult = await parseWorkbook(Buffer.from(buffer), userMap);
         
-        // 3. Dry Run Logic (Clean Slate)
+        // 3. Dry Run Logic
         const plannerScope = normalizePlannerName(file.name);
         
         onImportComplete({
@@ -114,7 +114,7 @@ export function FileUploader({ onImportComplete, onFileSelect, userProfile }: Fi
               <UploadCloud className="h-8 w-8 text-primary" />
             </div>
             <h3 className="text-lg font-semibold">Drop planner here to begin</h3>
-            <p className="text-sm text-muted-foreground mb-4 text-center max-w-[300px]">The engine is in reset mode. No shifts will be extracted yet.</p>
+            <p className="text-sm text-muted-foreground mb-4 text-center max-w-[300px]">Extracting property sections and operative tasks.</p>
             <Input id="shift-file-input" type="file" accept=".xlsx,.xls,.xlsm" className="sr-only" onChange={(e) => e.target.files?.[0] && processFile(e.target.files[0])} />
             <Button asChild variant="outline"><Label htmlFor="shift-file-input" className="cursor-pointer">Select File</Label></Button>
           </>

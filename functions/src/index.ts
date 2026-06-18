@@ -639,10 +639,14 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
 
     // --- Handle Shift Creation ---
     toCreate.forEach((shift: any) => {
+        if (!shift.operativeUid) {
+            throw new HttpsError("invalid-argument", `Shift for ${shift.operative} has no valid user ID. Publishing aborted.`);
+        }
+        
         const newShiftRef = shiftsRef.doc();
         batch.set(newShiftRef, {
-            userId: shift.operativeUid, // 🔒 CRITICAL: Map to correct database field
-            userName: shift.operative, // 🔒 CRITICAL: Map to correct database field
+            userId: shift.operativeUid, // 🔒 Correct Auth UID
+            userName: shift.operative, // 🔒 Display Name
             address: shift.address,
             task: shift.task,
             date: admin.firestore.Timestamp.fromDate(new Date(shift.date)),
@@ -661,9 +665,13 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
 
     // --- Handle Shift Updates ---
     toUpdate.forEach(({ id, new: newShift }: any) => {
+        if (!newShift.operativeUid) {
+            throw new HttpsError("invalid-argument", `Update for ${newShift.operative} has no valid user ID. Publishing aborted.`);
+        }
+        
         const updatePayload: any = {
-            userId: newShift.operativeUid, // 🔒 CRITICAL: Map to correct database field
-            userName: newShift.operative, // 🔒 CRITICAL: Map to correct database field
+            userId: newShift.operativeUid, // 🔒 Correct Auth UID
+            userName: newShift.operative, // 🔒 Display Name
             address: newShift.address,
             task: newShift.task,
             type: newShift.type || 'all-day',
