@@ -9,10 +9,9 @@ import { functions, httpsCallable } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CheckCircle2, AlertCircle, Trash2, RefreshCw } from 'lucide-react';
+import { CheckCircle2, AlertCircle } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Spinner } from '@/components/shared/spinner';
 import { Badge } from '@/components/ui/badge';
@@ -109,7 +108,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
           <Card className={cn(dryRun.toIssues.length > 0 ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-200")}><CardHeader className="p-3"><CardTitle className="text-[10px] uppercase">Issues</CardTitle></CardHeader><CardContent className="p-3 pt-0"><p className="text-2xl font-bold">{dryRun.toIssues.length}</p></CardContent></Card>
         </div>
 
-        <Tabs defaultValue="create" className="w-full">
+        <Tabs defaultValue={dryRun.toIssues.length > 0 ? "issues" : "create"} className="w-full">
           <TabsList className="grid w-full grid-cols-5 h-auto">
             <TabsTrigger value="create" className="text-[11px]">New</TabsTrigger>
             <TabsTrigger value="update" className="text-[11px]">Updates</TabsTrigger>
@@ -176,7 +175,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Badge variant={err.severity === 'warning' ? 'outline' : 'destructive'} className="text-[9px] font-bold uppercase tracking-tight py-0">
+                        <Badge variant="destructive" className="text-[9px] font-bold uppercase tracking-tight py-0">
                           {err.message}
                         </Badge>
                       </TableCell>
@@ -217,8 +216,8 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                 <TableBody>
                   {dryRun.toSynced.map((s, i) => (
                     <TableRow key={i} className="opacity-70">
-                      <TableCell className="text-xs">{s.dateKey}</TableCell>
-                      <TableCell className="text-xs font-medium">{s.userName}</TableCell>
+                      <TableCell className="text-xs">{s.dateKey || '—'}</TableCell>
+                      <TableCell className="text-xs font-medium">{s.userName || s.operative}</TableCell>
                       <TableCell className="text-xs">{s.address}</TableCell>
                     </TableRow>
                   ))}
@@ -236,8 +235,8 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                 <TableBody>
                   {dryRun.toDelete.map((s, i) => (
                     <TableRow key={i} className="bg-amber-50">
-                      <TableCell className="text-xs">{s.dateKey}</TableCell>
-                      <TableCell className="text-xs font-bold">{s.userName}</TableCell>
+                      <TableCell className="text-xs">{s.dateKey || '—'}</TableCell>
+                      <TableCell className="text-xs font-bold">{s.userName || s.operative}</TableCell>
                       <TableCell className="text-xs">{s.address}</TableCell>
                     </TableRow>
                   ))}

@@ -3,17 +3,19 @@ import { format } from 'date-fns';
 
 /**
  * Validates extracted shifts for data integrity.
+ * Note: Date filtering (past/future) happens in the uploader, not here.
  */
 export function validateShifts(shifts: StandardShift[], userMap: UserMapEntry[]): ImportError[] {
   const errors: ImportError[] = [];
   
-  shifts.forEach((shift, index) => {
+  shifts.forEach((shift) => {
     const context = {
         row: parseInt(shift.sourceCell.replace(/[^0-9]/g, '')) || undefined,
         cell: shift.sourceCell,
         sheet: shift.sourceSheet,
         operative: shift.operative,
         date: shift.date ? format(shift.date, 'dd/MM/yy') : 'Unknown',
+        dateKey: shift.dateKey,
         address: shift.address,
         task: shift.task,
         rawValues: shift

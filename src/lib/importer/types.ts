@@ -43,6 +43,7 @@ export interface ImportError {
   // Context for UI display
   operative?: string;
   date?: string;
+  dateKey?: string; // Standard format for filtering
   address?: string;
   task?: string;
 }

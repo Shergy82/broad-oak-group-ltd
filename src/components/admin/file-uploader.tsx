@@ -4,13 +4,12 @@ import { useState, useRef } from 'react';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/shared/spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { UploadCloud, FileWarning } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { parseWorkbook } from '@/lib/exceljs-parser';
-import { type UserMapEntry, type StandardShift, type ImportError } from '@/lib/importer/types';
+import { type UserMapEntry } from '@/lib/importer/types';
 import type { Shift } from '@/types';
 import { Label } from '../ui/label';
 
@@ -27,6 +26,7 @@ function normalizeText(val: any): string {
 
 /**
  * Normalizes planner filename to a stable source ID.
+ * Strips desktop suffixes like (1), (2) and extensions.
  */
 function getPlannerInfo(filename: string) {
   const base = filename
@@ -109,12 +109,21 @@ function getChangedBusinessFields(existing: any, incoming: any) {
   const changes: { field: string; old: string; new: string }[] = [];
   
   BUSINESS_FIELDS.forEach(field => {
+    // Standardize comparison using normalized versions of fields
     const newVal = normalizeText(incoming[field]);
     let currentVal = normalizeText(existing[field]);
 
     // Handle legacy date comparison
     if (field === 'dateKey' && !currentVal && existing.date) {
       currentVal = getDateKey(existing.date);
+    }
+    
+    // Alias handling: operativeUid vs userId
+    if (field === 'operativeUid' && !existing.operativeUid && existing.userId) {
+        currentVal = normalizeText(existing.userId);
+    }
+    if (field === 'operative' && !existing.operative && existing.userName) {
+        currentVal = normalizeText(existing.userName);
     }
 
     if (currentVal !== newVal) {
@@ -172,77 +181,85 @@ export function FileUploader({
 
         const parseResult = await parseWorkbook(Buffer.from(buffer), userMap);
         
-        const incomingShifts = parseResult.shifts.map(s => {
-          const dateKey = getDateKey(s.date);
-          const tempShift = { ...s, dateKey };
-          const importKey = buildImportKey(tempShift, planner.id);
+        const toCreate: any[] = [];
+        const toUpdate: any[] = [];
+        const toSynced: any[] = [];
+        const toIssues: any[] = [];
+        const matchedDocIds = new Set<string>();
+
+        // 1. Process Issues (Today/Future only)
+        parseResult.errors.forEach(err => {
+            if (err.dateKey && err.dateKey >= todayKey) {
+                toIssues.push(err);
+            }
+        });
+
+        // 2. Fetch existing shifts for this source
+        const existingSnap = await getDocs(
+          query(collection(db, 'shifts'), where('sourcePlannerId', '==', planner.id))
+        );
+        const existingShifts = existingSnap.docs.map(d => ({ id: d.id, ...d.data() } as Shift));
+
+        // 3. Process parsed shifts
+        parseResult.shifts.forEach(incomingRaw => {
+          const dateKey = getDateKey(incomingRaw.date);
           
-          return { 
-            ...s, 
+          // 🔒 SILENT PAST DATE SKIP
+          if (dateKey < todayKey) return;
+
+          const incoming = { 
+            ...incomingRaw, 
             department, 
             sourcePlannerId: planner.id,
             sourcePlannerName: planner.name,
             plannerName: planner.name,
             profileId: planner.id,
             dateKey,
-            importKey,
-            operativeUid: s.operativeUid || s.userId,
-            operative: s.operative || s.userName,
-            userId: s.operativeUid || s.userId,
-            userName: s.operative || s.userName
+            importKey: buildImportKey({ ...incomingRaw, dateKey }, planner.id)
           };
-        });
 
-        const existingSnap = await getDocs(
-          query(collection(db, 'shifts'), where('sourcePlannerId', '==', planner.id))
-        );
-        const existingShifts = existingSnap.docs.map(d => ({ id: d.id, ...d.data() } as Shift));
-
-        const toCreate: any[] = [];
-        const toUpdate: any[] = [];
-        const toSynced: any[] = [];
-        const toIssues: any[] = [...parseResult.errors.filter(err => err.severity === 'error')];
-        const matchedDocIds = new Set<string>();
-
-        incomingShifts.forEach(incoming => {
-          // 1. Skip if already an issue from parser
-          if (parseResult.errors.some(err => err.cell === incoming.sourceCell && err.severity === 'error')) return;
-
-          // 2. Identity Match
+          // Categorize by identity key
           const match = existingShifts.find(s => s.importKey === incoming.importKey);
-          if (match) matchedDocIds.add(match.id);
-
-          // 3. Past Date Validation
-          if (incoming.dateKey < todayKey) {
-            toIssues.push({
-              cell: incoming.sourceCell,
-              sheet: incoming.sourceSheet,
-              operative: incoming.operative,
-              date: incoming.dateKey,
-              address: incoming.address,
-              task: incoming.task,
-              message: "Past date - historic shifts are not imported",
-              severity: "warning",
-              code: "PAST_DATE"
-            });
-            return;
-          }
-
-          // 4. Categorize
-          if (!match) {
-            toCreate.push(incoming);
-          } else {
+          
+          if (match) {
+            matchedDocIds.add(match.id);
             const changes = getChangedBusinessFields(match, incoming);
             if (changes.length > 0) {
               toUpdate.push({ id: match.id, old: match, new: incoming, changes });
             } else {
               toSynced.push(match);
             }
+          } else {
+            // Check for legacy match by business fingerprint
+            const legacyMatch = existingShifts.find(s => 
+                !matchedDocIds.has(s.id) &&
+                normalizeText(s.userId || s.operativeUid) === normalizeText(incoming.operativeUid) &&
+                getDateKey(s.date) === incoming.dateKey &&
+                normalizeText(s.address) === normalizeText(incoming.address) &&
+                normalizeText(s.sourceCell) === normalizeText(incoming.sourceCell)
+            );
+
+            if (legacyMatch) {
+              matchedDocIds.add(legacyMatch.id);
+              const changes = getChangedBusinessFields(legacyMatch, incoming);
+              if (changes.length > 0) {
+                toUpdate.push({ id: legacyMatch.id, old: legacyMatch, new: incoming, changes });
+              } else {
+                toSynced.push(legacyMatch);
+              }
+            } else {
+              toCreate.push(incoming);
+            }
           }
         });
 
-        // Only delete shifts missing from planner entirely (and respect planner scope)
-        const toDelete = existingShifts.filter(s => !matchedDocIds.has(s.id));
+        // 4. Deletions (Only shifts that actually match this planner source and are missing now)
+        const toDelete = existingShifts.filter(s => {
+            const sDateKey = getDateKey(s.date);
+            // Skip deletion for past shifts (silently ignore them)
+            if (sDateKey < todayKey) return false;
+            return !matchedDocIds.has(s.id);
+        });
 
         onImportComplete({
           toCreate,

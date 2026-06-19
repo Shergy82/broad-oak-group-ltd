@@ -105,9 +105,9 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
 
     // 2. Create Shifts
     toCreate.forEach((s: any) => {
-        // SAFETY: Skip historic shifts
+        // 🔒 SILENT PAST DATE SKIP
         if (s.dateKey < todayKey) {
-          logger.warn("Skipping historic shift creation", { importKey: s.importKey, dateKey: s.dateKey });
+          logger.warn("Skipping historic shift creation (silent)", { importKey: s.importKey, dateKey: s.dateKey });
           return;
         }
 
@@ -157,9 +157,9 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
 
     // 3. Update & Backfill Shifts
     toUpdate.forEach(({ id, new: n }: any) => {
-        // SAFETY: Skip historic shifts
+        // 🔒 SILENT PAST DATE SKIP
         if (n.dateKey < todayKey) {
-          logger.warn("Skipping historic shift update", { importKey: n.importKey, dateKey: n.dateKey });
+          logger.warn("Skipping historic shift update (silent)", { importKey: n.importKey, dateKey: n.dateKey });
           return;
         }
 

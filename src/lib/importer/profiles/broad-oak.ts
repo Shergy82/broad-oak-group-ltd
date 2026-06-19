@@ -3,7 +3,8 @@ import { type PlannerProfile, type StandardShift, type ImportError, type UserMap
 
 /**
  * Broad Oak Gas & Build Planner Profile
- * Rule: Address is the LAST populated cell in Column A within a project section.
+ * Identity Rule: Address is the LAST populated cell in Column A within a project section.
+ * Cell Rule: Work is expected in "Task - Operative" format using the LAST hyphen.
  */
 export class BroadOakProfile implements PlannerProfile {
   id = 'broad-oak';
@@ -38,19 +39,20 @@ export class BroadOakProfile implements PlannerProfile {
         return { shifts, errors };
     }
 
-    const dateColumnMap = new Map<number, Date>();
+    const dateColumnMap = new Map<number, { date: Date, dateKey: string }>();
     let dateRowIndex = -1;
 
     for (let r = 1; r <= 40; r++) {
         const row = sheet.getRow(r);
         let datesInRow = 0;
-        const tempMap = new Map<number, Date>();
+        const tempMap = new Map<number, { date: Date, dateKey: string }>();
         
         row.eachCell((cell, colNumber) => {
             if (colNumber >= 6) {
                 const date = this.parseDate(cell.value);
                 if (date) {
-                    tempMap.set(colNumber, date);
+                    const dateKey = this.formatDateKey(date);
+                    tempMap.set(colNumber, { date, dateKey });
                     datesInRow++;
                 }
             }
@@ -116,52 +118,58 @@ export class BroadOakProfile implements PlannerProfile {
       for (let r = startRow; r <= endRow; r++) {
         const row = sheet.getRow(r);
 
-        dateColumnMap.forEach((date, colNumber) => {
+        dateColumnMap.forEach(({ date, dateKey }, colNumber) => {
           const cell = row.getCell(colNumber);
           if (!cell.value) return;
 
-          const text = cell.value.toString().trim();
-          if (text.length < 3) return;
+          const rawText = cell.value.toString().trim();
+          if (rawText.length < 3) return;
 
           if (this.isHeaderJunk(cell.value, date)) return;
 
-          const match = this.extractOperativeAndTask(text, userMap);
-          if (match) {
-            if (!blockAddress) {
-                errors.push({
-                    row: r,
-                    cell: `${this.getColumnLetter(colNumber)}${r}`,
-                    sheet: sheet.name,
-                    message: "Found work but no address found in Column A for this section.",
-                    severity: 'error',
-                    code: 'MISSING_ADDRESS',
-                    operative: match.user.originalName,
-                    date: this.formatDateUK(date),
-                    task: match.task,
-                });
-                return;
-            }
+          const context = {
+              row: r,
+              cell: `${this.getColumnLetter(colNumber)}${r}`,
+              sheet: sheet.name,
+              date: this.formatDateUK(date),
+              dateKey,
+              address: blockAddress || "Unknown Address"
+          };
 
-            // Standard Shift fields will be filled in file-uploader after source normalisation
+          const match = this.extractOperativeAndTask(rawText, userMap);
+          
+          if (match.error) {
+              errors.push({
+                  ...context,
+                  message: match.error,
+                  severity: 'error',
+                  code: 'PARSE_ERROR',
+                  task: match.task || rawText,
+                  operative: match.operative || "—"
+              });
+              return;
+          }
+
+          if (match.user) {
             shifts.push({
               date,
-              address: blockAddress,
+              dateKey,
+              address: blockAddress || "Unknown Address",
               eNumber: blockENumber,
               contract: blockScheme || "Planner Works",
               manager: blockManager,
               operative: match.user.originalName,
               operativeUid: match.user.uid,
               task: match.task,
-              descriptionOfWorks: text,
-              type: match.type,
-              sourceCell: `${this.getColumnLetter(colNumber)}${r}`,
+              descriptionOfWorks: rawText,
+              type: match.type || 'all-day',
+              sourceCell: context.cell,
               sourceSheet: sheet.name,
-              sourcePlannerId: "", // To be filled
-              sourcePlannerName: "", // To be filled
-              plannerName: "", // To be filled
-              profileId: "", // To be filled
-              importKey: "", // To be filled
-              dateKey: "", // To be filled
+              sourcePlannerId: "",
+              sourcePlannerName: "",
+              plannerName: "",
+              profileId: "",
+              importKey: "",
             });
           }
         });
@@ -179,34 +187,53 @@ export class BroadOakProfile implements PlannerProfile {
     return false;
   }
 
+  /**
+   * 🔒 ROBUST CELL SPLITTING
+   * Rules: 
+   * 1. Normalize text (remove multi-lines, extra spaces).
+   * 2. Split using the LAST hyphen.
+   * 3. Validate components.
+   */
   private extractOperativeAndTask(text: string, userMap: UserMapEntry[]) {
-    const textUpper = text.toUpperCase();
-    const hyphens = /[-–—]/;
+    // Normalize: remove newlines and collapse multiple spaces
+    const normalized = text.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+    const lastHyphenIndex = normalized.lastIndexOf('-');
     
-    for (const user of userMap) {
-      const name = user.originalName.toUpperCase();
-      if (hyphens.test(text)) {
-          const parts = text.split(hyphens).map(p => p.trim());
-          const lastPart = parts[parts.length - 1].toUpperCase();
-          if (lastPart.includes(name) || (lastPart.length > 4 && name.includes(lastPart))) {
-              return this.finalizeMatch(parts.slice(0, -1).join(' - '), user);
-          }
-      }
-      if (textUpper.includes(name)) {
-          const task = text.replace(new RegExp(user.originalName, 'gi'), '').replace(hyphens, '').trim();
-          return this.finalizeMatch(task, user);
-      }
+    if (lastHyphenIndex === -1) {
+       return { error: "Missing operative / missing separator", rawText: normalized };
     }
-    return null;
+
+    const taskPart = normalized.substring(0, lastHyphenIndex).trim();
+    const namePart = normalized.substring(lastHyphenIndex + 1).trim();
+
+    if (!taskPart) return { error: "Missing task/description", rawText: normalized };
+    if (!namePart) return { error: "Missing operative after separator", rawText: normalized };
+
+    // Find user match
+    const searchName = namePart.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const matchedUser = userMap.find(u => u.normalizedName === searchName);
+    
+    if (!matchedUser) {
+      return { 
+        error: `Operative not recognized: ${namePart}`, 
+        task: taskPart, 
+        operative: namePart, 
+        rawText: normalized 
+      };
+    }
+
+    return { 
+      user: matchedUser, 
+      task: taskPart, 
+      type: this.detectType(taskPart) 
+    };
   }
 
-  private finalizeMatch(rawTask: string, user: UserMapEntry) {
-    let task = rawTask || "General Works";
-    let type: 'am' | 'pm' | 'all-day' = 'all-day';
-    if (task.toUpperCase().includes('AM')) type = 'am';
-    else if (task.toUpperCase().includes('PM')) type = 'pm';
-    task = task.replace(/\b(AM|PM)\b/gi, '').replace(/^\s*[-:–—]\s*/, '').trim();
-    return { user, task: task || "General Works", type };
+  private detectType(task: string): 'am' | 'pm' | 'all-day' {
+    const t = task.toUpperCase();
+    if (t.includes(' AM ') || t.startsWith('AM ') || t.endsWith(' AM')) return 'am';
+    if (t.includes(' PM ') || t.startsWith('PM ') || t.endsWith(' PM')) return 'pm';
+    return 'all-day';
   }
 
   private isHeaderJunk(val: any, columnDate: Date): boolean {
@@ -230,6 +257,13 @@ export class BroadOakProfile implements PlannerProfile {
         }
     }
     return null;
+  }
+
+  private formatDateKey(d: Date): string {
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
   }
 
   private formatDateUK(d: Date): string {
