@@ -106,6 +106,8 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             date: admin.firestore.Timestamp.fromDate(new Date(s.date)),
             dateKey: s.dateKey,
             type: s.type || 'all-day',
+            startTime: s.startTime || '',
+            endTime: s.endTime || '',
             eNumber: s.eNumber || '',
             contract: s.contract || '',
             manager: s.manager || '',
@@ -120,12 +122,14 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             importKey: s.importKey,
             sourceSheet: s.sourceSheet || '',
             sourceCell: s.sourceCell || '',
-            descriptionOfWorks: s.descriptionOfWorks || ''
+            descriptionOfWorks: s.descriptionOfWorks || '',
+            room: s.room || ''
         });
     });
 
     // 3. Update & Backfill Shifts
     toUpdate.forEach(({ id, new: n }: any) => {
+        // 🔒 MANDATORY WRITE: Ensure all fields compared by dry-run are actually updated in DB
         batch.update(shiftsRef.doc(id), {
             userId: n.operativeUid,
             userName: n.operative,
@@ -135,6 +139,8 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             date: admin.firestore.Timestamp.fromDate(new Date(n.date)),
             dateKey: n.dateKey,
             type: n.type || 'all-day',
+            startTime: n.startTime || '',
+            endTime: n.endTime || '',
             eNumber: n.eNumber || '',
             contract: n.contract || '',
             manager: n.manager || '',
@@ -146,7 +152,8 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             importKey: n.importKey,
             sourceSheet: n.sourceSheet || '',
             sourceCell: n.sourceCell || '',
-            descriptionOfWorks: n.descriptionOfWorks || ''
+            descriptionOfWorks: n.descriptionOfWorks || '',
+            room: n.room || ''
         });
     });
 

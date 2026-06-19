@@ -10,24 +10,20 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { UploadCloud, FileWarning } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { parseWorkbook } from '@/lib/exceljs-parser';
-import { type UserMapEntry, type StandardShift } from '@/lib/importer/types';
-import type { UserProfile, Shift } from '@/types';
+import { type UserMapEntry } from '@/lib/importer/types';
+import type { Shift } from '@/types';
 import { Label } from '../ui/label';
 
 /**
  * 🔒 ROBUST NORMALIZATION ENGINE
  */
-function normalize(val: any): string {
-  return String(val || '')
+function normalizeText(val: any): string {
+  if (val === undefined || val === null) return "";
+  return String(val)
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-}
-
-function normalizeKey(val: any): string {
-  return normalize(val).replace(/\s/g, '-');
 }
 
 /**
@@ -37,6 +33,7 @@ function getPlannerInfo(filename: string) {
   const base = filename
     .replace(/\.[^/.]+$/, "") // remove extension
     .replace(/\s\(\d+\)$/, "") // remove desktop suffixes like (1)
+    .replace(/\s+copy\b/gi, "")
     .trim();
   
   const id = base.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
@@ -63,6 +60,46 @@ function getDateKey(value: any): string {
 }
 
 /**
+ * 🔒 BUSINESS VS METADATA COMPARISON
+ * These fields trigger a visible 'Update' in the UI.
+ */
+const BUSINESS_FIELDS = [
+  "userId", 
+  "dateKey", 
+  "type", 
+  "startTime", 
+  "endTime", 
+  "address", 
+  "contract", 
+  "eNumber", 
+  "task", 
+  "descriptionOfWorks", 
+  "manager", 
+  "room"
+];
+
+function getChangedBusinessFields(existing: any, incoming: any) {
+  const changes: { field: string; old: string; new: string }[] = [];
+  
+  BUSINESS_FIELDS.forEach(field => {
+    // Map incoming fields if they use different names (e.g. operativeUid vs userId)
+    const incomingVal = (field === 'userId') ? (incoming.userId || incoming.operativeUid) : incoming[field];
+    
+    // For legacy shifts, calculate dateKey from timestamp if missing
+    const existingVal = (field === 'dateKey' && !existing.dateKey) ? getDateKey(existing.date) : existing[field];
+
+    const v1 = normalizeText(existingVal);
+    const v2 = normalizeText(incomingVal);
+
+    if (v1 !== v2) {
+      changes.push({ field, old: v1, new: v2 });
+    }
+  });
+
+  return changes;
+}
+
+/**
  * 🔒 STRONG IDENTITY KEY
  */
 function buildImportKey(shift: any, sourcePlannerId: string): string {
@@ -70,45 +107,19 @@ function buildImportKey(shift: any, sourcePlannerId: string): string {
     sourcePlannerId, 
     shift.operativeUid || shift.userId,
     shift.dateKey || getDateKey(shift.date),
-    normalizeKey(shift.type || 'all-day'),
-    normalizeKey(shift.startTime || ""),
-    normalizeKey(shift.endTime || ""),
-    normalizeKey(shift.eNumber || ""),
-    normalizeKey(shift.address || ""),
-    normalizeKey(shift.contract || ""),
-    normalizeKey(shift.task || ""),
-    normalizeKey(shift.descriptionOfWorks || ""),
-    normalizeKey(shift.room || ""),
-    normalizeKey(shift.sourceSheet || ""),
-    normalizeKey(shift.sourceCell || "")
+    shift.type || 'all-day',
+    shift.startTime || "",
+    shift.endTime || "",
+    shift.eNumber || "",
+    shift.address || "",
+    shift.contract || "",
+    shift.task || "",
+    shift.descriptionOfWorks || "",
+    shift.room || "",
+    shift.sourceSheet || "",
+    shift.sourceCell || ""
   ];
-  return parts.join('|');
-}
-
-/**
- * 🔒 BUSINESS VS METADATA COMPARISON
- */
-const BUSINESS_FIELDS = [
-  "userId", "dateKey", "type", "startTime", "endTime", 
-  "address", "contract", "eNumber", "task", "descriptionOfWorks", 
-  "manager", "room"
-];
-
-function hasBusinessChanges(existing: any, incoming: any): boolean {
-  return BUSINESS_FIELDS.some(field => {
-    const v1 = normalize(existing[field]);
-    const v2 = normalize(incoming[field]);
-    return v1 !== v2;
-  });
-}
-
-function needsMetadataSync(existing: any, incoming: any): boolean {
-  return (
-    !existing.sourcePlannerId || 
-    !existing.importKey || 
-    existing.importKey !== incoming.importKey ||
-    existing.sourcePlannerId !== incoming.sourcePlannerId
-  );
+  return parts.map(p => normalizeText(p)).join('|');
 }
 
 /**
@@ -119,11 +130,11 @@ function isLegacyMatch(incoming: any, existing: any): boolean {
   const incomingDateKey = incoming.dateKey || getDateKey(incoming.date);
 
   return (
-    (existing.userId === incoming.operativeUid) &&
+    (existing.userId === (incoming.userId || incoming.operativeUid)) &&
     existingDateKey === incomingDateKey &&
-    normalize(existing.address) === normalize(incoming.address) &&
-    normalize(existing.task) === normalize(incoming.task) &&
-    normalize(existing.type) === normalize(incoming.type)
+    normalizeText(existing.address) === normalizeText(incoming.address) &&
+    normalizeText(existing.task) === normalizeText(incoming.task) &&
+    normalizeText(existing.type) === normalizeText(incoming.type)
   );
 }
 
@@ -161,8 +172,8 @@ export function FileUploader({
           const u = doc.data() as any;
           return {
             uid: doc.id,
-            originalName: u.name,
             normalizedName: (u.name || "").toLowerCase().replace(/[^a-z0-9]/g, ''),
+            originalName: u.name,
             department: u.department,
           };
         });
@@ -186,11 +197,13 @@ export function FileUploader({
           };
         });
 
+        // 🔒 SCOPED FETCH: Only check existing shifts from the SAME planner source
         const existingSnap = await getDocs(
           query(collection(db, 'shifts'), where('sourcePlannerId', '==', planner.id))
         );
         const existingShifts = existingSnap.docs.map(d => ({ id: d.id, ...d.data() } as Shift));
 
+        // 🔒 LEGACY FETCH: For shifts that don't have sourcePlannerId yet
         const legacySnap = await getDocs(
           query(collection(db, 'shifts'), 
             where('department', '==', department), 
@@ -209,8 +222,10 @@ export function FileUploader({
         incomingShifts.forEach(incoming => {
           if (parseResult.errors.some(err => err.row === incoming.sourceCell && err.severity === 'error')) return;
 
+          // 1. Try Direct Key Match
           let match = existingShifts.find(s => s.importKey === incoming.importKey);
           
+          // 2. Try Legacy Fallback
           if (!match) {
             match = legacyCandidates.find(s => !matchedDocIds.has(s.id) && isLegacyMatch(incoming, s));
           }
@@ -219,16 +234,16 @@ export function FileUploader({
             toCreate.push(incoming);
           } else {
             matchedDocIds.add(match.id);
-            const businessChanged = hasBusinessChanges(match, incoming);
-            const metadataNeedsSync = needsMetadataSync(match, incoming);
+            const changes = getChangedBusinessFields(match, incoming);
+            
+            // We silently backfill metadata even if it's "Synced"
+            const needsBackfill = !match.sourcePlannerId || !match.importKey || !match.dateKey;
 
-            if (businessChanged) {
-              toUpdate.push({ id: match.id, old: match, new: incoming });
-            } else if (metadataNeedsSync) {
-              // Internal update for sync maintenance, user sees "Existing"
-              toSynced.push({ ...match, _isBackfill: true, _newMetadata: incoming });
+            if (changes.length > 0) {
+              toUpdate.push({ id: match.id, old: match, new: incoming, changes });
             } else {
-              toSynced.push(match);
+              // Categorized as Synced, but backfilled silently during publish
+              toSynced.push({ ...match, _isBackfill: needsBackfill, _newMetadata: incoming });
             }
           }
         });
