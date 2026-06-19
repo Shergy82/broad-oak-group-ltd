@@ -32,30 +32,56 @@ interface ShiftImporterProps {
 
 const fieldLabels: Record<string, string> = {
   descriptionOfWorks: "Description of works",
-  operativeUid: "Assigned operative",
-  dateKey: "Date",
-  eNumber: "E Number",
   address: "Address",
-  task: "Task name",
+  contract: "Contract",
+  eNumber: "E Number",
   manager: "Manager",
+  date: "Date",
+  startTime: "Start time",
+  endTime: "End time",
+  room: "Room",
   type: "Shift type",
-  room: "Room/Location",
 };
 
+const HIDDEN_UPDATE_FIELDS = [
+  "userId",
+  "userName",
+  "operativeUid",
+  "operative",
+  "source",
+  "sourcePlannerId",
+  "sourcePlannerName",
+  "plannerName",
+  "profileId",
+  "importKey",
+  "sourceSheet",
+  "sourceCell",
+  "dateKey",
+  "createdAt",
+  "updatedAt",
+  "status"
+];
+
 function renderValueDiff(field: string, oldVal: string, newVal: string) {
-  const snippet = (val: string, max = 80) => {
+  const snippet = (val: string, max = 120) => {
     if (!val || val === "(blank)") return "blank";
     return val.length > max ? val.slice(0, max) + "..." : val;
   };
   const label = fieldLabels[field] || field;
 
   return (
-    <div className="flex flex-col gap-0.5 py-1.5 border-b last:border-b-0 border-muted-foreground/10">
-      <span className="text-[10px] font-bold text-muted-foreground uppercase">{label}</span>
-      <div className="flex items-center gap-2 text-xs">
-        <span className="line-through text-red-600 opacity-70 whitespace-pre-wrap">{snippet(oldVal)}</span>
-        <span className="text-muted-foreground">→</span>
-        <span className="text-green-700 font-bold bg-green-50 px-1.5 py-0.5 rounded whitespace-pre-wrap">{snippet(newVal)}</span>
+    <div className="flex flex-col gap-1 py-2 border-b last:border-b-0 border-muted-foreground/10">
+      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight">
+        {label}
+      </span>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="line-through text-red-600 opacity-70 whitespace-pre-wrap decoration-1">
+          {snippet(oldVal)}
+        </span>
+        <span className="text-muted-foreground text-xs">→</span>
+        <span className="rounded bg-green-50 px-2 py-0.5 font-medium text-green-700 whitespace-pre-wrap">
+          {snippet(newVal)}
+        </span>
       </div>
     </div>
   );
@@ -116,7 +142,6 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-          {/* Summary Cards acting as Tab Buttons */}
           <Card 
             role="button"
             tabIndex={0}
@@ -219,26 +244,37 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                   <TableRow><TableHead>Shift</TableHead><TableHead>Changes Found</TableHead></TableRow>
                 </TableHeader>
                 <TableBody>
-                  {dryRun.toUpdate.map((u, i) => (
-                    <TableRow key={i}>
-                      <TableCell className="text-[10px] leading-tight w-[250px]">
-                        <div className="flex flex-col gap-1">
-                            <span className="font-bold text-sm">{u.new.operative}</span>
-                            <span className="opacity-70">{u.new.dateKey}</span>
-                            <span className="italic">{u.new.address}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1">
-                          {u.changes.map((c, idx) => (
-                              <div key={idx}>
-                                  {renderValueDiff(c.field, c.old, c.new)}
-                              </div>
-                          ))}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {dryRun.toUpdate.map((u, i) => {
+                    // Filter technical fields and redundant task names
+                    let visibleChanges = u.changes.filter(c => !HIDDEN_UPDATE_FIELDS.includes(c.field));
+                    const hasDescChange = visibleChanges.some(c => c.field === 'descriptionOfWorks');
+                    if (hasDescChange) {
+                      visibleChanges = visibleChanges.filter(c => c.field !== 'task');
+                    }
+
+                    if (visibleChanges.length === 0) return null;
+
+                    return (
+                      <TableRow key={i}>
+                        <TableCell className="text-[10px] leading-tight w-[250px]">
+                          <div className="flex flex-col gap-1">
+                              <span className="font-bold text-sm">{u.new.operative}</span>
+                              <span className="opacity-70">{u.new.dateKey}</span>
+                              <span className="italic">{u.new.address}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1">
+                            {visibleChanges.map((c, idx) => (
+                                <div key={idx}>
+                                    {renderValueDiff(c.field, c.old, c.new)}
+                                </div>
+                            ))}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  }).filter(Boolean)}
                   {dryRun.toUpdate.length === 0 && <TableRow><TableCell colSpan={2} className="text-center py-12 text-muted-foreground">No updates needed.</TableCell></TableRow>}
                 </TableBody>
               </Table>
