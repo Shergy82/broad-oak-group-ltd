@@ -63,7 +63,7 @@ function getDateKey(value: any): string {
 /**
  * 🔒 BUSINESS FIELDS WHITELIST
  * These fields trigger a visible 'Update' in the UI.
- * Must be explicitly written to Firestore by the Cloud Function.
+ * Every field here must be explicitly saved in functions/src/index.ts
  */
 const BUSINESS_FIELDS = [
   "userId", 
@@ -103,7 +103,7 @@ function getChangedBusinessFields(existing: any, incoming: any) {
       changes.push({ 
         field, 
         old: String(existingVal || "(blank)"), 
-        new: String((field === 'userId' ? incoming.operative : incomingVal) || "(blank)") 
+        new: String((field === 'userId' ? incoming.operative : (incomingVal || "(blank)"))) 
       });
     }
   });
@@ -246,7 +246,7 @@ export function FileUploader({
             matchedDocIds.add(match.id);
             const changes = getChangedBusinessFields(match, incoming);
             
-            // We silently backfill metadata even if it's "Synced"
+            // We silently backfill metadata if it's "Synced" but missing standalone fields
             const needsBackfill = !match.sourcePlannerId || !match.importKey || !match.dateKey || !match.descriptionOfWorks;
 
             if (changes.length > 0) {

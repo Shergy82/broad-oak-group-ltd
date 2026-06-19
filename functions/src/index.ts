@@ -4,8 +4,7 @@
 
 import * as admin from "firebase-admin";
 import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
-import { onDocumentCreated, onDocumentDeleted, onDocumentWritten } from "firebase-functions/v2/firestore";
-import { onSchedule } from "firebase-functions/v2/scheduler";
+import { onDocumentCreated, onDocumentDeleted } from "firebase-functions/v2/firestore";
 import { logger } from "firebase-functions/v2";
 import JSZip from "jszip";
 import * as webPush from "web-push";
@@ -101,8 +100,8 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             userId: s.operativeUid || s.userId, 
             userName: s.operative,
             operativeUid: s.operativeUid || s.userId,
-            address: s.address,
-            task: s.task,
+            address: s.address || "",
+            task: s.task || "",
             date: admin.firestore.Timestamp.fromDate(new Date(s.date)),
             dateKey: s.dateKey,
             type: s.type || 'all-day',
@@ -129,12 +128,13 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
 
     // 3. Update & Backfill Shifts
     toUpdate.forEach(({ id, new: n }: any) => {
+        // 🔒 MANDATORY WRITE: Ensure standalone descriptionOfWorks and room are saved to stop update loop
         batch.update(shiftsRef.doc(id), {
             userId: n.operativeUid || n.userId,
             userName: n.operative,
             operativeUid: n.operativeUid || n.userId,
-            address: n.address,
-            task: n.task,
+            address: n.address || "",
+            task: n.task || "",
             date: admin.firestore.Timestamp.fromDate(new Date(n.date)),
             dateKey: n.dateKey,
             type: n.type || 'all-day',

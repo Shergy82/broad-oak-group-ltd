@@ -159,9 +159,9 @@ export class BroadOakProfile implements PlannerProfile {
               operative: match.user.originalName,
               operativeUid: match.user.uid,
               task: match.task,
-              descriptionOfWorks: text,
+              descriptionOfWorks: text, // 🔒 Mandatory standalone field
               type: match.type,
-              sourceCell: `${sheet.name}!${this.getColumnLetter(colNumber)}${r}`,
+              sourceCell: `${this.getColumnLetter(colNumber)}${r}`, // Simplified
               sourceSheet: sheet.name
             });
           }
