@@ -21,9 +21,8 @@ function normalizeText(val: any): string {
   if (val === undefined || val === null) return "";
   return String(val)
     .trim()
-    .toLowerCase()
     .replace(/\s+/g, ' ')
-    .trim();
+    .toLowerCase();
 }
 
 /**
@@ -64,6 +63,7 @@ function getDateKey(value: any): string {
  * 🔒 IDENTITY FIELDS (Key Generation)
  * These fields define the "Identity" of the planner row.
  * If these change, it is a different shift (Delete/Create).
+ * EXCLUDES descriptionOfWorks and address because those are updatable.
  */
 function buildImportKey(shift: any, sourcePlannerId: string): string {
   const parts = [
@@ -86,16 +86,21 @@ function buildImportKey(shift: any, sourcePlannerId: string): string {
  * If these change, it is an Update (PATCH).
  */
 const BUSINESS_FIELDS = [
-  "address",
-  "contract",
-  "manager",
-  "task",
-  "descriptionOfWorks",
-  "room",
-  "eNumber",
+  "operativeUid",
+  "userId",
+  "userName",
+  "operative",
+  "dateKey",
   "type",
   "startTime",
-  "endTime"
+  "endTime",
+  "address",
+  "contract",
+  "eNumber",
+  "task",
+  "descriptionOfWorks",
+  "manager",
+  "room"
 ];
 
 function getChangedBusinessFields(existing: any, incoming: any) {
@@ -130,7 +135,8 @@ function isLegacyMatch(incoming: any, existing: any): boolean {
     existingDateKey === incomingDateKey &&
     normalizeText(existing.address) === normalizeText(incoming.address) &&
     normalizeText(existing.task) === normalizeText(incoming.task) &&
-    normalizeText(existing.type) === normalizeText(incoming.type)
+    normalizeText(existing.type) === normalizeText(incoming.type) &&
+    normalizeText(existing.descriptionOfWorks) === normalizeText(incoming.descriptionOfWorks)
   );
 }
 
@@ -190,7 +196,8 @@ export function FileUploader({
             profileId: planner.id,
             dateKey,
             importKey,
-            userId: s.operativeUid // Ensure userId matches operativeUid for backend
+            userId: s.operativeUid || s.userId,
+            userName: s.operative || s.userName
           };
         });
 
@@ -233,7 +240,7 @@ export function FileUploader({
             matchedDocIds.add(match.id);
             const changes = getChangedBusinessFields(match, incoming);
             
-            // We silently backfill metadata if it's "Synced" but missing standalone fields
+            // We silently backfill metadata if it's "Synced" but missing mandatory keys or descriptionOfWorks
             const needsBackfill = !match.sourcePlannerId || !match.importKey || !match.dateKey || !match.descriptionOfWorks;
 
             if (changes.length > 0) {
