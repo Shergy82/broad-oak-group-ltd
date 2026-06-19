@@ -11,6 +11,12 @@ import JSZip from "jszip";
 import * as webPush from "web-push";
 
 /* =====================================================
+   CONSTANTS
+===================================================== */
+
+const REGION = "europe-west2";
+
+/* =====================================================
    BOOTSTRAP
 ===================================================== */
 
@@ -19,7 +25,6 @@ if (admin.apps.length === 0) {
 }
 
 const db = admin.firestore();
-const REGION = "europe-west2";
 
 /* =====================================================
    HELPERS
@@ -37,6 +42,7 @@ const normalizeText = (text: string | null | undefined): string => {
   if (!text) return "";
   return String(text)
     .toLowerCase()
+    .replace(/&/g, ' and ')
     .replace(/[^a-z0-9]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -72,11 +78,11 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     const existingProjects = new Map();
     allProjectsSnap.forEach(d => existingProjects.set(normalizeText(d.data().address), d.ref));
 
-    const allImportedShifts = [...toCreate, ...toUpdate.map((u: any) => u.new)];
-    const importedAddresses = new Map();
-    allImportedShifts.forEach((s: any) => { if (s.address) importedAddresses.set(normalizeText(s.address), s); });
+    const allIncoming = [...toCreate, ...toUpdate.map((u: any) => u.new)];
+    const uniqueIncomingSites = new Map();
+    allIncoming.forEach((s: any) => { if (s.address) uniqueIncomingSites.set(normalizeText(s.address), s); });
 
-    for (const [normAddr, info] of importedAddresses.entries()) {
+    for (const [normAddr, info] of uniqueIncomingSites.entries()) {
         if (!existingProjects.has(normAddr)) {
             const reviewDate = new Date();
             reviewDate.setDate(reviewDate.getDate() + 28);
@@ -94,26 +100,25 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     }
 
     // 2. Create Shifts
-    toCreate.forEach((shift: any) => {
-        if (!shift.operativeUid) {
-            throw new HttpsError('invalid-argument', `Cannot create shift: operativeUid is missing for ${shift.operative} at ${shift.address}.`);
-        }
+    toCreate.forEach((s: any) => {
+        if (!s.operativeUid) throw new HttpsError('invalid-argument', `Cannot create shift: operativeUid missing for ${s.operative}.`);
         
         batch.set(shiftsRef.doc(), {
-            userId: shift.operativeUid, 
-            userName: shift.operative,
-            address: shift.address,
-            task: shift.task,
-            date: admin.firestore.Timestamp.fromDate(new Date(shift.date)),
-            type: shift.type || 'all-day',
-            eNumber: shift.eNumber || '',
-            contract: shift.contract || '',
-            manager: shift.manager || '',
+            userId: s.operativeUid, 
+            userName: s.operative,
+            address: s.address,
+            task: s.task,
+            date: admin.firestore.Timestamp.fromDate(new Date(s.date)),
+            type: s.type || 'all-day',
+            eNumber: s.eNumber || '',
+            contract: s.contract || '',
+            manager: s.manager || '',
             department: department,
             status: 'pending', 
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             source: 'import',
-            plannerName: profileId
+            sourcePlannerId: profileId,
+            importKey: s.importKey
         });
     });
 
@@ -132,11 +137,12 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             contract: n.contract || '',
             manager: n.manager || '',
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            plannerName: profileId
+            sourcePlannerId: profileId,
+            importKey: n.importKey
         });
     });
 
-    // 4. Delete Shifts (ONLY those from THIS specific planner)
+    // 4. Delete Shifts (Strictly scoped to profileId)
     toDelete.forEach((s: any) => { 
         if (s.id) {
             batch.delete(shiftsRef.doc(s.id)); 

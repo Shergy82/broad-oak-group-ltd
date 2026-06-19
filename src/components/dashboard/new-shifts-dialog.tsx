@@ -11,7 +11,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Spinner } from '@/components/shared/spinner';
 import type { Shift } from '@/types';
 import { format } from 'date-fns';
-import { CheckCircle2, ThumbsDown, Gift } from 'lucide-react';
+import { CheckCircle, ThumbsDown, Gift } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
@@ -135,7 +135,7 @@ export function NewShiftsDialog({ shifts, onClose }: NewShiftsDialogProps) {
                 Accept Selected
               </Button>
               <Button onClick={() => handleUpdate(sortedShifts, 'confirmed')} disabled={isLoading}>
-                {isLoading ? <Spinner /> : <><CheckCircle2 className="mr-2 h-4 w-4" /> Accept All ({shifts.length})</>}
+                {isLoading ? <Spinner /> : <><CheckCircle className="mr-2 h-4 w-4" /> Accept All ({shifts.length})</>}
               </Button>
             </div>
           </DialogFooter>

@@ -9,7 +9,7 @@ import { Spinner } from '@/components/shared/spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { UploadCloud, FileWarning } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { parseWorkbook, type UnifiedParseResult } from '@/lib/exceljs-parser';
+import { parseWorkbook } from '@/lib/exceljs-parser';
 import { type UserMapEntry, type StandardShift } from '@/lib/importer/types';
 import type { UserProfile, Shift } from '@/types';
 import { Label } from '../ui/label';
@@ -17,45 +17,55 @@ import { Label } from '../ui/label';
 interface FileUploaderProps {
   title: string;
   department: string;
-  onImportComplete: (
-    result: UnifiedParseResult & {
-      toCreate: StandardShift[];
-      toUpdate: { id: string; old: Shift; new: StandardShift }[];
-      toDelete: Shift[];
-      toUnchanged: Shift[];
-      profileId: string;
-    }
-  ) => void;
+  onImportComplete: (result: any) => void;
   onFileSelect: () => void;
   userProfile: UserProfile;
 }
 
 /**
- * 🔒 ROBUST IDENTITY KEY GENERATION
- * Standardized fingerprint: User + Date + Normalized Address + Shift Type.
+ * Normalizes a filename to a source ID.
+ * Unitas (1).xlsx -> unitas
  */
-function getShiftIdentityKey(shift: any): string {
-  const userId = String(shift.userId || shift.operativeUid || '').trim();
-  const dateStr = getShiftDayKey(shift.date);
-  const address = normalizeAddress(shift.address);
-  const type = String(shift.type || 'all-day').toLowerCase().trim();
-
-  return [userId, dateStr, address, type].join('|');
+function getPlannerSourceId(filename: string): string {
+  return filename
+    .toLowerCase()
+    .replace(/\.[^/.]+$/, "") // remove extension
+    .replace(/[\s\-_]v\d+$/i, "") // remove v1, v2
+    .replace(/\s\(\d+\)$/, "") // remove (1), (2)
+    .replace(/[^a-z0-9]/g, "-") // sanitize
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
 }
 
-function normalizeAddress(text: string | null | undefined): string {
-  if (!text) return '';
-  return String(text)
+/**
+ * Normalizes a string for comparison.
+ */
+function norm(val: any): string {
+  return String(val || '')
     .toLowerCase()
-    .replace(/&/g, ' and ')
-    .replace(/[^a-z0-9]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
 /**
- * 🔒 TIMEZONE-SAFE DATE KEY
- * Extracts date parts directly to prevent "midnight shifts" in browser time.
+ * Generates a stable identity key for a shift.
+ */
+function getImportKey(shift: any, sourceId: string): string {
+  const parts = [
+    sourceId,
+    shift.operativeUid || shift.userId || '',
+    getShiftDayKey(shift.date),
+    norm(shift.startTime),
+    norm(shift.endTime),
+    norm(shift.address),
+    norm(shift.task),
+    norm(shift.room)
+  ];
+  return parts.join('|');
+}
+
+/**
+ * TIMEZONE-SAFE DATE KEY
  */
 function getShiftDayKey(value: any): string {
   let d: Date;
@@ -71,7 +81,6 @@ function getShiftDayKey(value: any): string {
   
   if (isNaN(d.getTime())) return 'invalid-date';
 
-  // Use Local components but output as YYYY-MM-DD to match the spreadsheet intent exactly
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
@@ -87,15 +96,15 @@ function isTodayOrFuture(value: any): boolean {
   return shiftKey >= todayKey;
 }
 
-function hasDataChanged(existing: any, incoming: StandardShift): boolean {
-  const norm = (val: any) => String(val || '').toLowerCase().replace(/\s+/g, ' ').trim();
-  
+/**
+ * Checks if metadata (non-identity fields) has changed.
+ */
+function hasMetadataChanged(existing: any, incoming: StandardShift): boolean {
   return (
-    norm(existing.task) !== norm(incoming.task) ||
-    norm(existing.manager) !== norm(incoming.manager) ||
     norm(existing.contract) !== norm(incoming.contract) ||
+    norm(existing.manager) !== norm(incoming.manager) ||
     norm(existing.eNumber) !== norm(incoming.eNumber) ||
-    norm(existing.notes) !== norm(incoming.notes)
+    norm(existing.descriptionOfWorks) !== norm(incoming.descriptionOfWorks)
   );
 }
 
@@ -115,17 +124,8 @@ export function FileUploader({
     setError(null);
     onFileSelect();
 
-    /**
-     * 🔒 STREAM SCOPING
-     * Strips versions so "Planner v2" sees "Planner v1" shifts.
-     */
-    const profileId = file.name
-      .toLowerCase()
-      .replace(/\.[^/.]+$/, "") 
-      .replace(/[\s\-_]v\d+$/i, "") 
-      .replace(/\s\(\d+\)$/, "") 
-      .replace(/[^a-z0-9]/g, "-") 
-      .trim();
+    const sourcePlannerId = getPlannerSourceId(file.name);
+    const sourcePlannerName = file.name;
 
     const reader = new FileReader();
     reader.onload = async (e) => {
@@ -148,69 +148,81 @@ export function FileUploader({
         // 2. Parse workbook
         const parseResult = await parseWorkbook(Buffer.from(buffer), userMap);
         
-        // 3. Filter for active shifts and attach metadata
+        // 3. Filter for active shifts and generate import keys
         const incomingShifts = parseResult.shifts
           .filter(s => isTodayOrFuture(s.date))
-          .map(s => ({ ...s, department, plannerName: profileId }));
+          .map(s => ({ 
+            ...s, 
+            department, 
+            sourcePlannerId,
+            sourcePlannerName,
+            importKey: getImportKey(s, sourcePlannerId)
+          }));
 
-        // 4. FETCH ALL FOR DEPARTMENT (Prevent Duplicates across any file)
-        const allDeptSnap = await getDocs(
+        // 4. FETCH EXISTING SCOPED BY PLANNER ID
+        const existingSnap = await getDocs(
           query(
             collection(db, 'shifts'), 
-            where('department', '==', department),
-            where('source', '==', 'import')
+            where('sourcePlannerId', '==', sourcePlannerId),
+            where('department', '==', department)
           )
         );
         
-        const masterExistingMap = new Map<string, Shift>();
-        allDeptSnap.docs.forEach(docSnap => {
+        const existingMap = new Map<string, Shift>();
+        existingSnap.docs.forEach(docSnap => {
           const data = docSnap.data();
           if (isTodayOrFuture(data.date)) {
-            const key = getShiftIdentityKey(data);
-            masterExistingMap.set(key, { id: docSnap.id, ...data } as Shift);
+            const key = data.importKey || getImportKey(data, sourcePlannerId);
+            existingMap.set(key, { id: docSnap.id, ...data } as Shift);
           }
         });
 
-        // 5. Categorize incoming shifts
-        const toCreate: StandardShift[] = [];
-        const toUpdate: { id: string; old: Shift; new: StandardShift }[] = [];
-        const toUnchanged: Shift[] = [];
-        const consumedIds = new Set<string>();
+        // 5. Categorize into 5 buckets
+        const toCreate: any[] = [];
+        const toUpdate: any[] = [];
+        const toSynced: any[] = [];
+        const toIssues = parseResult.errors.filter(err => err.severity === 'error');
+        
+        const processedKeys = new Set<string>();
 
         incomingShifts.forEach(incoming => {
-          const key = getShiftIdentityKey(incoming);
-          const existing = masterExistingMap.get(key);
+          // Skip if there's a validation error for this specific row in parsing
+          const rowIssues = parseResult.errors.filter(err => err.row === incoming.sourceCell && err.severity === 'error');
+          if (rowIssues.length > 0) return;
+
+          const key = incoming.importKey;
+          const existing = existingMap.get(key);
 
           if (!existing) {
             toCreate.push(incoming);
           } else {
-            consumedIds.add(existing.id);
-            if (hasDataChanged(existing, incoming)) {
+            processedKeys.add(key);
+            if (hasMetadataChanged(existing, incoming)) {
               toUpdate.push({ id: existing.id, old: existing, new: incoming });
             } else {
-              toUnchanged.push(existing);
+              toSynced.push(existing);
             }
           }
         });
 
-        // 6. Identify deletions (ONLY from THIS specific planner profile)
+        // 6. Identify deletions (In Firestore but not in Planner)
         const toDelete: Shift[] = [];
-        masterExistingMap.forEach(existing => {
-          if (existing.plannerName === profileId && !consumedIds.has(existing.id)) {
+        existingMap.forEach((existing, key) => {
+          if (!processedKeys.has(key)) {
             toDelete.push(existing);
           }
         });
 
         onImportComplete({
-          ...parseResult,
           toCreate,
           toUpdate,
           toDelete,
-          toUnchanged,
-          profileId,
+          toSynced,
+          toIssues,
+          profileId: sourcePlannerId,
+          profileName: sourcePlannerName,
         });
 
-        // ✅ IMPORTANT: Reset input for immediate reuse
         if (fileInputRef.current) fileInputRef.current.value = '';
 
       } catch (err: any) {
@@ -245,7 +257,7 @@ export function FileUploader({
         {isProcessing ? (
           <div className="flex flex-col items-center gap-3">
             <Spinner size="lg" />
-            <p className="text-sm font-medium animate-pulse text-muted-foreground">Scanning spreadsheet...</p>
+            <p className="text-sm font-medium animate-pulse text-muted-foreground">Scoping shifts...</p>
           </div>
         ) : (
           <>
@@ -254,7 +266,7 @@ export function FileUploader({
             </div>
             <h3 className="text-lg font-semibold">Upload {title}</h3>
             <p className="text-sm text-muted-foreground mb-4 text-center px-4">
-              Drag your workbook here or click below to start identifying shifts.
+              Reconcile your spreadsheet against existing Firestore shifts.
             </p>
             <Input
               ref={fileInputRef}
