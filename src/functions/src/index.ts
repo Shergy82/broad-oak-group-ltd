@@ -43,6 +43,14 @@ const normalizeText = (text: string | null | undefined): string => {
     .trim();
 };
 
+function getTodayDateKey(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 /* =====================================================
    SHIFT RECONCILIATION (SYNC ENGINE)
 ===================================================== */
@@ -63,7 +71,7 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     } = data;
 
     if (!department) throw new HttpsError('invalid-argument', 'Missing department.');
-    if (!profileId) throw new HttpsError('invalid-argument', 'Missing planner identity.');
+    const todayKey = getTodayDateKey();
 
     const batch = db.batch();
     const shiftsRef = db.collection('shifts');
@@ -97,64 +105,104 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
 
     // 2. Create Shifts
     toCreate.forEach((s: any) => {
-        batch.set(shiftsRef.doc(), {
-            userId: s.operativeUid || s.userId, 
-            userName: s.operative,
-            operativeUid: s.operativeUid || s.userId,
+        // SAFETY: Skip historic shifts
+        if (s.dateKey < todayKey) {
+          logger.warn("Skipping historic shift creation", { importKey: s.importKey, dateKey: s.dateKey });
+          return;
+        }
+
+        const shiftPayload = {
             address: s.address || "",
-            task: s.task || "",
+            contract: s.contract || "",
+            department: s.department || department || "",
+            eNumber: s.eNumber || "",
+            manager: s.manager || "",
+
+            operative: s.operative || s.userName || "",
+            operativeUid: s.operativeUid || s.userId || "",
+            userId: s.userId || s.operativeUid || "",
+            userName: s.userName || s.operative || "",
+
             date: admin.firestore.Timestamp.fromDate(new Date(s.date)),
-            dateKey: s.dateKey,
-            type: s.type || 'all-day',
-            startTime: s.startTime || '',
-            endTime: s.endTime || '',
-            eNumber: s.eNumber || '',
-            contract: s.contract || '',
-            manager: s.manager || '',
-            department: department,
-            status: 'pending-confirmation', 
+            dateKey: s.dateKey || "",
+
+            type: s.type || "all-day",
+            startTime: s.startTime || "",
+            endTime: s.endTime || "",
+
+            task: s.task || "",
+            descriptionOfWorks: s.descriptionOfWorks || "",
+
+            room: s.room || "",
+
+            source: "import",
+            sourcePlannerId: s.sourcePlannerId || profileId || "",
+            sourcePlannerName: s.sourcePlannerName || profileName || "",
+            plannerName: s.plannerName || profileName || "",
+            profileId: s.profileId || profileId || "",
+
+            importKey: s.importKey || "",
+
+            sourceSheet: s.sourceSheet || "",
+            sourceCell: s.sourceCell || "",
+
+            status: s.status || 'pending-confirmation',
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            source: 'import',
-            sourcePlannerId: s.sourcePlannerId || profileId,
-            sourcePlannerName: s.sourcePlannerName || profileName,
-            plannerName: s.plannerName || profileName,
-            profileId: s.profileId || profileId,
-            importKey: s.importKey,
-            sourceSheet: s.sourceSheet || '',
-            sourceCell: s.sourceCell || '',
-            descriptionOfWorks: s.descriptionOfWorks || '',
-            room: s.room || ''
-        });
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        };
+
+        logger.info("SHIFT_IMPORT_WRITE_PAYLOAD (CREATE)", shiftPayload);
+        batch.set(shiftsRef.doc(), shiftPayload);
     });
 
     // 3. Update & Backfill Shifts
     toUpdate.forEach(({ id, new: n }: any) => {
-        // 🔒 MANDATORY WRITE: Ensure standalone descriptionOfWorks and room are saved to stop update loop
-        batch.update(shiftsRef.doc(id), {
-            userId: n.operativeUid || n.userId,
-            userName: n.operative,
-            operativeUid: n.operativeUid || n.userId,
+        // SAFETY: Skip historic shifts
+        if (n.dateKey < todayKey) {
+          logger.warn("Skipping historic shift update", { importKey: n.importKey, dateKey: n.dateKey });
+          return;
+        }
+
+        const shiftUpdatePayload = {
             address: n.address || "",
-            task: n.task || "",
+            contract: n.contract || "",
+            department: n.department || department || "",
+            eNumber: n.eNumber || "",
+            manager: n.manager || "",
+
+            operative: n.operative || n.userName || "",
+            operativeUid: n.operativeUid || n.userId || "",
+            userId: n.userId || n.operativeUid || "",
+            userName: n.userName || n.operative || "",
+
             date: admin.firestore.Timestamp.fromDate(new Date(n.date)),
-            dateKey: n.dateKey,
-            type: n.type || 'all-day',
-            startTime: n.startTime || '',
-            endTime: n.endTime || '',
-            eNumber: n.eNumber || '',
-            contract: n.contract || '',
-            manager: n.manager || '',
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            sourcePlannerId: n.sourcePlannerId || profileId,
-            sourcePlannerName: n.sourcePlannerName || profileName,
-            plannerName: n.plannerName || profileName,
-            profileId: n.profileId || profileId,
-            importKey: n.importKey,
-            sourceSheet: n.sourceSheet || '',
-            sourceCell: n.sourceCell || '',
-            descriptionOfWorks: n.descriptionOfWorks || '',
-            room: n.room || ''
-        });
+            dateKey: n.dateKey || "",
+
+            type: n.type || "all-day",
+            startTime: n.startTime || "",
+            endTime: n.endTime || "",
+
+            task: n.task || "",
+            descriptionOfWorks: n.descriptionOfWorks || "",
+
+            room: n.room || "",
+
+            source: "import",
+            sourcePlannerId: n.sourcePlannerId || profileId || "",
+            sourcePlannerName: n.sourcePlannerName || profileName || "",
+            plannerName: n.plannerName || profileName || "",
+            profileId: n.profileId || profileId || "",
+
+            importKey: n.importKey || "",
+
+            sourceSheet: n.sourceSheet || "",
+            sourceCell: n.sourceCell || "",
+
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        };
+
+        logger.info("SHIFT_IMPORT_WRITE_PAYLOAD (UPDATE)", { id, ...shiftUpdatePayload });
+        batch.update(shiftsRef.doc(id), shiftUpdatePayload);
     });
 
     // 4. Delete Shifts
@@ -193,6 +241,7 @@ export const deleteUser = onCall({ region: REGION }, async (req) => {
 export const setUserStatus = onCall({ region: REGION }, async (req) => {
     const data = req.data as any;
     const { uid, disabled, newStatus, department } = data;
+
     await admin.auth().updateUser(uid, { disabled: disabled });
     await db.collection('users').doc(uid).update({ status: newStatus, department: department || '' });
     return { success: true };
