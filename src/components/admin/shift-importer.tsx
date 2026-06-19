@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FileUploader } from './file-uploader';
 import type { UserProfile, Shift } from '@/types';
@@ -9,7 +9,7 @@ import { functions, httpsCallable } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CheckCircle2, AlertCircle, Trash2, Info, RefreshCw } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Trash2, Info, RefreshCw, Layers } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { format } from 'date-fns';
@@ -20,7 +20,7 @@ interface DryRunResult {
   toCreate: any[];
   toUpdate: { id: string; old: Shift; new: any }[];
   toDelete: Shift[];
-  toSynced: Shift[];
+  toSynced: (Shift & { _isBackfill?: boolean; _newMetadata?: any })[];
   toIssues: any[];
   profileId: string;
   profileName: string;
@@ -48,12 +48,20 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
       if (!functions) throw new Error('Functions not available');
       const reconcileShifts = httpsCallable(functions, 'reconcileShifts');
 
+      // Internal backfills are sent as updates to the backend
+      const backfillPayload = dryRun.toSynced
+        .filter(s => s._isBackfill && s._newMetadata)
+        .map(s => ({ id: s.id, new: s._newMetadata }));
+
+      const allUpdates = [...dryRun.toUpdate, ...backfillPayload];
+
       await reconcileShifts({
         toCreate: dryRun.toCreate,
-        toUpdate: dryRun.toUpdate,
+        toUpdate: allUpdates,
         toDelete: dryRun.toDelete.map(s => ({ id: s.id })),
         department: userProfile.department || 'Gas',
-        profileId: dryRun.profileId
+        profileId: dryRun.profileId,
+        profileName: dryRun.profileName
       });
 
       toast({ title: 'Success', description: 'Schedule synchronized successfully.' });
@@ -84,7 +92,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
             <CardContent className="p-3 pt-0"><p className="text-2xl font-bold text-amber-700">{dryRun.toDelete.length}</p></CardContent>
           </Card>
           <Card className="bg-slate-50 border-slate-200">
-            <CardHeader className="p-3"><CardTitle className="text-[10px] text-slate-700 uppercase">Synced</CardTitle></CardHeader>
+            <CardHeader className="p-3"><CardTitle className="text-[10px] text-slate-700 uppercase">Existing</CardTitle></CardHeader>
             <CardContent className="p-3 pt-0"><p className="text-2xl font-bold text-slate-700">{dryRun.toSynced.length}</p></CardContent>
           </Card>
           <Card className={cn(dryRun.toIssues.length > 0 ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-200")}>
@@ -93,14 +101,37 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
           </Card>
         </div>
 
-        <Tabs defaultValue="create" className="w-full">
+        <Tabs defaultValue="synced" className="w-full">
           <TabsList className="grid w-full grid-cols-5 h-auto">
             <TabsTrigger value="create" className="text-[11px]">New</TabsTrigger>
             <TabsTrigger value="update" className="text-[11px]">Updates</TabsTrigger>
             <TabsTrigger value="delete" className="text-[11px]">Remove</TabsTrigger>
-            <TabsTrigger value="synced" className="text-[11px]">Synced</TabsTrigger>
+            <TabsTrigger value="synced" className="text-[11px]">Existing</TabsTrigger>
             <TabsTrigger value="issues" className={cn('text-[11px]', dryRun.toIssues.length > 0 && 'text-destructive')}>Issues</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="synced" className="mt-4">
+            <ScrollArea className="h-[400px] border rounded-md">
+              <Table>
+                <TableHeader className="sticky top-0 bg-background z-10">
+                  <TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Address</TableHead><TableHead>Status</TableHead></TableRow>
+                </TableHeader>
+                <TableBody>
+                  {dryRun.toSynced.map((s, i) => (
+                    <TableRow key={i} className="opacity-70">
+                      <TableCell className="text-xs">{s.dateKey || (s.date?.toDate ? format(s.date.toDate(), 'dd/MM/yy') : '—')}</TableCell>
+                      <TableCell className="text-xs font-medium">{s.userName}</TableCell>
+                      <TableCell className="text-xs">{s.address}</TableCell>
+                      <TableCell className="text-right">
+                        <Badge variant="outline" className="text-[9px] uppercase">{s._isBackfill ? 'Syncing ID' : 'Matches'}</Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {dryRun.toSynced.length === 0 && <TableRow><TableCell colSpan={4} className="text-center py-12 text-muted-foreground">No existing matches found.</TableCell></TableRow>}
+                </TableBody>
+              </Table>
+            </ScrollArea>
+          </TabsContent>
 
           <TabsContent value="create" className="mt-4">
             <ScrollArea className="h-[400px] border rounded-md">
@@ -134,7 +165,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                     <TableRow key={i}>
                       <TableCell className="text-xs font-bold">{u.new.operative}</TableCell>
                       <TableCell className="text-xs">{u.new.address}</TableCell>
-                      <TableCell className="text-xs text-blue-700">Updating metadata fields.</TableCell>
+                      <TableCell className="text-xs text-blue-700">Updating shift details.</TableCell>
                     </TableRow>
                   ))}
                   {dryRun.toUpdate.length === 0 && <TableRow><TableCell colSpan={3} className="text-center py-12 text-muted-foreground">No updates needed.</TableCell></TableRow>}
@@ -152,32 +183,12 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                 <TableBody>
                   {dryRun.toDelete.map((s, i) => (
                     <TableRow key={i} className="bg-amber-50">
-                      <TableCell className="text-xs">{format(s.date.toDate(), 'dd/MM/yy')}</TableCell>
+                      <TableCell className="text-xs">{s.dateKey || format(s.date.toDate(), 'dd/MM/yy')}</TableCell>
                       <TableCell className="text-xs font-bold">{s.userName}</TableCell>
                       <TableCell className="text-xs">{s.address}</TableCell>
                     </TableRow>
                   ))}
                   {dryRun.toDelete.length === 0 && <TableRow><TableCell colSpan={3} className="text-center py-12 text-muted-foreground">No removals identified.</TableCell></TableRow>}
-                </TableBody>
-              </Table>
-            </ScrollArea>
-          </TabsContent>
-
-          <TabsContent value="synced" className="mt-4">
-            <ScrollArea className="h-[400px] border rounded-md">
-              <Table>
-                <TableHeader className="sticky top-0 bg-background z-10">
-                  <TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Address</TableHead></TableRow>
-                </TableHeader>
-                <TableBody>
-                  {dryRun.toSynced.map((s, i) => (
-                    <TableRow key={i} className="opacity-60">
-                      <TableCell className="text-xs">{format(s.date.toDate(), 'dd/MM/yy')}</TableCell>
-                      <TableCell className="text-xs">{s.userName}</TableCell>
-                      <TableCell className="text-xs">{s.address}</TableCell>
-                    </TableRow>
-                  ))}
-                  {dryRun.toSynced.length === 0 && <TableRow><TableCell colSpan={3} className="text-center py-12 text-muted-foreground">No matching shifts found.</TableCell></TableRow>}
                 </TableBody>
               </Table>
             </ScrollArea>

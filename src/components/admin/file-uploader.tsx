@@ -23,23 +23,26 @@ function normalize(val: any): string {
     .toLowerCase()
     .replace(/[^a-z0-9]/g, ' ')
     .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/\s/g, '-');
+    .trim();
+}
+
+function normalizeKey(val: any): string {
+  return normalize(val).replace(/\s/g, '-');
 }
 
 /**
  * Normalizes planner filename to a stable source ID
- * "TEST (2).xlsx" -> "test"
- * "Unitas (1).xlsx" -> "unitas"
  */
-function getPlannerId(filename: string): string {
-  return filename
-    .toLowerCase()
+function getPlannerInfo(filename: string) {
+  const base = filename
     .replace(/\.[^/.]+$/, "") // remove extension
-    .replace(/\s\(\d+\)$/, "") // remove desktop (1), (2)
-    .replace(/[^a-z0-9]/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
+    .replace(/\s\(\d+\)$/, "") // remove desktop suffixes like (1)
+    .trim();
+  
+  const id = base.toLowerCase().replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  const name = base.toUpperCase();
+
+  return { id, name };
 }
 
 /**
@@ -67,28 +70,53 @@ function buildImportKey(shift: any, sourcePlannerId: string): string {
     sourcePlannerId, 
     shift.operativeUid || shift.userId,
     shift.dateKey || getDateKey(shift.date),
-    normalize(shift.type || 'all-day'),
-    normalize(shift.startTime),
-    normalize(shift.endTime),
-    normalize(shift.eNumber),
-    normalize(shift.address),
-    normalize(shift.contract),
-    normalize(shift.task),
-    normalize(shift.descriptionOfWorks),
-    normalize(shift.room),
-    normalize(shift.sourceSheet),
-    normalize(shift.sourceCell)
+    normalizeKey(shift.type || 'all-day'),
+    normalizeKey(shift.startTime || ""),
+    normalizeKey(shift.endTime || ""),
+    normalizeKey(shift.eNumber || ""),
+    normalizeKey(shift.address || ""),
+    normalizeKey(shift.contract || ""),
+    normalizeKey(shift.task || ""),
+    normalizeKey(shift.descriptionOfWorks || ""),
+    normalizeKey(shift.room || ""),
+    normalizeKey(shift.sourceSheet || ""),
+    normalizeKey(shift.sourceCell || "")
   ];
   return parts.join('|');
 }
 
 /**
- * 🔒 LEGACY FALLBACK MATCHING
- * Used to recognize shifts published before the new identity system.
+ * 🔒 BUSINESS VS METADATA COMPARISON
  */
-function isLegacyMatch(incoming: StandardShift, existing: Shift): boolean {
-  const incomingDateKey = getDateKey(incoming.date);
+const BUSINESS_FIELDS = [
+  "userId", "dateKey", "type", "startTime", "endTime", 
+  "address", "contract", "eNumber", "task", "descriptionOfWorks", 
+  "manager", "room"
+];
+
+function hasBusinessChanges(existing: any, incoming: any): boolean {
+  return BUSINESS_FIELDS.some(field => {
+    const v1 = normalize(existing[field]);
+    const v2 = normalize(incoming[field]);
+    return v1 !== v2;
+  });
+}
+
+function needsMetadataSync(existing: any, incoming: any): boolean {
+  return (
+    !existing.sourcePlannerId || 
+    !existing.importKey || 
+    existing.importKey !== incoming.importKey ||
+    existing.sourcePlannerId !== incoming.sourcePlannerId
+  );
+}
+
+/**
+ * 🔒 LEGACY FALLBACK MATCHING
+ */
+function isLegacyMatch(incoming: any, existing: any): boolean {
   const existingDateKey = existing.dateKey || getDateKey(existing.date);
+  const incomingDateKey = incoming.dateKey || getDateKey(incoming.date);
 
   return (
     (existing.userId === incoming.operativeUid) &&
@@ -96,22 +124,6 @@ function isLegacyMatch(incoming: StandardShift, existing: Shift): boolean {
     normalize(existing.address) === normalize(incoming.address) &&
     normalize(existing.task) === normalize(incoming.task) &&
     normalize(existing.type) === normalize(incoming.type)
-  );
-}
-
-/**
- * Checks for generic updates (metadata changes)
- */
-function hasChanges(existing: any, incoming: any): boolean {
-  // If sync fields are missing, it's a backfill update
-  if (!existing.sourcePlannerId || !existing.importKey || !existing.dateKey) return true;
-  
-  return (
-    normalize(existing.manager) !== normalize(incoming.manager) ||
-    normalize(existing.contract) !== normalize(incoming.contract) ||
-    normalize(existing.eNumber) !== normalize(incoming.eNumber) ||
-    normalize(existing.task) !== normalize(incoming.task) ||
-    normalize(existing.descriptionOfWorks) !== normalize(incoming.descriptionOfWorks)
   );
 }
 
@@ -136,9 +148,7 @@ export function FileUploader({
     setError(null);
     onFileSelect();
 
-    const plannerId = getPlannerId(file.name);
-    // User requested these 4 fields be exactly the normalized ID "test"
-    const plannerName = plannerId; 
+    const planner = getPlannerInfo(file.name);
 
     const reader = new FileReader();
     reader.onload = async (e) => {
@@ -162,27 +172,25 @@ export function FileUploader({
         const incomingShifts = parseResult.shifts.map(s => {
           const dateKey = getDateKey(s.date);
           const tempShift = { ...s, dateKey };
-          const importKey = buildImportKey(tempShift, plannerId);
+          const importKey = buildImportKey(tempShift, planner.id);
           
           return { 
             ...s, 
             department, 
-            sourcePlannerId: plannerId,
-            sourcePlannerName: plannerName,
-            plannerName: plannerName,
-            profileId: plannerId,
+            sourcePlannerId: planner.id,
+            sourcePlannerName: planner.name,
+            plannerName: planner.name,
+            profileId: planner.id,
             dateKey,
             importKey
           };
         });
 
-        // 🔒 Query existing shifts for THIS specific planner only
         const existingSnap = await getDocs(
-          query(collection(db, 'shifts'), where('sourcePlannerId', '==', plannerId))
+          query(collection(db, 'shifts'), where('sourcePlannerId', '==', planner.id))
         );
         const existingShifts = existingSnap.docs.map(d => ({ id: d.id, ...d.data() } as Shift));
 
-        // Legacy candidates (shifts in this dept that were imported but have no ID yet)
         const legacySnap = await getDocs(
           query(collection(db, 'shifts'), 
             where('department', '==', department), 
@@ -201,10 +209,8 @@ export function FileUploader({
         incomingShifts.forEach(incoming => {
           if (parseResult.errors.some(err => err.row === incoming.sourceCell && err.severity === 'error')) return;
 
-          // 1. Try Direct Match
           let match = existingShifts.find(s => s.importKey === incoming.importKey);
           
-          // 2. Try Legacy Fallback
           if (!match) {
             match = legacyCandidates.find(s => !matchedDocIds.has(s.id) && isLegacyMatch(incoming, s));
           }
@@ -213,15 +219,20 @@ export function FileUploader({
             toCreate.push(incoming);
           } else {
             matchedDocIds.add(match.id);
-            if (hasChanges(match, incoming)) {
+            const businessChanged = hasBusinessChanges(match, incoming);
+            const metadataNeedsSync = needsMetadataSync(match, incoming);
+
+            if (businessChanged) {
               toUpdate.push({ id: match.id, old: match, new: incoming });
+            } else if (metadataNeedsSync) {
+              // Internal update for sync maintenance, user sees "Existing"
+              toSynced.push({ ...match, _isBackfill: true, _newMetadata: incoming });
             } else {
               toSynced.push(match);
             }
           }
         });
 
-        // Deletions are strictly scoped to this planner source
         const toDelete = existingShifts.filter(s => !matchedDocIds.has(s.id));
 
         onImportComplete({
@@ -230,8 +241,8 @@ export function FileUploader({
           toDelete,
           toSynced,
           toIssues: parseResult.errors.filter(err => err.severity === 'error'),
-          profileId: plannerId,
-          profileName: plannerName,
+          profileId: planner.id,
+          profileName: planner.name,
         });
 
         if (fileInputRef.current) fileInputRef.current.value = '';
@@ -277,7 +288,7 @@ export function FileUploader({
             </div>
             <h3 className="text-lg font-semibold">Upload {title}</h3>
             <p className="text-sm text-muted-foreground mb-4 text-center px-4">
-              Upload your Excel file. Already published shifts will be matched and updated if necessary.
+              Upload your Excel file. Already published shifts will be matched and classified.
             </p>
             <Input
               ref={fileInputRef}
