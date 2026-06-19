@@ -49,8 +49,8 @@ function getShiftDateKey(value: any): string {
 }
 
 /**
- * Strips desktop filename suffixes like (1), (2), (12)
- * and normalises to a stable source identifier.
+ * Normalises a filename to a stable Source ID.
+ * Strips extensions and desktop suffixes like (1), (2), (12).
  */
 function getPlannerSourceId(filename: string): string {
   return filename
@@ -69,17 +69,16 @@ function getPlannerSourceId(filename: string): string {
  */
 function getShiftIdentityKey(shift: any, sourceId: string): string {
   const parts = [
-    sourceId,
-    shift.operativeUid || shift.userId || '',
+    norm(sourceId),
+    norm(shift.operativeUid || shift.userId),
     getShiftDateKey(shift.date),
+    norm(shift.type || 'all-day'),
+    norm(shift.address),
+    norm(shift.task),
+    norm(shift.eNumber),
+    norm(shift.contract),
     norm(shift.startTime),
     norm(shift.endTime),
-    norm(shift.type || 'all-day'),
-    norm(shift.eNumber),
-    norm(shift.address),
-    norm(shift.contract),
-    norm(shift.task),
-    norm(shift.descriptionOfWorks),
     norm(shift.room)
   ];
   return parts.join('|');
@@ -90,12 +89,14 @@ function getShiftIdentityKey(shift: any, sourceId: string): string {
  * Used to identify shifts published before the robust identity key system existed.
  */
 function isLegacyMatch(incoming: StandardShift, existing: Shift): boolean {
-  // Must be same user and date
-  if (existing.userId !== incoming.operativeUid) return false;
-  if (getShiftDateKey(existing.date) !== getShiftDateKey(incoming.date)) return false;
+  // Use normalized address, dateKey, and user as the core fallback
+  const existingDateKey = existing.dateKey || getShiftDateKey(existing.date);
+  const incomingDateKey = getShiftDateKey(incoming.date);
 
-  // Compare core fields to see if this is likely the same job
+  // If the operative UID matches, the date matches, and the address matches, it's likely the same job.
   return (
+    norm(existing.userId) === norm(incoming.operativeUid) &&
+    existingDateKey === incomingDateKey &&
     norm(existing.address) === norm(incoming.address) &&
     norm(existing.type) === norm(incoming.type) &&
     norm(existing.task) === norm(incoming.task)
@@ -115,7 +116,11 @@ function hasChanges(existing: any, incoming: StandardShift, incomingKey: string)
     norm(existing.manager) !== norm(incoming.manager) ||
     norm(existing.contract) !== norm(incoming.contract) ||
     norm(existing.descriptionOfWorks) !== norm(incoming.descriptionOfWorks) ||
-    norm(existing.eNumber) !== norm(incoming.eNumber)
+    norm(existing.eNumber) !== norm(incoming.eNumber) ||
+    norm(existing.task) !== norm(incoming.task) ||
+    norm(existing.startTime) !== norm(incoming.startTime) ||
+    norm(existing.endTime) !== norm(incoming.endTime) ||
+    norm(existing.room) !== norm(incoming.room)
   );
 }
 

@@ -186,7 +186,7 @@ export const deleteUser = onCall({ region: REGION }, async (req) => {
 
 export const setUserStatus = onCall({ region: REGION }, async (req) => {
     const data = req.data as any;
-    await admin.auth().updateUser(data.uid, { disabled: data.disabled });
+    await admin.auth().updateUser(uid, { disabled: data.disabled });
     await db.collection('users').doc(data.uid).update({ status: data.newStatus, department: data.department || '' });
     return { success: true };
 });
