@@ -1,19 +1,20 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FileUploader } from './file-uploader';
-import type { UserProfile, Shift } from '@/types';
+import type { UserProfile, Shift, ShiftStatus } from '@/types';
 import { Button } from '@/components/ui/button';
 import { functions, httpsCallable } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CheckCircle2 } from 'lucide-react';
+import { CheckCircle2, MapPin, Calendar, Users, FileText, ChevronRight, AlertCircle, XCircle } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import { Spinner } from '@/components/shared/spinner';
+import { Badge } from '@/components/ui/badge';
 
 interface DryRunResult {
   toCreate: any[];
@@ -81,6 +82,9 @@ function isHistoricShift(shift: any): boolean {
   return key < getTodayDateKey();
 }
 
+/**
+ * Strips the operative's name from the end of the description for clean UI display.
+ */
 function cleanDescriptionForDisplay(value: string, operativeName?: string): string {
   if (!value) return "";
   let cleaned = String(value).trim().replace(/\s+/g, " ");
@@ -94,12 +98,13 @@ function cleanDescriptionForDisplay(value: string, operativeName?: string): stri
   return cleaned;
 }
 
+function snippet(value: string, max = 80) {
+  if (!value) return "blank";
+  const str = String(value);
+  return str.length > max ? str.slice(0, max) + "..." : str;
+}
+
 function renderValueDiff(field: string, oldVal: string, newVal: string, oldOp?: string, newOp?: string) {
-  const snippet = (val: string, max = 120) => {
-    if (!val || val === "(blank)") return "blank";
-    return val.length > max ? val.slice(0, max) + "..." : val;
-  };
-  
   let displayOld = oldVal;
   let displayNew = newVal;
 
@@ -116,11 +121,11 @@ function renderValueDiff(field: string, oldVal: string, newVal: string, oldOp?: 
         {label}
       </span>
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="line-through text-red-600 opacity-70 whitespace-pre-wrap decoration-1">
+        <span className="line-through text-red-600 opacity-70 decoration-1">
           {snippet(displayOld)}
         </span>
         <span className="text-muted-foreground text-xs">→</span>
-        <span className="rounded bg-green-50 px-2 py-0.5 font-medium text-green-700 whitespace-pre-wrap">
+        <span className="rounded bg-green-50 px-2 py-0.5 font-medium text-green-700">
           {snippet(displayNew)}
         </span>
       </div>
@@ -135,6 +140,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
   const [isPublishing, setIsPublishing] = useState(false);
   const [activeTab, setActiveTab] = useState<string>('create');
 
+  // Automatically switch to meaningful tab when data arrives
   useEffect(() => {
     if (dryRun) {
       if (dryRun.toIssues.length > 0) setActiveTab('issues');
@@ -155,14 +161,14 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
 
     try {
       if (!functions) throw new Error('Functions not available');
-      const reconcileShifts = httpsCallable(functions, 'reconcileShifts');
+      const reconcileShiftsFn = httpsCallable(functions, 'reconcileShifts');
 
-      // SILENT HISTORIC SKIP (SAFETY)
+      // SAFETY: Final filtering of any accidental historic rows
       const activeCreates = dryRun.toCreate.filter(s => !isHistoricShift(s));
       const activeUpdates = dryRun.toUpdate.filter(u => !isHistoricShift(u.new)).map(u => ({ id: u.id, new: u.new }));
       const activeDeletes = dryRun.toDelete.filter(s => !isHistoricShift(s)).map(s => ({ id: s.id }));
 
-      await reconcileShifts({
+      await reconcileShiftsFn({
         toCreate: activeCreates,
         toUpdate: activeUpdates,
         toDelete: activeDeletes,
@@ -181,16 +187,18 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
   };
 
   if (dryRun) {
+    const summaryCards = [
+      { key: 'create', label: 'New', count: dryRun.toCreate.length, ring: 'ring-green-500', bg: 'bg-green-50', border: 'border-green-200', text: 'text-green-700' },
+      { key: 'update', label: 'Updates', count: dryRun.toUpdate.length, ring: 'ring-blue-500', bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700' },
+      { key: 'delete', label: 'Remove', count: dryRun.toDelete.length, ring: 'ring-amber-500', bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700' },
+      { key: 'synced', label: 'Synced', count: dryRun.toSynced.length, ring: 'ring-slate-500', bg: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-700' },
+      { key: 'issues', label: 'Issues', count: dryRun.toIssues.length, ring: 'ring-red-500', bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-700' }
+    ];
+
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-          {[
-            { key: 'create', label: 'New', count: dryRun.toCreate.length, color: 'green', ring: 'ring-green-500', bg: 'bg-green-50', border: 'border-green-200', text: 'text-green-700' },
-            { key: 'update', label: 'Updates', count: dryRun.toUpdate.length, color: 'blue', ring: 'ring-blue-500', bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700' },
-            { key: 'delete', label: 'Remove', count: dryRun.toDelete.length, color: 'amber', ring: 'ring-amber-500', bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700' },
-            { key: 'synced', label: 'Synced', count: dryRun.toSynced.length, color: 'slate', ring: 'ring-slate-500', bg: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-700' },
-            { key: 'issues', label: 'Issues', count: dryRun.toIssues.length, color: 'red', ring: 'ring-red-500', bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-700' }
-          ].map((card) => (
+          {summaryCards.map((card) => (
             <Card 
               key={card.key}
               role="button"
@@ -204,9 +212,9 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
               )}
             >
               <CardHeader className="p-3">
-                <CardTitle className={cn("text-[10px] uppercase", card.text)}>{card.label}</CardTitle>
+                <CardTitle className={cn("text-[10px] uppercase font-bold", card.text)}>{card.label}</CardTitle>
               </CardHeader>
-              <CardContent className="p-3 pt-0">
+              <CardContent className="p-3 pt-0 text-center">
                 <p className={cn("text-2xl font-bold", card.text)}>{card.count}</p>
               </CardContent>
             </Card>
@@ -226,7 +234,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
             <ScrollArea className="h-[450px] border rounded-md">
               <Table>
                 <TableHeader className="sticky top-0 bg-background z-10">
-                  <TableRow><TableHead>Shift</TableHead><TableHead>Changes Found</TableHead></TableRow>
+                  <TableRow><TableHead>Context</TableHead><TableHead>Changes</TableHead></TableRow>
                 </TableHeader>
                 <TableBody>
                   {dryRun.toUpdate.map((u, i) => {
@@ -238,14 +246,14 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
 
                     return (
                       <TableRow key={i}>
-                        <TableCell className="text-[10px] leading-tight w-[250px]">
-                          <div className="flex flex-col gap-1">
-                              <span className="font-bold text-sm">{u.new.operative}</span>
-                              <span className="opacity-70">{u.new.dateKey}</span>
-                              <span className="italic">{u.new.address}</span>
+                        <TableCell className="text-[10px] leading-tight w-[250px] bg-muted/20">
+                          <div className="flex flex-col gap-1.5">
+                              <div className="flex items-center gap-1.5"><Users className="h-3 w-3" /><span className="font-bold text-sm text-primary">{u.new.operative || u.new.userName}</span></div>
+                              <div className="flex items-center gap-1.5"><Calendar className="h-3 w-3" /><span className="font-medium">{u.new.dateKey}</span></div>
+                              <div className="flex items-center gap-1.5"><MapPin className="h-3 w-3" /><span className="italic text-muted-foreground">{snippet(u.new.address, 60)}</span></div>
                           </div>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="align-top">
                           <div className="space-y-1">
                             {visibleChanges.map((c, idx) => (
                                 <div key={idx}>
@@ -257,7 +265,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                       </TableRow>
                     );
                   }).filter(Boolean)}
-                  {dryRun.toUpdate.length === 0 && <TableRow><TableCell colSpan={2} className="text-center py-12 text-muted-foreground">No updates needed.</TableCell></TableRow>}
+                  {dryRun.toUpdate.length === 0 && <TableRow><TableCell colSpan={2} className="text-center py-12 text-muted-foreground">No updates found.</TableCell></TableRow>}
                 </TableBody>
               </Table>
             </ScrollArea>
@@ -268,28 +276,33 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
               <Table>
                 <TableHeader className="sticky top-0 bg-background z-10">
                   <TableRow>
-                    <TableHead className="w-20">Cell</TableHead>
+                    <TableHead className="w-24">Location</TableHead>
                     <TableHead>Operative</TableHead>
-                    <TableHead className="w-24">Date</TableHead>
-                    <TableHead>Address / Task</TableHead>
-                    <TableHead className="text-right">Reason</TableHead>
+                    <TableHead className="w-28">Date</TableHead>
+                    <TableHead>Work Details</TableHead>
+                    <TableHead className="text-right">Failure Reason</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {dryRun.toIssues.map((err, i) => (
-                    <TableRow key={i} className="bg-red-50/50 hover:bg-red-50 transition-colors">
-                      <TableCell className="text-[10px] font-bold text-red-800">{err.cell || '—'}</TableCell>
+                    <TableRow key={i} className="bg-red-50/30 hover:bg-red-50 transition-colors">
+                      <TableCell className="text-[10px] font-bold text-slate-500 uppercase tracking-tight">
+                        <div className="flex flex-col">
+                            <span>{err.sourceSheet}</span>
+                            <span className="text-primary">{err.sourceCell}</span>
+                        </div>
+                      </TableCell>
                       <TableCell className="text-xs font-semibold">{err.operative || '—'}</TableCell>
-                      <TableCell className="text-[10px]">{err.date || '—'}</TableCell>
+                      <TableCell className="text-[10px] font-medium">{err.date || '—'}</TableCell>
                       <TableCell className="text-[10px] leading-tight py-2">
                         <div className="flex flex-col gap-1">
-                            <span className="truncate max-w-[260px] font-bold text-slate-800">{err.address || '—'}</span>
-                            <span className="italic opacity-70 break-words">{err.task || '—'}</span>
+                            <span className="font-bold text-slate-700">{snippet(err.address || '—', 80)}</span>
+                            <span className="italic opacity-70 whitespace-pre-wrap">{snippet(err.task || '—', 100)}</span>
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="inline-block rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[11px] font-medium text-red-700 leading-snug max-w-[240px] text-left break-words">
-                          {err.message}
+                        <div className="inline-block rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[11px] font-bold text-red-700 leading-snug max-w-xs text-left break-words">
+                          {err.reason}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -309,12 +322,13 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                 <TableBody>
                   {dryRun.toCreate.map((s, i) => (
                     <TableRow key={i}>
-                      <TableCell className="text-xs whitespace-nowrap">{s.dateKey}</TableCell>
-                      <TableCell className="text-xs font-bold">{s.operative}</TableCell>
-                      <TableCell className="text-xs">{s.address}</TableCell>
-                      <TableCell className="text-xs italic text-muted-foreground">{s.task}</TableCell>
+                      <TableCell className="text-xs font-medium whitespace-nowrap">{s.dateKey}</TableCell>
+                      <TableCell className="text-xs font-bold text-primary">{s.operative}</TableCell>
+                      <TableCell className="text-xs">{snippet(s.address, 60)}</TableCell>
+                      <TableCell className="text-xs italic text-muted-foreground">{snippet(s.task, 60)}</TableCell>
                     </TableRow>
                   ))}
+                  {dryRun.toCreate.length === 0 && <TableRow><TableCell colSpan={4} className="text-center py-12 text-muted-foreground">No new shifts found.</TableCell></TableRow>}
                 </TableBody>
               </Table>
             </ScrollArea>
@@ -324,16 +338,17 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
              <ScrollArea className="h-[400px] border rounded-md">
               <Table>
                 <TableHeader className="sticky top-0 bg-background z-10">
-                  <TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Address</TableHead></TableHeader>
+                  <TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Address</TableHead></TableRow>
                 </TableHeader>
                 <TableBody>
                   {dryRun.toSynced.map((s, i) => (
-                    <TableRow key={i} className="opacity-70">
-                      <TableCell className="text-xs">{s.dateKey || '—'}</TableCell>
+                    <TableRow key={i} className="opacity-70 bg-muted/10">
+                      <TableCell className="text-xs font-medium">{s.dateKey || formatDateKey(s.date)}</TableCell>
                       <TableCell className="text-xs font-medium">{s.userName || s.operative}</TableCell>
-                      <TableCell className="text-xs">{s.address}</TableCell>
+                      <TableCell className="text-xs">{snippet(s.address, 100)}</TableCell>
                     </TableRow>
                   ))}
+                  {dryRun.toSynced.length === 0 && <TableRow><TableCell colSpan={3} className="text-center py-12 text-muted-foreground">No matching shifts found.</TableCell></TableRow>}
                 </TableBody>
               </Table>
             </ScrollArea>
@@ -347,23 +362,30 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                 </TableHeader>
                 <TableBody>
                   {dryRun.toDelete.map((s, i) => (
-                    <TableRow key={i} className="bg-amber-50">
-                      <TableCell className="text-xs">{s.dateKey || '—'}</TableCell>
-                      <TableCell className="text-xs font-bold">{s.userName || s.operative}</TableCell>
-                      <TableCell className="text-xs">{s.address}</TableCell>
+                    <TableRow key={i} className="bg-amber-50/50">
+                      <TableCell className="text-xs font-medium">{s.dateKey || formatDateKey(s.date)}</TableCell>
+                      <TableCell className="text-xs font-bold text-amber-900">{s.userName || s.operative}</TableCell>
+                      <TableCell className="text-xs">{snippet(s.address, 100)}</TableCell>
                     </TableRow>
                   ))}
+                  {dryRun.toDelete.length === 0 && <TableRow><TableCell colSpan={3} className="text-center py-12 text-muted-foreground">No shifts to remove.</TableCell></TableRow>}
                 </TableBody>
               </Table>
             </ScrollArea>
           </TabsContent>
         </Tabs>
 
-        <div className="flex justify-between items-center bg-muted/50 p-4 rounded-lg border">
-          <Button variant="ghost" onClick={() => setDryRun(null)}>Reset</Button>
-          <Button onClick={handleFinalPublish} disabled={isPublishing}>
-            {isPublishing ? <Spinner /> : <><CheckCircle2 className="mr-2 h-4 w-4" /> Publish Changes</>}
-          </Button>
+        <div className="flex justify-between items-center bg-muted/30 p-4 rounded-xl border-2 border-dashed border-muted-foreground/20">
+          <Button variant="ghost" onClick={() => setDryRun(null)} disabled={isPublishing}>Cancel & Reset</Button>
+          <div className="flex items-center gap-4">
+            <div className="text-right hidden sm:block">
+                <p className="text-sm font-bold">{dryRun.toCreate.length + dryRun.toUpdate.length + dryRun.toDelete.length} actions pending</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">Today & Future only</p>
+            </div>
+            <Button size="lg" onClick={handleFinalPublish} disabled={isPublishing} className="shadow-lg">
+              {isPublishing ? <Spinner className="mr-2" /> : <><CheckCircle2 className="mr-2 h-4 w-4" /> Publish Final Schedule</>}
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -372,13 +394,17 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
   return (
     <div className="space-y-6">
       <Card>
-        <CardHeader><CardTitle>Gas Planner</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5" /> Gas Planner Reconciliation</CardTitle></CardHeader>
         <CardContent><FileUploader title="Gas Planner" department="Gas" onImportComplete={handleImportComplete} onFileSelect={() => setDryRun(null)} /></CardContent>
       </Card>
       <Card>
-        <CardHeader><CardTitle>Build Planner</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="flex items-center gap-2"><Building2Icon className="h-5 w-5" /> Build Planner Reconciliation</CardTitle></CardHeader>
         <CardContent><FileUploader title="Build Planner" department="Build" onImportComplete={handleImportComplete} onFileSelect={() => setDryRun(null)} /></CardContent>
       </Card>
     </div>
   );
 }
+
+const Building2Icon = ({ className }: { className?: string }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></svg>
+);

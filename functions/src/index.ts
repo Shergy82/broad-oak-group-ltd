@@ -33,6 +33,20 @@ const assertAdminOrManager = async (uid: string) => {
   }
 };
 
+function formatDateKey(value: any): string {
+  if (!value) return "";
+  const d = value instanceof Date ? value : value?.toDate ? value.toDate() : new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function getTodayDateKey(): string {
+  return formatDateKey(new Date());
+}
+
 const normalizeText = (text: string | null | undefined): string => {
   if (!text) return "";
   return String(text)
@@ -63,7 +77,8 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     } = data;
 
     if (!department) throw new HttpsError('invalid-argument', 'Missing department.');
-    if (!profileId) throw new HttpsError('invalid-argument', 'Missing planner identity.');
+    
+    const todayKey = getTodayDateKey();
 
     const batch = db.batch();
     const shiftsRef = db.collection('shifts');
@@ -97,6 +112,11 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
 
     // 2. Create Shifts
     toCreate.forEach((s: any) => {
+        const dateKey = s.dateKey || formatDateKey(s.date);
+        
+        // 🔒 SILENT HISTORIC SKIP
+        if (dateKey < todayKey) return;
+
         const shiftPayload = {
             address: s.address || "",
             contract: s.contract || "",
@@ -104,13 +124,13 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             eNumber: s.eNumber || "",
             manager: s.manager || "",
 
-            operative: s.operative || s.userName || "",
             operativeUid: s.operativeUid || s.userId || "",
+            operative: s.operative || s.userName || "",
             userId: s.userId || s.operativeUid || "",
             userName: s.userName || s.operative || "",
 
-            date: s.date instanceof admin.firestore.Timestamp ? s.date : admin.firestore.Timestamp.fromDate(new Date(s.date)),
-            dateKey: s.dateKey || "",
+            date: admin.firestore.Timestamp.fromDate(new Date(s.date)),
+            dateKey: dateKey,
 
             type: s.type || "all-day",
             startTime: s.startTime || "",
@@ -123,9 +143,9 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
 
             source: "import",
             sourcePlannerId: s.sourcePlannerId || profileId || "",
-            sourcePlannerName: s.sourcePlannerName || profileName || "",
-            plannerName: s.plannerName || profileName || "",
-            profileId: s.profileId || profileId || "",
+            sourcePlannerName: s.sourcePlannerName || s.sourcePlannerId || profileName || "",
+            plannerName: s.plannerName || s.sourcePlannerName || profileName || "",
+            profileId: s.profileId || s.sourcePlannerId || profileId || "",
 
             importKey: s.importKey || "",
 
@@ -137,12 +157,17 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             updatedAt: admin.firestore.FieldValue.serverTimestamp()
         };
 
-        logger.info("SHIFT_IMPORT_WRITE_PAYLOAD (CREATE)", shiftPayload);
+        logger.info("SHIFT_IMPORT_WRITE_PAYLOAD", shiftPayload);
         batch.set(shiftsRef.doc(), shiftPayload);
     });
 
-    // 3. Update & Backfill Shifts
+    // 3. Update Shifts
     toUpdate.forEach(({ id, new: n }: any) => {
+        const dateKey = n.dateKey || formatDateKey(n.date);
+
+        // 🔒 SILENT HISTORIC SKIP
+        if (dateKey < todayKey) return;
+
         const shiftUpdatePayload = {
             address: n.address || "",
             contract: n.contract || "",
@@ -150,13 +175,13 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             eNumber: n.eNumber || "",
             manager: n.manager || "",
 
-            operative: n.operative || n.userName || "",
             operativeUid: n.operativeUid || n.userId || "",
+            operative: n.operative || n.userName || "",
             userId: n.userId || n.operativeUid || "",
             userName: n.userName || n.operative || "",
 
-            date: n.date instanceof admin.firestore.Timestamp ? n.date : admin.firestore.Timestamp.fromDate(new Date(n.date)),
-            dateKey: n.dateKey || "",
+            date: admin.firestore.Timestamp.fromDate(new Date(n.date)),
+            dateKey: dateKey,
 
             type: n.type || "all-day",
             startTime: n.startTime || "",
@@ -169,9 +194,9 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
 
             source: "import",
             sourcePlannerId: n.sourcePlannerId || profileId || "",
-            sourcePlannerName: n.sourcePlannerName || profileName || "",
-            plannerName: n.plannerName || profileName || "",
-            profileId: n.profileId || profileId || "",
+            sourcePlannerName: n.sourcePlannerName || n.sourcePlannerId || profileName || "",
+            plannerName: n.plannerName || n.sourcePlannerName || profileName || "",
+            profileId: n.profileId || n.sourcePlannerId || profileId || "",
 
             importKey: n.importKey || "",
 
@@ -181,13 +206,17 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             updatedAt: admin.firestore.FieldValue.serverTimestamp()
         };
 
-        logger.info("SHIFT_IMPORT_WRITE_PAYLOAD (UPDATE)", { id, ...shiftUpdatePayload });
+        logger.info("SHIFT_IMPORT_WRITE_PAYLOAD", { id, ...shiftUpdatePayload });
         batch.update(shiftsRef.doc(id), shiftUpdatePayload);
     });
 
     // 4. Delete Shifts
     toDelete.forEach((s: any) => { 
         if (s.id) {
+            // 🔒 SILENT HISTORIC SKIP (SAFETY)
+            const dateKey = s.dateKey || formatDateKey(s.date);
+            if (dateKey < todayKey) return;
+
             batch.delete(shiftsRef.doc(s.id)); 
         }
     });
@@ -195,7 +224,7 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     await batch.commit();
     return { 
         success: true,
-        message: `Schedule Sync Complete: ${toCreate.length} created, ${toUpdate.length} updated/backfilled, ${toDelete.length} removed.`
+        message: `Sync Complete: ${toCreate.length} created, ${toUpdate.length} updated, ${toDelete.length} removed.`
     };
 });
 

@@ -58,6 +58,12 @@ function getTodayDateKey(): string {
   return formatDateKey(new Date());
 }
 
+function isHistoricShift(shift: any): boolean {
+  const key = shift?.dateKey || formatDateKey(shift?.date);
+  if (!key) return false;
+  return key < getTodayDateKey();
+}
+
 /**
  * 🔒 STABLE IDENTITY KEY (IDENTIFIES THE ROW)
  */
@@ -100,28 +106,25 @@ const BUSINESS_FIELDS = [
 function getChangedBusinessFields(existing: any, incoming: any) {
   const changes: { field: string; old: string; new: string }[] = [];
   
+  // 🔒 SILENT HISTORIC SKIP (SAFETY)
+  if (isHistoricShift(existing)) return [];
+
   BUSINESS_FIELDS.forEach(field => {
     const newVal = normalizeText(incoming[field]);
     let currentVal = normalizeText(existing[field]);
 
-    // Handle legacy date comparison
-    if (field === 'dateKey' && !currentVal && existing.date) {
-      currentVal = formatDateKey(existing.date);
-    }
-    
-    // Alias handling
-    if (field === 'operativeUid' && !existing.operativeUid && existing.userId) {
-        currentVal = normalizeText(existing.userId);
-    }
-    if (field === 'operative' && !existing.operative && existing.userName) {
-        currentVal = normalizeText(existing.userName);
-    }
+    // Handle missing field vs alias equality
+    if (field === 'operativeUid' && !existing.operativeUid && existing.userId) currentVal = normalizeText(existing.userId);
+    if (field === 'operative' && !existing.operative && existing.userName) currentVal = normalizeText(existing.userName);
+    if (field === 'userId' && !existing.userId && existing.operativeUid) currentVal = normalizeText(existing.operativeUid);
+    if (field === 'userName' && !existing.userName && existing.operative) currentVal = normalizeText(existing.operative);
+    if (field === 'dateKey' && !existing.dateKey && existing.date) currentVal = formatDateKey(existing.date);
 
     if (currentVal !== newVal) {
       changes.push({ 
         field, 
-        old: String(existing[field] || "(blank)"), 
-        new: String(incoming[field] || "(blank)") 
+        old: String(existing[field] || ""), 
+        new: String(incoming[field] || "") 
       });
     }
   });
@@ -181,21 +184,18 @@ export function FileUploader({
         // 1. SILENT FILTER HISTORIC ISSUES
         parseResult.errors.forEach(err => {
             const errDateKey = err.dateKey || "";
-            if (errDateKey && errDateKey < todayKey) return; // Silent skip
+            if (errDateKey && errDateKey < todayKey) return; 
             toIssues.push(err);
         });
 
-        // 2. FETCH EXISTING SHIFTS
+        // 2. FETCH EXISTING SHIFTS FOR THIS PLANNER
         const existingSnap = await getDocs(
           query(collection(db, 'shifts'), where('sourcePlannerId', '==', planner.id))
         );
         const allExistingShifts = existingSnap.docs.map(d => ({ id: d.id, ...d.data() } as Shift));
 
         // 3. SILENT FILTER HISTORIC EXISTING SHIFTS
-        const existingActiveShifts = allExistingShifts.filter(s => {
-          const key = s.dateKey || formatDateKey(s.date);
-          return key >= todayKey;
-        });
+        const existingActiveShifts = allExistingShifts.filter(s => !isHistoricShift(s));
 
         // 4. PROCESS PARSED SHIFTS
         parseResult.shifts.forEach(incomingRaw => {
@@ -215,7 +215,6 @@ export function FileUploader({
             importKey: buildImportKey({ ...incomingRaw, dateKey }, planner.id)
           };
 
-          // Find exact match by identity key
           const match = existingActiveShifts.find(s => s.importKey === incoming.importKey);
           
           if (match) {
@@ -227,11 +226,11 @@ export function FileUploader({
               toSynced.push(match);
             }
           } else {
-            // Legacy match fallback
+            // Legacy fallback
             const legacyMatch = existingActiveShifts.find(s => 
                 !matchedDocIds.has(s.id) &&
                 normalizeText(s.userId || s.operativeUid) === normalizeText(incoming.operativeUid) &&
-                formatDateKey(s.date) === incoming.dateKey &&
+                (s.dateKey || formatDateKey(s.date)) === incoming.dateKey &&
                 normalizeText(s.sourceCell) === normalizeText(incoming.sourceCell)
             );
 
@@ -305,7 +304,7 @@ export function FileUploader({
             </div>
             <h3 className="text-lg font-semibold">Upload {title}</h3>
             <p className="text-sm text-muted-foreground mb-4 text-center px-4">
-              Upload your Excel file. Past dates are ignored. Changes to today/future shifts will be reconciled.
+              Upload Excel file. Historic shifts are ignored. Future shifts are reconciled.
             </p>
             <input
               ref={fileInputRef}
