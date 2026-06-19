@@ -62,11 +62,37 @@ const HIDDEN_UPDATE_FIELDS = [
   "status"
 ];
 
-function renderValueDiff(field: string, oldVal: string, newVal: string) {
+function cleanDescriptionForDisplay(value: string, operativeName?: string): string {
+  if (!value) return "";
+
+  let cleaned = String(value).trim().replace(/\s+/g, " ");
+
+  const operative = String(operativeName || "").trim().replace(/\s+/g, " ");
+
+  if (operative) {
+    const suffix = ` - ${operative}`;
+    if (cleaned.toLowerCase().endsWith(suffix.toLowerCase())) {
+      cleaned = cleaned.slice(0, -suffix.length).trim();
+    }
+  }
+
+  return cleaned;
+}
+
+function renderValueDiff(field: string, oldVal: string, newVal: string, oldOp?: string, newOp?: string) {
   const snippet = (val: string, max = 120) => {
     if (!val || val === "(blank)") return "blank";
     return val.length > max ? val.slice(0, max) + "..." : val;
   };
+  
+  let displayOld = oldVal;
+  let displayNew = newVal;
+
+  if (field === 'descriptionOfWorks') {
+    displayOld = cleanDescriptionForDisplay(oldVal, oldOp);
+    displayNew = cleanDescriptionForDisplay(newVal, newOp);
+  }
+
   const label = fieldLabels[field] || field;
 
   return (
@@ -76,11 +102,11 @@ function renderValueDiff(field: string, oldVal: string, newVal: string) {
       </span>
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="line-through text-red-600 opacity-70 whitespace-pre-wrap decoration-1">
-          {snippet(oldVal)}
+          {snippet(displayOld)}
         </span>
         <span className="text-muted-foreground text-xs">→</span>
         <span className="rounded bg-green-50 px-2 py-0.5 font-medium text-green-700 whitespace-pre-wrap">
-          {snippet(newVal)}
+          {snippet(displayNew)}
         </span>
       </div>
     </div>
@@ -267,7 +293,13 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                           <div className="space-y-1">
                             {visibleChanges.map((c, idx) => (
                                 <div key={idx}>
-                                    {renderValueDiff(c.field, c.old, c.new)}
+                                    {renderValueDiff(
+                                      c.field, 
+                                      c.old, 
+                                      c.new, 
+                                      u.old.operative || u.old.userName, 
+                                      u.new.operative
+                                    )}
                                 </div>
                             ))}
                           </div>
