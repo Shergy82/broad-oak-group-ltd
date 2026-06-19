@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FileUploader } from './file-uploader';
 import type { UserProfile, Shift } from '@/types';
@@ -66,6 +66,21 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
   const { toast } = useToast();
   const [dryRun, setDryRun] = useState<DryRunResult | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [activeTab, setActiveTab] = useState<string>('create');
+
+  useEffect(() => {
+    if (dryRun) {
+      if (dryRun.toIssues.length > 0) {
+        setActiveTab('issues');
+      } else if (dryRun.toCreate.length > 0) {
+        setActiveTab('create');
+      } else if (dryRun.toUpdate.length > 0) {
+        setActiveTab('update');
+      } else {
+        setActiveTab('synced');
+      }
+    }
+  }, [dryRun]);
 
   const handleImportComplete = (result: DryRunResult) => {
     setDryRun(result);
@@ -101,14 +116,94 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-          <Card className="bg-green-50 border-green-200"><CardHeader className="p-3"><CardTitle className="text-[10px] text-green-700 uppercase">New</CardTitle></CardHeader><CardContent className="p-3 pt-0"><p className="text-2xl font-bold text-green-700">{dryRun.toCreate.length}</p></CardContent></Card>
-          <Card className="bg-blue-50 border-blue-200"><CardHeader className="p-3"><CardTitle className="text-[10px] text-blue-700 uppercase">Updates</CardTitle></CardHeader><CardContent className="p-3 pt-0"><p className="text-2xl font-bold text-blue-700">{dryRun.toUpdate.length}</p></CardContent></Card>
-          <Card className="bg-amber-50 border-amber-200"><CardHeader className="p-3"><CardTitle className="text-[10px] text-amber-700 uppercase">Remove</CardTitle></CardHeader><CardContent className="p-3 pt-0"><p className="text-2xl font-bold text-amber-700">{dryRun.toDelete.length}</p></CardContent></Card>
-          <Card className="bg-slate-50 border-slate-200"><CardHeader className="p-3"><CardTitle className="text-[10px] text-slate-700 uppercase">Synced</CardTitle></CardHeader><CardContent className="p-3 pt-0"><p className="text-2xl font-bold text-slate-700">{dryRun.toSynced.length}</p></CardContent></Card>
-          <Card className={cn(dryRun.toIssues.length > 0 ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-200")}><CardHeader className="p-3"><CardTitle className="text-[10px] uppercase">Issues</CardTitle></CardHeader><CardContent className="p-3 pt-0"><p className="text-2xl font-bold">{dryRun.toIssues.length}</p></CardContent></Card>
+          {/* Summary Cards acting as Tab Buttons */}
+          <Card 
+            role="button"
+            tabIndex={0}
+            onClick={() => setActiveTab('create')}
+            className={cn(
+              "cursor-pointer transition-all hover:shadow-md hover:scale-[1.01] bg-green-50 border-green-200",
+              activeTab === 'create' && "ring-2 ring-green-500 shadow-md"
+            )}
+          >
+            <CardHeader className="p-3">
+              <CardTitle className="text-[10px] text-green-700 uppercase">New</CardTitle>
+            </CardHeader>
+            <CardContent className="p-3 pt-0">
+              <p className="text-2xl font-bold text-green-700">{dryRun.toCreate.length}</p>
+            </CardContent>
+          </Card>
+
+          <Card 
+            role="button"
+            tabIndex={0}
+            onClick={() => setActiveTab('update')}
+            className={cn(
+              "cursor-pointer transition-all hover:shadow-md hover:scale-[1.01] bg-blue-50 border-blue-200",
+              activeTab === 'update' && "ring-2 ring-blue-500 shadow-md"
+            )}
+          >
+            <CardHeader className="p-3">
+              <CardTitle className="text-[10px] text-blue-700 uppercase">Updates</CardTitle>
+            </CardHeader>
+            <CardContent className="p-3 pt-0">
+              <p className="text-2xl font-bold text-blue-700">{dryRun.toUpdate.length}</p>
+            </CardContent>
+          </Card>
+
+          <Card 
+            role="button"
+            tabIndex={0}
+            onClick={() => setActiveTab('delete')}
+            className={cn(
+              "cursor-pointer transition-all hover:shadow-md hover:scale-[1.01] bg-amber-50 border-amber-200",
+              activeTab === 'delete' && "ring-2 ring-amber-500 shadow-md"
+            )}
+          >
+            <CardHeader className="p-3">
+              <CardTitle className="text-[10px] text-amber-700 uppercase">Remove</CardTitle>
+            </CardHeader>
+            <CardContent className="p-3 pt-0">
+              <p className="text-2xl font-bold text-amber-700">{dryRun.toDelete.length}</p>
+            </CardContent>
+          </Card>
+
+          <Card 
+            role="button"
+            tabIndex={0}
+            onClick={() => setActiveTab('synced')}
+            className={cn(
+              "cursor-pointer transition-all hover:shadow-md hover:scale-[1.01] bg-slate-50 border-slate-200",
+              activeTab === 'synced' && "ring-2 ring-slate-400 shadow-md"
+            )}
+          >
+            <CardHeader className="p-3">
+              <CardTitle className="text-[10px] text-slate-700 uppercase">Synced</CardTitle>
+            </CardHeader>
+            <CardContent className="p-3 pt-0">
+              <p className="text-2xl font-bold text-slate-700">{dryRun.toSynced.length}</p>
+            </CardContent>
+          </Card>
+
+          <Card 
+            role="button"
+            tabIndex={0}
+            onClick={() => setActiveTab('issues')}
+            className={cn(
+              "cursor-pointer transition-all hover:shadow-md hover:scale-[1.01] bg-red-50 border-red-200",
+              activeTab === 'issues' && "ring-2 ring-red-500 shadow-md"
+            )}
+          >
+            <CardHeader className="p-3">
+              <CardTitle className="text-[10px] text-red-700 uppercase">Issues</CardTitle>
+            </CardHeader>
+            <CardContent className="p-3 pt-0">
+              <p className="text-2xl font-bold text-red-700">{dryRun.toIssues.length}</p>
+            </CardContent>
+          </Card>
         </div>
 
-        <Tabs defaultValue={dryRun.toIssues.length > 0 ? "issues" : "create"} className="w-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-5 h-auto">
             <TabsTrigger value="create" className="text-[11px]">New</TabsTrigger>
             <TabsTrigger value="update" className="text-[11px]">Updates</TabsTrigger>
@@ -168,16 +263,16 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                       <TableCell className="text-[10px] font-bold text-red-800">{err.cell || '—'}</TableCell>
                       <TableCell className="text-xs font-semibold">{err.operative || '—'}</TableCell>
                       <TableCell className="text-[10px]">{err.date || '—'}</TableCell>
-                      <TableCell className="text-[10px] leading-tight">
-                        <div className="flex flex-col">
-                            <span className="truncate max-w-[200px] font-medium">{err.address || '—'}</span>
-                            <span className="italic opacity-60 truncate max-w-[200px]">{err.task || '—'}</span>
+                      <TableCell className="text-[10px] leading-tight py-2">
+                        <div className="flex flex-col gap-1">
+                            <span className="truncate max-w-[260px] font-bold text-slate-800">{err.address || '—'}</span>
+                            <span className="italic opacity-70 break-words">{err.task || '—'}</span>
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Badge variant="destructive" className="text-[9px] font-bold uppercase tracking-tight py-0">
+                        <div className="inline-block rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[11px] font-medium text-red-700 leading-snug max-w-[240px] text-left break-words">
                           {err.message}
-                        </Badge>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
