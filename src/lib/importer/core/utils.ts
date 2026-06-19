@@ -74,9 +74,23 @@ export function isSameNameGroup(name1: string, name2: string): boolean {
 
 export function findSafeUserMatch(name: string, userMap: UserMapEntry[]): UserMapEntry | null {
   const normPlanner = normaliseName(name);
-  const plannerParts = normPlanner.split(" ");
+  if (!normPlanner) return null;
+
+  // 1. Exact full registered-name match first.
+  // This allows single-word names (like "Vulcan") if they match a registered user/company exactly.
+  const exactMatches = userMap.filter(u => {
+    return normaliseName(u.originalName || "") === normPlanner;
+  });
+
+  if (exactMatches.length === 1) return exactMatches[0];
   
-  if (plannerParts.length < 2) return null; // Too vague (missing surname)
+  // If multiple exact matches found, we return null so the caller can report ambiguity.
+  if (exactMatches.length > 1) return null;
+
+  // 2. Only after exact matching fails, enforce the "too vague" rule for fuzzy/alias matching.
+  // We don't want to fuzzy-match or nickname-match single-word names (e.g. "Phil") to full names.
+  const plannerParts = normPlanner.split(" ").filter(Boolean);
+  if (plannerParts.length < 2) return null;
 
   const plannerFirst = plannerParts[0];
   const plannerLast = plannerParts.slice(1).join(" ");
@@ -90,22 +104,19 @@ export function findSafeUserMatch(name: string, userMap: UserMapEntry[]): UserMa
     const userFirst = userParts[0];
     const userLast = userParts.slice(1).join(" ");
 
-    // 1. Exact match
-    if (normUser === normPlanner) return user;
-
-    // 2. Nickname + Exact Surname
+    // 1. Nickname + Exact Surname
     if (isSameNameGroup(plannerFirst, userFirst) && plannerLast === userLast) {
       candidates.push(user);
       continue;
     }
 
-    // 3. Initial + Exact Surname
+    // 2. First Initial + Exact Surname
     if (plannerFirst.length === 1 && plannerFirst === userFirst[0] && plannerLast === userLast) {
       candidates.push(user);
       continue;
     }
 
-    // 4. Fuzzy match (Conservative)
+    // 3. Fuzzy match (Conservative)
     const dist = getLevenshteinDistance(normUser, normPlanner);
     const surnameDist = getLevenshteinDistance(userLast, plannerLast);
     if (dist <= 2 && surnameDist <= 1) {

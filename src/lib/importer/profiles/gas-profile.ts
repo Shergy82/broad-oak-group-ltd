@@ -1,20 +1,20 @@
 /**
  * GAS PLANNER IMPORT PROFILE
  *
- * This profile is LOCKED because the Gas planner reconciliation logic is currently working correctly.
+ * This profile is locked because the Gas planner reconciliation logic is currently working correctly.
  * Do not alter this file when changing Build planner behaviour.
  * Build planner changes must be made in the Build profile only.
  */
 
 import ExcelJS from 'exceljs';
+import { format } from 'date-fns';
 import { type PlannerProfile, type StandardShift, type ImportError, type UserMapEntry } from '../types';
 import { 
   normaliseText, 
+  normaliseName,
   formatDateKey, 
   getTodayDateKey, 
-  isHistoricShift, 
   findSafeUserMatch, 
-  buildImportKey,
   getColumnLetter
 } from '../core/utils';
 
@@ -26,7 +26,6 @@ export class GasProfile implements PlannerProfile {
   private eNumberRegex = /\b[BE]\d{5,}\b/i;
 
   detect(workbook: ExcelJS.Workbook): boolean {
-    // Detection logic for Gas planner
     return workbook.worksheets.some(sheet => {
         if (sheet.state === 'hidden') return false;
         let found = false;
@@ -46,7 +45,6 @@ export class GasProfile implements PlannerProfile {
     const errors: ImportError[] = [];
     const todayKey = getTodayDateKey();
 
-    // Prioritise visible sheets that look like the planner
     const sheet = workbook.worksheets.find(s => s.state !== 'hidden' && this.isPlannerSheet(s)) || workbook.worksheets.find(s => s.state !== 'hidden');
 
     if (!sheet) {
@@ -54,7 +52,6 @@ export class GasProfile implements PlannerProfile {
       return { shifts, errors };
     }
 
-    // Identify Date Header Row
     const dateColumnMap = new Map<number, { date: Date, dateKey: string }>();
     let dateRowIndex = -1;
 
@@ -86,7 +83,6 @@ export class GasProfile implements PlannerProfile {
         return { shifts, errors };
     }
 
-    // Identify Section Dividers
     const dividerRows: number[] = [];
     sheet.eachRow((row, rowNumber) => {
       const rowText = row.values ? row.values.toString().toUpperCase() : '';
@@ -97,7 +93,6 @@ export class GasProfile implements PlannerProfile {
 
     if (dividerRows.length === 0) dividerRows.push(dateRowIndex + 1);
 
-    // Extract Blocks
     for (let i = 0; i < dividerRows.length; i++) {
       const startRow = dividerRows[i];
       const nextDividerRow = dividerRows[i + 1];
@@ -108,7 +103,6 @@ export class GasProfile implements PlannerProfile {
       let blockManager = "";
       let blockScheme = "";
 
-      // Scan block header info (Col A-D)
       for (let r = startRow; r <= Math.min(startRow + 10, endRow); r++) {
         const row = sheet.getRow(r);
         const colA = row.getCell(1).value?.toString().trim();
@@ -131,7 +125,6 @@ export class GasProfile implements PlannerProfile {
         }
       }
 
-      // Scan shift cells in block
       for (let r = startRow; r <= endRow; r++) {
         const row = sheet.getRow(r);
 
@@ -140,12 +133,8 @@ export class GasProfile implements PlannerProfile {
           const rawText = cell.value?.toString() || "";
           const text = rawText.trim().replace(/\s+/g, ' ');
 
-          if (!text) return; // Silent skip blank
-
-          // 1. Silent Historic Skip (Safety Priority)
+          if (!text) return;
           if (dateKey < todayKey) return;
-
-          // 2. Classify (No Hyphen = Note)
           if (!text.includes("-")) return; 
 
           const lastHyphenIndex = text.lastIndexOf("-");
@@ -174,10 +163,21 @@ export class GasProfile implements PlannerProfile {
           const matchedUser = findSafeUserMatch(namePart, userMap);
 
           if (!matchedUser) {
-            const vagueMatch = namePart.split(" ").length < 2;
+            // Refined failure reason
+            const norm = normaliseName(namePart);
+            const parts = norm.split(" ").filter(Boolean);
+            const exactMatches = userMap.filter(u => normaliseName(u.originalName) === norm);
+            
+            let reason = `Operative not recognised: ${namePart}`;
+            if (exactMatches.length > 1) {
+              reason = `Multiple registered users match: ${namePart}`;
+            } else if (parts.length < 2) {
+              reason = `Operative name too vague: ${namePart}`;
+            }
+
             errors.push({ 
                 ...context, 
-                message: vagueMatch ? `Operative name too vague: ${namePart}` : `Operative not recognised: ${namePart}`, 
+                message: reason, 
                 severity: 'error', 
                 code: 'USER_NOT_FOUND', 
                 operative: namePart 
@@ -185,7 +185,6 @@ export class GasProfile implements PlannerProfile {
             return;
           }
 
-          // Valid Shift Attempt
           shifts.push({
             date,
             dateKey,
@@ -202,7 +201,7 @@ export class GasProfile implements PlannerProfile {
             type: this.detectType(taskPart),
             sourceCell: context.cell,
             sourceSheet: sheet.name,
-            sourcePlannerId: "", // Set by uploader
+            sourcePlannerId: "",
             sourcePlannerName: "",
             plannerName: "",
             profileId: "",
