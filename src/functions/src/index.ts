@@ -68,6 +68,14 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     const shiftsRef = db.collection('shifts');
     const projectsRef = db.collection('projects');
 
+    const getShiftDateKey = (value: any) => {
+        let d: Date;
+        if (value instanceof Date) d = value;
+        else if (typeof value?.toDate === 'function') d = value.toDate();
+        else d = new Date(value);
+        return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+    };
+
     // 1. Sync Projects
     const allProjectsSnap = await projectsRef.where('department', '==', department).get();
     const existingProjects = new Map();
@@ -101,20 +109,27 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
         batch.set(shiftsRef.doc(), {
             userId: s.operativeUid, 
             userName: s.operative,
+            operativeUid: s.operativeUid,
             address: s.address,
             task: s.task,
             date: admin.firestore.Timestamp.fromDate(new Date(s.date)),
+            dateKey: s.dateKey || getShiftDateKey(s.date),
             type: s.type || 'all-day',
             eNumber: s.eNumber || '',
             contract: s.contract || '',
             manager: s.manager || '',
             department: department,
-            status: 'pending', 
+            status: 'pending-confirmation', 
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             source: 'import',
             sourcePlannerId: profileId,
             sourcePlannerName: s.sourcePlannerName || profileId,
-            importKey: s.importKey
+            plannerName: s.sourcePlannerName || profileId, // alias
+            profileId: profileId,                          // alias
+            importKey: s.importKey,
+            sourceSheet: s.sourceSheet || '',
+            sourceCell: s.sourceCell || '',
+            descriptionOfWorks: s.descriptionOfWorks || ''
         });
     });
 
@@ -123,9 +138,11 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
         batch.update(shiftsRef.doc(id), {
             userId: n.operativeUid,
             userName: n.operative,
+            operativeUid: n.operativeUid,
             address: n.address,
             task: n.task,
             date: admin.firestore.Timestamp.fromDate(new Date(n.date)),
+            dateKey: n.dateKey || getShiftDateKey(n.date),
             type: n.type || 'all-day',
             eNumber: n.eNumber || '',
             contract: n.contract || '',
@@ -133,11 +150,16 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             sourcePlannerId: profileId,
             sourcePlannerName: n.sourcePlannerName || profileId,
-            importKey: n.importKey
+            plannerName: n.sourcePlannerName || profileId, // alias
+            profileId: profileId,                          // alias
+            importKey: n.importKey,
+            sourceSheet: n.sourceSheet || '',
+            sourceCell: n.sourceCell || '',
+            descriptionOfWorks: n.descriptionOfWorks || ''
         });
     });
 
-    // 4. Delete Shifts
+    // 4. Delete Shifts (Scoped to same planner ID)
     toDelete.forEach((s: any) => { 
         if (s.id) {
             batch.delete(shiftsRef.doc(s.id)); 

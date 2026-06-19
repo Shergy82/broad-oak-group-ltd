@@ -17,6 +17,7 @@ export interface Shift {
   userId: string;
   userName?: string;
   date: Timestamp;
+  dateKey: string; // YYYY-MM-DD
   type: 'am' | 'pm' | 'all-day';
   status: ShiftStatus;
   address: string;
@@ -30,10 +31,20 @@ export interface Shift {
   descriptionOfWorks?: string;
   startTime?: string;
   endTime?: string;
-  plannerName?: string;
+  
+  // Sync Metadata
+  source: 'manual' | 'import';
+  sourcePlannerId: string;
+  sourcePlannerName: string;
+  plannerName: string; // Legacy field alias
+  profileId: string;   // Legacy field alias
+  importKey: string;
+  sourceSheet?: string;
+  sourceCell?: string;
+  
   createdAt: Timestamp;
+  updatedAt?: Timestamp;
   confirmedAt?: Timestamp;
-  source?: 'manual' | 'import';
 }
 
 export interface MaterialPurchase {
