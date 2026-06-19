@@ -16,6 +16,7 @@ import { Label } from '../ui/label';
 
 /**
  * 🔒 ROBUST NORMALIZATION ENGINE
+ * Collapses whitespace, trims, and lowercases for safe comparison.
  */
 function normalizeText(val: any): string {
   if (val === undefined || val === null) return "";
@@ -27,7 +28,8 @@ function normalizeText(val: any): string {
 }
 
 /**
- * Normalizes planner filename to a stable source ID
+ * Normalizes planner filename to a stable source ID.
+ * Strips desktop suffixes like (1), (12) and extensions.
  */
 function getPlannerInfo(filename: string) {
   const base = filename
@@ -43,7 +45,7 @@ function getPlannerInfo(filename: string) {
 }
 
 /**
- * Generates YYYY-MM-DD from any date source
+ * Generates YYYY-MM-DD from any date source for timezone-safe comparisons.
  */
 function getDateKey(value: any): string {
   let d: Date;
@@ -62,6 +64,7 @@ function getDateKey(value: any): string {
 /**
  * 🔒 BUSINESS VS METADATA COMPARISON
  * These fields trigger a visible 'Update' in the UI.
+ * Must match the write payload in the Cloud Function.
  */
 const BUSINESS_FIELDS = [
   "userId", 
@@ -92,7 +95,11 @@ function getChangedBusinessFields(existing: any, incoming: any) {
     const v2 = normalizeText(incomingVal);
 
     if (v1 !== v2) {
-      changes.push({ field, old: v1, new: v2 });
+      changes.push({ 
+        field, 
+        old: existingVal || "(blank)", 
+        new: (field === 'userId' ? incoming.operative : incomingVal) || "(blank)" 
+      });
     }
   });
 
@@ -101,6 +108,7 @@ function getChangedBusinessFields(existing: any, incoming: any) {
 
 /**
  * 🔒 STRONG IDENTITY KEY
+ * uniquely identifies a specific job row.
  */
 function buildImportKey(shift: any, sourcePlannerId: string): string {
   const parts = [
@@ -305,7 +313,7 @@ export function FileUploader({
             <p className="text-sm text-muted-foreground mb-4 text-center px-4">
               Upload your Excel file. Already published shifts will be matched and classified.
             </p>
-            <Input
+            <input
               ref={fileInputRef}
               id={`shift-file-input-${department}`}
               type="file"
