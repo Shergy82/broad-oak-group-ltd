@@ -27,7 +27,7 @@ function normalizeText(val: any): string {
 
 /**
  * Normalizes planner filename to a stable source ID.
- * Strips desktop suffixes like (1), (12) and extensions.
+ * Strips desktop suffixes like (1), (2), (12) and extensions.
  */
 function getPlannerInfo(filename: string) {
   const base = filename
@@ -60,10 +60,9 @@ function getDateKey(value: any): string {
 }
 
 /**
- * 🔒 IDENTITY FIELDS (Key Generation)
- * These fields define the "Identity" of the planner row.
- * If these change, it is a different shift (Delete/Create).
- * EXCLUDES descriptionOfWorks and address because those are updatable.
+ * 🔒 STABLE IDENTITY KEY
+ * Defines the "Identity" of the planner row.
+ * Excludes work details like address/task so they can be UPDATED without recreation.
  */
 function buildImportKey(shift: any, sourcePlannerId: string): string {
   const parts = [
@@ -81,14 +80,11 @@ function buildImportKey(shift: any, sourcePlannerId: string): string {
 }
 
 /**
- * 🔒 BUSINESS FIELDS (Update Detection)
- * These fields define the "Details" of the shift.
- * If these change, it is an Update (PATCH).
+ * 🔒 SMART BUSINESS COMPARISON
+ * Detects real work changes while ignoring metadata and handling field aliases.
  */
 const BUSINESS_FIELDS = [
   "operativeUid",
-  "userId",
-  "userName",
   "operative",
   "dateKey",
   "type",
@@ -103,23 +99,53 @@ const BUSINESS_FIELDS = [
   "room"
 ];
 
+// Mapping of new field names to old field names for alias matching
+const FIELD_ALIASES: Record<string, string> = {
+  "operativeUid": "userId",
+  "operative": "userName",
+};
+
 function getChangedBusinessFields(existing: any, incoming: any) {
   const changes: { field: string; old: string; new: string }[] = [];
   
   BUSINESS_FIELDS.forEach(field => {
-    const v1 = normalizeText(existing[field]);
-    const v2 = normalizeText(incoming[field]);
+    const newVal = normalizeText(incoming[field]);
+    
+    // Smart match: check the field itself, then any alias
+    let currentVal = normalizeText(existing[field]);
+    if (!currentVal && FIELD_ALIASES[field]) {
+      currentVal = normalizeText(existing[FIELD_ALIASES[field]]);
+    }
+    
+    // Special date handling
+    if (field === 'dateKey' && !currentVal && existing.date) {
+      currentVal = getDateKey(existing.date);
+    }
 
-    if (v1 !== v2) {
+    if (currentVal !== newVal) {
       changes.push({ 
         field, 
-        old: String(existing[field] || "(blank)"), 
+        old: String(existing[field] || existing[FIELD_ALIASES[field]] || "(blank)"), 
         new: String(incoming[field] || "(blank)") 
       });
     }
   });
 
   return changes;
+}
+
+/**
+ * Checks if a document is missing standardized fields that need backfilling.
+ */
+function needsBackfill(existing: any): boolean {
+  return (
+    !existing.sourcePlannerId ||
+    !existing.importKey ||
+    !existing.dateKey ||
+    !existing.descriptionOfWorks ||
+    !existing.operativeUid ||
+    !existing.operative
+  );
 }
 
 /**
@@ -130,13 +156,15 @@ function isLegacyMatch(incoming: any, existing: any): boolean {
   const existingDateKey = existing.dateKey || getDateKey(existing.date);
   const incomingDateKey = incoming.dateKey || getDateKey(incoming.date);
 
+  const existingUid = existing.operativeUid || existing.userId;
+  const incomingUid = incoming.operativeUid || incoming.userId;
+
   return (
-    (existing.userId === (incoming.userId || incoming.operativeUid)) &&
+    existingUid === incomingUid &&
     existingDateKey === incomingDateKey &&
     normalizeText(existing.address) === normalizeText(incoming.address) &&
     normalizeText(existing.task) === normalizeText(incoming.task) &&
-    normalizeText(existing.type) === normalizeText(incoming.type) &&
-    normalizeText(existing.descriptionOfWorks) === normalizeText(incoming.descriptionOfWorks)
+    normalizeText(existing.type) === normalizeText(incoming.type)
   );
 }
 
@@ -196,6 +224,8 @@ export function FileUploader({
             profileId: planner.id,
             dateKey,
             importKey,
+            operativeUid: s.operativeUid || s.userId,
+            operative: s.operative || s.userName,
             userId: s.operativeUid || s.userId,
             userName: s.operative || s.userName
           };
@@ -240,15 +270,11 @@ export function FileUploader({
             matchedDocIds.add(match.id);
             const changes = getChangedBusinessFields(match, incoming);
             
-            // We silently backfill metadata if it's "Synced" but missing mandatory keys or descriptionOfWorks
-            const needsBackfill = !match.sourcePlannerId || !match.importKey || !match.dateKey || !match.descriptionOfWorks;
-
             if (changes.length > 0) {
-              // Categorize as Update
               toUpdate.push({ id: match.id, old: match, new: incoming, changes });
             } else {
-              // Categorize as Synced, but backfill metadata silently during publish
-              toSynced.push({ ...match, _isBackfill: needsBackfill, _newMetadata: incoming });
+              // Categorize as Synced, but backfill metadata silently during publish if needed
+              toSynced.push({ ...match, _isBackfill: needsBackfill(match), _newMetadata: incoming });
             }
           }
         });

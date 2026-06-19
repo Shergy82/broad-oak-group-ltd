@@ -50,16 +50,16 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
       if (!functions) throw new Error('Functions not available');
       const reconcileShifts = httpsCallable(functions, 'reconcileShifts');
 
-      // 🔒 SILENT BACKFILL: Update shifts that are Synced but missing mandatory keys
+      // 🔒 SILENT BACKFILL: Include Synced shifts that are missing standardized keys
       const backfillPayload = dryRun.toSynced
         .filter(s => s._isBackfill && s._newMetadata)
         .map(s => ({ id: s.id, new: s._newMetadata }));
 
-      const allUpdates = [...dryRun.toUpdate, ...backfillPayload];
+      const allUpdates = [...dryRun.toUpdate.map(u => ({ id: u.id, new: u.new })), ...backfillPayload];
 
       await reconcileShifts({
         toCreate: dryRun.toCreate,
-        toUpdate: allUpdates.map(u => ({ id: u.id, new: u.new })),
+        toUpdate: allUpdates,
         toDelete: dryRun.toDelete.map(s => ({ id: s.id })),
         department: userProfile.department || 'Gas',
         profileId: dryRun.profileId,
@@ -94,7 +94,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
             <CardContent className="p-3 pt-0"><p className="text-2xl font-bold text-amber-700">{dryRun.toDelete.length}</p></CardContent>
           </Card>
           <Card className="bg-slate-50 border-slate-200">
-            <CardHeader className="p-3"><CardTitle className="text-[10px] text-slate-700 uppercase">Existing</CardTitle></CardHeader>
+            <CardHeader className="p-3"><CardTitle className="text-[10px] text-slate-700 uppercase">Synced</CardTitle></CardHeader>
             <CardContent className="p-3 pt-0"><p className="text-2xl font-bold text-slate-700">{dryRun.toSynced.length}</p></CardContent>
           </Card>
           <Card className={cn(dryRun.toIssues.length > 0 ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-200")}>
@@ -108,7 +108,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
             <TabsTrigger value="create" className="text-[11px]">New</TabsTrigger>
             <TabsTrigger value="update" className="text-[11px]">Updates</TabsTrigger>
             <TabsTrigger value="delete" className="text-[11px]">Remove</TabsTrigger>
-            <TabsTrigger value="synced" className="text-[11px]">Existing</TabsTrigger>
+            <TabsTrigger value="synced" className="text-[11px]">Synced</TabsTrigger>
             <TabsTrigger value="issues" className={cn('text-[11px]', dryRun.toIssues.length > 0 && 'text-destructive')}>Issues</TabsTrigger>
           </TabsList>
 
@@ -122,10 +122,10 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                   {dryRun.toSynced.map((s, i) => (
                     <TableRow key={i} className="opacity-70">
                       <TableCell className="text-xs whitespace-nowrap">{s.dateKey || (s.date?.toDate ? format(s.date.toDate(), 'dd/MM/yy') : '—')}</TableCell>
-                      <TableCell className="text-xs font-medium">{s.userName}</TableCell>
+                      <TableCell className="text-xs font-medium">{s.userName || s.operative}</TableCell>
                       <TableCell className="text-xs">{s.address}</TableCell>
                       <TableCell className="text-right">
-                        <Badge variant="outline" className="text-[9px] uppercase">{s._isBackfill ? 'Legacy Linked' : 'Synced'}</Badge>
+                        <Badge variant="outline" className="text-[9px] uppercase">{s._isBackfill ? 'Backfill Required' : 'Synced'}</Badge>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -159,8 +159,8 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                                 <TooltipContent side="top" className="max-w-[300px] text-xs">
                                   <p className="font-bold border-b pb-1 mb-1">{c.field} changed:</p>
                                   <div className="space-y-1">
-                                    <p className="text-red-500 line-through">Old: {c.old || "(blank)"}</p>
-                                    <p className="text-green-600 font-bold">New: {c.new || "(blank)"}</p>
+                                    <p className="text-red-500 line-through">Existing: "{c.old || "(blank)"}"</p>
+                                    <p className="text-green-600 font-bold">Imported: "{c.new || "(blank)"}"</p>
                                   </div>
                                 </TooltipContent>
                               </Tooltip>
@@ -185,7 +185,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                 <TableBody>
                   {dryRun.toCreate.map((s, i) => (
                     <TableRow key={i}>
-                      <TableCell className="text-xs whitespace-nowrap">{format(new Date(s.date), 'dd/MM/yy')}</TableCell>
+                      <TableCell className="text-xs whitespace-nowrap">{s.dateKey || format(new Date(s.date), 'dd/MM/yy')}</TableCell>
                       <TableCell className="text-xs font-bold">{s.operative}</TableCell>
                       <TableCell className="text-xs">{s.address}</TableCell>
                       <TableCell className="text-xs italic text-muted-foreground">{s.task}</TableCell>
