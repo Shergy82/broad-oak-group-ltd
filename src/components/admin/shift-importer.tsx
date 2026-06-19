@@ -50,7 +50,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
       if (!functions) throw new Error('Functions not available');
       const reconcileShifts = httpsCallable(functions, 'reconcileShifts');
 
-      // 🔒 SILENT BACKFILL: Update shifts that are Synced but missing new keys
+      // 🔒 SILENT BACKFILL: Update shifts that are Synced but missing mandatory keys
       const backfillPayload = dryRun.toSynced
         .filter(s => s._isBackfill && s._newMetadata)
         .map(s => ({ id: s.id, new: s._newMetadata }));
@@ -176,7 +176,6 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
             </ScrollArea>
           </TabsContent>
 
-          {/* New, Delete, Issues tabs remain as standard */}
           <TabsContent value="create" className="mt-4">
             <ScrollArea className="h-[400px] border rounded-md">
               <Table>

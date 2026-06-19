@@ -16,7 +16,6 @@ import { Label } from '../ui/label';
 
 /**
  * 🔒 ROBUST NORMALIZATION ENGINE
- * Collapses whitespace, trims, and lowercases for safe comparison.
  */
 function normalizeText(val: any): string {
   if (val === undefined || val === null) return "";
@@ -34,7 +33,7 @@ function normalizeText(val: any): string {
 function getPlannerInfo(filename: string) {
   const base = filename
     .replace(/\.[^/.]+$/, "") // remove extension
-    .replace(/\s\(\d+\)$/, "") // remove desktop suffixes like (1)
+    .replace(/\s*\(\d+\)$/, "") // remove desktop suffixes like (1)
     .replace(/\s+copy\b/gi, "")
     .trim();
   
@@ -62,9 +61,9 @@ function getDateKey(value: any): string {
 }
 
 /**
- * 🔒 BUSINESS VS METADATA COMPARISON
+ * 🔒 BUSINESS FIELDS WHITELIST
  * These fields trigger a visible 'Update' in the UI.
- * Must match the write payload in the Cloud Function.
+ * Must be explicitly written to Firestore by the Cloud Function.
  */
 const BUSINESS_FIELDS = [
   "userId", 
@@ -85,11 +84,17 @@ function getChangedBusinessFields(existing: any, incoming: any) {
   const changes: { field: string; old: string; new: string }[] = [];
   
   BUSINESS_FIELDS.forEach(field => {
-    // Map incoming fields if they use different names (e.g. operativeUid vs userId)
+    // Map incoming fields if they use different names
     const incomingVal = (field === 'userId') ? (incoming.userId || incoming.operativeUid) : incoming[field];
     
-    // For legacy shifts, calculate dateKey from timestamp if missing
-    const existingVal = (field === 'dateKey' && !existing.dateKey) ? getDateKey(existing.date) : existing[field];
+    // Support legacy field names in Firestore for comparison
+    let existingVal = existing[field];
+    if (field === 'dateKey' && !existing.dateKey) {
+        existingVal = getDateKey(existing.date);
+    }
+    if (field === 'userId' && !existing.userId) {
+        existingVal = existing.userId || existing.operativeUid;
+    }
 
     const v1 = normalizeText(existingVal);
     const v2 = normalizeText(incomingVal);
@@ -97,8 +102,8 @@ function getChangedBusinessFields(existing: any, incoming: any) {
     if (v1 !== v2) {
       changes.push({ 
         field, 
-        old: existingVal || "(blank)", 
-        new: (field === 'userId' ? incoming.operative : incomingVal) || "(blank)" 
+        old: String(existingVal || "(blank)"), 
+        new: String((field === 'userId' ? incoming.operative : incomingVal) || "(blank)") 
       });
     }
   });
@@ -108,7 +113,7 @@ function getChangedBusinessFields(existing: any, incoming: any) {
 
 /**
  * 🔒 STRONG IDENTITY KEY
- * uniquely identifies a specific job row.
+ * uniquely identifies a specific job row across file versions.
  */
 function buildImportKey(shift: any, sourcePlannerId: string): string {
   const parts = [
@@ -116,14 +121,10 @@ function buildImportKey(shift: any, sourcePlannerId: string): string {
     shift.operativeUid || shift.userId,
     shift.dateKey || getDateKey(shift.date),
     shift.type || 'all-day',
-    shift.startTime || "",
-    shift.endTime || "",
-    shift.eNumber || "",
     shift.address || "",
-    shift.contract || "",
     shift.task || "",
-    shift.descriptionOfWorks || "",
-    shift.room || "",
+    shift.contract || "",
+    shift.eNumber || "",
     shift.sourceSheet || "",
     shift.sourceCell || ""
   ];
@@ -201,7 +202,8 @@ export function FileUploader({
             plannerName: planner.name,
             profileId: planner.id,
             dateKey,
-            importKey
+            importKey,
+            userId: s.operativeUid // Ensure userId matches operativeUid for backend
           };
         });
 
@@ -245,12 +247,13 @@ export function FileUploader({
             const changes = getChangedBusinessFields(match, incoming);
             
             // We silently backfill metadata even if it's "Synced"
-            const needsBackfill = !match.sourcePlannerId || !match.importKey || !match.dateKey;
+            const needsBackfill = !match.sourcePlannerId || !match.importKey || !match.dateKey || !match.descriptionOfWorks;
 
             if (changes.length > 0) {
+              // Categorize as Update
               toUpdate.push({ id: match.id, old: match, new: incoming, changes });
             } else {
-              // Categorized as Synced, but backfilled silently during publish
+              // Categorize as Synced, but backfill metadata silently during publish
               toSynced.push({ ...match, _isBackfill: needsBackfill, _newMetadata: incoming });
             }
           }
