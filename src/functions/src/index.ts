@@ -58,7 +58,8 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
         toUpdate = [], 
         toDelete = [], 
         department,
-        profileId
+        profileId,
+        profileName
     } = data;
 
     if (!department) throw new HttpsError('invalid-argument', 'Missing department.');
@@ -114,8 +115,8 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             source: 'import',
             sourcePlannerId: s.sourcePlannerId,
             sourcePlannerName: s.sourcePlannerName,
-            plannerName: s.sourcePlannerName,
-            profileId: s.sourcePlannerId,
+            plannerName: s.plannerName,
+            profileId: s.profileId,
             importKey: s.importKey,
             sourceSheet: s.sourceSheet || '',
             sourceCell: s.sourceCell || '',
@@ -140,8 +141,8 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             sourcePlannerId: n.sourcePlannerId,
             sourcePlannerName: n.sourcePlannerName,
-            plannerName: n.sourcePlannerName,
-            profileId: n.sourcePlannerId,
+            plannerName: n.plannerName,
+            profileId: n.profileId,
             importKey: n.importKey,
             sourceSheet: n.sourceSheet || '',
             sourceCell: n.sourceCell || '',

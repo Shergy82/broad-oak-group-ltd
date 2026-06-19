@@ -27,6 +27,10 @@ function normalize(val: any): string {
     .replace(/\s/g, '-');
 }
 
+/**
+ * Normalizes planner filename to a stable source ID
+ * TEST (2).xlsx -> test
+ */
 function getPlannerId(filename: string): string {
   return filename
     .toLowerCase()
@@ -60,18 +64,19 @@ function getDateKey(value: any): string {
 
 /**
  * 🔒 STRONG IDENTITY KEY
+ * Uses Source ID (not department) as the primary prefix.
  */
 function buildImportKey(shift: any, plannerId: string): string {
   const parts = [
-    plannerId,
+    plannerId, // 🔒 Correct: use planner source, not department
     shift.operativeUid || shift.userId,
-    getDateKey(shift.date),
+    shift.dateKey || getDateKey(shift.date),
     normalize(shift.type || 'all-day'),
     normalize(shift.eNumber),
     normalize(shift.address),
     normalize(shift.contract),
     normalize(shift.task),
-    normalize(shift.room),
+    normalize(shift.descriptionOfWorks),
     normalize(shift.sourceSheet),
     normalize(shift.sourceCell)
   ];
@@ -80,6 +85,7 @@ function buildImportKey(shift: any, plannerId: string): string {
 
 /**
  * 🔒 LEGACY FALLBACK MATCHING
+ * Matches old shifts that don't have new keys yet.
  */
 function isLegacyMatch(incoming: StandardShift, existing: Shift): boolean {
   const existingDateKey = existing.dateKey || getDateKey(existing.date);
@@ -95,10 +101,10 @@ function isLegacyMatch(incoming: StandardShift, existing: Shift): boolean {
 }
 
 /**
- * Checks if fields have genuinely changed compared to existing Firestore record.
+ * Checks if non-identity fields have genuinely changed.
  */
-function hasChanges(existing: any, incoming: StandardShift): boolean {
-  // If identity fields are missing, it's considered changed so we can backfill
+function hasChanges(existing: any, incoming: any): boolean {
+  // If sync fields are missing, it's considered changed so we can backfill
   if (!existing.importKey || !existing.sourcePlannerId || !existing.dateKey) return true;
   
   return (
@@ -106,8 +112,7 @@ function hasChanges(existing: any, incoming: StandardShift): boolean {
     normalize(existing.contract) !== normalize(incoming.contract) ||
     normalize(existing.eNumber) !== normalize(incoming.eNumber) ||
     normalize(existing.task) !== normalize(incoming.task) ||
-    normalize(existing.descriptionOfWorks) !== normalize(incoming.descriptionOfWorks) ||
-    normalize(existing.sourceCell) !== normalize(incoming.sourceCell)
+    normalize(existing.descriptionOfWorks) !== normalize(incoming.descriptionOfWorks)
   );
 }
 
@@ -156,7 +161,10 @@ export function FileUploader({
         
         const incomingShifts = parseResult.shifts.map(s => {
           const dateKey = getDateKey(s.date);
-          const importKey = buildImportKey(s, plannerId);
+          // Pass full object for key building
+          const tempShift = { ...s, dateKey };
+          const importKey = buildImportKey(tempShift, plannerId);
+          
           return { 
             ...s, 
             department, 
@@ -175,13 +183,16 @@ export function FileUploader({
         );
         const existingShifts = existingSnap.docs.map(d => ({ id: d.id, ...d.data() } as Shift));
 
-        // Fallback: Legacy matches in same department
+        // Legacy candidate pool (imported but missing keys)
         const legacySnap = await getDocs(
-          query(collection(db, 'shifts'), where('department', '==', department), where('source', '==', 'import'))
+          query(collection(db, 'shifts'), 
+            where('department', '==', department), 
+            where('source', '==', 'import')
+          )
         );
         const legacyCandidates = legacySnap.docs
           .map(d => ({ id: d.id, ...d.data() } as Shift))
-          .filter(s => !s.sourcePlannerId || s.sourcePlannerId === "");
+          .filter(s => !s.sourcePlannerId);
 
         const toCreate: any[] = [];
         const toUpdate: any[] = [];
