@@ -9,12 +9,11 @@ import { functions, httpsCallable } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CheckCircle2, AlertCircle } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import { Spinner } from '@/components/shared/spinner';
-import { Badge } from '@/components/ui/badge';
 
 interface DryRunResult {
   toCreate: any[];
@@ -62,20 +61,36 @@ const HIDDEN_UPDATE_FIELDS = [
   "status"
 ];
 
+function formatDateKey(value: any): string {
+  if (!value) return "";
+  const d = value instanceof Date ? value : value?.toDate ? value.toDate() : new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function getTodayDateKey(): string {
+  return formatDateKey(new Date());
+}
+
+function isHistoricShift(shift: any): boolean {
+  const key = shift?.dateKey || formatDateKey(shift?.date);
+  if (!key) return false;
+  return key < getTodayDateKey();
+}
+
 function cleanDescriptionForDisplay(value: string, operativeName?: string): string {
   if (!value) return "";
-
   let cleaned = String(value).trim().replace(/\s+/g, " ");
-
   const operative = String(operativeName || "").trim().replace(/\s+/g, " ");
-
   if (operative) {
     const suffix = ` - ${operative}`;
     if (cleaned.toLowerCase().endsWith(suffix.toLowerCase())) {
       cleaned = cleaned.slice(0, -suffix.length).trim();
     }
   }
-
   return cleaned;
 }
 
@@ -122,15 +137,11 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
 
   useEffect(() => {
     if (dryRun) {
-      if (dryRun.toIssues.length > 0) {
-        setActiveTab('issues');
-      } else if (dryRun.toCreate.length > 0) {
-        setActiveTab('create');
-      } else if (dryRun.toUpdate.length > 0) {
-        setActiveTab('update');
-      } else {
-        setActiveTab('synced');
-      }
+      if (dryRun.toIssues.length > 0) setActiveTab('issues');
+      else if (dryRun.toCreate.length > 0) setActiveTab('create');
+      else if (dryRun.toUpdate.length > 0) setActiveTab('update');
+      else if (dryRun.toDelete.length > 0) setActiveTab('delete');
+      else setActiveTab('synced');
     }
   }, [dryRun]);
 
@@ -146,10 +157,15 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
       if (!functions) throw new Error('Functions not available');
       const reconcileShifts = httpsCallable(functions, 'reconcileShifts');
 
+      // SILENT HISTORIC SKIP (SAFETY)
+      const activeCreates = dryRun.toCreate.filter(s => !isHistoricShift(s));
+      const activeUpdates = dryRun.toUpdate.filter(u => !isHistoricShift(u.new)).map(u => ({ id: u.id, new: u.new }));
+      const activeDeletes = dryRun.toDelete.filter(s => !isHistoricShift(s)).map(s => ({ id: s.id }));
+
       await reconcileShifts({
-        toCreate: dryRun.toCreate,
-        toUpdate: dryRun.toUpdate.map(u => ({ id: u.id, new: u.new })),
-        toDelete: dryRun.toDelete.map(s => ({ id: s.id })),
+        toCreate: activeCreates,
+        toUpdate: activeUpdates,
+        toDelete: activeDeletes,
         department: userProfile.department || 'Gas',
         profileId: dryRun.profileId,
         profileName: dryRun.profileName
@@ -168,90 +184,33 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-          <Card 
-            role="button"
-            tabIndex={0}
-            onClick={() => setActiveTab('create')}
-            className={cn(
-              "cursor-pointer transition-all hover:shadow-md hover:scale-[1.01] bg-green-50 border-green-200",
-              activeTab === 'create' && "ring-2 ring-green-500 shadow-md"
-            )}
-          >
-            <CardHeader className="p-3">
-              <CardTitle className="text-[10px] text-green-700 uppercase">New</CardTitle>
-            </CardHeader>
-            <CardContent className="p-3 pt-0">
-              <p className="text-2xl font-bold text-green-700">{dryRun.toCreate.length}</p>
-            </CardContent>
-          </Card>
-
-          <Card 
-            role="button"
-            tabIndex={0}
-            onClick={() => setActiveTab('update')}
-            className={cn(
-              "cursor-pointer transition-all hover:shadow-md hover:scale-[1.01] bg-blue-50 border-blue-200",
-              activeTab === 'update' && "ring-2 ring-blue-500 shadow-md"
-            )}
-          >
-            <CardHeader className="p-3">
-              <CardTitle className="text-[10px] text-blue-700 uppercase">Updates</CardTitle>
-            </CardHeader>
-            <CardContent className="p-3 pt-0">
-              <p className="text-2xl font-bold text-blue-700">{dryRun.toUpdate.length}</p>
-            </CardContent>
-          </Card>
-
-          <Card 
-            role="button"
-            tabIndex={0}
-            onClick={() => setActiveTab('delete')}
-            className={cn(
-              "cursor-pointer transition-all hover:shadow-md hover:scale-[1.01] bg-amber-50 border-amber-200",
-              activeTab === 'delete' && "ring-2 ring-amber-500 shadow-md"
-            )}
-          >
-            <CardHeader className="p-3">
-              <CardTitle className="text-[10px] text-amber-700 uppercase">Remove</CardTitle>
-            </CardHeader>
-            <CardContent className="p-3 pt-0">
-              <p className="text-2xl font-bold text-amber-700">{dryRun.toDelete.length}</p>
-            </CardContent>
-          </Card>
-
-          <Card 
-            role="button"
-            tabIndex={0}
-            onClick={() => setActiveTab('synced')}
-            className={cn(
-              "cursor-pointer transition-all hover:shadow-md hover:scale-[1.01] bg-slate-50 border-slate-200",
-              activeTab === 'synced' && "ring-2 ring-slate-400 shadow-md"
-            )}
-          >
-            <CardHeader className="p-3">
-              <CardTitle className="text-[10px] text-slate-700 uppercase">Synced</CardTitle>
-            </CardHeader>
-            <CardContent className="p-3 pt-0">
-              <p className="text-2xl font-bold text-slate-700">{dryRun.toSynced.length}</p>
-            </CardContent>
-          </Card>
-
-          <Card 
-            role="button"
-            tabIndex={0}
-            onClick={() => setActiveTab('issues')}
-            className={cn(
-              "cursor-pointer transition-all hover:shadow-md hover:scale-[1.01] bg-red-50 border-red-200",
-              activeTab === 'issues' && "ring-2 ring-red-500 shadow-md"
-            )}
-          >
-            <CardHeader className="p-3">
-              <CardTitle className="text-[10px] text-red-700 uppercase">Issues</CardTitle>
-            </CardHeader>
-            <CardContent className="p-3 pt-0">
-              <p className="text-2xl font-bold text-red-700">{dryRun.toIssues.length}</p>
-            </CardContent>
-          </Card>
+          {[
+            { key: 'create', label: 'New', count: dryRun.toCreate.length, color: 'green', ring: 'ring-green-500', bg: 'bg-green-50', border: 'border-green-200', text: 'text-green-700' },
+            { key: 'update', label: 'Updates', count: dryRun.toUpdate.length, color: 'blue', ring: 'ring-blue-500', bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700' },
+            { key: 'delete', label: 'Remove', count: dryRun.toDelete.length, color: 'amber', ring: 'ring-amber-500', bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700' },
+            { key: 'synced', label: 'Synced', count: dryRun.toSynced.length, color: 'slate', ring: 'ring-slate-500', bg: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-700' },
+            { key: 'issues', label: 'Issues', count: dryRun.toIssues.length, color: 'red', ring: 'ring-red-500', bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-700' }
+          ].map((card) => (
+            <Card 
+              key={card.key}
+              role="button"
+              tabIndex={0}
+              onClick={() => setActiveTab(card.key)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveTab(card.key); }}
+              className={cn(
+                "cursor-pointer transition-all hover:shadow-md hover:scale-[1.01]",
+                card.bg, card.border,
+                activeTab === card.key && cn("ring-2 shadow-md", card.ring)
+              )}
+            >
+              <CardHeader className="p-3">
+                <CardTitle className={cn("text-[10px] uppercase", card.text)}>{card.label}</CardTitle>
+              </CardHeader>
+              <CardContent className="p-3 pt-0">
+                <p className={cn("text-2xl font-bold", card.text)}>{card.count}</p>
+              </CardContent>
+            </Card>
+          ))}
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -271,12 +230,9 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                 </TableHeader>
                 <TableBody>
                   {dryRun.toUpdate.map((u, i) => {
-                    // Filter technical fields and redundant task names
                     let visibleChanges = u.changes.filter(c => !HIDDEN_UPDATE_FIELDS.includes(c.field));
                     const hasDescChange = visibleChanges.some(c => c.field === 'descriptionOfWorks');
-                    if (hasDescChange) {
-                      visibleChanges = visibleChanges.filter(c => c.field !== 'task');
-                    }
+                    if (hasDescChange) visibleChanges = visibleChanges.filter(c => c.field !== 'task');
 
                     if (visibleChanges.length === 0) return null;
 
@@ -293,13 +249,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                           <div className="space-y-1">
                             {visibleChanges.map((c, idx) => (
                                 <div key={idx}>
-                                    {renderValueDiff(
-                                      c.field, 
-                                      c.old, 
-                                      c.new, 
-                                      u.old.operative || u.old.userName, 
-                                      u.new.operative
-                                    )}
+                                    {renderValueDiff(c.field, c.old, c.new, u.old.operative || u.old.userName, u.new.operative)}
                                 </div>
                             ))}
                           </div>
@@ -374,7 +324,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
              <ScrollArea className="h-[400px] border rounded-md">
               <Table>
                 <TableHeader className="sticky top-0 bg-background z-10">
-                  <TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Address</TableHead></TableRow>
+                  <TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Address</TableHead></TableHeader>
                 </TableHeader>
                 <TableBody>
                   {dryRun.toSynced.map((s, i) => (

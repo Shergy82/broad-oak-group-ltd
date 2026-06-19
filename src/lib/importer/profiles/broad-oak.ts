@@ -3,8 +3,6 @@ import { type PlannerProfile, type StandardShift, type ImportError, type UserMap
 
 /**
  * Broad Oak Gas & Build Planner Profile
- * Identity Rule: Address is the LAST populated cell in Column A within a project section.
- * Cell Rule: Work is expected in "Task - Operative" format using the LAST hyphen.
  */
 export class BroadOakProfile implements PlannerProfile {
   id = 'broad-oak';
@@ -38,6 +36,8 @@ export class BroadOakProfile implements PlannerProfile {
         errors.push({ message: "No valid worksheet found.", severity: 'error', code: 'NO_SHEET' });
         return { shifts, errors };
     }
+
+    const todayKey = this.getTodayDateKey();
 
     const dateColumnMap = new Map<number, { date: Date, dateKey: string }>();
     let dateRowIndex = -1;
@@ -119,6 +119,9 @@ export class BroadOakProfile implements PlannerProfile {
         const row = sheet.getRow(r);
 
         dateColumnMap.forEach(({ date, dateKey }, colNumber) => {
+          // 🔒 SILENT HISTORIC SKIP
+          if (dateKey < todayKey) return;
+
           const cell = row.getCell(colNumber);
           if (!cell.value) return;
 
@@ -160,6 +163,8 @@ export class BroadOakProfile implements PlannerProfile {
               manager: blockManager,
               operative: match.user.originalName,
               operativeUid: match.user.uid,
+              userId: match.user.uid,
+              userName: match.user.originalName,
               task: match.task,
               descriptionOfWorks: rawText,
               type: match.type || 'all-day',
@@ -187,15 +192,7 @@ export class BroadOakProfile implements PlannerProfile {
     return false;
   }
 
-  /**
-   * 🔒 ROBUST CELL SPLITTING
-   * Rules: 
-   * 1. Normalize text (remove multi-lines, extra spaces).
-   * 2. Split using the LAST hyphen.
-   * 3. Validate components.
-   */
   private extractOperativeAndTask(text: string, userMap: UserMapEntry[]) {
-    // Normalize: remove newlines and collapse multiple spaces
     const normalized = text.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
     const lastHyphenIndex = normalized.lastIndexOf('-');
     
@@ -209,7 +206,6 @@ export class BroadOakProfile implements PlannerProfile {
     if (!taskPart) return { error: "Missing task/description", rawText: normalized };
     if (!namePart) return { error: "Missing operative after separator", rawText: normalized };
 
-    // Find user match
     const searchName = namePart.toLowerCase().replace(/[^a-z0-9]/g, '');
     const matchedUser = userMap.find(u => u.normalizedName === searchName);
     
@@ -263,7 +259,15 @@ export class BroadOakProfile implements PlannerProfile {
     const y = d.getUTCFullYear();
     const m = String(d.getUTCMonth() + 1).padStart(2, '0');
     const day = String(d.getUTCDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
+    return `${yyyy}-${m}-${day}`;
+  }
+
+  private getTodayDateKey(): string {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
   }
 
   private formatDateUK(d: Date): string {

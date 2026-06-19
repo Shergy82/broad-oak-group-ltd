@@ -44,36 +44,28 @@ function getPlannerInfo(filename: string) {
 /**
  * Generates YYYY-MM-DD from any date source.
  */
-function getDateKey(value: any): string {
-  let d: Date;
-  if (value instanceof Date) d = value;
-  else if (typeof value?.toDate === 'function') d = value.toDate();
-  else if (typeof value === 'object' && value.seconds) d = new Date(value.seconds * 1000);
-  else d = new Date(value);
-  
-  if (isNaN(d.getTime())) return 'invalid';
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(d.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+function formatDateKey(value: any): string {
+  if (!value) return "";
+  const d = value instanceof Date ? value : value?.toDate ? value.toDate() : new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 function getTodayDateKey(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  return formatDateKey(new Date());
 }
 
 /**
- * 🔒 STABLE IDENTITY KEY
+ * 🔒 STABLE IDENTITY KEY (IDENTIFIES THE ROW)
  */
 function buildImportKey(shift: any, sourcePlannerId: string): string {
   const parts = [
     sourcePlannerId,
     shift.operativeUid || shift.userId,
-    shift.dateKey || getDateKey(shift.date),
+    shift.dateKey || formatDateKey(shift.date),
     shift.type || 'all-day',
     shift.startTime || "",
     shift.endTime || "",
@@ -85,7 +77,7 @@ function buildImportKey(shift: any, sourcePlannerId: string): string {
 }
 
 /**
- * 🔒 SMART BUSINESS COMPARISON
+ * 🔒 BUSINESS COMPARISON (WHAT CAN BE UPDATED)
  */
 const BUSINESS_FIELDS = [
   "operativeUid",
@@ -109,16 +101,15 @@ function getChangedBusinessFields(existing: any, incoming: any) {
   const changes: { field: string; old: string; new: string }[] = [];
   
   BUSINESS_FIELDS.forEach(field => {
-    // Standardize comparison using normalized versions of fields
     const newVal = normalizeText(incoming[field]);
     let currentVal = normalizeText(existing[field]);
 
     // Handle legacy date comparison
     if (field === 'dateKey' && !currentVal && existing.date) {
-      currentVal = getDateKey(existing.date);
+      currentVal = formatDateKey(existing.date);
     }
     
-    // Alias handling: operativeUid vs userId
+    // Alias handling
     if (field === 'operativeUid' && !existing.operativeUid && existing.userId) {
         currentVal = normalizeText(existing.userId);
     }
@@ -187,24 +178,30 @@ export function FileUploader({
         const toIssues: any[] = [];
         const matchedDocIds = new Set<string>();
 
-        // 1. Process Issues (Today/Future only)
+        // 1. SILENT FILTER HISTORIC ISSUES
         parseResult.errors.forEach(err => {
-            if (err.dateKey && err.dateKey >= todayKey) {
-                toIssues.push(err);
-            }
+            const errDateKey = err.dateKey || "";
+            if (errDateKey && errDateKey < todayKey) return; // Silent skip
+            toIssues.push(err);
         });
 
-        // 2. Fetch existing shifts for this source
+        // 2. FETCH EXISTING SHIFTS
         const existingSnap = await getDocs(
           query(collection(db, 'shifts'), where('sourcePlannerId', '==', planner.id))
         );
-        const existingShifts = existingSnap.docs.map(d => ({ id: d.id, ...d.data() } as Shift));
+        const allExistingShifts = existingSnap.docs.map(d => ({ id: d.id, ...d.data() } as Shift));
 
-        // 3. Process parsed shifts
+        // 3. SILENT FILTER HISTORIC EXISTING SHIFTS
+        const existingActiveShifts = allExistingShifts.filter(s => {
+          const key = s.dateKey || formatDateKey(s.date);
+          return key >= todayKey;
+        });
+
+        // 4. PROCESS PARSED SHIFTS
         parseResult.shifts.forEach(incomingRaw => {
-          const dateKey = getDateKey(incomingRaw.date);
+          const dateKey = formatDateKey(incomingRaw.date);
           
-          // 🔒 SILENT PAST DATE SKIP
+          // 🔒 SILENT HISTORIC SKIP
           if (dateKey < todayKey) return;
 
           const incoming = { 
@@ -218,8 +215,8 @@ export function FileUploader({
             importKey: buildImportKey({ ...incomingRaw, dateKey }, planner.id)
           };
 
-          // Categorize by identity key
-          const match = existingShifts.find(s => s.importKey === incoming.importKey);
+          // Find exact match by identity key
+          const match = existingActiveShifts.find(s => s.importKey === incoming.importKey);
           
           if (match) {
             matchedDocIds.add(match.id);
@@ -230,12 +227,11 @@ export function FileUploader({
               toSynced.push(match);
             }
           } else {
-            // Check for legacy match by business fingerprint
-            const legacyMatch = existingShifts.find(s => 
+            // Legacy match fallback
+            const legacyMatch = existingActiveShifts.find(s => 
                 !matchedDocIds.has(s.id) &&
                 normalizeText(s.userId || s.operativeUid) === normalizeText(incoming.operativeUid) &&
-                getDateKey(s.date) === incoming.dateKey &&
-                normalizeText(s.address) === normalizeText(incoming.address) &&
+                formatDateKey(s.date) === incoming.dateKey &&
                 normalizeText(s.sourceCell) === normalizeText(incoming.sourceCell)
             );
 
@@ -253,13 +249,8 @@ export function FileUploader({
           }
         });
 
-        // 4. Deletions (Only shifts that actually match this planner source and are missing now)
-        const toDelete = existingShifts.filter(s => {
-            const sDateKey = getDateKey(s.date);
-            // Skip deletion for past shifts (silently ignore them)
-            if (sDateKey < todayKey) return false;
-            return !matchedDocIds.has(s.id);
-        });
+        // 5. DELETIONS (Only from active/future shifts)
+        const toDelete = existingActiveShifts.filter(s => !matchedDocIds.has(s.id));
 
         onImportComplete({
           toCreate,
@@ -314,7 +305,7 @@ export function FileUploader({
             </div>
             <h3 className="text-lg font-semibold">Upload {title}</h3>
             <p className="text-sm text-muted-foreground mb-4 text-center px-4">
-              Upload your Excel file. Already published shifts will be matched and classified.
+              Upload your Excel file. Past dates are ignored. Changes to today/future shifts will be reconciled.
             </p>
             <input
               ref={fileInputRef}
