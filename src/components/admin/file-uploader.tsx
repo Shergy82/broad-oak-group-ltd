@@ -42,13 +42,9 @@ function getPlannerId(filename: string): string {
     .replace(/^-|-$/g, "");
 }
 
-function getPlannerName(filename: string): string {
-  return filename
-    .replace(/\.[^/.]+$/, "")
-    .replace(/\s\(\d+\)$/, "")
-    .trim();
-}
-
+/**
+ * Generates YYYY-MM-DD from any date source
+ */
 function getDateKey(value: any): string {
   let d: Date;
   if (value instanceof Date) d = value;
@@ -65,7 +61,6 @@ function getDateKey(value: any): string {
 
 /**
  * 🔒 STRONG IDENTITY KEY
- * Starts with sourcePlannerId (not department).
  */
 function buildImportKey(shift: any, sourcePlannerId: string): string {
   const parts = [
@@ -73,11 +68,14 @@ function buildImportKey(shift: any, sourcePlannerId: string): string {
     shift.operativeUid || shift.userId,
     shift.dateKey || getDateKey(shift.date),
     normalize(shift.type || 'all-day'),
+    normalize(shift.startTime),
+    normalize(shift.endTime),
     normalize(shift.eNumber),
     normalize(shift.address),
     normalize(shift.contract),
     normalize(shift.task),
     normalize(shift.descriptionOfWorks),
+    normalize(shift.room),
     normalize(shift.sourceSheet),
     normalize(shift.sourceCell)
   ];
@@ -86,10 +84,11 @@ function buildImportKey(shift: any, sourcePlannerId: string): string {
 
 /**
  * 🔒 LEGACY FALLBACK MATCHING
+ * Used to recognize shifts published before the new identity system.
  */
 function isLegacyMatch(incoming: StandardShift, existing: Shift): boolean {
-  const existingDateKey = existing.dateKey || getDateKey(existing.date);
   const incomingDateKey = getDateKey(incoming.date);
+  const existingDateKey = existing.dateKey || getDateKey(existing.date);
 
   return (
     (existing.userId === incoming.operativeUid) &&
@@ -100,7 +99,11 @@ function isLegacyMatch(incoming: StandardShift, existing: Shift): boolean {
   );
 }
 
+/**
+ * Checks for generic updates (metadata changes)
+ */
 function hasChanges(existing: any, incoming: any): boolean {
+  // If sync fields are missing, it's a backfill update
   if (!existing.sourcePlannerId || !existing.importKey || !existing.dateKey) return true;
   
   return (
@@ -134,7 +137,8 @@ export function FileUploader({
     onFileSelect();
 
     const plannerId = getPlannerId(file.name);
-    const plannerName = getPlannerName(file.name);
+    // User requested these 4 fields be exactly the normalized ID "test"
+    const plannerName = plannerId; 
 
     const reader = new FileReader();
     reader.onload = async (e) => {
@@ -172,13 +176,13 @@ export function FileUploader({
           };
         });
 
-        // 🔒 Query existing shifts for THIS planner
+        // 🔒 Query existing shifts for THIS specific planner only
         const existingSnap = await getDocs(
           query(collection(db, 'shifts'), where('sourcePlannerId', '==', plannerId))
         );
         const existingShifts = existingSnap.docs.map(d => ({ id: d.id, ...d.data() } as Shift));
 
-        // Legacy candidates (no planner ID yet)
+        // Legacy candidates (shifts in this dept that were imported but have no ID yet)
         const legacySnap = await getDocs(
           query(collection(db, 'shifts'), 
             where('department', '==', department), 
@@ -187,7 +191,7 @@ export function FileUploader({
         );
         const legacyCandidates = legacySnap.docs
           .map(d => ({ id: d.id, ...d.data() } as Shift))
-          .filter(s => !s.sourcePlannerId);
+          .filter(s => !s.sourcePlannerId || !s.importKey);
 
         const toCreate: any[] = [];
         const toUpdate: any[] = [];
@@ -197,8 +201,10 @@ export function FileUploader({
         incomingShifts.forEach(incoming => {
           if (parseResult.errors.some(err => err.row === incoming.sourceCell && err.severity === 'error')) return;
 
+          // 1. Try Direct Match
           let match = existingShifts.find(s => s.importKey === incoming.importKey);
           
+          // 2. Try Legacy Fallback
           if (!match) {
             match = legacyCandidates.find(s => !matchedDocIds.has(s.id) && isLegacyMatch(incoming, s));
           }
@@ -215,6 +221,7 @@ export function FileUploader({
           }
         });
 
+        // Deletions are strictly scoped to this planner source
         const toDelete = existingShifts.filter(s => !matchedDocIds.has(s.id));
 
         onImportComplete({
