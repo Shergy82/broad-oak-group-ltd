@@ -40,10 +40,9 @@ export interface ImportError {
   severity: 'error' | 'warning' | 'info' | 'debug';
   code: string;
   rawValues?: any;
-  // Context for UI display
   operative?: string;
   date?: string;
-  dateKey?: string; // Standard format for filtering
+  dateKey?: string;
   address?: string;
   task?: string;
 }

@@ -10,22 +10,19 @@ import { UploadCloud, FileWarning } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { parseWorkbook } from '@/lib/exceljs-parser';
 import { type UserMapEntry } from '@/lib/importer/types';
+import { 
+  normaliseText, 
+  getTodayDateKey, 
+  formatDateKey, 
+  isHistoricShift, 
+  buildImportKey 
+} from '@/lib/importer/core/utils';
 import type { Shift } from '@/types';
 import { Label } from '../ui/label';
 
 /**
- * 🔒 ROBUST NORMALIZATION ENGINE
- */
-function normalizeText(val: any): string {
-  if (val === undefined || val === null) return "";
-  return String(val)
-    .trim()
-    .replace(/\s+/g, ' ')
-    .toLowerCase();
-}
-
-/**
- * Normalizes planner filename to a stable source ID.
+ * STABLE SOURCE ID
+ * Normalizes planner filename to a stable identifier.
  */
 function getPlannerInfo(filename: string) {
   const base = filename
@@ -40,47 +37,9 @@ function getPlannerInfo(filename: string) {
   return { id, name };
 }
 
-function formatDateKey(value: any): string {
-  if (!value) return "";
-  const d = value instanceof Date ? value : value?.toDate ? value.toDate() : new Date(value);
-  if (Number.isNaN(d.getTime())) return "";
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-function getTodayDateKey(): string {
-  return formatDateKey(new Date());
-}
-
-function isHistoricShift(shift: any): boolean {
-  const key = shift?.dateKey || formatDateKey(shift?.date);
-  if (!key) return false;
-  return key < getTodayDateKey();
-}
-
 /**
- * 🔒 STABLE IDENTITY KEY (IDENTIFIES THE ROW)
- */
-function buildImportKey(shift: any, sourcePlannerId: string): string {
-  const parts = [
-    sourcePlannerId,
-    shift.operativeUid || shift.userId,
-    shift.dateKey || formatDateKey(shift.date),
-    shift.type || 'all-day',
-    shift.startTime || "",
-    shift.endTime || "",
-    shift.eNumber || "",
-    shift.sourceSheet || "",
-    shift.sourceCell || ""
-  ];
-  return parts.map(p => normalizeText(p)).join('|');
-}
-
-/**
- * 🔒 BUSINESS COMPARISON ENGINE
- * Returns a list of human-readable field changes.
+ * BUSINESS COMPARISON ENGINE
+ * Identifies meaningful changes for the Updates tab.
  */
 const COMPARABLE_FIELDS = [
   "operativeUid",
@@ -101,16 +60,15 @@ const COMPARABLE_FIELDS = [
 function getBusinessChanges(existing: any, incoming: any) {
   const changes: { field: string; old: string; new: string }[] = [];
   
-  // 🔒 SILENT HISTORIC SKIP (SAFETY)
   if (isHistoricShift(existing)) return [];
 
   COMPARABLE_FIELDS.forEach(field => {
-    const newVal = normalizeText(incoming[field]);
-    let currentVal = normalizeText(existing[field]);
+    const newVal = normaliseText(incoming[field]);
+    let currentVal = normaliseText(existing[field]);
 
-    // Alias Handling: Compare equivalent logical fields
-    if (field === 'operativeUid' && !existing.operativeUid) currentVal = normalizeText(existing.userId);
-    if (field === 'operative' && !existing.operative) currentVal = normalizeText(existing.userName);
+    // Handle equivalent logical fields for legacy data
+    if (field === 'operativeUid' && !existing.operativeUid) currentVal = normaliseText(existing.userId);
+    if (field === 'operative' && !existing.operative) currentVal = normaliseText(existing.userName);
     if (field === 'dateKey' && !existing.dateKey) currentVal = formatDateKey(existing.date);
 
     if (currentVal !== newVal) {
@@ -155,6 +113,7 @@ export function FileUploader({
         const buffer = e.target?.result;
         if (!(buffer instanceof ArrayBuffer)) throw new Error('Could not read file.');
 
+        // 1. Load users for matching
         const usersSnap = await getDocs(collection(db, 'users'));
         const userMap: UserMapEntry[] = usersSnap.docs.map(doc => {
           const u = doc.data() as any;
@@ -166,31 +125,25 @@ export function FileUploader({
           };
         });
 
-        const parseResult = await parseWorkbook(Buffer.from(buffer), userMap);
+        // 2. Parse using isolated profile logic
+        const parseResult = await parseWorkbook(Buffer.from(buffer), userMap, department);
         
-        const toCreate: any[] = [];
-        const toUpdate: any[] = [];
-        const toSynced: any[] = [];
-        const toIssues: any[] = [];
-        const matchedDocIds = new Set<string>();
-
-        // 1. Process Issues (Silent Historic Skip)
-        parseResult.errors.forEach(err => {
-            if (err.dateKey && err.dateKey < todayKey) return; 
-            toIssues.push(err);
-        });
-
-        // 2. Fetch existing Active shifts from this planner
+        // 3. Fetch existing ACTIVE shifts from this source
         const existingSnap = await getDocs(
           query(collection(db, 'shifts'), where('sourcePlannerId', '==', planner.id))
         );
         const allExistingShifts = existingSnap.docs.map(d => ({ id: d.id, ...d.data() } as Shift));
         const existingActiveShifts = allExistingShifts.filter(s => !isHistoricShift(s));
 
-        // 3. Reconcile parsed shifts (Silent Historic Skip handled in parser)
+        // 4. Reconcile
+        const toCreate: any[] = [];
+        const toUpdate: any[] = [];
+        const toSynced: any[] = [];
+        const matchedDocIds = new Set<string>();
+
         parseResult.shifts.forEach(incomingRaw => {
           const dateKey = formatDateKey(incomingRaw.date);
-          if (dateKey < todayKey) return; 
+          if (dateKey < todayKey) return; // Silent skip past
 
           const incoming = { 
             ...incomingRaw, 
@@ -203,7 +156,7 @@ export function FileUploader({
             importKey: buildImportKey({ ...incomingRaw, dateKey }, planner.id)
           };
 
-          // Try Primary Fingerprint Match
+          // Primary Match
           const match = existingActiveShifts.find(s => s.importKey === incoming.importKey);
           
           if (match) {
@@ -215,12 +168,12 @@ export function FileUploader({
               toSynced.push(match);
             }
           } else {
-            // Alias/Legacy Fallback
+            // Alias Fallback
             const legacyMatch = existingActiveShifts.find(s => 
                 !matchedDocIds.has(s.id) &&
-                normalizeText(s.userId || s.operativeUid) === normalizeText(incoming.operativeUid) &&
+                normaliseText(s.userId || s.operativeUid) === normaliseText(incoming.operativeUid) &&
                 (s.dateKey || formatDateKey(s.date)) === incoming.dateKey &&
-                normalizeText(s.sourceCell) === normalizeText(incoming.sourceCell)
+                normaliseText(s.sourceCell) === normaliseText(incoming.sourceCell)
             );
 
             if (legacyMatch) {
@@ -237,7 +190,7 @@ export function FileUploader({
           }
         });
 
-        // 4. Deletions (Only Future Active)
+        // Deletions (Only for active future shifts from this source)
         const toDelete = existingActiveShifts.filter(s => !matchedDocIds.has(s.id));
 
         onImportComplete({
@@ -245,7 +198,7 @@ export function FileUploader({
           toUpdate,
           toDelete,
           toSynced,
-          toIssues,
+          toIssues: parseResult.errors,
           profileId: planner.id,
           profileName: planner.name,
         });
@@ -284,7 +237,7 @@ export function FileUploader({
         {isProcessing ? (
           <div className="flex flex-col items-center gap-3">
             <Spinner size="lg" />
-            <p className="text-sm font-medium animate-pulse text-muted-foreground">Reconciling schedule...</p>
+            <p className="text-sm font-medium animate-pulse text-muted-foreground">Reconciling {title}...</p>
           </div>
         ) : (
           <>
@@ -293,7 +246,7 @@ export function FileUploader({
             </div>
             <h3 className="text-lg font-semibold">Upload {title}</h3>
             <p className="text-sm text-muted-foreground mb-4 text-center px-4">
-              Upload Excel file. Historic shifts are ignored. Future shifts are reconciled.
+              Excel file. Historic dates are ignored. Future shifts reconciled.
             </p>
             <input
               ref={fileInputRef}

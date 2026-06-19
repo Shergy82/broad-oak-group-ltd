@@ -1,7 +1,5 @@
-
 import ExcelJS from "exceljs";
 import { detectProfile } from "./importer/planner-detector";
-import { validateShifts } from "./importer/validation-engine";
 import { type UserMapEntry, type StandardShift, type ImportError } from "./importer/types";
 
 export interface UnifiedParseResult {
@@ -12,25 +10,20 @@ export interface UnifiedParseResult {
 }
 
 /**
- * Entry point for Excel parsing
+ * Entry point for Excel parsing.
+ * Uses isolated profiles to handle layout differences between departments.
  */
-export async function parseWorkbook(fileBuffer: Buffer, userMap: UserMapEntry[]): Promise<UnifiedParseResult> {
+export async function parseWorkbook(fileBuffer: Buffer, userMap: UserMapEntry[], department?: string): Promise<UnifiedParseResult> {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(fileBuffer);
 
-  const profile = detectProfile(workbook);
+  const profile = detectProfile(workbook, department);
   
-  // LOG: Starting parse for specific profile
-  const { shifts, errors: parseErrors } = await profile.parse(workbook, userMap);
-  
-  const validationErrors = validateShifts(shifts, userMap);
-  
-  // Sort errors by row so they make sense in the UI
-  const allErrors = [...parseErrors, ...validationErrors].sort((a, b) => (a.row || 0) - (b.row || 0));
+  const { shifts, errors } = await profile.parse(workbook, userMap);
   
   return {
     shifts,
-    errors: allErrors,
+    errors: errors.sort((a, b) => (a.row || 0) - (b.row || 0)),
     profileName: profile.name,
     profileId: profile.id
   };

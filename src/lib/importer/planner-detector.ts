@@ -1,27 +1,27 @@
 import ExcelJS from 'exceljs';
-import { BroadOakProfile } from './profiles/broad-oak';
-import { GenericProfile } from './profiles/generic';
-import { ConnexusProfile } from './profiles/connexus';
+import { GasProfile } from './profiles/gas-profile';
+import { BuildProfile } from './profiles/build-profile';
 import { type PlannerProfile } from './types';
 
 const PROFILES: PlannerProfile[] = [
-  new BroadOakProfile(),
-  new ConnexusProfile(),
-  new GenericProfile(),
+  new GasProfile(),
+  new BuildProfile()
 ];
 
-export function detectProfile(workbook: ExcelJS.Workbook): PlannerProfile {
+export function detectProfile(workbook: ExcelJS.Workbook, department?: string): PlannerProfile {
+  // 1. If department is provided (e.g. from UI context), prioritise that profile
+  if (department === 'Gas') return PROFILES[0];
+  if (department === 'Build') return PROFILES[1];
+
+  // 2. Otherwise, attempt auto-detection based on content
   for (const profile of PROFILES) {
     if (profile.detect(workbook)) {
       return profile;
     }
   }
-  // Default to Broad Oak during reset to ensure it picks up the file
-  return PROFILES[0];
-}
 
-export function getProfileById(id: string): PlannerProfile | undefined {
-  return PROFILES.find(p => p.id === id);
+  // 3. Fallback to Gas for safety (most established)
+  return PROFILES[0];
 }
 
 export function getAllProfiles(): PlannerProfile[] {
