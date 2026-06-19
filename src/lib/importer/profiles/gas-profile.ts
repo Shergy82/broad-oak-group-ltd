@@ -45,6 +45,10 @@ export class GasProfile implements PlannerProfile {
     const errors: ImportError[] = [];
     const todayKey = getTodayDateKey();
 
+    // Deduplication trackers
+    const processedCells = new Set<string>();
+    const seenShiftKeys = new Set<string>();
+
     const sheet = workbook.worksheets.find(s => s.state !== 'hidden' && this.isPlannerSheet(s)) || workbook.worksheets.find(s => s.state !== 'hidden');
 
     if (!sheet) {
@@ -130,12 +134,27 @@ export class GasProfile implements PlannerProfile {
 
         dateColumnMap.forEach(({ date, dateKey }, colNumber) => {
           const cell = row.getCell(colNumber);
-          const rawText = cell.value?.toString() || "";
+
+          // 1. MERGED CELL PROTECTION
+          // Only process the master cell of a merged range once per date.
+          const masterAddress = cell.isMerged && cell.master ? cell.master.address : cell.address;
+          if (cell.isMerged && cell.address !== masterAddress) {
+            return; // Skip non-master cells in a merged range
+          }
+
+          const processedKey = `${sheet.name}|${masterAddress}|${dateKey}`;
+          if (processedCells.has(processedKey)) {
+            return;
+          }
+          processedCells.add(processedKey);
+
+          const actualCell = cell.isMerged && cell.master ? cell.master : cell;
+          const rawText = actualCell.value?.toString() || "";
           const text = rawText.trim().replace(/\s+/g, ' ');
 
           if (!text) return;
-          if (dateKey < todayKey) return;
-          if (!text.includes("-")) return; 
+          if (dateKey < todayKey) return; // Silent skip historic
+          if (!text.includes("-")) return; // Admin note ignore
 
           const lastHyphenIndex = text.lastIndexOf("-");
           const taskPart = text.substring(0, lastHyphenIndex).trim();
@@ -163,7 +182,6 @@ export class GasProfile implements PlannerProfile {
           const matchedUser = findSafeUserMatch(namePart, userMap);
 
           if (!matchedUser) {
-            // Refined failure reason
             const norm = normaliseName(namePart);
             const parts = norm.split(" ").filter(Boolean);
             const exactMatches = userMap.filter(u => normaliseName(u.originalName) === norm);
@@ -185,6 +203,21 @@ export class GasProfile implements PlannerProfile {
             return;
           }
 
+          // 2. LOGICAL DEDUPLICATION
+          // Prevent identical shifts from being added if the same text is physically repeated
+          const localDuplicateKey = [
+            dateKey,
+            normaliseText(blockENumber),
+            normaliseText(blockAddress),
+            matchedUser.uid,
+            normaliseText(taskPart)
+          ].join('|');
+
+          if (seenShiftKeys.has(localDuplicateKey)) {
+            return;
+          }
+          seenShiftKeys.add(localDuplicateKey);
+
           shifts.push({
             date,
             dateKey,
@@ -199,7 +232,7 @@ export class GasProfile implements PlannerProfile {
             task: taskPart,
             descriptionOfWorks: text,
             type: this.detectType(taskPart),
-            sourceCell: context.cell,
+            sourceCell: context.cell, // Use current coordinate for UI feedback
             sourceSheet: sheet.name,
             sourcePlannerId: "",
             sourcePlannerName: "",
