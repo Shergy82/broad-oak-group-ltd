@@ -11,12 +11,6 @@ import JSZip from "jszip";
 import * as webPush from "web-push";
 
 /* =====================================================
-   CONSTANTS
-===================================================== */
-
-const REGION = "europe-west2";
-
-/* =====================================================
    BOOTSTRAP
 ===================================================== */
 
@@ -25,6 +19,7 @@ if (admin.apps.length === 0) {
 }
 
 const db = admin.firestore();
+const REGION = "europe-west2";
 
 /* =====================================================
    HELPERS
@@ -63,11 +58,12 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
         toUpdate = [], 
         toDelete = [], 
         department,
-        profileId
+        profileId,
+        profileName
     } = data;
 
     if (!department) throw new HttpsError('invalid-argument', 'Missing department.');
-    if (!profileId) throw new HttpsError('invalid-argument', 'Missing planner identity (profileId).');
+    if (!profileId) throw new HttpsError('invalid-argument', 'Missing planner identity.');
 
     const batch = db.batch();
     const shiftsRef = db.collection('shifts');
@@ -78,9 +74,9 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     const existingProjects = new Map();
     allProjectsSnap.forEach(d => existingProjects.set(normalizeText(d.data().address), d.ref));
 
-    const allIncoming = [...toCreate, ...toUpdate.map((u: any) => u.new)];
+    const allImportedShifts = [...toCreate, ...toUpdate.map((u: any) => u.new)];
     const uniqueIncomingSites = new Map();
-    allIncoming.forEach((s: any) => { if (s.address) uniqueIncomingSites.set(normalizeText(s.address), s); });
+    allImportedShifts.forEach((s: any) => { if (s.address) uniqueIncomingSites.set(normalizeText(s.address), s); });
 
     for (const [normAddr, info] of uniqueIncomingSites.entries()) {
         if (!existingProjects.has(normAddr)) {
@@ -101,48 +97,60 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
 
     // 2. Create Shifts
     toCreate.forEach((s: any) => {
-        if (!s.operativeUid) throw new HttpsError('invalid-argument', `Cannot create shift: operativeUid missing for ${s.operative}.`);
-        
         batch.set(shiftsRef.doc(), {
             userId: s.operativeUid, 
             userName: s.operative,
+            operativeUid: s.operativeUid,
             address: s.address,
             task: s.task,
             date: admin.firestore.Timestamp.fromDate(new Date(s.date)),
+            dateKey: s.dateKey,
             type: s.type || 'all-day',
             eNumber: s.eNumber || '',
             contract: s.contract || '',
             manager: s.manager || '',
             department: department,
-            status: 'pending', 
+            status: 'pending-confirmation', 
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             source: 'import',
-            sourcePlannerId: profileId,
-            importKey: s.importKey
+            sourcePlannerId: s.sourcePlannerId,
+            sourcePlannerName: s.sourcePlannerName,
+            plannerName: s.plannerName,
+            profileId: s.profileId,
+            importKey: s.importKey,
+            sourceSheet: s.sourceSheet || '',
+            sourceCell: s.sourceCell || '',
+            descriptionOfWorks: s.descriptionOfWorks || ''
         });
     });
 
-    // 3. Update Shifts
+    // 3. Update & Backfill Shifts
     toUpdate.forEach(({ id, new: n }: any) => {
-        if (!n.operativeUid) throw new HttpsError('invalid-argument', `Cannot update shift ${id}: missing operativeUid.`);
-        
         batch.update(shiftsRef.doc(id), {
             userId: n.operativeUid,
             userName: n.operative,
+            operativeUid: n.operativeUid,
             address: n.address,
             task: n.task,
             date: admin.firestore.Timestamp.fromDate(new Date(n.date)),
+            dateKey: n.dateKey,
             type: n.type || 'all-day',
             eNumber: n.eNumber || '',
             contract: n.contract || '',
             manager: n.manager || '',
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            sourcePlannerId: profileId,
-            importKey: n.importKey
+            sourcePlannerId: n.sourcePlannerId,
+            sourcePlannerName: n.sourcePlannerName,
+            plannerName: n.plannerName,
+            profileId: n.profileId,
+            importKey: n.importKey,
+            sourceSheet: n.sourceSheet || '',
+            sourceCell: n.sourceCell || '',
+            descriptionOfWorks: n.descriptionOfWorks || ''
         });
     });
 
-    // 4. Delete Shifts (Strictly scoped to profileId)
+    // 4. Delete Shifts
     toDelete.forEach((s: any) => { 
         if (s.id) {
             batch.delete(shiftsRef.doc(s.id)); 
@@ -152,7 +160,7 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     await batch.commit();
     return { 
         success: true,
-        message: `Schedule Sync Complete: ${toCreate.length} created, ${toUpdate.length} updated, ${toDelete.length} removed.`
+        message: `Schedule Sync Complete: ${toCreate.length} created, ${toUpdate.length} updated/backfilled, ${toDelete.length} removed.`
     };
 });
 
@@ -177,8 +185,9 @@ export const deleteUser = onCall({ region: REGION }, async (req) => {
 
 export const setUserStatus = onCall({ region: REGION }, async (req) => {
     const data = req.data as any;
-    await admin.auth().updateUser(data.uid, { disabled: data.disabled });
-    await db.collection('users').doc(data.uid).update({ status: data.newStatus, department: data.department || '' });
+    const { uid, disabled, newStatus, department } = data;
+    await admin.auth().updateUser(uid, { disabled: disabled });
+    await db.collection('users').doc(uid).update({ status: newStatus, department: department || '' });
     return { success: true };
 });
 
