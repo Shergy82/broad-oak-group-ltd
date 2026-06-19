@@ -137,7 +137,7 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             updatedAt: admin.firestore.FieldValue.serverTimestamp()
         };
 
-        logger.info("ACTIVE_SHIFT_IMPORT_WRITE_PAYLOAD (CREATE)", shiftPayload);
+        logger.info("SHIFT_IMPORT_WRITE_PAYLOAD (CREATE)", shiftPayload);
         batch.set(shiftsRef.doc(), shiftPayload);
     });
 
@@ -181,7 +181,7 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             updatedAt: admin.firestore.FieldValue.serverTimestamp()
         };
 
-        logger.info("ACTIVE_SHIFT_IMPORT_WRITE_PAYLOAD (UPDATE)", { id, ...shiftUpdatePayload });
+        logger.info("SHIFT_IMPORT_WRITE_PAYLOAD (UPDATE)", { id, ...shiftUpdatePayload });
         batch.update(shiftsRef.doc(id), shiftUpdatePayload);
     });
 
@@ -219,7 +219,7 @@ export const deleteUser = onCall({ region: REGION }, async (req) => {
 });
 
 export const setUserStatus = onCall({ region: REGION }, async (req) => {
-    const data = req.data as any;
+    data = req.data as any;
     const { uid, disabled, newStatus, department } = data;
     await admin.auth().updateUser(uid, { disabled: disabled });
     await db.collection('users').doc(uid).update({ status: newStatus, department: department || '' });

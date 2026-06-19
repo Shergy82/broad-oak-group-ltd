@@ -32,7 +32,7 @@ function normalizeText(val: any): string {
 function getPlannerInfo(filename: string) {
   const base = filename
     .replace(/\.[^/.]+$/, "") // remove extension
-    .replace(/\s*\(\d+\)$/, "") // remove desktop suffixes like (1)
+    .replace(/\s*\(\d+\)$/, "") // remove desktop suffixes
     .replace(/\s+copy\b/gi, "")
     .trim();
   
