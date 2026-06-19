@@ -61,69 +61,18 @@ function getDateKey(value: any): string {
 }
 
 /**
- * 🔒 BUSINESS FIELDS WHITELIST
- * These fields trigger a visible 'Update' in the UI.
- * Every field here must be explicitly saved in functions/src/index.ts
- */
-const BUSINESS_FIELDS = [
-  "userId", 
-  "dateKey", 
-  "type", 
-  "startTime", 
-  "endTime", 
-  "address", 
-  "contract", 
-  "eNumber", 
-  "task", 
-  "descriptionOfWorks", 
-  "manager", 
-  "room"
-];
-
-function getChangedBusinessFields(existing: any, incoming: any) {
-  const changes: { field: string; old: string; new: string }[] = [];
-  
-  BUSINESS_FIELDS.forEach(field => {
-    // Map incoming fields if they use different names
-    const incomingVal = (field === 'userId') ? (incoming.userId || incoming.operativeUid) : incoming[field];
-    
-    // Support legacy field names in Firestore for comparison
-    let existingVal = existing[field];
-    if (field === 'dateKey' && !existing.dateKey) {
-        existingVal = getDateKey(existing.date);
-    }
-    if (field === 'userId' && !existing.userId) {
-        existingVal = existing.userId || existing.operativeUid;
-    }
-
-    const v1 = normalizeText(existingVal);
-    const v2 = normalizeText(incomingVal);
-
-    if (v1 !== v2) {
-      changes.push({ 
-        field, 
-        old: String(existingVal || "(blank)"), 
-        new: String((field === 'userId' ? incoming.operative : (incomingVal || "(blank)"))) 
-      });
-    }
-  });
-
-  return changes;
-}
-
-/**
- * 🔒 STRONG IDENTITY KEY
- * uniquely identifies a specific job row across file versions.
+ * 🔒 IDENTITY FIELDS (Key Generation)
+ * These fields define the "Identity" of the planner row.
+ * If these change, it is a different shift (Delete/Create).
  */
 function buildImportKey(shift: any, sourcePlannerId: string): string {
   const parts = [
-    sourcePlannerId, 
+    sourcePlannerId,
     shift.operativeUid || shift.userId,
     shift.dateKey || getDateKey(shift.date),
     shift.type || 'all-day',
-    shift.address || "",
-    shift.task || "",
-    shift.contract || "",
+    shift.startTime || "",
+    shift.endTime || "",
     shift.eNumber || "",
     shift.sourceSheet || "",
     shift.sourceCell || ""
@@ -132,7 +81,45 @@ function buildImportKey(shift: any, sourcePlannerId: string): string {
 }
 
 /**
+ * 🔒 BUSINESS FIELDS (Update Detection)
+ * These fields define the "Details" of the shift.
+ * If these change, it is an Update (PATCH).
+ */
+const BUSINESS_FIELDS = [
+  "address",
+  "contract",
+  "manager",
+  "task",
+  "descriptionOfWorks",
+  "room",
+  "eNumber",
+  "type",
+  "startTime",
+  "endTime"
+];
+
+function getChangedBusinessFields(existing: any, incoming: any) {
+  const changes: { field: string; old: string; new: string }[] = [];
+  
+  BUSINESS_FIELDS.forEach(field => {
+    const v1 = normalizeText(existing[field]);
+    const v2 = normalizeText(incoming[field]);
+
+    if (v1 !== v2) {
+      changes.push({ 
+        field, 
+        old: String(existing[field] || "(blank)"), 
+        new: String(incoming[field] || "(blank)") 
+      });
+    }
+  });
+
+  return changes;
+}
+
+/**
  * 🔒 LEGACY FALLBACK MATCHING
+ * Matches old shifts that don't have the new identity keys yet.
  */
 function isLegacyMatch(incoming: any, existing: any): boolean {
   const existingDateKey = existing.dateKey || getDateKey(existing.date);

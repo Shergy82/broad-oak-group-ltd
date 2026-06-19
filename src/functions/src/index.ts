@@ -98,11 +98,11 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     // 2. Create Shifts
     toCreate.forEach((s: any) => {
         batch.set(shiftsRef.doc(), {
-            userId: s.operativeUid, 
+            userId: s.operativeUid || s.userId, 
             userName: s.operative,
-            operativeUid: s.operativeUid,
-            address: s.address,
-            task: s.task,
+            operativeUid: s.operativeUid || s.userId,
+            address: s.address || "",
+            task: s.task || "",
             date: admin.firestore.Timestamp.fromDate(new Date(s.date)),
             dateKey: s.dateKey,
             type: s.type || 'all-day',
@@ -115,10 +115,10 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             status: 'pending-confirmation', 
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             source: 'import',
-            sourcePlannerId: s.sourcePlannerId,
-            sourcePlannerName: s.sourcePlannerName,
-            plannerName: s.plannerName,
-            profileId: s.profileId,
+            sourcePlannerId: s.sourcePlannerId || profileId,
+            sourcePlannerName: s.sourcePlannerName || profileName,
+            plannerName: s.plannerName || profileName,
+            profileId: s.profileId || profileId,
             importKey: s.importKey,
             sourceSheet: s.sourceSheet || '',
             sourceCell: s.sourceCell || '',
@@ -129,13 +129,13 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
 
     // 3. Update & Backfill Shifts
     toUpdate.forEach(({ id, new: n }: any) => {
-        // 🔒 MANDATORY WRITE: Ensure all fields compared by dry-run are actually updated in DB
+        // 🔒 MANDATORY WRITE: Ensure standalone descriptionOfWorks and room are saved to stop update loop
         batch.update(shiftsRef.doc(id), {
-            userId: n.operativeUid,
+            userId: n.operativeUid || n.userId,
             userName: n.operative,
-            operativeUid: n.operativeUid,
-            address: n.address,
-            task: n.task,
+            operativeUid: n.operativeUid || n.userId,
+            address: n.address || "",
+            task: n.task || "",
             date: admin.firestore.Timestamp.fromDate(new Date(n.date)),
             dateKey: n.dateKey,
             type: n.type || 'all-day',
@@ -145,10 +145,10 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             contract: n.contract || '',
             manager: n.manager || '',
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            sourcePlannerId: n.sourcePlannerId,
-            sourcePlannerName: n.sourcePlannerName,
-            plannerName: n.plannerName,
-            profileId: n.profileId,
+            sourcePlannerId: n.sourcePlannerId || profileId,
+            sourcePlannerName: n.sourcePlannerName || profileName,
+            plannerName: n.plannerName || profileName,
+            profileId: n.profileId || profileId,
             importKey: n.importKey,
             sourceSheet: n.sourceSheet || '',
             sourceCell: n.sourceCell || '',
