@@ -29,7 +29,8 @@ export class GasProfile implements PlannerProfile {
     return workbook.worksheets.some(sheet => {
         if (sheet.state === 'hidden') return false;
         let found = false;
-        for (let r = 1; r <= 30; r++) {
+        // Scan deeper to find the planner signature in large files
+        for (let r = 1; r <= 500; r++) {
             const rowText = sheet.getRow(r).values?.toString().toUpperCase() || '';
             if (rowText.includes('SITE MANAGER') || rowText.includes('DIVIDING LINE')) {
                 found = true;
@@ -59,7 +60,8 @@ export class GasProfile implements PlannerProfile {
     const dateColumnMap = new Map<number, { date: Date, dateKey: string }>();
     let dateRowIndex = -1;
 
-    for (let r = 1; r <= 40; r++) {
+    // Scan deeply for the date header row
+    for (let r = 1; r <= 1000; r++) {
         const row = sheet.getRow(r);
         let datesInRow = 0;
         const tempMap = new Map<number, { date: Date, dateKey: string }>();
@@ -75,6 +77,7 @@ export class GasProfile implements PlannerProfile {
             }
         });
 
+        // Use the row that contains the most dates as our header
         if (datesInRow > (dateColumnMap.size || 0)) {
             dateRowIndex = r;
             dateColumnMap.clear();
@@ -87,6 +90,7 @@ export class GasProfile implements PlannerProfile {
         return { shifts, errors };
     }
 
+    // Find all block dividers in the sheet
     const dividerRows: number[] = [];
     sheet.eachRow((row, rowNumber) => {
       const rowText = row.values ? row.values.toString().toUpperCase() : '';
@@ -100,6 +104,7 @@ export class GasProfile implements PlannerProfile {
     for (let i = 0; i < dividerRows.length; i++) {
       const startRow = dividerRows[i];
       const nextDividerRow = dividerRows[i + 1];
+      // Use inclusive end row logic
       const endRow = nextDividerRow ? nextDividerRow - 1 : sheet.rowCount;
 
       let blockAddress = "";
@@ -107,6 +112,7 @@ export class GasProfile implements PlannerProfile {
       let blockManager = "";
       let blockScheme = "";
 
+      // Extract metadata for the site block (first 10 rows of the block usually contain info)
       for (let r = startRow; r <= Math.min(startRow + 10, endRow); r++) {
         const row = sheet.getRow(r);
         const colA = row.getCell(1).value?.toString().trim();
@@ -129,6 +135,7 @@ export class GasProfile implements PlannerProfile {
         }
       }
 
+      // Scan every row in the block (inclusive)
       for (let r = startRow; r <= endRow; r++) {
         const row = sheet.getRow(r);
 
@@ -152,9 +159,14 @@ export class GasProfile implements PlannerProfile {
           const rawText = actualCell.value?.toString() || "";
           const text = rawText.trim().replace(/\s+/g, ' ');
 
+          // Silently skip blanks and historic dates
           if (!text) return;
-          if (dateKey < todayKey) return; // Silent skip historic
-          if (!text.includes("-")) return; // Admin note ignore
+          if (dateKey < todayKey) return;
+
+          const hasSeparator = text.includes("-");
+
+          // ADMIN NOTE IGNORE: No hyphen means it's not a shift attempt
+          if (!hasSeparator) return;
 
           const lastHyphenIndex = text.lastIndexOf("-");
           const taskPart = text.substring(0, lastHyphenIndex).trim();
@@ -170,6 +182,7 @@ export class GasProfile implements PlannerProfile {
             task: taskPart
           };
 
+          // Validation issues for hyphenated shift attempts
           if (!taskPart && namePart) {
             errors.push({ ...context, message: "Missing task/description", severity: 'error', code: 'VAL_ERROR', operative: namePart });
             return;
@@ -204,7 +217,7 @@ export class GasProfile implements PlannerProfile {
           }
 
           // 2. LOGICAL DEDUPLICATION
-          // Prevent identical shifts from being added if the same text is physically repeated
+          // Prevent identical shifts from being added twice
           const localDuplicateKey = [
             dateKey,
             normaliseText(blockENumber),
@@ -232,7 +245,7 @@ export class GasProfile implements PlannerProfile {
             task: taskPart,
             descriptionOfWorks: text,
             type: this.detectType(taskPart),
-            sourceCell: context.cell, // Use current coordinate for UI feedback
+            sourceCell: context.cell,
             sourceSheet: sheet.name,
             sourcePlannerId: "",
             sourcePlannerName: "",
@@ -250,7 +263,7 @@ export class GasProfile implements PlannerProfile {
   }
 
   private isPlannerSheet(sheet: ExcelJS.Worksheet): boolean {
-    for (let i = 1; i <= 20; i++) {
+    for (let i = 1; i <= 500; i++) {
         const rowText = sheet.getRow(i).values?.toString().toUpperCase() || '';
         if (rowText.includes('SITE MANAGER')) return true;
     }
