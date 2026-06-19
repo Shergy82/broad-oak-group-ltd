@@ -47,6 +47,12 @@ function getTodayDateKey(): string {
   return formatDateKey(new Date());
 }
 
+function isHistoricShift(shift: any): boolean {
+  const key = shift?.dateKey || formatDateKey(shift?.date);
+  if (!key) return false;
+  return key < getTodayDateKey();
+}
+
 const normalizeText = (text: string | null | undefined): string => {
   if (!text) return "";
   return String(text)
@@ -84,14 +90,18 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     const shiftsRef = db.collection('shifts');
     const projectsRef = db.collection('projects');
 
-    // 1. Sync Projects
+    // 1. Sync Projects (Silently skip historic sites)
     const allProjectsSnap = await projectsRef.where('department', '==', department).get();
     const existingProjects = new Map();
     allProjectsSnap.forEach(d => existingProjects.set(normalizeText(d.data().address), d.ref));
 
     const allImportedShifts = [...toCreate, ...toUpdate.map((u: any) => u.new)];
     const uniqueIncomingSites = new Map();
-    allImportedShifts.forEach((s: any) => { if (s.address) uniqueIncomingSites.set(normalizeText(s.address), s); });
+    allImportedShifts.forEach((s: any) => { 
+        if (s.address && !isHistoricShift(s)) {
+            uniqueIncomingSites.set(normalizeText(s.address), s); 
+        }
+    });
 
     for (const [normAddr, info] of uniqueIncomingSites.entries()) {
         if (!existingProjects.has(normAddr)) {
@@ -110,13 +120,12 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
         }
     }
 
-    // 2. Create Shifts
+    // 2. Create Shifts (Silent Historic Skip)
     toCreate.forEach((s: any) => {
+        if (isHistoricShift(s)) return;
+
         const dateKey = s.dateKey || formatDateKey(s.date);
         
-        // 🔒 SILENT HISTORIC SKIP
-        if (dateKey < todayKey) return;
-
         const shiftPayload = {
             address: s.address || "",
             contract: s.contract || "",
@@ -161,12 +170,11 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
         batch.set(shiftsRef.doc(), shiftPayload);
     });
 
-    // 3. Update Shifts
+    // 3. Update Shifts (Silent Historic Skip)
     toUpdate.forEach(({ id, new: n }: any) => {
-        const dateKey = n.dateKey || formatDateKey(n.date);
+        if (isHistoricShift(n)) return;
 
-        // 🔒 SILENT HISTORIC SKIP
-        if (dateKey < todayKey) return;
+        const dateKey = n.dateKey || formatDateKey(n.date);
 
         const shiftUpdatePayload = {
             address: n.address || "",
@@ -210,13 +218,9 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
         batch.update(shiftsRef.doc(id), shiftUpdatePayload);
     });
 
-    // 4. Delete Shifts
+    // 4. Delete Shifts (Silent Historic Skip Safety)
     toDelete.forEach((s: any) => { 
-        if (s.id) {
-            // 🔒 SILENT HISTORIC SKIP (SAFETY)
-            const dateKey = s.dateKey || formatDateKey(s.date);
-            if (dateKey < todayKey) return;
-
+        if (s.id && !isHistoricShift(s)) {
             batch.delete(shiftsRef.doc(s.id)); 
         }
     });

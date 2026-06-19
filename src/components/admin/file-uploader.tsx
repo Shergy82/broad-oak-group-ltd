@@ -26,7 +26,6 @@ function normalizeText(val: any): string {
 
 /**
  * Normalizes planner filename to a stable source ID.
- * Strips desktop suffixes like (1), (2) and extensions.
  */
 function getPlannerInfo(filename: string) {
   const base = filename
@@ -41,9 +40,6 @@ function getPlannerInfo(filename: string) {
   return { id, name };
 }
 
-/**
- * Generates YYYY-MM-DD from any date source.
- */
 function formatDateKey(value: any): string {
   if (!value) return "";
   const d = value instanceof Date ? value : value?.toDate ? value.toDate() : new Date(value);
@@ -83,7 +79,7 @@ function buildImportKey(shift: any, sourcePlannerId: string): string {
 }
 
 /**
- * 🔒 BUSINESS COMPARISON (WHAT CAN BE UPDATED)
+ * 🔒 BUSINESS COMPARISON ENGINE
  */
 const BUSINESS_FIELDS = [
   "operativeUid",
@@ -113,12 +109,12 @@ function getChangedBusinessFields(existing: any, incoming: any) {
     const newVal = normalizeText(incoming[field]);
     let currentVal = normalizeText(existing[field]);
 
-    // Handle missing field vs alias equality
-    if (field === 'operativeUid' && !existing.operativeUid && existing.userId) currentVal = normalizeText(existing.userId);
-    if (field === 'operative' && !existing.operative && existing.userName) currentVal = normalizeText(existing.userName);
-    if (field === 'userId' && !existing.userId && existing.operativeUid) currentVal = normalizeText(existing.operativeUid);
-    if (field === 'userName' && !existing.userName && existing.operative) currentVal = normalizeText(existing.operative);
-    if (field === 'dateKey' && !existing.dateKey && existing.date) currentVal = formatDateKey(existing.date);
+    // Alias Handling
+    if (field === 'operativeUid' && !existing.operativeUid) currentVal = normalizeText(existing.userId);
+    if (field === 'operative' && !existing.operative) currentVal = normalizeText(existing.userName);
+    if (field === 'userId' && !existing.userId) currentVal = normalizeText(existing.operativeUid);
+    if (field === 'userName' && !existing.userName) currentVal = normalizeText(existing.operative);
+    if (field === 'dateKey' && !existing.dateKey) currentVal = formatDateKey(existing.date);
 
     if (currentVal !== newVal) {
       changes.push({ 
@@ -181,23 +177,20 @@ export function FileUploader({
         const toIssues: any[] = [];
         const matchedDocIds = new Set<string>();
 
-        // 1. SILENT FILTER HISTORIC ISSUES
+        // 1. Silent skip historic issues
         parseResult.errors.forEach(err => {
-            const errDateKey = err.dateKey || "";
-            if (errDateKey && errDateKey < todayKey) return; 
+            if (err.dateKey && err.dateKey < todayKey) return; 
             toIssues.push(err);
         });
 
-        // 2. FETCH EXISTING SHIFTS FOR THIS PLANNER
+        // 2. Fetch existing active shifts
         const existingSnap = await getDocs(
           query(collection(db, 'shifts'), where('sourcePlannerId', '==', planner.id))
         );
         const allExistingShifts = existingSnap.docs.map(d => ({ id: d.id, ...d.data() } as Shift));
-
-        // 3. SILENT FILTER HISTORIC EXISTING SHIFTS
         const existingActiveShifts = allExistingShifts.filter(s => !isHistoricShift(s));
 
-        // 4. PROCESS PARSED SHIFTS
+        // 3. Process parsed shifts
         parseResult.shifts.forEach(incomingRaw => {
           const dateKey = formatDateKey(incomingRaw.date);
           
@@ -226,7 +219,7 @@ export function FileUploader({
               toSynced.push(match);
             }
           } else {
-            // Legacy fallback
+            // Legacy/Alias Fallback
             const legacyMatch = existingActiveShifts.find(s => 
                 !matchedDocIds.has(s.id) &&
                 normalizeText(s.userId || s.operativeUid) === normalizeText(incoming.operativeUid) &&
@@ -248,7 +241,7 @@ export function FileUploader({
           }
         });
 
-        // 5. DELETIONS (Only from active/future shifts)
+        // 4. Deletions (Active/Future only)
         const toDelete = existingActiveShifts.filter(s => !matchedDocIds.has(s.id));
 
         onImportComplete({
@@ -325,3 +318,4 @@ export function FileUploader({
     </div>
   );
 }
+

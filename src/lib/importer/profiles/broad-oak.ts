@@ -1,5 +1,20 @@
+'use client';
 import ExcelJS from 'exceljs';
 import { type PlannerProfile, type StandardShift, type ImportError, type UserMapEntry } from '../types';
+
+/**
+ * Known first-name aliases to help match operatives safely.
+ */
+const FIRST_NAME_ALIASES: Record<string, string[]> = {
+  philip: ["phil", "phillip", "philip"],
+  stephen: ["steve", "steven", "stephen"],
+  michael: ["mike", "mick", "michael"],
+  david: ["dave", "david"],
+  robert: ["rob", "bob", "robert"],
+  james: ["jim", "jamie", "james"],
+  william: ["will", "bill", "billy", "william"],
+  thomas: ["tom", "tommy", "thomas"],
+};
 
 /**
  * Broad Oak Gas & Build Planner Profile
@@ -7,7 +22,7 @@ import { type PlannerProfile, type StandardShift, type ImportError, type UserMap
 export class BroadOakProfile implements PlannerProfile {
   id = 'broad-oak';
   name = 'Gas/Build Planner';
-  description = 'Hierarchical extraction: Identifies property address from the last cell in Column A within a project section.';
+  description = 'Hierarchical extraction with safe user matching and silent historic skipping.';
 
   private eNumberRegex = /\b[BE]\d{5,}\b/i;
 
@@ -92,6 +107,7 @@ export class BroadOakProfile implements PlannerProfile {
       let blockManager = "";
       let blockScheme = "";
 
+      // Extraction of section context
       for (let r = startRow; r <= endRow; r++) {
         const row = sheet.getRow(r);
         const colA = row.getCell(1).value?.toString().trim();
@@ -115,6 +131,7 @@ export class BroadOakProfile implements PlannerProfile {
         }
       }
 
+      // Extraction of shifts within section
       for (let r = startRow; r <= endRow; r++) {
         const row = sheet.getRow(r);
 
@@ -139,16 +156,17 @@ export class BroadOakProfile implements PlannerProfile {
               address: blockAddress || "Unknown Address"
           };
 
-          const match = this.extractOperativeAndTask(rawText, userMap);
+          const match = this.extractOperativeAndTaskSafely(rawText, userMap);
           
           if (match.error) {
               errors.push({
                   ...context,
                   message: match.error,
-                  severity: 'error',
-                  code: 'PARSE_ERROR',
+                  severity: match.isVague || match.isAmbiguous ? 'warning' : 'error',
+                  code: 'MATCH_ERROR',
                   task: match.task || rawText,
-                  operative: match.operative || "—"
+                  operative: match.operative || "—",
+                  address: blockAddress
               });
               return;
           }
@@ -192,37 +210,115 @@ export class BroadOakProfile implements PlannerProfile {
     return false;
   }
 
-  private extractOperativeAndTask(text: string, userMap: UserMapEntry[]) {
+  /**
+   * Safe matching logic implementation.
+   */
+  private extractOperativeAndTaskSafely(text: string, userMap: UserMapEntry[]) {
+    // 1. Initial cleanup (collapse lines and spaces)
     const normalized = text.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
     const lastHyphenIndex = normalized.lastIndexOf('-');
     
     if (lastHyphenIndex === -1) {
-       return { error: "Missing operative / missing separator", rawText: normalized };
+       return { error: "Missing operative / missing separator", task: normalized };
     }
 
     const taskPart = normalized.substring(0, lastHyphenIndex).trim();
     const namePart = normalized.substring(lastHyphenIndex + 1).trim();
 
-    if (!taskPart) return { error: "Missing task/description", rawText: normalized };
-    if (!namePart) return { error: "Missing operative after separator", rawText: normalized };
+    if (!taskPart) return { error: "Missing task/description", operative: namePart };
+    if (!namePart) return { error: "Missing operative after separator", task: taskPart };
 
-    const searchName = namePart.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const matchedUser = userMap.find(u => u.normalizedName === searchName);
+    // 2. Matching Logic
+    const normPlanner = this.normaliseName(namePart);
+    const plannerParts = normPlanner.split(" ");
     
-    if (!matchedUser) {
-      return { 
-        error: `Operative not recognized: ${namePart}`, 
-        task: taskPart, 
-        operative: namePart, 
-        rawText: normalized 
-      };
+    // Safety: reject first-name only entries
+    if (plannerParts.length < 2) {
+      return { error: `Operative name too vague: ${namePart}`, isVague: true, task: taskPart, operative: namePart };
     }
 
-    return { 
-      user: matchedUser, 
-      task: taskPart, 
-      type: this.detectType(taskPart) 
-    };
+    const plannerFirst = plannerParts[0];
+    const plannerLast = plannerParts.slice(1).join(" ");
+    const plannerInitial = plannerFirst[0];
+
+    const candidates: UserMapEntry[] = [];
+
+    for (const user of userMap) {
+      const normUser = this.normaliseName(user.originalName);
+      const userParts = normUser.split(" ");
+      if (userParts.length < 2) continue;
+      
+      const userFirst = userParts[0];
+      const userLast = userParts.slice(1).join(" ");
+
+      // A. Exact match
+      if (normUser === normPlanner) {
+        return { user, task: taskPart, type: this.detectType(taskPart) };
+      }
+
+      // B. Nickname match
+      if (this.isSameNameGroup(plannerFirst, userFirst) && plannerLast === userLast) {
+        candidates.push(user);
+        continue;
+      }
+
+      // C. First Initial + Surname
+      if (plannerFirst.length === 1 && plannerFirst === userFirst[0] && plannerLast === userLast) {
+        candidates.push(user);
+        continue;
+      }
+
+      // D. Fuzzy match
+      const dist = this.getLevenshteinDistance(normUser, normPlanner);
+      const surnameDist = this.getLevenshteinDistance(userLast, plannerLast);
+      if (dist <= 2 && surnameDist <= 1) {
+        candidates.push(user);
+        continue;
+      }
+    }
+
+    const uniqueCandidates = Array.from(new Map(candidates.map(u => [u.uid, u])).values());
+
+    if (uniqueCandidates.length === 1) {
+      return { user: uniqueCandidates[0], task: taskPart, type: this.detectType(taskPart) };
+    }
+
+    if (uniqueCandidates.length > 1) {
+      return { error: `Multiple possible users matched: ${namePart}`, isAmbiguous: true, task: taskPart, operative: namePart };
+    }
+
+    return { error: `Operative not recognised: ${namePart}`, task: taskPart, operative: namePart };
+  }
+
+  private normaliseName(value: string): string {
+    return String(value || "")
+      .toLowerCase()
+      .trim()
+      .replace(/[^\w\s]/g, "")
+      .replace(/\s+/g, " ");
+  }
+
+  private isSameNameGroup(name1: string, name2: string): boolean {
+    if (name1 === name2) return true;
+    for (const aliases of Object.values(FIRST_NAME_ALIASES)) {
+      if (aliases.includes(name1) && aliases.includes(name2)) return true;
+    }
+    return false;
+  }
+
+  private getLevenshteinDistance(a: string, b: string): number {
+    const matrix = Array.from({ length: a.length + 1 }, () =>
+      Array.from({ length: b.length + 1 }, () => 0)
+    );
+    for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
+    for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
+    for (let i = 1; i <= a.length; i++) {
+      for (let j = 1; j <= b.length; j++) {
+        if (a[i - 1] === b[j - 1]) matrix[i][j] = matrix[i - 1][j - 1];
+        else matrix[i][j] = Math.min(matrix[i - 1][j - 1], matrix[i][j - 1], matrix[i - 1][j]) + 1;
+      }
+    }
+    return matrix[a.length][b.length];
   }
 
   private detectType(task: string): 'am' | 'pm' | 'all-day' {
@@ -259,7 +355,7 @@ export class BroadOakProfile implements PlannerProfile {
     const y = d.getUTCFullYear();
     const m = String(d.getUTCMonth() + 1).padStart(2, '0');
     const day = String(d.getUTCDate()).padStart(2, '0');
-    return `${yyyy}-${m}-${day}`;
+    return `${y}-${m}-${day}`;
   }
 
   private getTodayDateKey(): string {
