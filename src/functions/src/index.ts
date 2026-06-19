@@ -68,14 +68,6 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     const shiftsRef = db.collection('shifts');
     const projectsRef = db.collection('projects');
 
-    const getShiftDateKey = (value: any) => {
-        let d: Date;
-        if (value instanceof Date) d = value;
-        else if (typeof value?.toDate === 'function') d = value.toDate();
-        else d = new Date(value);
-        return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
-    };
-
     // 1. Sync Projects
     const allProjectsSnap = await projectsRef.where('department', '==', department).get();
     const existingProjects = new Map();
@@ -113,7 +105,7 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             address: s.address,
             task: s.task,
             date: admin.firestore.Timestamp.fromDate(new Date(s.date)),
-            dateKey: s.dateKey || getShiftDateKey(s.date),
+            dateKey: s.dateKey,
             type: s.type || 'all-day',
             eNumber: s.eNumber || '',
             contract: s.contract || '',
@@ -122,10 +114,10 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             status: 'pending-confirmation', 
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             source: 'import',
-            sourcePlannerId: profileId,
+            sourcePlannerId: s.sourcePlannerId || profileId,
             sourcePlannerName: s.sourcePlannerName || profileId,
-            plannerName: s.sourcePlannerName || profileId, // alias
-            profileId: profileId,                          // alias
+            plannerName: s.sourcePlannerName || profileId,
+            profileId: s.sourcePlannerId || profileId,
             importKey: s.importKey,
             sourceSheet: s.sourceSheet || '',
             sourceCell: s.sourceCell || '',
@@ -142,16 +134,16 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             address: n.address,
             task: n.task,
             date: admin.firestore.Timestamp.fromDate(new Date(n.date)),
-            dateKey: n.dateKey || getShiftDateKey(n.date),
+            dateKey: n.dateKey,
             type: n.type || 'all-day',
             eNumber: n.eNumber || '',
             contract: n.contract || '',
             manager: n.manager || '',
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            sourcePlannerId: profileId,
+            sourcePlannerId: n.sourcePlannerId || profileId,
             sourcePlannerName: n.sourcePlannerName || profileId,
-            plannerName: n.sourcePlannerName || profileId, // alias
-            profileId: profileId,                          // alias
+            plannerName: n.sourcePlannerName || profileId,
+            profileId: n.sourcePlannerId || profileId,
             importKey: n.importKey,
             sourceSheet: n.sourceSheet || '',
             sourceCell: n.sourceCell || '',

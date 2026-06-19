@@ -16,6 +16,7 @@ export interface Shift {
   id: string;
   userId: string;
   userName?: string;
+  operativeUid?: string; // Standardised UID field
   date: Timestamp;
   dateKey: string; // YYYY-MM-DD
   type: 'am' | 'pm' | 'all-day';
@@ -32,12 +33,12 @@ export interface Shift {
   startTime?: string;
   endTime?: string;
   
-  // Sync Metadata
+  // Sync Metadata (Mandatory for reconciliation)
   source: 'manual' | 'import';
   sourcePlannerId: string;
   sourcePlannerName: string;
-  plannerName: string; // Legacy field alias
-  profileId: string;   // Legacy field alias
+  plannerName: string; // Legacy alias for display
+  profileId: string;   // Legacy alias for compatibility
   importKey: string;
   sourceSheet?: string;
   sourceCell?: string;
