@@ -24,6 +24,12 @@ export interface StandardShift {
   department?: string;
   sourceCell: string;
   sourceSheet: string;
+  sourcePlannerId: string;
+  sourcePlannerName: string;
+  plannerName: string;
+  profileId: string;
+  importKey: string;
+  dateKey: string;
 }
 
 export interface ImportError {
@@ -34,6 +40,11 @@ export interface ImportError {
   severity: 'error' | 'warning' | 'info' | 'debug';
   code: string;
   rawValues?: any;
+  // Context for UI display
+  operative?: string;
+  date?: string;
+  address?: string;
+  task?: string;
 }
 
 export interface PlannerProfile {

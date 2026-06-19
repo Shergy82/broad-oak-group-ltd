@@ -10,7 +10,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { UploadCloud, FileWarning } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { parseWorkbook } from '@/lib/exceljs-parser';
-import { type UserMapEntry } from '@/lib/importer/types';
+import { type UserMapEntry, type StandardShift, type ImportError } from '@/lib/importer/types';
 import type { Shift } from '@/types';
 import { Label } from '../ui/label';
 
@@ -62,7 +62,6 @@ function getDateKey(value: any): string {
 /**
  * 🔒 STABLE IDENTITY KEY
  * Defines the "Identity" of the planner row.
- * Excludes work details like address/task so they can be UPDATED without recreation.
  */
 function buildImportKey(shift: any, sourcePlannerId: string): string {
   const parts = [
@@ -85,6 +84,8 @@ function buildImportKey(shift: any, sourcePlannerId: string): string {
  */
 const BUSINESS_FIELDS = [
   "operativeUid",
+  "userId",
+  "userName",
   "operative",
   "dateKey",
   "type",
@@ -99,7 +100,6 @@ const BUSINESS_FIELDS = [
   "room"
 ];
 
-// Mapping of new field names to old field names for alias matching
 const FIELD_ALIASES: Record<string, string> = {
   "operativeUid": "userId",
   "operative": "userName",
@@ -110,14 +110,19 @@ function getChangedBusinessFields(existing: any, incoming: any) {
   
   BUSINESS_FIELDS.forEach(field => {
     const newVal = normalizeText(incoming[field]);
-    
-    // Smart match: check the field itself, then any alias
     let currentVal = normalizeText(existing[field]);
+
+    // Check alias if primary field is blank in existing doc
     if (!currentVal && FIELD_ALIASES[field]) {
       currentVal = normalizeText(existing[FIELD_ALIASES[field]]);
     }
     
-    // Special date handling
+    // Cross-check: If we are comparing userId/userName, check the new equivalents too
+    if (field === 'userId' || field === 'userName') {
+        const primaryEquiv = field === 'userId' ? 'operativeUid' : 'operative';
+        if (!currentVal) currentVal = normalizeText(existing[primaryEquiv]);
+    }
+
     if (field === 'dateKey' && !currentVal && existing.date) {
       currentVal = getDateKey(existing.date);
     }
@@ -134,9 +139,6 @@ function getChangedBusinessFields(existing: any, incoming: any) {
   return changes;
 }
 
-/**
- * Checks if a document is missing standardized fields that need backfilling.
- */
 function needsBackfill(existing: any): boolean {
   return (
     !existing.sourcePlannerId ||
@@ -148,10 +150,6 @@ function needsBackfill(existing: any): boolean {
   );
 }
 
-/**
- * 🔒 LEGACY FALLBACK MATCHING
- * Matches old shifts that don't have the new identity keys yet.
- */
 function isLegacyMatch(incoming: any, existing: any): boolean {
   const existingDateKey = existing.dateKey || getDateKey(existing.date);
   const incomingDateKey = incoming.dateKey || getDateKey(incoming.date);
@@ -231,13 +229,11 @@ export function FileUploader({
           };
         });
 
-        // 🔒 SCOPED FETCH: Only check existing shifts from the SAME planner source
         const existingSnap = await getDocs(
           query(collection(db, 'shifts'), where('sourcePlannerId', '==', planner.id))
         );
         const existingShifts = existingSnap.docs.map(d => ({ id: d.id, ...d.data() } as Shift));
 
-        // 🔒 LEGACY FETCH: For shifts that don't have sourcePlannerId yet
         const legacySnap = await getDocs(
           query(collection(db, 'shifts'), 
             where('department', '==', department), 
@@ -254,12 +250,10 @@ export function FileUploader({
         const matchedDocIds = new Set<string>();
 
         incomingShifts.forEach(incoming => {
-          if (parseResult.errors.some(err => err.row === incoming.sourceCell && err.severity === 'error')) return;
+          // 🔒 Skip rows that have critical parsing errors
+          if (parseResult.errors.some(err => err.cell === incoming.sourceCell && err.severity === 'error')) return;
 
-          // 1. Try Direct Key Match
           let match = existingShifts.find(s => s.importKey === incoming.importKey);
-          
-          // 2. Try Legacy Fallback
           if (!match) {
             match = legacyCandidates.find(s => !matchedDocIds.has(s.id) && isLegacyMatch(incoming, s));
           }
@@ -269,11 +263,9 @@ export function FileUploader({
           } else {
             matchedDocIds.add(match.id);
             const changes = getChangedBusinessFields(match, incoming);
-            
             if (changes.length > 0) {
               toUpdate.push({ id: match.id, old: match, new: incoming, changes });
             } else {
-              // Categorize as Synced, but backfill metadata silently during publish if needed
               toSynced.push({ ...match, _isBackfill: needsBackfill(match), _newMetadata: incoming });
             }
           }

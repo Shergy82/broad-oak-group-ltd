@@ -32,6 +32,50 @@ interface ShiftImporterProps {
   userProfile: UserProfile;
 }
 
+/**
+ * 🔒 HUMAN-FRIENDLY FIELD LABELS
+ */
+const fieldLabels: Record<string, string> = {
+  operativeUid: "Assigned operative",
+  userId: "User ID",
+  userName: "User Name",
+  operative: "Operative Name",
+  dateKey: "Date",
+  type: "Shift Type",
+  startTime: "Start Time",
+  endTime: "End Time",
+  address: "Property Address",
+  contract: "Contract/Scheme",
+  eNumber: "E Number",
+  task: "Task Name",
+  descriptionOfWorks: "Description of Works",
+  manager: "Manager",
+  room: "Room/Location",
+};
+
+/**
+ * 🔒 SMART SNIPPET GENERATOR
+ */
+function renderValueDiff(field: string, oldVal: string, newVal: string) {
+  const snippet = (val: string, max = 80) => {
+    if (!val || val === "(blank)") return "blank";
+    return val.length > max ? val.slice(0, max) + "..." : val;
+  };
+
+  const label = fieldLabels[field] || field;
+
+  return (
+    <div className="flex flex-col gap-0.5 py-1.5 border-b last:border-b-0 border-muted-foreground/10">
+      <span className="text-[10px] font-bold text-muted-foreground uppercase">{label}</span>
+      <div className="flex items-center gap-2 text-xs">
+        <span className="line-through text-red-600 opacity-70 whitespace-pre-wrap">{snippet(oldVal)}</span>
+        <span className="text-muted-foreground">→</span>
+        <span className="text-green-700 font-bold bg-green-50 px-1.5 py-0.5 rounded whitespace-pre-wrap">{snippet(newVal)}</span>
+      </div>
+    </div>
+  );
+}
+
 export function ShiftImporter({ userProfile }: ShiftImporterProps) {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -50,7 +94,6 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
       if (!functions) throw new Error('Functions not available');
       const reconcileShifts = httpsCallable(functions, 'reconcileShifts');
 
-      // 🔒 SILENT BACKFILL: Include Synced shifts that are missing standardized keys
       const backfillPayload = dryRun.toSynced
         .filter(s => s._isBackfill && s._newMetadata)
         .map(s => ({ id: s.id, new: s._newMetadata }));
@@ -109,8 +152,80 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
             <TabsTrigger value="update" className="text-[11px]">Updates</TabsTrigger>
             <TabsTrigger value="delete" className="text-[11px]">Remove</TabsTrigger>
             <TabsTrigger value="synced" className="text-[11px]">Synced</TabsTrigger>
-            <TabsTrigger value="issues" className={cn('text-[11px]', dryRun.toIssues.length > 0 && 'text-destructive')}>Issues</TabsTrigger>
+            <TabsTrigger value="issues" className={cn('text-[11px]', dryRun.toIssues.length > 0 && 'text-destructive font-bold')}>Issues</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="update" className="mt-4">
+            <ScrollArea className="h-[450px] border rounded-md">
+              <Table>
+                <TableHeader className="sticky top-0 bg-background z-10">
+                  <TableRow><TableHead>Shift</TableHead><TableHead>Changes Found</TableHead></TableRow>
+                </TableHeader>
+                <TableBody>
+                  {dryRun.toUpdate.map((u, i) => (
+                    <TableRow key={i}>
+                      <TableCell className="text-[10px] leading-tight w-[250px]">
+                        <div className="flex flex-col gap-1">
+                            <span className="font-bold text-sm">{u.new.operative}</span>
+                            <span className="opacity-70">{u.new.dateKey}</span>
+                            <span className="italic">{u.new.address}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="space-y-1">
+                          {u.changes.map((c, idx) => (
+                              <div key={idx}>
+                                  {renderValueDiff(c.field, c.old, c.new)}
+                              </div>
+                          ))}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {dryRun.toUpdate.length === 0 && <TableRow><TableCell colSpan={2} className="text-center py-12 text-muted-foreground">No updates needed.</TableCell></TableRow>}
+                </TableBody>
+              </Table>
+            </ScrollArea>
+          </TabsContent>
+
+          <TabsContent value="issues" className="mt-4">
+            <ScrollArea className="h-[450px] border rounded-md">
+              <Table>
+                <TableHeader className="sticky top-0 bg-background z-10">
+                  <TableRow>
+                    <TableHead className="w-12">Row</TableHead>
+                    <TableHead className="w-24">Sheet</TableHead>
+                    <TableHead>Operative</TableHead>
+                    <TableHead className="w-24">Date</TableHead>
+                    <TableHead>Address / Task</TableHead>
+                    <TableHead className="text-right">Reason</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {dryRun.toIssues.map((err, i) => (
+                    <TableRow key={i} className="bg-red-50/50 hover:bg-red-50 transition-colors">
+                      <TableCell className="text-[10px] font-bold text-red-800">{err.cell || err.row || '—'}</TableCell>
+                      <TableCell className="text-[10px] text-muted-foreground truncate max-w-[100px]">{err.sheet || '—'}</TableCell>
+                      <TableCell className="text-xs font-semibold">{err.operative || 'Missing'}</TableCell>
+                      <TableCell className="text-[10px]">{err.date || '—'}</TableCell>
+                      <TableCell className="text-[10px] leading-tight">
+                        <div className="flex flex-col">
+                            <span className="truncate max-w-[200px]">{err.address || '—'}</span>
+                            <span className="italic opacity-60 truncate max-w-[200px]">{err.task || '—'}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Badge variant="destructive" className="text-[9px] font-bold uppercase tracking-tight py-0">
+                          {err.message}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {dryRun.toIssues.length === 0 && <TableRow><TableCell colSpan={6} className="text-center py-12 text-muted-foreground">No import issues found.</TableCell></TableRow>}
+                </TableBody>
+              </Table>
+            </ScrollArea>
+          </TabsContent>
 
           <TabsContent value="synced" className="mt-4">
             <ScrollArea className="h-[400px] border rounded-md">
@@ -130,47 +245,6 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                     </TableRow>
                   ))}
                   {dryRun.toSynced.length === 0 && <TableRow><TableCell colSpan={4} className="text-center py-12 text-muted-foreground">No existing matches found.</TableCell></TableRow>}
-                </TableBody>
-              </Table>
-            </ScrollArea>
-          </TabsContent>
-
-          <TabsContent value="update" className="mt-4">
-            <ScrollArea className="h-[400px] border rounded-md">
-              <Table>
-                <TableHeader className="sticky top-0 bg-background z-10">
-                  <TableRow><TableHead>Operative</TableHead><TableHead>Address</TableHead><TableHead>Changes Found</TableHead></TableRow>
-                </TableHeader>
-                <TableBody>
-                  {dryRun.toUpdate.map((u, i) => (
-                    <TableRow key={i}>
-                      <TableCell className="text-xs font-bold">{u.new.operative}</TableCell>
-                      <TableCell className="text-xs">{u.new.address}</TableCell>
-                      <TableCell className="text-xs">
-                        <TooltipProvider>
-                          <div className="flex flex-wrap gap-1">
-                            {u.changes.map((c, idx) => (
-                              <Tooltip key={idx}>
-                                <TooltipTrigger asChild>
-                                  <Badge variant="secondary" className="text-[9px] cursor-help">
-                                    {c.field}
-                                  </Badge>
-                                </TooltipTrigger>
-                                <TooltipContent side="top" className="max-w-[300px] text-xs">
-                                  <p className="font-bold border-b pb-1 mb-1">{c.field} changed:</p>
-                                  <div className="space-y-1">
-                                    <p className="text-red-500 line-through">Existing: "{c.old || "(blank)"}"</p>
-                                    <p className="text-green-600 font-bold">Imported: "{c.new || "(blank)"}"</p>
-                                  </div>
-                                </TooltipContent>
-                              </Tooltip>
-                            ))}
-                          </div>
-                        </TooltipProvider>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {dryRun.toUpdate.length === 0 && <TableRow><TableCell colSpan={3} className="text-center py-12 text-muted-foreground">No updates needed.</TableCell></TableRow>}
                 </TableBody>
               </Table>
             </ScrollArea>
@@ -212,25 +286,6 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                     </TableRow>
                   ))}
                   {dryRun.toDelete.length === 0 && <TableRow><TableCell colSpan={3} className="text-center py-12 text-muted-foreground">No removals identified.</TableCell></TableRow>}
-                </TableBody>
-              </Table>
-            </ScrollArea>
-          </TabsContent>
-
-          <TabsContent value="issues" className="mt-4">
-            <ScrollArea className="h-[400px] border rounded-md">
-              <Table>
-                <TableHeader className="sticky top-0 bg-background z-10">
-                  <TableRow><TableHead>Location</TableHead><TableHead>Problem</TableHead></TableRow>
-                </TableHeader>
-                <TableBody>
-                  {dryRun.toIssues.map((err, i) => (
-                    <TableRow key={i} className="bg-red-50">
-                      <TableCell className="text-xs font-bold text-red-700">{err.cell || 'Row ' + err.row}</TableCell>
-                      <TableCell className="text-xs font-semibold text-red-700">{err.message}</TableCell>
-                    </TableRow>
-                  ))}
-                  {dryRun.toIssues.length === 0 && <TableRow><TableCell colSpan={2} className="text-center py-12 text-muted-foreground">No blocking issues.</TableCell></TableRow>}
                 </TableBody>
               </Table>
             </ScrollArea>

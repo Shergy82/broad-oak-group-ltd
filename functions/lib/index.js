@@ -39,10 +39,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.getVapidPublicKey = exports.setUserStatus = exports.deleteUser = exports.serveFile = exports.reconcileShifts = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
-/* =====================================================
-   CONSTANTS
-===================================================== */
-const REGION = "europe-west2";
+const v2_1 = require("firebase-functions/v2");
 /* =====================================================
    BOOTSTRAP
 ===================================================== */
@@ -50,6 +47,7 @@ if (admin.apps.length === 0) {
     admin.initializeApp();
 }
 const db = admin.firestore();
+const REGION = "europe-west2";
 /* =====================================================
    HELPERS
 ===================================================== */
@@ -79,11 +77,11 @@ exports.reconcileShifts = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 
         throw new https_1.HttpsError("unauthenticated", "Authentication required");
     await assertAdminOrManager(uid);
     const data = req.data;
-    const { toCreate = [], toUpdate = [], toDelete = [], department, profileId } = data;
+    const { toCreate = [], toUpdate = [], toDelete = [], department, profileId, profileName } = data;
     if (!department)
         throw new https_1.HttpsError('invalid-argument', 'Missing department.');
     if (!profileId)
-        throw new https_1.HttpsError('invalid-argument', 'Missing planner identity (profileId).');
+        throw new https_1.HttpsError('invalid-argument', 'Missing planner identity.');
     const batch = db.batch();
     const shiftsRef = db.collection('shifts');
     const projectsRef = db.collection('projects');
@@ -91,9 +89,9 @@ exports.reconcileShifts = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 
     const allProjectsSnap = await projectsRef.where('department', '==', department).get();
     const existingProjects = new Map();
     allProjectsSnap.forEach(d => existingProjects.set(normalizeText(d.data().address), d.ref));
-    const allIncoming = [...toCreate, ...toUpdate.map((u) => u.new)];
+    const allImportedShifts = [...toCreate, ...toUpdate.map((u) => u.new)];
     const uniqueIncomingSites = new Map();
-    allIncoming.forEach((s) => { if (s.address)
+    allImportedShifts.forEach((s) => { if (s.address)
         uniqueIncomingSites.set(normalizeText(s.address), s); });
     for (const [normAddr, info] of uniqueIncomingSites.entries()) {
         if (!existingProjects.has(normAddr)) {
@@ -113,46 +111,73 @@ exports.reconcileShifts = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 
     }
     // 2. Create Shifts
     toCreate.forEach((s) => {
-        if (!s.operativeUid)
-            throw new https_1.HttpsError('invalid-argument', `Cannot create shift: operativeUid missing for ${s.operative}.`);
-        batch.set(shiftsRef.doc(), {
-            userId: s.operativeUid,
-            userName: s.operative,
-            address: s.address,
-            task: s.task,
-            date: admin.firestore.Timestamp.fromDate(new Date(s.date)),
-            type: s.type || 'all-day',
-            eNumber: s.eNumber || '',
-            contract: s.contract || '',
-            manager: s.manager || '',
-            department: department,
-            status: 'pending',
+        const shiftPayload = {
+            address: s.address || "",
+            contract: s.contract || "",
+            department: s.department || department || "",
+            eNumber: s.eNumber || "",
+            manager: s.manager || "",
+            operative: s.operative || s.userName || "",
+            operativeUid: s.operativeUid || s.userId || "",
+            userId: s.userId || s.operativeUid || "",
+            userName: s.userName || s.operative || "",
+            date: s.date instanceof admin.firestore.Timestamp ? s.date : admin.firestore.Timestamp.fromDate(new Date(s.date)),
+            dateKey: s.dateKey || "",
+            type: s.type || "all-day",
+            startTime: s.startTime || "",
+            endTime: s.endTime || "",
+            task: s.task || "",
+            descriptionOfWorks: s.descriptionOfWorks || "",
+            room: s.room || "",
+            source: "import",
+            sourcePlannerId: s.sourcePlannerId || profileId || "",
+            sourcePlannerName: s.sourcePlannerName || profileName || "",
+            plannerName: s.plannerName || profileName || "",
+            profileId: s.profileId || profileId || "",
+            importKey: s.importKey || "",
+            sourceSheet: s.sourceSheet || "",
+            sourceCell: s.sourceCell || "",
+            status: s.status || 'pending-confirmation',
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            source: 'import',
-            sourcePlannerId: profileId,
-            importKey: s.importKey
-        });
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        };
+        v2_1.logger.info("SHIFT_IMPORT_WRITE_PAYLOAD (CREATE)", shiftPayload);
+        batch.set(shiftsRef.doc(), shiftPayload);
     });
-    // 3. Update Shifts
+    // 3. Update & Backfill Shifts
     toUpdate.forEach(({ id, new: n }) => {
-        if (!n.operativeUid)
-            throw new https_1.HttpsError('invalid-argument', `Cannot update shift ${id}: missing operativeUid.`);
-        batch.update(shiftsRef.doc(id), {
-            userId: n.operativeUid,
-            userName: n.operative,
-            address: n.address,
-            task: n.task,
-            date: admin.firestore.Timestamp.fromDate(new Date(n.date)),
-            type: n.type || 'all-day',
-            eNumber: n.eNumber || '',
-            contract: n.contract || '',
-            manager: n.manager || '',
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            sourcePlannerId: profileId,
-            importKey: n.importKey
-        });
+        const shiftUpdatePayload = {
+            address: n.address || "",
+            contract: n.contract || "",
+            department: n.department || department || "",
+            eNumber: n.eNumber || "",
+            manager: n.manager || "",
+            operative: n.operative || n.userName || "",
+            operativeUid: n.operativeUid || n.userId || "",
+            userId: n.userId || n.operativeUid || "",
+            userName: n.userName || n.operative || "",
+            date: n.date instanceof admin.firestore.Timestamp ? n.date : admin.firestore.Timestamp.fromDate(new Date(n.date)),
+            dateKey: n.dateKey || "",
+            type: n.type || "all-day",
+            startTime: n.startTime || "",
+            endTime: n.endTime || "",
+            task: n.task || "",
+            descriptionOfWorks: n.descriptionOfWorks || "",
+            room: n.room || "",
+            source: "import",
+            sourcePlannerId: n.sourcePlannerId || profileId || "",
+            sourcePlannerName: n.sourcePlannerName || profileName || "",
+            plannerName: n.plannerName || profileName || "",
+            profileId: n.profileId || profileId || "",
+            importKey: n.importKey || "",
+            sourceSheet: n.sourceSheet || "",
+            sourceCell: n.sourceCell || "",
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        };
+        v2_1.logger.info("SHIFT_IMPORT_WRITE_PAYLOAD (UPDATE)", { id, ...shiftUpdatePayload });
+        batch.update(shiftsRef.doc(id), shiftUpdatePayload);
     });
-    // 4. Delete Shifts (Strictly scoped to profileId)
+    // 4. Delete Shifts
     toDelete.forEach((s) => {
         if (s.id) {
             batch.delete(shiftsRef.doc(s.id));
@@ -161,7 +186,7 @@ exports.reconcileShifts = (0, https_1.onCall)({ region: REGION, timeoutSeconds: 
     await batch.commit();
     return {
         success: true,
-        message: `Schedule Sync Complete: ${toCreate.length} created, ${toUpdate.length} updated, ${toDelete.length} removed.`
+        message: `Schedule Sync Complete: ${toCreate.length} created, ${toUpdate.length} updated/backfilled, ${toDelete.length} removed.`
     };
 });
 exports.serveFile = (0, https_1.onRequest)({ region: REGION, cors: true }, async (req, res) => {
@@ -193,8 +218,9 @@ exports.deleteUser = (0, https_1.onCall)({ region: REGION }, async (req) => {
 });
 exports.setUserStatus = (0, https_1.onCall)({ region: REGION }, async (req) => {
     const data = req.data;
-    await admin.auth().updateUser(data.uid, { disabled: data.disabled });
-    await db.collection('users').doc(data.uid).update({ status: data.newStatus, department: data.department || '' });
+    const { uid, disabled, newStatus, department } = data;
+    await admin.auth().updateUser(uid, { disabled: disabled });
+    await db.collection('users').doc(uid).update({ status: newStatus, department: department || '' });
     return { success: true };
 });
 exports.getVapidPublicKey = (0, https_1.onCall)({ region: REGION }, () => {
