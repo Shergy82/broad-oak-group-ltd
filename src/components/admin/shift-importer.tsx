@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FileUploader } from './file-uploader';
 import type { UserProfile, Shift } from '@/types';
@@ -14,6 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import { Spinner } from '@/components/shared/spinner';
+import { formatDateKey } from '@/lib/importer/core/utils';
 
 interface DryRunResult {
   toCreate: any[];
@@ -147,12 +148,27 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
   };
 
   if (dryRun) {
+    // CHRONOLOGICAL SORTING FOR ALL CATEGORIES
+    const sortedCreate = [...dryRun.toCreate].sort((a, b) => a.dateKey.localeCompare(b.dateKey));
+    const sortedUpdate = [...dryRun.toUpdate].sort((a, b) => a.new.dateKey.localeCompare(b.new.dateKey));
+    const sortedDelete = [...dryRun.toDelete].sort((a, b) => {
+      const dk1 = a.dateKey || formatDateKey(a.date);
+      const dk2 = b.dateKey || formatDateKey(b.date);
+      return dk1.localeCompare(dk2);
+    });
+    const sortedSynced = [...dryRun.toSynced].sort((a, b) => {
+      const dk1 = a.dateKey || formatDateKey(a.date);
+      const dk2 = b.dateKey || formatDateKey(b.date);
+      return dk1.localeCompare(dk2);
+    });
+    const sortedIssues = [...dryRun.toIssues].sort((a, b) => (a.dateKey || "").localeCompare(b.dateKey || ""));
+
     const summaryCards = [
-      { key: 'create', label: 'New', count: dryRun.toCreate.length, ring: 'ring-green-500', bg: 'bg-green-50', border: 'border-green-200', text: 'text-green-700' },
-      { key: 'update', label: 'Updates', count: dryRun.toUpdate.length, ring: 'ring-blue-500', bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700' },
-      { key: 'delete', label: 'Remove', count: dryRun.toDelete.length, ring: 'ring-amber-500', bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700' },
-      { key: 'synced', label: 'Synced', count: dryRun.toSynced.length, ring: 'ring-slate-500', bg: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-700' },
-      { key: 'issues', label: 'Issues', count: dryRun.toIssues.length, ring: 'ring-red-500', bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-700' }
+      { key: 'create', label: 'New', count: sortedCreate.length, ring: 'ring-green-500', bg: 'bg-green-50', border: 'border-green-200', text: 'text-green-700' },
+      { key: 'update', label: 'Updates', count: sortedUpdate.length, ring: 'ring-blue-500', bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700' },
+      { key: 'delete', label: 'Remove', count: sortedDelete.length, ring: 'ring-amber-500', bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700' },
+      { key: 'synced', label: 'Synced', count: sortedSynced.length, ring: 'ring-slate-500', bg: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-700' },
+      { key: 'issues', label: 'Issues', count: sortedIssues.length, ring: 'ring-red-500', bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-700' }
     ];
 
     return (
@@ -197,7 +213,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                   <TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Address</TableHead><TableHead>Task</TableHead></TableRow>
                 </TableHeader>
                 <TableBody>
-                  {dryRun.toCreate.length > 0 ? dryRun.toCreate.map((s, i) => (
+                  {sortedCreate.length > 0 ? sortedCreate.map((s, i) => (
                     <TableRow key={i}>
                       <TableCell className="text-xs font-medium whitespace-nowrap">{s.dateKey}</TableCell>
                       <TableCell className="text-xs font-bold text-primary">{s.operative}</TableCell>
@@ -219,7 +235,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                   <TableRow><TableHead>Context</TableHead><TableHead>Changes</TableHead></TableRow>
                 </TableHeader>
                 <TableBody>
-                  {dryRun.toUpdate.length > 0 ? dryRun.toUpdate.map((u, i) => {
+                  {sortedUpdate.length > 0 ? sortedUpdate.map((u, i) => {
                     const visibleChanges = u.changes.filter(c => !HIDDEN_UPDATE_FIELDS.includes(c.field));
                     const hasDesc = visibleChanges.some(c => c.field === 'descriptionOfWorks');
                     const filteredVisible = hasDesc ? visibleChanges.filter(c => c.field !== 'task') : visibleChanges;
@@ -261,9 +277,9 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                   <TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Address</TableHead></TableRow>
                 </TableHeader>
                 <TableBody>
-                  {dryRun.toDelete.length > 0 ? dryRun.toDelete.map((s, i) => (
+                  {sortedDelete.length > 0 ? sortedDelete.map((s, i) => (
                     <TableRow key={i} className="bg-amber-50/50">
-                      <TableCell className="text-xs font-medium">{s.dateKey || 'Future'}</TableCell>
+                      <TableCell className="text-xs font-medium">{s.dateKey || formatDateKey(s.date)}</TableCell>
                       <TableCell className="text-xs font-bold text-amber-900">{s.userName}</TableCell>
                       <TableCell className="text-xs">{snippet(s.address, 100)}</TableCell>
                     </TableRow>
@@ -282,9 +298,9 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                   <TableRow><TableHead>Date</TableHead><TableHead>User</TableHead><TableHead>Address</TableHead></TableRow>
                 </TableHeader>
                 <TableBody>
-                  {dryRun.toSynced.length > 0 ? dryRun.toSynced.map((s, i) => (
+                  {sortedSynced.length > 0 ? sortedSynced.map((s, i) => (
                     <TableRow key={i} className="opacity-70 bg-muted/10">
-                      <TableCell className="text-xs font-medium">{s.dateKey || 'Future'}</TableCell>
+                      <TableCell className="text-xs font-medium">{s.dateKey || formatDateKey(s.date)}</TableCell>
                       <TableCell className="text-xs font-medium">{s.userName}</TableCell>
                       <TableCell className="text-xs">{snippet(s.address, 100)}</TableCell>
                     </TableRow>
@@ -309,13 +325,13 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {dryRun.toIssues.length > 0 ? dryRun.toIssues.map((err, i) => (
+                  {sortedIssues.length > 0 ? sortedIssues.map((err, i) => (
                     <TableRow key={i} className="bg-red-50/30 hover:bg-red-50 transition-colors">
                       <TableCell className="text-[10px] font-bold text-primary uppercase">
                         {err.cell || '—'}
                       </TableCell>
                       <TableCell className="text-xs font-semibold">{err.operative || '—'}</TableCell>
-                      <TableCell className="text-[10px] font-medium">{err.date || '—'}</TableCell>
+                      <TableCell className="text-[10px] font-medium">{err.date || err.dateKey || '—'}</TableCell>
                       <TableCell className="text-[10px] leading-tight py-2">
                         <div className="flex flex-col gap-1">
                             <span className="font-bold text-slate-700">{snippet(err.address || '—', 80)}</span>
