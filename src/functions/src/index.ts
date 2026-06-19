@@ -62,7 +62,7 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     } = data;
 
     if (!department) throw new HttpsError('invalid-argument', 'Missing department.');
-    if (!profileId) throw new HttpsError('invalid-argument', 'Missing planner identity (profileId).');
+    if (!profileId) throw new HttpsError('invalid-argument', 'Missing planner identity.');
 
     const batch = db.batch();
     const shiftsRef = db.collection('shifts');
@@ -96,8 +96,6 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
 
     // 2. Create Shifts
     toCreate.forEach((s: any) => {
-        if (!s.operativeUid) throw new HttpsError('invalid-argument', `Operative UID missing for ${s.operative}.`);
-        
         batch.set(shiftsRef.doc(), {
             userId: s.operativeUid, 
             userName: s.operative,
@@ -114,10 +112,10 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             status: 'pending-confirmation', 
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             source: 'import',
-            sourcePlannerId: s.sourcePlannerId || profileId,
-            sourcePlannerName: s.sourcePlannerName || profileId,
-            plannerName: s.sourcePlannerName || profileId,
-            profileId: s.sourcePlannerId || profileId,
+            sourcePlannerId: s.sourcePlannerId,
+            sourcePlannerName: s.sourcePlannerName,
+            plannerName: s.sourcePlannerName,
+            profileId: s.sourcePlannerId,
             importKey: s.importKey,
             sourceSheet: s.sourceSheet || '',
             sourceCell: s.sourceCell || '',
@@ -140,10 +138,10 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             contract: n.contract || '',
             manager: n.manager || '',
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            sourcePlannerId: n.sourcePlannerId || profileId,
-            sourcePlannerName: n.sourcePlannerName || profileId,
-            plannerName: n.sourcePlannerName || profileId,
-            profileId: n.sourcePlannerId || profileId,
+            sourcePlannerId: n.sourcePlannerId,
+            sourcePlannerName: n.sourcePlannerName,
+            plannerName: n.sourcePlannerName,
+            profileId: n.sourcePlannerId,
             importKey: n.importKey,
             sourceSheet: n.sourceSheet || '',
             sourceCell: n.sourceCell || '',
@@ -151,7 +149,7 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
         });
     });
 
-    // 4. Delete Shifts (Scoped to same planner ID)
+    // 4. Delete Shifts
     toDelete.forEach((s: any) => { 
         if (s.id) {
             batch.delete(shiftsRef.doc(s.id)); 
@@ -186,8 +184,9 @@ export const deleteUser = onCall({ region: REGION }, async (req) => {
 
 export const setUserStatus = onCall({ region: REGION }, async (req) => {
     const data = req.data as any;
-    await admin.auth().updateUser(uid, { disabled: data.disabled });
-    await db.collection('users').doc(data.uid).update({ status: data.newStatus, department: data.department || '' });
+    const { uid, disabled, newStatus, department } = data;
+    await admin.auth().updateUser(uid, { disabled: disabled });
+    await db.collection('users').doc(uid).update({ status: newStatus, department: department || '' });
     return { success: true };
 });
 
