@@ -30,7 +30,7 @@ interface ShiftImporterProps {
   userProfile: UserProfile;
 }
 
-const fieldLabels: Record<string, string> = {
+const FIELD_LABELS: Record<string, string> = {
   descriptionOfWorks: "Description of works",
   address: "Address",
   contract: "Contract",
@@ -43,23 +43,10 @@ const fieldLabels: Record<string, string> = {
   type: "Shift type",
 };
 
-const HIDDEN_UPDATE_FIELDS = [
-  "userId",
-  "userName",
-  "operativeUid",
-  "operative",
-  "source",
-  "sourcePlannerId",
-  "sourcePlannerName",
-  "plannerName",
-  "profileId",
-  "importKey",
-  "sourceSheet",
-  "sourceCell",
-  "dateKey",
-  "createdAt",
-  "updatedAt",
-  "status"
+const HIDDEN_FIELDS = [
+  "userId", "userName", "operativeUid", "operative", "source", 
+  "sourcePlannerId", "sourcePlannerName", "plannerName", "profileId", 
+  "importKey", "sourceSheet", "sourceCell", "dateKey", "createdAt", "updatedAt", "status"
 ];
 
 function snippet(value: string, max = 80) {
@@ -93,7 +80,7 @@ function renderValueDiff(field: string, oldVal: string, newVal: string, oldOp?: 
     displayNew = cleanDescriptionForDisplay(newVal, newOp);
   }
 
-  const label = fieldLabels[field] || field;
+  const label = FIELD_LABELS[field] || field;
 
   return (
     <div className="flex flex-col gap-1 py-2 border-b last:border-b-0 border-muted-foreground/10">
@@ -120,7 +107,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
   const [isPublishing, setIsPublishing] = useState(false);
   const [activeTab, setActiveTab] = useState<string>('create');
 
-  // Automatically switch to meaningful tab when data arrives
+  // Switch to relevant tab automatically
   useEffect(() => {
     if (dryRun) {
       if (dryRun.toIssues.length > 0) setActiveTab('issues');
@@ -213,7 +200,7 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
                 </TableHeader>
                 <TableBody>
                   {dryRun.toUpdate.map((u, i) => {
-                    const visibleChanges = u.changes.filter(c => !HIDDEN_UPDATE_FIELDS.includes(c.field));
+                    const visibleChanges = u.changes.filter(c => !HIDDEN_FIELDS.includes(c.field));
                     if (visibleChanges.length === 0) return null;
 
                     return (
@@ -248,21 +235,18 @@ export function ShiftImporter({ userProfile }: ShiftImporterProps) {
               <Table>
                 <TableHeader className="sticky top-0 bg-background z-10">
                   <TableRow>
-                    <TableHead className="w-24">Location</TableHead>
+                    <TableHead className="w-20">Cell</TableHead>
                     <TableHead>Operative</TableHead>
                     <TableHead className="w-28">Date</TableHead>
-                    <TableHead>Work Details</TableHead>
-                    <TableHead className="text-right">Failure Reason</TableHead>
+                    <TableHead>Address / Task</TableHead>
+                    <TableHead className="text-right">Reason</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {dryRun.toIssues.map((err, i) => (
                     <TableRow key={i} className="bg-red-50/30 hover:bg-red-50 transition-colors">
-                      <TableCell className="text-[10px] font-bold text-slate-500 uppercase tracking-tight">
-                        <div className="flex flex-col">
-                            <span>{err.sourceSheet}</span>
-                            <span className="text-primary font-bold">{err.cell || 'Row ' + err.row}</span>
-                        </div>
+                      <TableCell className="text-[10px] font-bold text-primary uppercase">
+                        {err.cell || '—'}
                       </TableCell>
                       <TableCell className="text-xs font-semibold">{err.operative || '—'}</TableCell>
                       <TableCell className="text-[10px] font-medium">{err.date || '—'}</TableCell>

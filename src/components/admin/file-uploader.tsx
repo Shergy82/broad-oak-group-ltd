@@ -80,11 +80,10 @@ function buildImportKey(shift: any, sourcePlannerId: string): string {
 
 /**
  * 🔒 BUSINESS COMPARISON ENGINE
+ * Returns a list of human-readable field changes.
  */
-const BUSINESS_FIELDS = [
+const COMPARABLE_FIELDS = [
   "operativeUid",
-  "userId",
-  "userName",
   "operative",
   "dateKey",
   "type",
@@ -99,21 +98,19 @@ const BUSINESS_FIELDS = [
   "room"
 ];
 
-function getChangedBusinessFields(existing: any, incoming: any) {
+function getBusinessChanges(existing: any, incoming: any) {
   const changes: { field: string; old: string; new: string }[] = [];
   
   // 🔒 SILENT HISTORIC SKIP (SAFETY)
   if (isHistoricShift(existing)) return [];
 
-  BUSINESS_FIELDS.forEach(field => {
+  COMPARABLE_FIELDS.forEach(field => {
     const newVal = normalizeText(incoming[field]);
     let currentVal = normalizeText(existing[field]);
 
-    // Alias Handling
+    // Alias Handling: Compare equivalent logical fields
     if (field === 'operativeUid' && !existing.operativeUid) currentVal = normalizeText(existing.userId);
     if (field === 'operative' && !existing.operative) currentVal = normalizeText(existing.userName);
-    if (field === 'userId' && !existing.userId) currentVal = normalizeText(existing.operativeUid);
-    if (field === 'userName' && !existing.userName) currentVal = normalizeText(existing.operative);
     if (field === 'dateKey' && !existing.dateKey) currentVal = formatDateKey(existing.date);
 
     if (currentVal !== newVal) {
@@ -177,25 +174,23 @@ export function FileUploader({
         const toIssues: any[] = [];
         const matchedDocIds = new Set<string>();
 
-        // 1. Silent skip historic issues
+        // 1. Process Issues (Only Future)
         parseResult.errors.forEach(err => {
-            if (err.dateKey && err.dateKey < todayKey) return; 
+            if (err.dateKey && err.dateKey < todayKey) return; // Silent Historic Skip
             toIssues.push(err);
         });
 
-        // 2. Fetch existing active shifts
+        // 2. Fetch existing Active shifts from this planner
         const existingSnap = await getDocs(
           query(collection(db, 'shifts'), where('sourcePlannerId', '==', planner.id))
         );
         const allExistingShifts = existingSnap.docs.map(d => ({ id: d.id, ...d.data() } as Shift));
         const existingActiveShifts = allExistingShifts.filter(s => !isHistoricShift(s));
 
-        // 3. Process parsed shifts
+        // 3. Reconcile parsed shifts (Silent Historic Skip handled in parser)
         parseResult.shifts.forEach(incomingRaw => {
           const dateKey = formatDateKey(incomingRaw.date);
-          
-          // 🔒 SILENT HISTORIC SKIP
-          if (dateKey < todayKey) return;
+          if (dateKey < todayKey) return; 
 
           const incoming = { 
             ...incomingRaw, 
@@ -208,18 +203,19 @@ export function FileUploader({
             importKey: buildImportKey({ ...incomingRaw, dateKey }, planner.id)
           };
 
+          // Try Primary Fingerprint Match
           const match = existingActiveShifts.find(s => s.importKey === incoming.importKey);
           
           if (match) {
             matchedDocIds.add(match.id);
-            const changes = getChangedBusinessFields(match, incoming);
+            const changes = getBusinessChanges(match, incoming);
             if (changes.length > 0) {
               toUpdate.push({ id: match.id, old: match, new: incoming, changes });
             } else {
               toSynced.push(match);
             }
           } else {
-            // Legacy/Alias Fallback
+            // Alias/Legacy Fallback
             const legacyMatch = existingActiveShifts.find(s => 
                 !matchedDocIds.has(s.id) &&
                 normalizeText(s.userId || s.operativeUid) === normalizeText(incoming.operativeUid) &&
@@ -229,7 +225,7 @@ export function FileUploader({
 
             if (legacyMatch) {
               matchedDocIds.add(legacyMatch.id);
-              const changes = getChangedBusinessFields(legacyMatch, incoming);
+              const changes = getBusinessChanges(legacyMatch, incoming);
               if (changes.length > 0) {
                 toUpdate.push({ id: legacyMatch.id, old: legacyMatch, new: incoming, changes });
               } else {
@@ -241,7 +237,7 @@ export function FileUploader({
           }
         });
 
-        // 4. Deletions (Active/Future only)
+        // 4. Deletions (Only Future Active)
         const toDelete = existingActiveShifts.filter(s => !matchedDocIds.has(s.id));
 
         onImportComplete({
@@ -318,4 +314,3 @@ export function FileUploader({
     </div>
   );
 }
-

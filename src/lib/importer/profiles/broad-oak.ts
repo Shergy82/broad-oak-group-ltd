@@ -22,7 +22,7 @@ const FIRST_NAME_ALIASES: Record<string, string[]> = {
 export class BroadOakProfile implements PlannerProfile {
   id = 'broad-oak';
   name = 'Gas/Build Planner';
-  description = 'Hierarchical extraction with safe user matching and silent historic skipping.';
+  description = 'Hierarchical extraction with strict cell classification and safe user matching.';
 
   private eNumberRegex = /\b[BE]\d{5,}\b/i;
 
@@ -30,8 +30,8 @@ export class BroadOakProfile implements PlannerProfile {
     return workbook.worksheets.some(sheet => {
         if (sheet.state === 'hidden') return false;
         let found = false;
-        for (let i = 1; i <= 50; i++) {
-            const rowText = sheet.getRow(i).values?.toString().toUpperCase() || '';
+        for (let r = 1; r <= 50; r++) {
+            const rowText = sheet.getRow(r).values?.toString().toUpperCase() || '';
             if (rowText.includes('SITE MANAGER') || rowText.includes('DIVIDING LINE')) {
                 found = true;
                 break;
@@ -54,6 +54,7 @@ export class BroadOakProfile implements PlannerProfile {
 
     const todayKey = this.getTodayDateKey();
 
+    // 1. Identify Date Header Row and Column mapping
     const dateColumnMap = new Map<number, { date: Date, dateKey: string }>();
     let dateRowIndex = -1;
 
@@ -85,6 +86,7 @@ export class BroadOakProfile implements PlannerProfile {
         return { shifts, errors };
     }
 
+    // 2. Identify Section Dividers
     const dividerRows: number[] = [];
     sheet.eachRow((row, rowNumber) => {
       const rowText = row.values ? row.values.toString().toUpperCase() : '';
@@ -97,6 +99,7 @@ export class BroadOakProfile implements PlannerProfile {
         dividerRows.push(dateRowIndex + 1);
     }
 
+    // 3. Extract Section Blocks
     for (let i = 0; i < dividerRows.length; i++) {
       const startRow = dividerRows[i];
       const nextDividerRow = dividerRows[i + 1];
@@ -122,11 +125,12 @@ export class BroadOakProfile implements PlannerProfile {
         }
 
         if (colA && colA.length > 5 && !colA.toUpperCase().includes('MANAGER') && !colA.toUpperCase().includes('DIVIDING')) {
-            blockAddress = colA;
             const eMatch = colA.match(this.eNumberRegex);
             if (eMatch) {
                 blockENumber = eMatch[0];
                 blockAddress = colA.replace(this.eNumberRegex, '').replace(/^\s*[-:–—]\s*/, '').trim();
+            } else {
+                blockAddress = colA;
             }
         }
       }
@@ -136,16 +140,15 @@ export class BroadOakProfile implements PlannerProfile {
         const row = sheet.getRow(r);
 
         dateColumnMap.forEach(({ date, dateKey }, colNumber) => {
-          // 🔒 SILENT HISTORIC SKIP
-          if (dateKey < todayKey) return;
-
           const cell = row.getCell(colNumber);
-          if (!cell.value) return;
+          const rawText = cell.value?.toString() || "";
+          
+          const classification = this.classifyCell(rawText, dateKey, todayKey);
 
-          const rawText = cell.value.toString().trim();
-          if (rawText.length < 3) return;
-
-          if (this.isHeaderJunk(cell.value, date)) return;
+          // Silent skips
+          if (classification === 'blank' || classification === 'historic' || classification === 'note') {
+            return;
+          }
 
           const context = {
               row: r,
@@ -156,22 +159,24 @@ export class BroadOakProfile implements PlannerProfile {
               address: blockAddress || "Unknown Address"
           };
 
-          const match = this.extractOperativeAndTaskSafely(rawText, userMap);
-          
-          if (match.error) {
+          // Validation issues
+          if (classification === 'issue') {
+              const { error, task, operative } = this.parseCellParts(rawText, userMap);
               errors.push({
                   ...context,
-                  message: match.error,
-                  severity: match.isVague || match.isAmbiguous ? 'warning' : 'error',
-                  code: 'MATCH_ERROR',
-                  task: match.task || rawText,
-                  operative: match.operative || "—",
+                  message: error || "Invalid shift attempt",
+                  severity: 'error',
+                  code: 'VALIDATION_ERROR',
+                  task: task || rawText,
+                  operative: operative || "—",
                   address: blockAddress
               });
               return;
           }
 
-          if (match.user) {
+          // Valid shifts
+          const match = this.parseCellParts(rawText, userMap);
+          if (match.user && match.task) {
             shifts.push({
               date,
               dateKey,
@@ -185,7 +190,7 @@ export class BroadOakProfile implements PlannerProfile {
               userName: match.user.originalName,
               task: match.task,
               descriptionOfWorks: rawText,
-              type: match.type || 'all-day',
+              type: this.detectType(match.task),
               sourceCell: context.cell,
               sourceSheet: sheet.name,
               sourcePlannerId: "",
@@ -193,6 +198,8 @@ export class BroadOakProfile implements PlannerProfile {
               plannerName: "",
               profileId: "",
               importKey: "",
+              startTime: "",
+              endTime: ""
             });
           }
         });
@@ -211,11 +218,35 @@ export class BroadOakProfile implements PlannerProfile {
   }
 
   /**
-   * Safe matching logic implementation.
+   * Classifies a cell based on content and date.
    */
-  private extractOperativeAndTaskSafely(text: string, userMap: UserMapEntry[]) {
-    // 1. Initial cleanup (collapse lines and spaces)
-    const normalized = text.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+  private classifyCell(rawText: string, dateKey: string, todayKey: string): 'blank' | 'historic' | 'note' | 'issue' | 'valid' {
+    const text = rawText.trim().replace(/\s+/g, ' ');
+    if (!text) return 'blank';
+    if (dateKey < todayKey) return 'historic';
+
+    const lastHyphenIndex = text.lastIndexOf('-');
+    
+    // Rule: No hyphen = Admin Note (ignore)
+    if (lastHyphenIndex === -1) {
+        console.debug("Ignoring non-shift planner note", { dateKey, text });
+        return 'note';
+    }
+
+    const taskPart = text.substring(0, lastHyphenIndex).trim();
+    const namePart = text.substring(lastHyphenIndex + 1).trim();
+
+    // Rule: Missing required parts = Issue
+    if (!taskPart || !namePart) return 'issue';
+
+    return 'valid'; // Final validation (user matching) happens in the parts parser
+  }
+
+  /**
+   * Splits and matches a cell's components.
+   */
+  private parseCellParts(rawText: string, userMap: UserMapEntry[]) {
+    const normalized = rawText.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
     const lastHyphenIndex = normalized.lastIndexOf('-');
     
     if (lastHyphenIndex === -1) {
@@ -228,18 +259,17 @@ export class BroadOakProfile implements PlannerProfile {
     if (!taskPart) return { error: "Missing task/description", operative: namePart };
     if (!namePart) return { error: "Missing operative after separator", task: taskPart };
 
-    // 2. Matching Logic
+    // Matching Logic
     const normPlanner = this.normaliseName(namePart);
     const plannerParts = normPlanner.split(" ");
     
-    // Safety: reject first-name only entries
+    // Safety: Reject first-name-only entries (Risk Mitigation)
     if (plannerParts.length < 2) {
-      return { error: `Operative name too vague: ${namePart}`, isVague: true, task: taskPart, operative: namePart };
+      return { error: `Operative name too vague: ${namePart}`, task: taskPart, operative: namePart };
     }
 
     const plannerFirst = plannerParts[0];
     const plannerLast = plannerParts.slice(1).join(" ");
-    const plannerInitial = plannerFirst[0];
 
     const candidates: UserMapEntry[] = [];
 
@@ -253,22 +283,22 @@ export class BroadOakProfile implements PlannerProfile {
 
       // A. Exact match
       if (normUser === normPlanner) {
-        return { user, task: taskPart, type: this.detectType(taskPart) };
+        return { user, task: taskPart };
       }
 
-      // B. Nickname match
+      // B. Nickname + Exact Surname
       if (this.isSameNameGroup(plannerFirst, userFirst) && plannerLast === userLast) {
         candidates.push(user);
         continue;
       }
 
-      // C. First Initial + Surname
+      // C. First Initial + Exact Surname
       if (plannerFirst.length === 1 && plannerFirst === userFirst[0] && plannerLast === userLast) {
         candidates.push(user);
         continue;
       }
 
-      // D. Fuzzy match
+      // D. Conservative Fuzzy match (Distance <= 2)
       const dist = this.getLevenshteinDistance(normUser, normPlanner);
       const surnameDist = this.getLevenshteinDistance(userLast, plannerLast);
       if (dist <= 2 && surnameDist <= 1) {
@@ -280,11 +310,11 @@ export class BroadOakProfile implements PlannerProfile {
     const uniqueCandidates = Array.from(new Map(candidates.map(u => [u.uid, u])).values());
 
     if (uniqueCandidates.length === 1) {
-      return { user: uniqueCandidates[0], task: taskPart, type: this.detectType(taskPart) };
+      return { user: uniqueCandidates[0], task: taskPart };
     }
 
     if (uniqueCandidates.length > 1) {
-      return { error: `Multiple possible users matched: ${namePart}`, isAmbiguous: true, task: taskPart, operative: namePart };
+      return { error: `Multiple possible users matched: ${namePart}`, task: taskPart, operative: namePart };
     }
 
     return { error: `Operative not recognised: ${namePart}`, task: taskPart, operative: namePart };
@@ -326,15 +356,6 @@ export class BroadOakProfile implements PlannerProfile {
     if (t.includes(' AM ') || t.startsWith('AM ') || t.endsWith(' AM')) return 'am';
     if (t.includes(' PM ') || t.startsWith('PM ') || t.endsWith(' PM')) return 'pm';
     return 'all-day';
-  }
-
-  private isHeaderJunk(val: any, columnDate: Date): boolean {
-    if (val instanceof Date) return true;
-    const str = val.toString().toUpperCase();
-    const junk = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
-    if (junk.some(j => str.includes(j))) return true;
-    if (str === columnDate.getDate().toString()) return true;
-    return false;
   }
 
   private parseDate(val: any): Date | null {
