@@ -23,8 +23,33 @@ interface FileUploaderProps {
 }
 
 /**
+ * 🔒 NORMALIZATION HELPERS
+ */
+function norm(val: any): string {
+  return String(val || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getShiftDayKey(value: any): string {
+  let d: Date;
+  if (value instanceof Date) d = value;
+  else if (typeof value?.toDate === 'function') d = value.toDate();
+  else if (typeof value === 'object' && value.seconds) d = new Date(value.seconds * 1000);
+  else d = new Date(value);
+  
+  if (isNaN(d.getTime())) return 'invalid';
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/**
  * Normalizes a filename to a source ID.
- * Unitas (1).xlsx -> unitas
+ * Ignores suffixes like (1), (2), v1, etc.
  */
 function getPlannerSourceId(filename: string): string {
   return filename
@@ -38,17 +63,7 @@ function getPlannerSourceId(filename: string): string {
 }
 
 /**
- * Normalizes a string for comparison.
- */
-function norm(val: any): string {
-  return String(val || '')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-/**
- * Generates a stable identity key for a shift.
+ * 🔒 STABLE IDENTITY KEY
  */
 function getImportKey(shift: any, sourceId: string): string {
   const parts = [
@@ -65,45 +80,36 @@ function getImportKey(shift: any, sourceId: string): string {
 }
 
 /**
- * TIMEZONE-SAFE DATE KEY
+ * 🔒 LEGACY MATCHING LOGIC
+ * Compares attributes if importKey/sourceId is missing.
  */
-function getShiftDayKey(value: any): string {
-  let d: Date;
-  if (value instanceof Date) {
-    d = value;
-  } else if (typeof value?.toDate === 'function') {
-    d = value.toDate();
-  } else if (typeof value === 'object' && value.seconds) {
-    d = new Date(value.seconds * 1000);
-  } else {
-    d = new Date(value);
-  }
-  
-  if (isNaN(d.getTime())) return 'invalid-date';
+function isLegacyMatch(incoming: StandardShift, existing: Shift): boolean {
+  // Must be same person and same day
+  if (existing.userId !== incoming.operativeUid) return false;
+  if (getShiftDayKey(existing.date) !== getShiftDayKey(incoming.date)) return false;
 
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  
-  return `${y}-${m}-${day}`;
+  // Must be same location and roughly same task intent
+  return (
+    norm(existing.address) === norm(incoming.address) &&
+    norm(existing.type) === norm(incoming.type) &&
+    norm(existing.task) === norm(incoming.task)
+  );
 }
 
 function isTodayOrFuture(value: any): boolean {
   const now = new Date();
-  now.setHours(0, 0, 0, 0);
   const todayKey = getShiftDayKey(now);
   const shiftKey = getShiftDayKey(value);
   return shiftKey >= todayKey;
 }
 
 /**
- * Checks if metadata (non-identity fields) has changed.
+ * Checks if non-identity fields have changed.
  */
 function hasMetadataChanged(existing: any, incoming: StandardShift): boolean {
   return (
     norm(existing.contract) !== norm(incoming.contract) ||
     norm(existing.manager) !== norm(incoming.manager) ||
-    norm(existing.eNumber) !== norm(incoming.eNumber) ||
     norm(existing.descriptionOfWorks) !== norm(incoming.descriptionOfWorks)
   );
 }
@@ -124,8 +130,8 @@ export function FileUploader({
     setError(null);
     onFileSelect();
 
-    const sourcePlannerId = getPlannerSourceId(file.name);
-    const sourcePlannerName = file.name;
+    const sourceId = getPlannerSourceId(file.name);
+    const sourceName = file.name;
 
     const reader = new FileReader();
     reader.onload = async (e) => {
@@ -148,79 +154,79 @@ export function FileUploader({
         // 2. Parse workbook
         const parseResult = await parseWorkbook(Buffer.from(buffer), userMap);
         
-        // 3. Filter for active shifts and generate import keys
+        // 3. Prepare incoming shifts
         const incomingShifts = parseResult.shifts
           .filter(s => isTodayOrFuture(s.date))
           .map(s => ({ 
             ...s, 
             department, 
-            sourcePlannerId,
-            sourcePlannerName,
-            importKey: getImportKey(s, sourcePlannerId)
+            sourcePlannerId: sourceId,
+            sourcePlannerName: sourceName,
+            importKey: getImportKey(s, sourceId)
           }));
 
-        // 4. FETCH EXISTING SCOPED BY PLANNER ID
+        // 4. Fetch ALL future shifts for department (to find legacy matches)
         const existingSnap = await getDocs(
           query(
             collection(db, 'shifts'), 
-            where('sourcePlannerId', '==', sourcePlannerId),
             where('department', '==', department)
           )
         );
         
-        const existingMap = new Map<string, Shift>();
-        existingSnap.docs.forEach(docSnap => {
-          const data = docSnap.data();
-          if (isTodayOrFuture(data.date)) {
-            const key = data.importKey || getImportKey(data, sourcePlannerId);
-            existingMap.set(key, { id: docSnap.id, ...data } as Shift);
-          }
-        });
+        const existingShifts = existingSnap.docs
+          .map(d => ({ id: d.id, ...d.data() } as Shift))
+          .filter(s => isTodayOrFuture(s.date));
 
-        // 5. Categorize into 5 buckets
+        // 5. Reconciliation loop
         const toCreate: any[] = [];
         const toUpdate: any[] = [];
         const toSynced: any[] = [];
-        const toIssues = parseResult.errors.filter(err => err.severity === 'error');
-        
+        const processedDocIds = new Set<string>();
         const processedKeys = new Set<string>();
 
         incomingShifts.forEach(incoming => {
-          // Skip if there's a validation error for this specific row in parsing
-          const rowIssues = parseResult.errors.filter(err => err.row === incoming.sourceCell && err.severity === 'error');
-          if (rowIssues.length > 0) return;
+          // Skip rows with errors
+          if (parseResult.errors.some(err => err.row === incoming.sourceCell && err.severity === 'error')) return;
 
-          const key = incoming.importKey;
-          const existing = existingMap.get(key);
+          // Strategy A: Match by Key
+          let match = existingShifts.find(s => s.importKey === incoming.importKey);
+          
+          // Strategy B: Match by Legacy Attributes
+          if (!match) {
+            match = existingShifts.find(s => !s.importKey && isLegacyMatch(incoming, s));
+          }
 
-          if (!existing) {
+          if (!match) {
             toCreate.push(incoming);
           } else {
-            processedKeys.add(key);
-            if (hasMetadataChanged(existing, incoming)) {
-              toUpdate.push({ id: existing.id, old: existing, new: incoming });
+            processedDocIds.add(match.id);
+            processedKeys.add(incoming.importKey);
+
+            const needsBackfill = !match.importKey || !match.sourcePlannerId;
+            const needsUpdate = hasMetadataChanged(match, incoming);
+
+            if (needsUpdate || needsBackfill) {
+              toUpdate.push({ id: match.id, old: match, new: incoming });
             } else {
-              toSynced.push(existing);
+              toSynced.push(match);
             }
           }
         });
 
-        // 6. Identify deletions (In Firestore but not in Planner)
-        const toDelete: Shift[] = [];
-        existingMap.forEach((existing, key) => {
-          if (!processedKeys.has(key)) {
-            toDelete.push(existing);
-          }
-        });
+        // 6. Identify deletions (In Firestore for THIS SOURCE, but missing in current Excel)
+        const toDelete = existingShifts.filter(s => 
+          s.sourcePlannerId === sourceId && 
+          !processedDocIds.has(s.id)
+        );
 
         onImportComplete({
           toCreate,
           toUpdate,
           toDelete,
           toSynced,
-          toIssues,
-          profileId: sourcePlannerId,
-          profileName: sourcePlannerName,
+          toIssues: parseResult.errors.filter(err => err.severity === 'error'),
+          profileId: sourceId,
+          profileName: sourceName,
         });
 
         if (fileInputRef.current) fileInputRef.current.value = '';
@@ -257,7 +263,7 @@ export function FileUploader({
         {isProcessing ? (
           <div className="flex flex-col items-center gap-3">
             <Spinner size="lg" />
-            <p className="text-sm font-medium animate-pulse text-muted-foreground">Scoping shifts...</p>
+            <p className="text-sm font-medium animate-pulse text-muted-foreground">Reconciling schedule...</p>
           </div>
         ) : (
           <>
@@ -266,7 +272,7 @@ export function FileUploader({
             </div>
             <h3 className="text-lg font-semibold">Upload {title}</h3>
             <p className="text-sm text-muted-foreground mb-4 text-center px-4">
-              Reconcile your spreadsheet against existing Firestore shifts.
+              The system will automatically recognize already published shifts.
             </p>
             <Input
               ref={fileInputRef}

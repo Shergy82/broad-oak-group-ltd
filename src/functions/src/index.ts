@@ -11,12 +11,6 @@ import JSZip from "jszip";
 import * as webPush from "web-push";
 
 /* =====================================================
-   CONSTANTS
-===================================================== */
-
-const REGION = "europe-west2";
-
-/* =====================================================
    BOOTSTRAP
 ===================================================== */
 
@@ -25,6 +19,7 @@ if (admin.apps.length === 0) {
 }
 
 const db = admin.firestore();
+const REGION = "europe-west2";
 
 /* =====================================================
    HELPERS
@@ -69,39 +64,9 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     if (!department) throw new HttpsError('invalid-argument', 'Missing department.');
     if (!profileId) throw new HttpsError('invalid-argument', 'Missing planner identity (profileId).');
 
-    if (!Array.isArray(toCreate) || !Array.isArray(toUpdate) || !Array.isArray(toDelete)) {
-        throw new HttpsError('invalid-argument', 'Invalid payload formats.');
-    }
-
     const batch = db.batch();
     const shiftsRef = db.collection('shifts');
     const projectsRef = db.collection('projects');
-
-    const dayKey = (value: any) => {
-        let d: Date;
-        if (value instanceof Date) d = value;
-        else if (typeof value?.toDate === 'function') d = value.toDate();
-        else if (typeof value === 'object' && value.seconds) d = new Date(value.seconds * 1000);
-        else d = new Date(value);
-        
-        // 🔒 ROBUST DATE KEY: Extract parts directly to match browser intent
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, "0");
-        const day = String(d.getDate()).padStart(2, "0");
-        return `${y}-${m}-${day}`;
-    };
-
-    /**
-     * 🔒 IDENTITY KEY (Backend)
-     * Matches frontend getShiftIdentityKey exactly.
-     */
-    const getShiftKey = (shift: any) => {
-        const userId = shift.userId || shift.operativeUid || "";
-        const dateStr = dayKey(shift.date);
-        const addr = normalizeText(shift.address);
-        const type = String(shift.type || "all-day").toLowerCase().trim();
-        return [userId, dateStr, addr, type].join("|");
-    };
 
     // 1. Sync Projects
     const allProjectsSnap = await projectsRef.where('department', '==', department).get();
@@ -109,10 +74,10 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     allProjectsSnap.forEach(d => existingProjects.set(normalizeText(d.data().address), d.ref));
 
     const allImportedShifts = [...toCreate, ...toUpdate.map((u: any) => u.new)];
-    const importedAddresses = new Map();
-    allImportedShifts.forEach((s: any) => { if (s.address) importedAddresses.set(normalizeText(s.address), s); });
+    const uniqueIncomingSites = new Map();
+    allImportedShifts.forEach((s: any) => { if (s.address) uniqueIncomingSites.set(normalizeText(s.address), s); });
 
-    for (const [normAddr, info] of importedAddresses.entries()) {
+    for (const [normAddr, info] of uniqueIncomingSites.entries()) {
         if (!existingProjects.has(normAddr)) {
             const reviewDate = new Date();
             reviewDate.setDate(reviewDate.getDate() + 28);
@@ -130,38 +95,31 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     }
 
     // 2. Create Shifts
-    toCreate.forEach((shift: any) => {
-        if (!shift.operativeUid) {
-            throw new HttpsError('invalid-argument', `Cannot create shift: operativeUid missing for ${shift.operative} at ${shift.address}.`);
-        }
-        
-        const key = getShiftKey(shift);
+    toCreate.forEach((s: any) => {
+        if (!s.operativeUid) throw new HttpsError('invalid-argument', `Operative UID missing for ${s.operative}.`);
         
         batch.set(shiftsRef.doc(), {
-            userId: shift.operativeUid, 
-            userName: shift.operative,
-            address: shift.address,
-            task: shift.task,
-            date: admin.firestore.Timestamp.fromDate(new Date(shift.date)),
-            type: shift.type || 'all-day',
-            eNumber: shift.eNumber || '',
-            contract: shift.contract || '',
-            manager: shift.manager || '',
+            userId: s.operativeUid, 
+            userName: s.operative,
+            address: s.address,
+            task: s.task,
+            date: admin.firestore.Timestamp.fromDate(new Date(s.date)),
+            type: s.type || 'all-day',
+            eNumber: s.eNumber || '',
+            contract: s.contract || '',
+            manager: s.manager || '',
             department: department,
             status: 'pending', 
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             source: 'import',
-            plannerName: profileId,
-            importKey: key
+            sourcePlannerId: profileId,
+            sourcePlannerName: s.sourcePlannerName || profileId,
+            importKey: s.importKey
         });
     });
 
-    // 3. Update Shifts
+    // 3. Update & Backfill Shifts
     toUpdate.forEach(({ id, new: n }: any) => {
-        if (!n.operativeUid) throw new HttpsError('invalid-argument', `Cannot update shift ${id}: missing operativeUid.`);
-        
-        const key = getShiftKey(n);
-
         batch.update(shiftsRef.doc(id), {
             userId: n.operativeUid,
             userName: n.operative,
@@ -173,12 +131,13 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
             contract: n.contract || '',
             manager: n.manager || '',
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            plannerName: profileId,
-            importKey: key
+            sourcePlannerId: profileId,
+            sourcePlannerName: n.sourcePlannerName || profileId,
+            importKey: n.importKey
         });
     });
 
-    // 4. Delete Shifts (ONLY those from THIS specific planner)
+    // 4. Delete Shifts
     toDelete.forEach((s: any) => { 
         if (s.id) {
             batch.delete(shiftsRef.doc(s.id)); 
@@ -188,7 +147,7 @@ export const reconcileShifts = onCall({ region: REGION, timeoutSeconds: 300, mem
     await batch.commit();
     return { 
         success: true,
-        message: `Schedule Sync Complete: ${toCreate.length} created, ${toUpdate.length} updated, ${toDelete.length} removed.`
+        message: `Schedule Sync Complete: ${toCreate.length} created, ${toUpdate.length} updated/backfilled, ${toDelete.length} removed.`
     };
 });
 
