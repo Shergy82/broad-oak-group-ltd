@@ -22,7 +22,7 @@ const FIRST_NAME_ALIASES: Record<string, string[]> = {
 export class BroadOakProfile implements PlannerProfile {
   id = 'broad-oak';
   name = 'Gas/Build Planner';
-  description = 'Hierarchical extraction with strict cell classification and safe user matching.';
+  description = 'Classification: Hyphenated cells = Shift Attempts; No-Hyphen = Admin Notes (Ignore).';
 
   private eNumberRegex = /\b[BE]\d{5,}\b/i;
 
@@ -54,7 +54,7 @@ export class BroadOakProfile implements PlannerProfile {
 
     const todayKey = this.getTodayDateKey();
 
-    // 1. Identify Date Header Row and Column mapping
+    // 1. Identify Date Header Row
     const dateColumnMap = new Map<number, { date: Date, dateKey: string }>();
     let dateRowIndex = -1;
 
@@ -99,7 +99,7 @@ export class BroadOakProfile implements PlannerProfile {
         dividerRows.push(dateRowIndex + 1);
     }
 
-    // 3. Extract Section Blocks
+    // 3. Extract Blocks
     for (let i = 0; i < dividerRows.length; i++) {
       const startRow = dividerRows[i];
       const nextDividerRow = dividerRows[i + 1];
@@ -110,7 +110,6 @@ export class BroadOakProfile implements PlannerProfile {
       let blockManager = "";
       let blockScheme = "";
 
-      // Extraction of section context
       for (let r = startRow; r <= endRow; r++) {
         const row = sheet.getRow(r);
         const colA = row.getCell(1).value?.toString().trim();
@@ -135,7 +134,6 @@ export class BroadOakProfile implements PlannerProfile {
         }
       }
 
-      // Extraction of shifts within section
       for (let r = startRow; r <= endRow; r++) {
         const row = sheet.getRow(r);
 
@@ -145,7 +143,6 @@ export class BroadOakProfile implements PlannerProfile {
           
           const classification = this.classifyCell(rawText, dateKey, todayKey);
 
-          // Silent skips
           if (classification === 'blank' || classification === 'historic' || classification === 'note') {
             return;
           }
@@ -159,23 +156,8 @@ export class BroadOakProfile implements PlannerProfile {
               address: blockAddress || "Unknown Address"
           };
 
-          // Validation issues
-          if (classification === 'issue') {
-              const { error, task, operative } = this.parseCellParts(rawText, userMap);
-              errors.push({
-                  ...context,
-                  message: error || "Invalid shift attempt",
-                  severity: 'error',
-                  code: 'VALIDATION_ERROR',
-                  task: task || rawText,
-                  operative: operative || "—",
-                  address: blockAddress
-              });
-              return;
-          }
-
-          // Valid shifts
           const match = this.parseCellParts(rawText, userMap);
+          
           if (match.user && match.task) {
             shifts.push({
               date,
@@ -201,6 +183,16 @@ export class BroadOakProfile implements PlannerProfile {
               startTime: "",
               endTime: ""
             });
+          } else {
+              errors.push({
+                  ...context,
+                  message: match.error || "Invalid shift attempt",
+                  severity: 'error',
+                  code: 'VALIDATION_ERROR',
+                  task: match.task || rawText,
+                  operative: match.operative || "—",
+                  address: blockAddress
+              });
           }
         });
       }
@@ -217,34 +209,17 @@ export class BroadOakProfile implements PlannerProfile {
     return false;
   }
 
-  /**
-   * Classifies a cell based on content and date.
-   */
   private classifyCell(rawText: string, dateKey: string, todayKey: string): 'blank' | 'historic' | 'note' | 'issue' | 'valid' {
-    const text = rawText.trim().replace(/\s+/g, ' ');
+    const text = rawText.trim().replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ');
     if (!text) return 'blank';
     if (dateKey < todayKey) return 'historic';
 
-    const lastHyphenIndex = text.lastIndexOf('-');
-    
-    // Rule: No hyphen = Admin Note (ignore)
-    if (lastHyphenIndex === -1) {
-        console.debug("Ignoring non-shift planner note", { dateKey, text });
-        return 'note';
-    }
+    const hasSeparator = text.includes("-");
+    if (!hasSeparator) return 'note';
 
-    const taskPart = text.substring(0, lastHyphenIndex).trim();
-    const namePart = text.substring(lastHyphenIndex + 1).trim();
-
-    // Rule: Missing required parts = Issue
-    if (!taskPart || !namePart) return 'issue';
-
-    return 'valid'; // Final validation (user matching) happens in the parts parser
+    return 'valid';
   }
 
-  /**
-   * Splits and matches a cell's components.
-   */
   private parseCellParts(rawText: string, userMap: UserMapEntry[]) {
     const normalized = rawText.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
     const lastHyphenIndex = normalized.lastIndexOf('-');
@@ -259,18 +234,15 @@ export class BroadOakProfile implements PlannerProfile {
     if (!taskPart) return { error: "Missing task/description", operative: namePart };
     if (!namePart) return { error: "Missing operative after separator", task: taskPart };
 
-    // Matching Logic
     const normPlanner = this.normaliseName(namePart);
     const plannerParts = normPlanner.split(" ");
     
-    // Safety: Reject first-name-only entries (Risk Mitigation)
     if (plannerParts.length < 2) {
       return { error: `Operative name too vague: ${namePart}`, task: taskPart, operative: namePart };
     }
 
     const plannerFirst = plannerParts[0];
     const plannerLast = plannerParts.slice(1).join(" ");
-
     const candidates: UserMapEntry[] = [];
 
     for (const user of userMap) {
@@ -281,24 +253,18 @@ export class BroadOakProfile implements PlannerProfile {
       const userFirst = userParts[0];
       const userLast = userParts.slice(1).join(" ");
 
-      // A. Exact match
-      if (normUser === normPlanner) {
-        return { user, task: taskPart };
-      }
+      if (normUser === normPlanner) return { user, task: taskPart };
 
-      // B. Nickname + Exact Surname
       if (this.isSameNameGroup(plannerFirst, userFirst) && plannerLast === userLast) {
         candidates.push(user);
         continue;
       }
 
-      // C. First Initial + Exact Surname
       if (plannerFirst.length === 1 && plannerFirst === userFirst[0] && plannerLast === userLast) {
         candidates.push(user);
         continue;
       }
 
-      // D. Conservative Fuzzy match (Distance <= 2)
       const dist = this.getLevenshteinDistance(normUser, normPlanner);
       const surnameDist = this.getLevenshteinDistance(userLast, plannerLast);
       if (dist <= 2 && surnameDist <= 1) {
@@ -309,23 +275,14 @@ export class BroadOakProfile implements PlannerProfile {
 
     const uniqueCandidates = Array.from(new Map(candidates.map(u => [u.uid, u])).values());
 
-    if (uniqueCandidates.length === 1) {
-      return { user: uniqueCandidates[0], task: taskPart };
-    }
-
-    if (uniqueCandidates.length > 1) {
-      return { error: `Multiple possible users matched: ${namePart}`, task: taskPart, operative: namePart };
-    }
+    if (uniqueCandidates.length === 1) return { user: uniqueCandidates[0], task: taskPart };
+    if (uniqueCandidates.length > 1) return { error: `Multiple possible users matched: ${namePart}`, task: taskPart, operative: namePart };
 
     return { error: `Operative not recognised: ${namePart}`, task: taskPart, operative: namePart };
   }
 
   private normaliseName(value: string): string {
-    return String(value || "")
-      .toLowerCase()
-      .trim()
-      .replace(/[^\w\s]/g, "")
-      .replace(/\s+/g, " ");
+    return String(value || "").toLowerCase().trim().replace(/[^\w\s]/g, "").replace(/\s+/g, " ");
   }
 
   private isSameNameGroup(name1: string, name2: string): boolean {
@@ -337,9 +294,7 @@ export class BroadOakProfile implements PlannerProfile {
   }
 
   private getLevenshteinDistance(a: string, b: string): number {
-    const matrix = Array.from({ length: a.length + 1 }, () =>
-      Array.from({ length: b.length + 1 }, () => 0)
-    );
+    const matrix = Array.from({ length: a.length + 1 }, () => Array.from({ length: b.length + 1 }, () => 0));
     for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
     for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
     for (let i = 1; i <= a.length; i++) {

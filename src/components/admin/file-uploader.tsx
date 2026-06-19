@@ -174,9 +174,9 @@ export function FileUploader({
         const toIssues: any[] = [];
         const matchedDocIds = new Set<string>();
 
-        // 1. Process Issues (Only Future)
+        // 1. Process Issues (Silent Historic Skip)
         parseResult.errors.forEach(err => {
-            if (err.dateKey && err.dateKey < todayKey) return; // Silent Historic Skip
+            if (err.dateKey && err.dateKey < todayKey) return; 
             toIssues.push(err);
         });
 
