@@ -86,6 +86,7 @@ export class GasProfile implements PlannerProfile {
     console.log(
       `[IMPORT DEBUG] Gas workbook tabs=${workbook.worksheets.length} visibleTabs=${visibleSheets.length} parsedTabs=${visibleSheets.length}`
     );
+    
 
     for (const sheet of visibleSheets) {
       const result = this.parseSheet(
@@ -140,24 +141,34 @@ export class GasProfile implements PlannerProfile {
       return { shifts, errors };
     }
 
-    const blocks = this.buildPlannerBlocksFromSiteSections(
-      sheet,
-      dateHeaderRows,
-      maxRows,
-      maxCols
-    );
-
-    console.log(
-      `[IMPORT DEBUG] Gas scanning tab="${sheet.name}" rows=${sheet.rowCount} cols=${sheet.columnCount} scanRows=${maxRows} scanCols=${maxCols} dateHeaderRows=${dateHeaderRows.length} blocks=${blocks.length}`
-    );
+    const blocks: PlannerBlock[] = dateHeaderRows.map((dateHeader, index) => {
+      const nextDateHeader = dateHeaderRows[index + 1];
+    
+      const startRow = dateHeader.rowNumber;
+      const hardEndRow = nextDateHeader ? nextDateHeader.rowNumber - 1 : maxRows;
+    
+      const endRow = nextDateHeader
+        ? hardEndRow
+        : this.findLastUsefulRowInFinalBlock(sheet, startRow, hardEndRow, dateHeader);
+    
+      return {
+        blockIndex: index + 1,
+        startRow,
+        endRow,
+        dateHeader
+      };
+    });
 
     for (const block of blocks) {
       const { startRow, endRow, dateHeader } = block;
 
       let blockAddress = '';
-      let blockENumber = '';
-      let blockManager = '';
-      let blockScheme = '';
+let blockENumber = '';
+let blockManager = '';
+let blockScheme = '';
+
+const rowAddressByRow = new Map<number, { address: string; eNumber: string }>();
+const addressAnchorByRow = new Map<number, { address: string; eNumber: string }>();
 
       /**
        * Read site/block context from inside this block only.
@@ -207,16 +218,57 @@ export class GasProfile implements PlannerProfile {
           const eNumberInAddress = colA.match(this.eNumberRegex);
 
           if (eNumberInAddress) {
-            blockENumber = blockENumber || eNumberInAddress[0];
-
-            blockAddress = colA
+            if (!blockENumber) {
+              blockENumber = eNumberInAddress[0];
+            }
+          
+            if (!blockAddress) {
+              blockAddress = colA
+                .replace(this.eNumberRegex, '')
+                .replace(/^\s*[-:–—]\s*/, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+            }
+          } else if (!blockAddress) {
+            blockAddress = colA.replace(/\s+/g, ' ').trim();
+          }
+        }
+      }
+      let currentRowAddress = '';
+      let currentRowENumber = '';
+      
+      for (let addressRowNumber = startRow; addressRowNumber <= endRow; addressRowNumber++) {
+        const addressRow = sheet.getRow(addressRowNumber);
+        const colA = this.getCellText(addressRow.getCell(1));
+      
+        if (colA && this.isPossibleAddressCell(colA)) {
+          const eNumberInAddress = colA.match(this.eNumberRegex);
+      
+          if (eNumberInAddress) {
+            currentRowENumber = eNumberInAddress[0];
+      
+            currentRowAddress = colA
               .replace(this.eNumberRegex, '')
               .replace(/^\s*[-:–—]\s*/, '')
               .replace(/\s+/g, ' ')
               .trim();
-          } else if (!blockAddress) {
-            blockAddress = colA.replace(/\s+/g, ' ').trim();
+          } else {
+            currentRowAddress = colA.replace(/\s+/g, ' ').trim();
           }
+        }
+      
+        if (colA && this.isPossibleAddressCell(colA) && currentRowAddress) {
+          addressAnchorByRow.set(addressRowNumber, {
+            address: currentRowAddress,
+            eNumber: currentRowENumber
+          });
+        }
+        
+        if (currentRowAddress) {
+          rowAddressByRow.set(addressRowNumber, {
+            address: currentRowAddress,
+            eNumber: currentRowENumber
+          });
         }
       }
 
@@ -227,12 +279,19 @@ export class GasProfile implements PlannerProfile {
        */
       for (let r = startRow; r <= endRow; r++) {
         const row = sheet.getRow(r);
+        const rowAddressInfo =
+  addressAnchorByRow.get(r) ||
+  addressAnchorByRow.get(r + 1) ||
+  addressAnchorByRow.get(r + 2) ||
+  rowAddressByRow.get(r);
+const shiftAddress = rowAddressInfo?.address || blockAddress || 'Unknown Address';
+const shiftENumber = rowAddressInfo?.eNumber || blockENumber || '';
 
         dateHeader.dateColumnMap.forEach(({ date, dateKey }, colNumber) => {
           const visualCell = row.getCell(colNumber);
           const actualCell = this.getActualCell(visualCell);
           const text = this.getCellText(actualCell);
-
+          
           if (!text) return;
 
           /**
@@ -264,7 +323,7 @@ export class GasProfile implements PlannerProfile {
             sheet: sheet.name,
             date: this.formatDateForDisplay(date),
             dateKey,
-            address: blockAddress || 'Unknown Address',
+            address: shiftAddress,
             task: taskPart
           };
 
@@ -319,7 +378,7 @@ export class GasProfile implements PlannerProfile {
             sheet.name,
             dateKey,
             normaliseText(blockENumber),
-            normaliseText(blockAddress),
+            normaliseText(shiftAddress),
             matchedUser.uid,
             normaliseText(taskPart)
           ].join('|');
@@ -330,8 +389,8 @@ export class GasProfile implements PlannerProfile {
           shifts.push({
             date,
             dateKey,
-            address: blockAddress || 'Unknown Address',
-            eNumber: blockENumber,
+            address: shiftAddress,
+            eNumber: shiftENumber,
             contract: blockScheme || 'Planner Works',
             manager: blockManager,
             operative: matchedUser.originalName,
@@ -470,7 +529,8 @@ export class GasProfile implements PlannerProfile {
         continue;
       }
 
-      rows.push(r);
+      const startRow = r > 1 ? r - 1 : r;
+rows.push(startRow);
     }
 
     return rows;
@@ -509,9 +569,7 @@ export class GasProfile implements PlannerProfile {
          * Try both the visible cell value and the merged master value.
          * This makes the top row more reliable on awkward merged planners.
          */
-        const date =
-          this.parseDateValue(cell.value) ||
-          this.parseDateValue(actualCell.value);
+        const date = this.parseDateValue(cell.value);
 
         if (!date) continue;
 
@@ -554,6 +612,11 @@ export class GasProfile implements PlannerProfile {
           });
         }
       }
+      const previousHeader = headers[headers.length - 1];
+
+if (previousHeader && r - previousHeader.rowNumber <= 12) {
+  continue;
+}
 
       headers.push({
         rowNumber: r,
@@ -822,8 +885,13 @@ export class GasProfile implements PlannerProfile {
     if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
       return null;
     }
-
-    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  
+    /**
+     * Use midday rather than midnight.
+     * This prevents UK timezone/BST conversion from making
+     * 22/06 appear as 21/06 when stored/displayed through Firebase.
+     */
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0);
   }
 
   private findLastUsefulRowInFinalBlock(

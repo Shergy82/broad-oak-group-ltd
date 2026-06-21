@@ -243,7 +243,7 @@ export function ShiftScheduleOverview({ userProfile }: ShiftScheduleOverviewProp
 
   const getCorrectedLocalDate = (date: { toDate: () => Date }) => {
     const d = date.toDate();
-    return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
   };
 
   /**

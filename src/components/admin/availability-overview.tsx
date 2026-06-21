@@ -249,12 +249,18 @@ export function AvailabilityOverview({ viewMode = 'normal', userProfile }: Avail
         });
     
         return usersToProcess.map(user => {
-            const unavailabilityRecord = todaysUnavailable.find(u => u.userId === user.uid);
-            if (unavailabilityRecord) {
-                return { user, availability: 'unavailable', shifts: [], unavailabilityReason: unavailabilityRecord.reason };
-            }
-    
             const userShiftsToday = todaysDepartmentShifts.filter(s => s.userId === user.uid);
+
+const unavailabilityRecord = todaysUnavailable.find(u => u.userId === user.uid);
+
+/**
+ * Cross-Department Work should only show as unavailable when the user's
+ * shift is outside the currently selected department view.
+ * If the selected view includes that working department, show them as working.
+ */
+if (unavailabilityRecord && !(unavailabilityRecord.reason === 'Cross-Department Work' && userShiftsToday.length > 0)) {
+    return { user, availability: 'unavailable', shifts: [], unavailabilityReason: unavailabilityRecord.reason };
+}
             
             if (userShiftsToday.length === 0) {
                 return { user, availability: 'full', shifts: [] };

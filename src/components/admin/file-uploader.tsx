@@ -69,7 +69,10 @@ function getBusinessChanges(existing: any, incoming: any) {
     // Handle equivalent logical fields for legacy data
     if (field === 'operativeUid' && !existing.operativeUid) currentVal = normaliseText(existing.userId);
     if (field === 'operative' && !existing.operative) currentVal = normaliseText(existing.userName);
-    if (field === 'dateKey' && !existing.dateKey) currentVal = formatDateKey(existing.date);
+    if (field === 'dateKey') {
+      const storedDateKey = formatDateKey(existing.date);
+      currentVal = storedDateKey || normaliseText(existing.dateKey);
+    }
 
     if (currentVal !== newVal) {
       changes.push({ 
