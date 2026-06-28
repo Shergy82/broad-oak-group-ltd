@@ -172,12 +172,38 @@ export function FileUploader({
             }
           } else {
             // Alias Fallback
-            const legacyMatch = existingActiveShifts.find(s => 
-                !matchedDocIds.has(s.id) &&
-                normaliseText(s.userId || s.operativeUid) === normaliseText(incoming.operativeUid) &&
-                (s.dateKey || formatDateKey(s.date)) === incoming.dateKey &&
-                normaliseText(s.sourceCell) === normaliseText(incoming.sourceCell)
-            );
+            const legacyMatch = existingActiveShifts.find(s => {
+              if (matchedDocIds.has(s.id)) return false;
+            
+              const sameOperative =
+                normaliseText(s.operativeUid || s.userId) ===
+                normaliseText(incoming.operativeUid || incoming.userId);
+            
+              const sameDate =
+                (s.dateKey || formatDateKey(s.date)) === incoming.dateKey;
+            
+              const sameType =
+                normaliseText(s.type || 'all-day') ===
+                normaliseText(incoming.type || 'all-day');
+            
+              const existingENumber = normaliseText(s.eNumber);
+              const incomingENumber = normaliseText(incoming.eNumber);
+            
+              const sameENumber =
+                existingENumber !== "" &&
+                incomingENumber !== "" &&
+                existingENumber === incomingENumber;
+            
+              const existingAddress = normaliseText(s.address);
+              const incomingAddress = normaliseText(incoming.address);
+            
+              const sameAddress =
+                existingAddress !== "" &&
+                incomingAddress !== "" &&
+                existingAddress === incomingAddress;
+            
+              return sameOperative && sameDate && sameType && (sameENumber || sameAddress);
+            });
 
             if (legacyMatch) {
               matchedDocIds.add(legacyMatch.id);

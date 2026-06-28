@@ -137,10 +137,9 @@ export function buildImportKey(shift: any, sourcePlannerId: string): string {
     shift.type || 'all-day',
     shift.startTime || "",
     shift.endTime || "",
-    shift.eNumber || "",
-    shift.sourceSheet || "",
-    shift.sourceCell || ""
+    shift.eNumber || ""
   ];
+
   return parts.map(p => normaliseText(p)).join('|');
 }
 
