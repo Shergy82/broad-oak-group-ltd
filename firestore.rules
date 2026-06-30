@@ -90,12 +90,13 @@ service cloud.firestore {
 
     // ---- SETTINGS ----
     match /settings/{id} {
-      allow read, write: if isOwner(request.auth.uid);
+        allow read: if signedIn() && (role(request.auth.uid) == 'owner' || role(request.auth.uid) == 'admin');
+        allow write: if isOwner(request.auth.uid);
     }
 
     // ---- TRADE TASKS ----
     match /trade_tasks/{id} {
-      allow read: if isOwner(request.auth.uid) || (signedIn() && (resource.data.department == null || resource.data.department == userDepartment(request.auth.uid)));
+      allow read: if isOwner(request.auth.uid) || (signedIn() && role(request.auth.uid) == 'admin') || (signedIn() && (resource.data.department == null || resource.data.department == userDepartment(request.auth.uid)));
       allow write: if isOwner(request.auth.uid) || (
           isPrivilegedUser(request.auth.uid) &&
           (resource == null || resource.data.department == userDepartment(request.auth.uid) || resource.data.department == null) &&

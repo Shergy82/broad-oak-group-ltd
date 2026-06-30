@@ -133,7 +133,7 @@ export function FileUploader({
         
         // 3. Fetch existing ACTIVE shifts from this source
         const existingSnap = await getDocs(
-          query(collection(db, 'shifts'), where('sourcePlannerId', '==', planner.id))
+            query(collection(db, 'shifts'), where('sourcePlannerId', '==', planner.id), where('department', '==', department))
         );
         const allExistingShifts = existingSnap.docs.map(d => ({ id: d.id, ...d.data() } as Shift));
         const existingActiveShifts = allExistingShifts.filter(s => !isHistoricShift(s));
