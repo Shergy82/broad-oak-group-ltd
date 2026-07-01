@@ -73,7 +73,7 @@ export function GlobalShiftConfirmationGate() {
   }
 
   return (
-    <div className="fixed inset-0 z-[9999] bg-background/80 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[9999] bg-background/80">
       <NewShiftsDialog
         shifts={pendingShifts}
         onClose={() => {
