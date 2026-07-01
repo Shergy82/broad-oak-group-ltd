@@ -73,7 +73,7 @@ export function GlobalShiftConfirmationGate() {
   }
 
   return (
-    <div className="fixed inset-0 z-[9999] bg-background/80">
+    <>
       <NewShiftsDialog
         shifts={pendingShifts}
         onClose={() => {
@@ -81,6 +81,6 @@ export function GlobalShiftConfirmationGate() {
           // The gate only disappears when every pending shift has been accepted or rejected.
         }}
       />
-    </div>
+    </>
   );
 }
