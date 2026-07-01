@@ -10,10 +10,7 @@ import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestor
 import { db } from '@/lib/firebase';
 import type { Announcement, Shift } from '@/types';
 import { UnreadAnnouncements } from '@/components/announcements/unread-announcements';
-import { NewShiftsDialog } from '@/components/dashboard/new-shifts-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { startOfToday, isBefore } from 'date-fns';
-import { getCorrectedLocalDate } from '@/lib/utils';
 
 export default function DashboardPage() {
   const { user, isLoading: isAuthLoading } = useAuth();
@@ -24,7 +21,6 @@ export default function DashboardPage() {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [allShifts, setAllShifts] = useState<Shift[]>([]);
   const [showAnnouncements, setShowAnnouncements] = useState(true);
-  const [showNewShifts, setShowNewShifts] = useState(true);
   const [acknowledgedIds, setAcknowledgedIds] = useState<Set<string>>(new Set());
   
   /* =========================
@@ -117,17 +113,6 @@ export default function DashboardPage() {
     return announcements.filter(a => !acknowledgedIds.has(a.id));
   }, [announcements, user, acknowledgedIds]);
 
-  const newShifts = useMemo(() => {
-    if (!user) return [];
-    const today = startOfToday();
-    return allShifts.filter(shift => {
-        // Handle both 'pending' and 'pending-confirmation' statuses
-        if (shift.status !== 'pending-confirmation' && shift.status !== 'pending') return false;
-        const shiftDate = getCorrectedLocalDate(shift.date);
-        // Only include shifts that are for today or in the future
-        return !isBefore(shiftDate, today);
-    });
-  }, [allShifts, user]);
 
   const isLoading = isAuthLoading || isProfileLoading;
 
@@ -143,14 +128,6 @@ export default function DashboardPage() {
     );
   }
 
-  if (newShifts.length > 0 && showNewShifts) {
-    return (
-      <NewShiftsDialog
-        shifts={newShifts}
-        onClose={() => setShowNewShifts(false)}
-      />
-    );
-  }
 
   if (unreadAnnouncements.length > 0 && showAnnouncements) {
     return (

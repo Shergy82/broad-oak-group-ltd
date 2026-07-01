@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from 'next';
 import { Providers } from '@/components/providers';
 import { Header } from '@/components/layout/header';
 import { PendingAnnouncementModal } from '@/components/announcements/pending-announcement-modal';
+import { GlobalShiftConfirmationGate } from '@/components/dashboard/global-shift-confirmation-gate';
 
 import './globals.css';
 
@@ -60,6 +61,7 @@ export default function RootLayout({
       <body className="h-full font-body antialiased overflow-x-hidden bg-background">
         <Providers>
           <PendingAnnouncementModal />
+          <GlobalShiftConfirmationGate />
 
           <div className="flex min-h-screen flex-col">
             <Header />
